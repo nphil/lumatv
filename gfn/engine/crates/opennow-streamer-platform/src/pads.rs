@@ -51,7 +51,8 @@ impl Bridge {
 
 fn stream_line(t: &serde_json::Value) -> String {
     serde_json::json!({"stream":"telemetry", "fps":t["framesPerSecond"], "bitrate_mbps":t["bitrateMbps"], "ping_ms":t["pingMs"],
-        "jitter_ms":t["jitterMs"], "loss_pct":t["packetLossPercent"]}).to_string()
+        "jitter_ms":t["jitterMs"], "loss_pct":t["packetLossPercent"], "pacing_ms":t["pacingMs"], "host_gap_ms":t["hostGapMs"],
+        "arrival_gap_ms":t["arrivalGapMs"]}).to_string()
 }
 
 fn gamepad(slot: u8, bitmap: u16, s: PadState) -> CapturedInput {
@@ -377,7 +378,8 @@ mod tests {
         app.set_nonblocking(true).unwrap();
         let side = UnixDatagram::unbound().unwrap();
         let b = Bridge { queue: Arc::new(CapturedInputQueue::default()), active: AtomicBool::new(false), paused: AtomicBool::new(false), side: Some((side, path)), timing: Mutex::new(std::array::from_fn(|_| TimedPad::default())), stats: AtomicBool::new(false), stats_due: AtomicU64::new(0) };
-        let telemetry = serde_json::json!({"type":"telemetry","framesPerSecond":119.5,"bitrateMbps":80.0,"pingMs":7.25,"jitterMs":0.5,"packetLossPercent":null,"decodeTimeMs":0.0});
+        let telemetry = serde_json::json!({"type":"telemetry","framesPerSecond":119.5,"bitrateMbps":80.0,"pingMs":7.25,"jitterMs":0.5,"packetLossPercent":null,"decodeTimeMs":0.0,
+            "pacingMs":2.5,"hostGapMs":[8.25,9.5],"arrivalGapMs":[4.5,16.0]});
         b.stream(&telemetry);
         let mut buf = [0u8; 512];
         assert!(app.recv(&mut buf).is_err(), "nothing is sent before the session is live");
@@ -385,7 +387,8 @@ mod tests {
         b.stream(&telemetry);
         let n = app.recv(&mut buf).unwrap();
         let line: serde_json::Value = serde_json::from_slice(&buf[..n]).unwrap();
-        assert_eq!(line, serde_json::json!({"stream":"telemetry","fps":119.5,"bitrate_mbps":80.0,"ping_ms":7.25,"jitter_ms":0.5,"loss_pct":null}));
+        assert_eq!(line, serde_json::json!({"stream":"telemetry","fps":119.5,"bitrate_mbps":80.0,"ping_ms":7.25,"jitter_ms":0.5,"loss_pct":null,
+            "pacing_ms":2.5,"host_gap_ms":[8.25,9.5],"arrival_gap_ms":[4.5,16.0]}));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

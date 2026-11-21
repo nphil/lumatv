@@ -25,6 +25,9 @@ pub fn schema(prefs: &Value) -> SettingsSchema {
             {"id":"auto","label":"Automatic"},{"id":"h264","label":"H.264"},{"id":"h265","label":"HEVC"},{"id":"av1","label":"AV1 (up to 60 fps)"}]},
         {"key":"hdr","label":"HDR","type":"toggle","default":prefs["hdr"].as_bool().unwrap_or(true),
          "help":"Needs an HDR display, an eligible plan and a game that supports HDR."},
+        {"key":"frame-pacing","label":"Frame pacing","type":"choice","default":"smooth","options":[
+            {"id":"smooth","label":"Smooth"},{"id":"latency","label":"Lowest latency"}],
+         "help":"Smooth evens out frames that arrive in bursts, holding a frame for at most 1.5 frame times."},
         {"key":"bitrate-mbps","label":"Bitrate cap","type":"number","min":5,"max":150,"step":5,"unit":"Mbit/s","default":bitrate},
         {"key":"deadzone","label":"Stick dead zone","type":"number","min":0,"max":20,"step":1,"unit":"%","default":deadzone},
         {"key":"anti-deadzone","label":"Stick anti-deadzone","type":"number","min":0,"max":30,"step":1,"unit":"%","default":0},
@@ -77,7 +80,9 @@ pub fn core_settings(values: &Values, display: &Display) -> Vec<(&'static str, V
         ("resolution", json!(format!("{}x{}", p.width, p.height))),
         ("fps", json!(p.fps)),
         ("enableHdr", json!(p.hdr)),
-        ("colorQuality", json!(if p.hdr { "10bit_420" } else { "8bit_420" })),
+        // SDR HEVC is 10-bit as well, as the official client sends it whenever the decoder takes Main10 (every
+        // webOS HEVC decoder does: HDR uses it); it keeps dark gradients from banding.
+        ("colorQuality", json!(if p.hdr || p.codec == Codec::H265 { "10bit_420" } else { "8bit_420" })),
         // Depth precedes codec: the core checks a codec against its currently saved depth.
         ("codec", json!(p.codec.as_str())),
         ("maxBitrateMbps", json!(integer(values, "bitrate-mbps", 80))),
@@ -86,13 +91,15 @@ pub fn core_settings(values: &Values, display: &Display) -> Vec<(&'static str, V
     ]
 }
 
-/// What the streamer's pads read when a stream starts (`LUMATV_GFN_PREFS`): the stick settings, shaped by the pad crate on the TV.
-pub fn pad_prefs(values: &Values) -> Value {
-    let curve = match values.get("stick-curve") {
-        Some(lumagame_core::settings::Value::Text(c)) => c.as_str(),
-        _ => "linear",
+/// What the streamer reads when a stream starts (`LUMATV_GFN_PREFS`): the stick settings, shaped by the pad crate on the
+/// TV, and the frame pacing mode.
+pub fn runtime_prefs(values: &Values) -> Value {
+    let text = |key, default| match values.get(key) {
+        Some(lumagame_core::settings::Value::Text(c)) => c.clone(),
+        _ => String::from(default),
     };
-    json!({"deadzone": integer(values, "deadzone", 8), "antiDeadzone": integer(values, "anti-deadzone", 0), "curve": curve})
+    json!({"deadzone": integer(values, "deadzone", 8), "antiDeadzone": integer(values, "anti-deadzone", 0),
+        "curve": text("stick-curve", "linear"), "framePacing": text("frame-pacing", "smooth")})
 }
 
 #[cfg(test)]
@@ -138,18 +145,23 @@ mod tests {
         sixty.insert("codec".into(), V::Text("h264".into()));
         assert_eq!((profile(&sixty, &d).codec, profile(&sixty, &d).hdr), (Codec::H264, false));
         assert!(core_settings(&v, &d).contains(&("maxBitrateMbps", json!(5))));
+        let mut sdr = v.clone();
+        sdr.insert("hdr".into(), V::Bool(false));
+        assert!(core_settings(&sdr, &d).contains(&("colorQuality", json!("10bit_420"))));
+        assert!(core_settings(&sixty, &d).contains(&("colorQuality", json!("8bit_420"))));
     }
 
     #[test]
-    fn the_apps_stick_values_reach_the_pads() {
+    fn the_apps_stick_and_pacing_values_reach_the_streamer() {
         use lumagame_core::settings::Value as V;
         let s = schema(&Value::Null);
-        let sticks = Values::from([("deadzone".into(), V::Int(4)), ("anti-deadzone".into(), V::Int(12)), ("stick-curve".into(), V::Text("quick".into()))]);
-        for (key, value) in &sticks {
+        let picked = Values::from([("deadzone".into(), V::Int(4)), ("anti-deadzone".into(), V::Int(12)),
+            ("stick-curve".into(), V::Text("quick".into())), ("frame-pacing".into(), V::Text("latency".into()))]);
+        for (key, value) in &picked {
             assert_eq!(s.check(key, value), Ok(()), "{key}");
         }
         assert!(s.check("stick-curve", &V::Text("wobbly".into())).is_err());
-        assert_eq!(pad_prefs(&s.resolve(&sticks)), json!({"deadzone":4,"antiDeadzone":12,"curve":"quick"}));
-        assert_eq!(pad_prefs(&s.defaults()), json!({"deadzone":8,"antiDeadzone":0,"curve":"linear"}));
+        assert_eq!(runtime_prefs(&s.resolve(&picked)), json!({"deadzone":4,"antiDeadzone":12,"curve":"quick","framePacing":"latency"}));
+        assert_eq!(runtime_prefs(&s.defaults()), json!({"deadzone":8,"antiDeadzone":0,"curve":"linear","framePacing":"smooth"}));
     }
 }

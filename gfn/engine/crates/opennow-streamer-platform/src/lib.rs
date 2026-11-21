@@ -6,6 +6,7 @@
 //! pointer lock, screenshots. What it reports to the core's capability resolver: H.265 and AV1 8/10-bit 4:2:0 with HDR10, H.264 8-bit.
 //! The set caps AV1 at 60 a second and decodes it slower than HEVC (docs/research/opennow-result.md): the app asks for it only at 4K 60.
 mod microphone;
+mod pacing;
 mod pads;
 mod recording;
 mod runtime;

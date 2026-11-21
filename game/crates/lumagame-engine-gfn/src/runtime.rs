@@ -165,15 +165,15 @@ pub fn run(options: Options, input: impl Read+Send+'static, mut output: impl Wri
     let prefs = fs::read(data.join("prefs.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).unwrap_or(Value::Null);
     let mut adapter = Adapter::new(hello.1,hello.0,&prefs,options.streamer.to_string_lossy().into_owned());
     let started = Instant::now();
-    let mut written_pad_prefs = Value::Null;
+    let mut written_prefs = Value::Null;
     let result: io::Result<()> = (|| {
         loop {
             let batch = adapter.drain();
             if !batch.core.is_empty() {
-                let prefs = adapter.pad_prefs();
-                if prefs != written_pad_prefs {
-                    write_pad_prefs(&data,&prefs)?;
-                    written_pad_prefs = prefs;
+                let prefs = adapter.runtime_prefs();
+                if prefs != written_prefs {
+                    write_runtime_prefs(&data,&prefs)?;
+                    written_prefs = prefs;
                 }
                 for line in batch.core { core_input.write_all(line.as_bytes())?; }
                 core_input.flush()?;
@@ -220,7 +220,7 @@ pub fn run(options: Options, input: impl Read+Send+'static, mut output: impl Wri
     }
 }
 
-fn write_pad_prefs(data: &Path, prefs: &Value) -> io::Result<()> {
+fn write_runtime_prefs(data: &Path, prefs: &Value) -> io::Result<()> {
     let path = data.join("runtime-prefs.json.tmp");
     let mut file = OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&path)?;
     serde_json::to_writer(&mut file,prefs)?;

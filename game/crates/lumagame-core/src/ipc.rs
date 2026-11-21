@@ -122,6 +122,11 @@ pub enum Request {
     RoundTrip {
         session: SessionId,
     },
+    /// Opens Steam's overlay over the session's game, for an engine with `steam-overlay`. The app routes the controller to the game
+    /// first, so the overlay gets the pad.
+    SteamOverlay {
+        session: SessionId,
+    },
     /// An action field of the settings page was pressed.
     Action {
         key: String,
@@ -481,6 +486,16 @@ pub struct Stats {
     /// Capture and encode on the far side, when it reports them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_ms: Option<f32>,
+    /// How long frames were held to even out their spacing before the decoder, mean over the last second.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pacing_ms: Option<f32>,
+    /// Spacing between frames as the far side stamped them, median and 95th percentile over the last second: unevenness here
+    /// left the far side that way. Absent while its timestamps do not tell frames apart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_gap_ms: Option<[f32; 2]>,
+    /// The same spacing as the frames arrived, before any pacing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arrival_gap_ms: Option<[f32; 2]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pad: Option<PadStats>,
 }
@@ -697,6 +712,7 @@ mod tests {
             Request::Route { session: SessionId(1), input: InputRoute::App },
             Request::Stats { session: SessionId(1), on: true, pad_timing: true },
             Request::RoundTrip { session: SessionId(1) },
+            Request::SteamOverlay { session: SessionId(1) },
             Request::Action { key: "sign-out".into() },
         ];
         for (seq, request) in requests.into_iter().enumerate() {

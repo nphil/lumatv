@@ -3,7 +3,7 @@ use super::{
     paint::{Body, Fill, H, Node, PAGE_EXTENT, Paint, SHEET_GROUP, ScrollGroup, W},
 };
 use compositor_protocol::{Edges, Rect};
-use crate::game::{helper::LeadjoyState, model::{Focus, Key, Page, Section, Sheet, Sort}};
+use crate::game::{helper::LeadjoyState, model::{Focus, Key, OverlayAction, Page, Section, Sheet, Sort}};
 use lumagame_core::ipc::AuthState;
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{
@@ -465,8 +465,14 @@ pub fn overlay(p: &mut Paint<'_>) {
     let stats_label = format!("Stats · {}", p.model.prefs.stats.mode.name());
     let mut y = actions_y;
     let stats = p.lead(Key::Menu, Icon::Gauge);
-    let buttons = [("Resume", Icon::Play.into()), ("Stream settings", Icon::Sliders.into()), (stats_label.as_str(), stats), ("End session", Icon::Stop.into())];
-    for (i, (label, lead)) in buttons.into_iter().enumerate() {
+    for (i, action) in p.model.overlay_actions().enumerate() {
+        let (label, lead) = match action {
+            OverlayAction::Resume => ("Resume", Icon::Play.into()),
+            OverlayAction::Settings => ("Stream settings", Icon::Sliders.into()),
+            OverlayAction::Stats => (stats_label.as_str(), stats),
+            OverlayAction::SteamOverlay => ("Steam overlay", Icon::Apps.into()),
+            OverlayAction::EndSession => ("End session", Icon::Stop.into()),
+        };
         if p.scale >= 2.0 && i == 2 { x = p.x; y += button_h + 16.0; }
         x += p.button_lead(110 + i as u64 * 5, Focus::Overlay(i), label, Some(lead), x, y, i == 0, true, 12) + 16.0;
     }

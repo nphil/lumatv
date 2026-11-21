@@ -42,7 +42,6 @@ pub struct Game {
     pub title: String,
     pub image_url: String,
     pub store: String,
-    pub in_library: bool,
     /// Whether the variant's GeForce NOW listing names HDR; None when the listing names no features. The core asks for SDR when the
     /// listing names features and HDR is not among them (`catalog_hdr_settings`), and the game's own HDR switch is then greyed out.
     pub hdr: Option<bool>,
@@ -780,7 +779,6 @@ impl App {
             "selectionIdentity": format!("{}:{}", g.id, g.variant_id),
             "title": g.title,
             "store": g.store,
-            "accountLinked": g.in_library,
             // a TV played with a pad: GFN opens Steam (and launchers that have one) in its controller view, Big Picture
             "appLaunchMode": "gamepadFriendly",
             "runtimeCapabilities": self.runtime_capabilities,
@@ -1264,7 +1262,6 @@ impl App {
                         if g.id == d.id {
                             d.title = g.title;
                             d.store = g.store;
-                            d.in_library = g.in_library;
                             d.image_url = if g.image_url.is_empty() { d.image_url.clone() } else { g.image_url };
                         }
                     }
@@ -1436,7 +1433,6 @@ fn game_of(g: &Value) -> Game {
         title: g["title"].as_str().unwrap_or("").to_owned(),
         image_url: g["imageUrl"].as_str().or_else(|| g["keyArtUrl"].as_str()).or_else(|| g["heroImageUrl"].as_str()).unwrap_or("").to_owned(),
         store: selected["store"].as_str().unwrap_or("").to_owned(),
-        in_library: selected["inLibrary"] == true,
         hdr: selected["features"].as_array().map(|f| f.iter().any(|x| x == "hdr")),
     }
 }

@@ -8,7 +8,6 @@ pub struct Selection {
     pub variant: String,
     pub title: String,
     pub store: String,
-    pub owned: bool,
 }
 
 pub fn selections(game: &Value) -> Result<Vec<(LibraryEntry, Selection)>, String> {
@@ -27,7 +26,6 @@ pub fn selections(game: &Value) -> Result<Vec<(LibraryEntry, Selection)>, String
                 external.push(ExternalId::new("steam", steam).map_err(|e| e.to_string())?);
             }
         }
-        let owned = variant["inLibrary"] == true;
         result.push((LibraryEntry {
             id: provider,
             title: title.to_owned(),
@@ -43,7 +41,7 @@ pub fn selections(game: &Value) -> Result<Vec<(LibraryEntry, Selection)>, String
             // Ownership is not a launch decision: inspect checks patching, plan and store links.
             readiness: Readiness::Unknown,
             resumable: false,
-        }, Selection { parent:parent.clone(), variant:id, title:title.to_owned(), store:store.to_owned(), owned }));
+        }, Selection { parent:parent.clone(), variant:id, title:title.to_owned(), store:store.to_owned() }));
     }
     if result.is_empty() { return Err("Catalog game has no variants".into()); }
     Ok(result)
@@ -52,7 +50,7 @@ pub fn selections(game: &Value) -> Result<Vec<(LibraryEntry, Selection)>, String
 pub fn parse_provider(id: &ProviderGameId) -> Result<Selection, String> {
     let [parent, variant]: [String; 2] = serde_json::from_str(id.as_str()).map_err(|_| "Unknown GFN game identity")?;
     if parent.is_empty() || variant.is_empty() { return Err("Empty GFN game identity".into()); }
-    Ok(Selection { parent,variant,title:String::new(),store:String::new(),owned:false })
+    Ok(Selection { parent,variant,title:String::new(),store:String::new() })
 }
 
 fn identity(value: &Value) -> Option<String> {

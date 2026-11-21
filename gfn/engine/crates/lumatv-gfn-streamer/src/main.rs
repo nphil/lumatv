@@ -1,14 +1,14 @@
 //! OpenNOW's standalone streamer entry (native/opennow-streamer/crates/opennow-streamer/src/main.rs at the pinned revision) with
 //! three additions: a `controller-rumble` event is applied to the pad here, in the process that holds the pad, before it goes up the
 //! pipe; what the engine needs of the events the core does not pass on goes to the engine's side socket; and `input-paused` moves
-//! only the pads (`pause_pads_only`). The binary keeps upstream's name because opennow-core looks for `opennow-streamer` beside
+//! only the pads (`pause_pads_only`); `steam-overlay` types Shift+Tab into the game (`steam_overlay`). The binary keeps upstream's name because opennow-core looks for `opennow-streamer` beside
 //! itself.
 use std::io::{self, BufRead, Write};
 use std::sync::mpsc;
 use std::thread;
 
 use opennow_streamer_core::Engine;
-use opennow_streamer_platform::{MediaRuntime, controller_rumble, create_runtime, stream_ended, stream_telemetry};
+use opennow_streamer_platform::{CapturedInput, MediaRuntime, controller_rumble, create_runtime, stream_ended, stream_telemetry};
 use opennow_streamer_protocol::{Command, error, response};
 use serde_json::Value;
 
@@ -60,6 +60,21 @@ fn pause_pads_only(command: &Command, pause_pads: impl FnOnce(bool) -> Result<()
     })
 }
 
+/// The in-stream menu's "Steam overlay": Shift+Tab, the keys Steam opens its overlay on, sent as upstream's desktop streamer encodes a
+/// typed chord (the official client's Guide button never reaches the host: it sits on bit 0x10000, which the 16-bit button field drops).
+fn steam_overlay(command: &Command, mut push: impl FnMut(CapturedInput)) -> Option<Value> {
+    if command.kind != "steam-overlay" {
+        return None;
+    }
+    const SHIFT: u16 = 0xa0;
+    const TAB: u16 = 0x09;
+    const SHIFT_MODIFIER: u16 = 0x01;
+    for (virtual_key, modifiers, pressed) in [(SHIFT, 0, true), (TAB, SHIFT_MODIFIER, true), (TAB, SHIFT_MODIFIER, false), (SHIFT, 0, false)] {
+        push(CapturedInput::Key { virtual_key, modifiers, pressed });
+    }
+    Some(response(command.id.as_str(), "ok"))
+}
+
 fn run_protocol(media_runtime: MediaRuntime) -> io::Result<()> {
     let (event_tx, event_rx) = mpsc::channel::<Value>();
     let event_writer = thread::spawn(move || {
@@ -72,6 +87,7 @@ fn run_protocol(media_runtime: MediaRuntime) -> io::Result<()> {
         }
     });
     let pads = media_runtime.clone();
+    let keys = pads.captured_input();
     let mut engine = Engine::with_media_runtime(event_tx, media_runtime);
 
     for line in io::stdin().lock().lines() {
@@ -87,6 +103,10 @@ fn run_protocol(media_runtime: MediaRuntime) -> io::Result<()> {
             }
         };
         if let Some(reply) = pause_pads_only(&command, |paused| pads.set_paused(paused)) {
+            write_message(&reply)?;
+            continue;
+        }
+        if let Some(reply) = steam_overlay(&command, |key| keys.push(key)) {
             write_message(&reply)?;
             continue;
         }
@@ -143,5 +163,15 @@ mod tests {
         assert_eq!(reply, Some(response("input-paused", "ok")));
         assert_eq!(pads, [true]);
         assert_eq!(pause_pads_only(&command(r#"{"id":"stop","type":"stop"}"#), |_| unreachable!()), None);
+    }
+
+    #[test]
+    fn steam_overlay_types_shift_tab_and_other_commands_pass() {
+        let mut keys = Vec::new();
+        let reply = steam_overlay(&command(r#"{"id":"runtime-control","type":"steam-overlay"}"#), |key| keys.push(key));
+        assert_eq!(reply, Some(response("runtime-control", "ok")));
+        let key = |virtual_key, modifiers, pressed| CapturedInput::Key { virtual_key, modifiers, pressed };
+        assert_eq!(keys, [key(0xa0, 0, true), key(0x09, 1, true), key(0x09, 1, false), key(0xa0, 0, false)]);
+        assert_eq!(steam_overlay(&command(r#"{"id":"stop","type":"stop"}"#), |_| unreachable!()), None);
     }
 }

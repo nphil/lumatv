@@ -78,8 +78,9 @@ pub enum Event {
     NetLoss { ms: u64, loss_pct: f32, #[serde(skip_serializing_if = "Option::is_none")] rtt_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] jitter_ms: Option<f32> },
     EngineError { ms: u64, engine: &'static str, code: &'static str },
     Controller { ms: u64, slot: u8, connected: bool },
-    /// Pacing over the last two seconds; `late` and `stalls` are left out while zero.
-    Detail { ms: u64, fps: f32, gap_us: [u64; 4], feed_us: [u64; 4], queue: u32, #[serde(skip_serializing_if = "is_zero")] late: u32, #[serde(skip_serializing_if = "is_zero")] stalls: u32, #[serde(skip_serializing_if = "Option::is_none")] client_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] host_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] pad_bursts: Option<u32>, #[serde(skip_serializing_if = "Option::is_none")] pad_gap_us: Option<u32>, #[serde(skip_serializing_if = "Option::is_none")] hz: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] min_hz: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] fewest: Option<u32> },
+    /// Pacing over the last two seconds; `late` and `stalls` are left out while zero. `pacing_ms` and the host and arrival gaps
+    /// (p50, p95) are GFN's playout pacer's latest second.
+    Detail { ms: u64, fps: f32, gap_us: [u64; 4], feed_us: [u64; 4], queue: u32, #[serde(skip_serializing_if = "is_zero")] late: u32, #[serde(skip_serializing_if = "is_zero")] stalls: u32, #[serde(skip_serializing_if = "Option::is_none")] client_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] host_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] pacing_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] host_gap_ms: Option<[f32; 2]>, #[serde(skip_serializing_if = "Option::is_none")] arrival_gap_ms: Option<[f32; 2]>, #[serde(skip_serializing_if = "Option::is_none")] pad_bursts: Option<u32>, #[serde(skip_serializing_if = "Option::is_none")] pad_gap_us: Option<u32>, #[serde(skip_serializing_if = "Option::is_none")] hz: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] min_hz: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] fewest: Option<u32> },
     Hist { ms: u64, span_ms: u32, gap: [u32; 7], feed: [u32; 8], queue: [u32; 5] },
     Trip { ms: u64, #[serde(skip_serializing_if = "Option::is_none")] presses: Option<u32>, #[serde(skip_serializing_if = "Option::is_none")] press_p50_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] press_p99_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] network_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] host_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] arrival_p50_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] arrival_p95_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] client_ms: Option<f32> },
 }
@@ -319,7 +320,8 @@ pub(crate) fn assert_allowlisted(line: &str) {
         "fps", "bitrate_kbps", "rtt_ms", "jitter_ms", "loss_pct", "dropped", "pad_reports", "pad_rate_hz", "pad_p99_us", "fed", "accepted", "omitted",
         "kind", "level", "session", "engine", "after_ms", "queue", "eta_s", "codec", "width", "height", "bit_depth", "hdr", "want_hdr", "sdr", "audio",
         "want_fps", "want_height", "outcome", "reason", "by", "ran_s", "at", "hdr_type", "hz", "src_hz", "vrr", "low_delay", "why", "stalls", "max_gap_us",
-        "code", "slot", "connected", "gap_us", "feed_us", "late", "client_ms", "host_ms", "pad_bursts", "pad_gap_us", "min_hz", "fewest", "span_ms",
+        "code", "slot", "connected", "gap_us", "feed_us", "late", "client_ms", "host_ms", "pacing_ms", "host_gap_ms", "arrival_gap_ms", "pad_bursts", "pad_gap_us",
+        "min_hz", "fewest", "span_ms",
         "gap", "feed", "presses", "press_p50_ms", "press_p99_ms", "network_ms", "arrival_p50_ms", "arrival_p95_ms", "muted", "after_running_ms", "after_frame_ms", "socket_drops",
     ];
     let value: serde_json::Value = serde_json::from_str(line).unwrap();
@@ -364,7 +366,7 @@ mod tests {
             (Event::EngineError { ms: 1, engine: "gfn", code: "protocol" }, Level::Warn),
             (Event::Controller { ms: 1, slot: 0, connected: false }, Level::Warn),
             (Event::Controller { ms: 1, slot: 0, connected: true }, Level::Info),
-            (Event::Detail { ms: 1, fps: 59.9, gap_us: [16_700, 17_000, 18_000, 33_000], feed_us: [300, 600, 900, 1_500], queue: 2, late: 1, stalls: 0, client_ms: Some(1.2), host_ms: Some(3.4), pad_bursts: Some(0), pad_gap_us: Some(0), hz: Some(59.9), min_hz: Some(59.8), fewest: Some(5) }, Level::Debug),
+            (Event::Detail { ms: 1, fps: 59.9, gap_us: [16_700, 17_000, 18_000, 33_000], feed_us: [300, 600, 900, 1_500], queue: 2, late: 1, stalls: 0, client_ms: Some(1.2), host_ms: Some(3.4), pacing_ms: Some(2.4), host_gap_ms: Some([16.6, 17.1]), arrival_gap_ms: Some([8.2, 25.0]), pad_bursts: Some(0), pad_gap_us: Some(0), hz: Some(59.9), min_hz: Some(59.8), fewest: Some(5) }, Level::Debug),
             (Event::Hist { ms: 1, span_ms: 6000, gap: [0, 0, 118, 2, 0, 0, 0], feed: [100, 16, 2, 1, 0, 0, 0, 0], queue: [100, 16, 2, 1, 0] }, Level::Trace),
             (Event::Trip { ms: 1, presses: Some(14), press_p50_ms: Some(0.4), press_p99_ms: Some(1.9), network_ms: Some(21.5), host_ms: None, arrival_p50_ms: None, arrival_p95_ms: None, client_ms: None }, Level::Trace),
             (Event::FirstPicture { ms: 1, session: 1, after_running_ms: 1_800, after_frame_ms: 1_300 }, Level::Info),

@@ -181,7 +181,7 @@ fn video_loop(id:SessionId,client:&NativeClient,feeder:&Mutex<FeederClient>,play
                 loss_pct:(total>0).then(||network.lost as f32*100.0/total as f32),
                 bitrate_kbps:Some((bytes as f64*8.0/f64::from(seconds)/1000.0) as u32),fps:Some(frames as f32/seconds),
                 dropped:Some(client.frames_dropped()+player.dropped.load(Ordering::Relaxed)),socket_drops:client.socket_drops(),
-                client_ms:(timings>0).then(||client_us as f32/timings as f32/1000.0),host_ms:host_us.map(|u|u as f32/1000.0),pad:pads.timing(monotonic_ns())};
+                client_ms:(timings>0).then(||client_us as f32/timings as f32/1000.0),host_ms:host_us.map(|u|u as f32/1000.0),pad:pads.timing(monotonic_ns()),..Stats::default()};
             *control.trip.lock().unwrap()=trip(&snapshot,&network,pads.presses());
             let _=out.send(Notice::Emit(FromEngine::told(Event::Stats {session:id,stats:snapshot})));
             since=Instant::now();frames=0;bytes=0;client_us=0;timings=0;

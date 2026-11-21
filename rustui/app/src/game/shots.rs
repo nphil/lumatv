@@ -461,6 +461,7 @@ fn screens() -> Vec<(String, Model)> {
     hud.step(Input::StatsSetting(super::stats::Overlay {mode:super::stats::Mode::Full,changed:1}));
     event(&mut hud,"gfn",ipc::Event::Stats {session,stats:ipc::Stats {
         rtt_ms:Some(11.3),jitter_ms:Some(0.8),loss_pct:Some(0.0),bitrate_kbps:Some(74200),fps:Some(119.9),
+        pacing_ms:Some(2.4),host_gap_ms:Some([8.3,9.1]),arrival_gap_ms:Some([4.6,16.4]),
         pad:Some(ipc::PadStats {name:"DualShock 4 · Bluetooth".into(),reports:250,rate_hz:250.0,p99_us:4900,bursts:0,burst_gap_us:0,age_ms:0}),
         ..Default::default()
     }});
@@ -479,6 +480,7 @@ fn screens() -> Vec<(String, Model)> {
     rough.telemetry.frames.omitted=4;
     rough.telemetry.stream.loss_pct=Some(1.4);
     rough.telemetry.stream.host_ms=Some(5.2);
+    rough.telemetry.stream.host_gap_ms=Some([8.4,16.9]);
     rough.telemetry.stream.dropped=Some(3);
     rough.telemetry.stream.socket_drops=Some(12);
     rough.telemetry.stream.pad=Some(ipc::PadStats {name:"Xbox Wireless · Bluetooth".into(),reports:250,rate_hz:125.0,p99_us:22400,bursts:6,burst_gap_us:22000,age_ms:0});
@@ -489,6 +491,8 @@ fn screens() -> Vec<(String, Model)> {
     stale.step(Input::Tick {now_ms:4000,unix_s:1_800_000_004});
     add("51-stats-stale-dark",stale);
     launched.step(Input::Tick { now_ms: 1_932_000, unix_s: 1_800_001_932 });
+    launched.integrations.iter_mut().find(|e| e.manifest.id.as_str() == "gfn").unwrap()
+        .descriptor.as_mut().unwrap().capabilities.features.insert(Feature::SteamOverlay);
     launched.step(Input::Overlay);
     launched.view.stats = ipc::Stats { rtt_ms: Some(8.0), loss_pct: Some(0.0), bitrate_kbps: Some(78_000), ..Default::default() };
     add("15-overlay", launched.clone());
@@ -876,7 +880,7 @@ fn all_stats_controls_share_one_setting_and_off_stops_frame_capture() {
     assert_eq!(m.prefs.stats.mode,Mode::Full);
     m.view.focus=Focus::Overlay(2);activate(&mut m);
     assert_eq!(m.prefs.stats.mode,Mode::Off);
-    m.view.page=Page::Settings;m.view.section=Section::Streaming;m.view.focus=Focus::Setting(6);
+    m.view.page=Page::Settings;m.view.section=Section::Streaming;m.view.focus=Focus::Setting(7);
     m.step(Input::Key {key:Key::Right,down:true});m.step(Input::Key {key:Key::Right,down:false});
     assert_eq!(m.prefs.stats.mode,Mode::Compact);
     let changed=m.prefs.stats.changed;

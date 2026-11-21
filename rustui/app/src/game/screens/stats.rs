@@ -122,8 +122,18 @@ pub fn show(p: &mut Paint<'_>) {
         let (left, right) = (32.0, 32.0 + col + 48.0);
         let gaps = frames.gaps;
         let drops: u64 = frames.dropped.iter().sum();
+        // GFN's pacer reports the host's spacing (from frame timestamps) apart from the arrival spacing, so an uneven feed names
+        // where it began: frames the host sent unevenly, frames the network bunched, or frames that arrived evenly.
+        let uneven = |g: Option<[f32; 2]>| g.map(|g| g[1] * 1000.0 > target * 1.5);
         let (state, tone) = if gaps.is_some_and(|g| g[3] >= 100_000) { ("Stalling", Role::Danger) }
-            else if gaps.is_some_and(|g| g[2] as f32 > target * 1.5) || drops > 0 { ("Uneven", Role::Warning) } else { ("Even", Role::Positive) };
+            else if gaps.is_some_and(|g| g[2] as f32 > target * 1.5) || drops > 0 {
+                (match (uneven(stream.host_gap_ms), uneven(stream.arrival_gap_ms)) {
+                    (Some(true), _) => "Uneven · host",
+                    (Some(false), Some(true)) => "Uneven · network",
+                    (_, Some(false)) => "Uneven · TV",
+                    _ => "Uneven",
+                }, Role::Warning)
+            } else { ("Even", Role::Positive) };
         let mut y = h.head("Frame timing", state, tone, left, 26.0, t.live[1]);
         let slots = ((col - 88.0 * h.p.scale + 1.0) / 4.0).floor() as usize;
         h.graph(if t.live[1] { &frames.graph } else { &[] }, target, Frame::new(left, y + 6.0, col, 72.0), slots);
@@ -171,6 +181,13 @@ pub fn show(p: &mut Paint<'_>) {
         // Counts since the session began, shown only where the engine keeps them. The second is the TV's own network stack discarding packets, not the network.
         if let Some(n) = stream.dropped { h.row("Frames dropped", &n.to_string(), "", right, &mut r, t.live[0]); }
         if let Some(n) = stream.socket_drops { h.row("Dropped by the TV", &n.to_string(), "packets", right, &mut r, t.live[0]); }
+        // Under Stream, not Frame timing: that column is already at the safe height at 200% text when drops and omitted samples
+        // show. The cadence row shows p95s only; the Detail diagnostic keeps p50 and p95.
+        if let Some(ms) = stream.pacing_ms { h.row("Pacing delay", &decimal(Some(f64::from(ms)), 1), "ms", right, &mut r, t.live[0]); }
+        if stream.host_gap_ms.is_some() || stream.arrival_gap_ms.is_some() {
+            let p95 = |g: Option<[f32; 2]>| g.map_or_else(|| "–".into(), |g| format!("{:.1}", g[1]));
+            h.row("Host / arrival gap p95", &format!("{} / {}", p95(stream.host_gap_ms), p95(stream.arrival_gap_ms)), "ms", right, &mut r, t.live[0]);
+        }
         r = h.rule(right, r);
         let refresh = &display["refresh"];
         let expected = number(&refresh["hz"]).map(|v| (v / 10.0).round() as u64);

@@ -34,7 +34,6 @@ pub fn games(n: usize) -> Vec<Game> {
             title: TITLES[i % 6].into(),
             image_url: format!("https://x/{i}.jpg"),
             store: "STEAM".into(),
-            in_library: true,
             hdr: None,
         })
         .collect()

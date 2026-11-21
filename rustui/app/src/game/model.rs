@@ -186,6 +186,8 @@ pub struct Preferences {
     pub fps: u32,
     pub hdr: bool,
     pub codec: Option<Codec>,
+    /// Smooth hands a stream's frames to the decoder evenly; off hands each over as it arrives.
+    pub smooth_pacing: bool,
     pub bitrate_mbps: u32,
     pub stats: Overlay,
     /// The stick settings every engine that drives a pad applies: dead zone, anti-deadzone (both percent) and response curve.
@@ -207,6 +209,7 @@ impl Default for Preferences {
             fps: 60,
             hdr: false,
             codec: None,
+            smooth_pacing: true,
             bitrate_mbps: 80,
             stats: Overlay::default(),
             deadzone: 8,
@@ -245,6 +248,7 @@ impl Preferences {
             Some("av1") if p.fps <= 60 => Some(Codec::Av1),
             _ => None,
         };
+        p.smooth_pacing = v["frame_pacing"].as_str() != Some("latency");
         p.bitrate_mbps = v["bitrate_mbps"].as_u64().unwrap_or(80).clamp(u64::from(uplink::BITRATE_MIN_MBPS), u64::from(uplink::BITRATE_MAX_MBPS)) as u32;
         p.stats = Overlay::read(&v["stats"]);
         p.deadzone = v["deadzone"].as_u64().map_or(p.deadzone, |n| n.min(u64::from(DEADZONE_MAX)) as u8);
@@ -253,7 +257,10 @@ impl Preferences {
         p
     }
     fn json(&self) -> serde_json::Value {
-        serde_json::json!({"family":self.family,"light":self.light,"hero":self.hero.index(),"covers":self.covers.index(),"text_percent":self.text_percent,"reduce_motion":self.reduce_motion,"width":self.width,"height":self.height,"fps":self.fps,"hdr":self.hdr,"codec":self.codec.map_or("auto",Codec::as_str),"bitrate_mbps":self.bitrate_mbps,"stats":self.stats,"deadzone":self.deadzone,"anti_deadzone":self.anti_deadzone,"stick_curve":self.stick_curve.name()})
+        serde_json::json!({"family":self.family,"light":self.light,"hero":self.hero.index(),"covers":self.covers.index(),"text_percent":self.text_percent,"reduce_motion":self.reduce_motion,"width":self.width,"height":self.height,"fps":self.fps,"hdr":self.hdr,"codec":self.codec.map_or("auto",Codec::as_str),"frame_pacing":self.frame_pacing(),"bitrate_mbps":self.bitrate_mbps,"stats":self.stats,"deadzone":self.deadzone,"anti_deadzone":self.anti_deadzone,"stick_curve":self.stick_curve.name()})
+    }
+    fn frame_pacing(&self) -> &'static str {
+        if self.smooth_pacing { "smooth" } else { "latency" }
     }
     pub fn text_scale(&self) -> f32 {
         f32::from(self.text_percent) / 100.0
@@ -312,6 +319,16 @@ pub enum Sheet {
     EditText,
     /// Confirms a controller setting that removes something, such as a macro.
     Delete,
+}
+/// The in-stream menu's buttons; `Focus::Overlay(i)` is the `i`th of [`Model::overlay_actions`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OverlayAction {
+    Resume,
+    Settings,
+    Stats,
+    /// Over a Steam game whose engine can open Steam's overlay.
+    SteamOverlay,
+    EndSession,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Section {
@@ -1591,15 +1608,26 @@ impl Model {
                 }
                 _ => {}
             },
-            Focus::Overlay(i) => match i {
-                0 => self.resume(out),
-                1 => {
-                    self.view.section = Section::Streaming;
-                    self.show_page(Page::Settings, Focus::Setting(0));
+            Focus::Overlay(i) => {
+                let action = self.overlay_actions().nth(i);
+                match action {
+                    Some(OverlayAction::Resume) => self.resume(out),
+                    Some(OverlayAction::Settings) => {
+                        self.view.section = Section::Streaming;
+                        self.show_page(Page::Settings, Focus::Setting(0));
+                    }
+                    Some(OverlayAction::Stats) => self.set_stats(self.prefs.stats.mode.next(), out),
+                    // The menu closes and the pad goes back to the game first, so Steam's overlay opens over the game and gets the pad.
+                    Some(OverlayAction::SteamOverlay) => {
+                        self.resume(out);
+                        if let Some(s) = &self.session {
+                            Self::send(out, &s.source.engine, Request::SteamOverlay { session: s.id });
+                        }
+                    }
+                    Some(OverlayAction::EndSession) => self.open_sheet(Sheet::EndSession, Focus::SheetAction(0)),
+                    None => {}
                 }
-                2 => self.set_stats(self.prefs.stats.mode.next(), out),
-                _ => self.open_sheet(Sheet::EndSession, Focus::SheetAction(0)),
-            },
+            }
             Focus::Cancel => self.session_input(session::Input::Cancel, out),
             Focus::None => {}
         }
@@ -1806,13 +1834,14 @@ impl Model {
                     codecs.push(Some(Codec::H264));
                     self.prefs.codec = codecs[step(codecs.iter().position(|c| *c == self.prefs.codec).unwrap_or(0), codecs.len())];
                 }
-                5 => {
+                5 => self.prefs.smooth_pacing = step(usize::from(!self.prefs.smooth_pacing), 2) == 0,
+                6 => {
                     let mut ids = vec![None];
                     ids.extend(self.integrations.iter().filter(|e| self.enabled(&e.manifest.id)).map(|e| Some(e.manifest.id.clone())));
                     let at = ids.iter().position(|id| *id == self.state.profile().user.preferred_engine).unwrap_or(0);
                     self.state.profile_mut().user.preferred_engine = ids[step(at, ids.len())].clone();
                 }
-                6 => {
+                7 => {
                     self.set_stats(StatsMode::ALL[step(self.prefs.stats.mode.index(), 3)], out);
                     return true;
                 }
@@ -1875,6 +1904,7 @@ impl Model {
             ("hdr".into(), Value::Bool(self.prefs.hdr)),
             ("bitrate-mbps".into(), Value::Int(i64::from(self.stream_bitrate_mbps()))),
             ("codec".into(), Value::Text(self.prefs.codec.map_or("auto", Codec::as_str).into())),
+            ("frame-pacing".into(), Value::Text(self.prefs.frame_pacing().into())),
             ("deadzone".into(), Value::Int(i64::from(self.prefs.deadzone))),
             ("anti-deadzone".into(), Value::Int(i64::from(self.prefs.anti_deadzone))),
             ("stick-curve".into(), Value::Text(self.prefs.stick_curve.name().into())),
@@ -2083,6 +2113,19 @@ impl Model {
             Self::send(out, &s.source.engine, Request::Route { session: s.id, input: ipc::InputRoute::Game });
             self.stats_request(out);
         }
+    }
+    /// The in-stream menu's buttons, in order.
+    pub fn overlay_actions(&self) -> impl Iterator<Item = OverlayAction> + use<> {
+        use OverlayAction::*;
+        let steam = self.steam_overlay();
+        [Resume, Settings, Stats, SteamOverlay, EndSession].into_iter().filter(move |a| steam || *a != SteamOverlay)
+    }
+    /// The running game is a Steam copy and its engine can open Steam's overlay over it.
+    fn steam_overlay(&self) -> bool {
+        self.session.as_ref().is_some_and(|s| {
+            self.integration(&s.source.engine).and_then(|e| e.descriptor.as_ref()).is_some_and(|d| d.capabilities.has(Feature::SteamOverlay))
+                && self.game(s.game).and_then(|g| g.source(&s.source)).is_some_and(|source| source.entry.store.as_deref() == Some("steam"))
+        })
     }
     pub fn can_end_game(&self) -> bool {
         self.session
@@ -2628,7 +2671,7 @@ impl Model {
                     }
                     let count = match self.view.section {
                         Section::Appearance => 6,
-                        Section::Streaming => 7,
+                        Section::Streaming => 8,
                         Section::Integrations => self.integrations.len(),
                         Section::Controllers => 4,
                         Section::Diagnostics => 7,
@@ -2658,7 +2701,7 @@ impl Model {
                         rows.extend(e.schema.fields().enumerate().filter(|(_, f)| f.kind != FieldKind::Note).map(|(i, _)| vec![Focus::EngineField(i)]));
                     }
                 }
-                Page::Overlay => rows.push((0..4).map(Focus::Overlay).collect()),
+                Page::Overlay => rows.push((0..self.overlay_actions().count()).map(Focus::Overlay).collect()),
                 Page::Media => rows.push(vec![Focus::HubTop(0)]),
                 Page::Lab => {
                     if !self.session_active() {
@@ -2873,6 +2916,18 @@ pub(crate) mod tests {
         assert_eq!(m.prefs.bitrate_mbps, 150);
     }
     #[test]
+    fn frame_pacing_reaches_the_engines_and_survives_a_restart() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![]);
+        m.view.page = Page::Settings;
+        m.view.section = Section::Streaming;
+        m.view.focus = Focus::Setting(5);
+        assert!(m.prefs.smooth_pacing);
+        key(&mut m, Key::Right);
+        assert!(!m.prefs.smooth_pacing);
+        assert_eq!(m.common_values().get("frame-pacing"), Some(&Value::Text("latency".into())));
+        assert!(!Preferences::read(&m.prefs.json()).smooth_pacing);
+    }
+    #[test]
     fn the_log_level_row_steps_between_levels_and_the_shell_hears_each_choice() {
         let mut m = Model::new(State::default(), Listing::default(), vec![]);
         m.view.page = Page::Settings;
@@ -2920,6 +2975,24 @@ pub(crate) mod tests {
         assert_eq!(m.view.focus, Focus::SheetAction(0));
         key(&mut m, Key::Back);
         assert_eq!(m.view.focus, Focus::Overlay(3));
+    }
+    #[test]
+    fn steam_overlay_is_offered_over_steam_games_and_presses_after_the_menu_closes() {
+        use OverlayAction::*;
+        let mut m = launching("Game", false);
+        report(&mut m, SessionState::Running { stream: None });
+        m.step(Input::Overlay);
+        describe(&mut m, "gfn", vec![], &[Feature::EndGame, Feature::SteamOverlay]);
+        assert_eq!(m.overlay_actions().collect::<Vec<_>>(), [Resume, Settings, Stats, EndSession], "not a Steam copy");
+        m.games[0].sources[0].entry.store = Some("steam".into());
+        assert_eq!(m.overlay_actions().collect::<Vec<_>>(), [Resume, Settings, Stats, SteamOverlay, EndSession]);
+        m.view.focus = Focus::Overlay(3);
+        let out = key(&mut m, Key::Ok);
+        let session = m.session().unwrap().id;
+        assert_eq!(m.view.page, Page::Running);
+        let sent = sent(&out);
+        assert_eq!(sent.first(), Some(&&Request::Route { session, input: ipc::InputRoute::Game }));
+        assert_eq!(sent.last(), Some(&&Request::SteamOverlay { session }));
     }
     #[test]
     fn a_stream_page_never_outlives_its_session() {

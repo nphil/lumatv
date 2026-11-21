@@ -138,8 +138,8 @@ impl Adapter {
     pub fn failed(&self) -> bool { self.failed }
     pub fn pad_stats_on(&self) -> bool { self.launch.as_ref().is_some_and(|l| l.running && l.pad_timing && !l.stopping) }
     pub fn data_dir(&self) -> &str { &self.hello.data_dir }
-    pub fn pad_prefs(&self) -> Value {
-        settings::pad_prefs(self.launch.as_ref().map_or(&self.values, |l| &l.values))
+    pub fn runtime_prefs(&self) -> Value {
+        settings::runtime_prefs(self.launch.as_ref().map_or(&self.values, |l| &l.values))
     }
 
     pub fn drain(&mut self) -> Output { std::mem::take(&mut self.output) }
@@ -239,8 +239,12 @@ impl Adapter {
                 let trip = self.launch.as_ref().map(|l| l.trip.clone()).unwrap_or_default();
                 self.emit(seq,Event::RoundTrip { session,trip });
             }
+            // The streamer answers it with Steam's overlay shortcut (lumatv-gfn-streamer).
+            Request::SteamOverlay { session } if self.launch.as_ref().is_some_and(|l| l.id == session && l.running) => {
+                self.enqueue("streamer.control",json!({"action":"steam-overlay"}),Purpose::Pause,seq);
+            }
             Request::Library { .. } | Request::Check { .. } | Request::Forget { .. } | Request::Stop { .. } | Request::Route { .. } | Request::Stats { .. }
-            | Request::RoundTrip { .. } => {
+            | Request::RoundTrip { .. } | Request::SteamOverlay { .. } => {
                 self.error(seq,ErrorCode::BadRequest,"The target or session is not current");
             }
             _ => self.error(seq,ErrorCode::Unsupported,"This operation is not supported by GeForce NOW"),
@@ -327,8 +331,9 @@ impl Adapter {
         let Some(l) = &self.launch else { return; };
         if l.stopping { return; }
         let s = &l.selection;
+        // NVIDIA's own client asks for `gamepadFriendly` on a TV (its webOS and Tizen builds); with `default` Steam opened on its desktop.
         let mut params = json!({"appId":s.variant,"catalogAppId":s.parent,"variantId":s.variant,"scope":self.scope,
-            "selectionIdentity":format!("{}:{}",s.parent,s.variant),"title":s.title,"store":s.store,"accountLinked":s.owned,
+            "selectionIdentity":format!("{}:{}",s.parent,s.variant),"title":s.title,"store":s.store,
             "appLaunchMode":"gamepadFriendly","runtimeCapabilities":self.runtime,"maxEntitledFps":self.hello.display.refresh_hz.min(120)});
         if let Some((zone,url)) = &self.region { params["zone"] = json!(zone); params["streamingBaseUrl"] = json!(url); }
         self.enqueue("session.create",params,Purpose::Create,None);
@@ -739,6 +744,7 @@ impl Adapter {
     /// a measured round trip; `decodeTimeMs` is not forwarded because the feeder platform reports no decode time (always 0).
     fn telemetry(&mut self, v: &Value) {
         let float = |key| v[key].as_f64().filter(|n| n.is_finite()).map(|n| n as f32);
+        let pair = |key: &str| Some([v[key][0].as_f64()? as f32, v[key][1].as_f64()? as f32]);
         let Some(l) = self.launch.as_mut().filter(|l| l.running && !l.stopping) else { return; };
         l.trip.network_ms = float("ping_ms").or(l.trip.network_ms);
         if !l.stats { return; }
@@ -746,7 +752,8 @@ impl Adapter {
         let bitrate_kbps = v["bitrate_mbps"].as_f64().filter(|n| n.is_finite() && *n >= 0.0).map(|n| (n*1000.0).round() as u32);
         let pad = l.pad.as_ref().map(|(stats, at)| PadStats { age_ms: stats.age_ms.saturating_add(self.now.saturating_sub(*at)), ..stats.clone() });
         self.emit(None,Event::Stats { session,stats:Stats {
-            fps:float("fps"),bitrate_kbps,rtt_ms:float("ping_ms"),jitter_ms:float("jitter_ms"),loss_pct:float("loss_pct"),pad,..Stats::default()
+            fps:float("fps"),bitrate_kbps,rtt_ms:float("ping_ms"),jitter_ms:float("jitter_ms"),loss_pct:float("loss_pct"),pad,
+            pacing_ms:float("pacing_ms"),host_gap_ms:pair("host_gap_ms"),arrival_gap_ms:pair("arrival_gap_ms"),..Stats::default()
         } });
     }
     /// The stream ended without a stop being asked for. The core keeps that only as a status it reports when asked, so the streamer
@@ -790,7 +797,8 @@ impl Adapter {
 pub fn descriptor() -> Descriptor {
     Descriptor { id:EngineId::new("gfn").unwrap(),version:env!("CARGO_PKG_VERSION").into(),capabilities:Capabilities {
         kind:EngineKind::Cloud,targets:TargetKind::Account,auth:vec![AuthMethod::DeviceCode],presentation:Presentation::Feeder,
-        features:BTreeSet::from([Feature::Readiness,Feature::Queue,Feature::EndGame,Feature::Stats,Feature::RoundTrip,Feature::Rumble,Feature::OverlayKeys]),
+        features:BTreeSet::from([Feature::Readiness,Feature::Queue,Feature::EndGame,Feature::Stats,Feature::RoundTrip,Feature::Rumble,Feature::OverlayKeys,
+            Feature::SteamOverlay]),
         video:Some(VideoCaps { codecs:vec![Codec::H265,Codec::Av1,Codec::H264],width:3840,height:2160,fps:120,hdr10:true }),
     } }
 }

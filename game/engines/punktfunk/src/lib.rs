@@ -186,6 +186,7 @@ impl Engine {
                 self.targets(Some(seq));
             }
             Request::Action {..}=>self.emit(error(Some(seq),ErrorCode::Unsupported,"Unknown settings action.")),
+            Request::SteamOverlay {..}=>self.emit(error(Some(seq),ErrorCode::Unsupported,"This engine does not open Steam's overlay.")),
         }
         Ok(())
     }

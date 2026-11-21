@@ -1,11 +1,13 @@
 #!/bin/sh
 # Builds opennow-core (OpenNOW's application core: accounts, catalog, CloudMatch sessions, the streamer's parent) for the set, from
-# the revision pinned in Cargo.toml, with the `keyring` crate replaced by crates/keyring (the TV has no OS credential store; the core
-# then keeps its sessions in its own 0600 JSON files). The checkout lives under gfn/build/OpenNOW (not in git) and the build in
-# gfn/build/core-target. `--host` builds for the workstation instead (the UI's host tests drive that one).
+# the revision pinned in Cargo.toml plus patches/opennow-core.patch (patches/opennow-core.md), with the `keyring` crate replaced by
+# crates/keyring (the TV has no OS credential store; the core then keeps its sessions in its own 0600 JSON files). The checkout lives
+# under gfn/build/OpenNOW (not in git) and the build in gfn/build/core-target. `--host` builds for the workstation instead (the UI's
+# host tests drive that one); `--test` runs the patched core's tests on the workstation.
 #
 #   sh gfn/engine/build-core.sh          -> gfn/build/core/aarch64/opennow-core
 #   sh gfn/engine/build-core.sh --host   -> gfn/build/core/host/opennow-core
+#   sh gfn/engine/build-core.sh --test
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 rev=$(sed -n 's/.*rev = "\([0-9a-f]\{40\}\)".*/\1/p' "$here/Cargo.toml" | head -1)
@@ -21,6 +23,12 @@ if [ "$(git -C "$src" rev-parse HEAD 2>/dev/null || true)" != "$rev" ]; then
   git -C "$src" fetch -q --depth 1 origin "$rev"
   git -C "$src" checkout -q FETCH_HEAD
 fi
+# A checkout that does not carry the current patch is reset to the pin first, so an edited patch replaces the old one.
+patch=$here/patches/opennow-core.patch
+if ! git -C "$src" apply --reverse --check "$patch" 2>/dev/null; then
+  git -C "$src" checkout -q -- native/opennow-core
+  git -C "$src" apply "$patch"
+fi
 mode=${1:-tv}
 c1="patch.crates-io.keyring.path='$here/crates/keyring'"
 c2="target.x86_64-unknown-linux-gnu.linker='$here/tools/cc-host'"
@@ -28,7 +36,9 @@ c3="env.CC='$here/tools/cc-host'"
 c4="env.CXX='$here/tools/cxx-host'"
 manifest=$src/native/opennow-core/Cargo.toml
 target_dir=$build/core-target
-if [ "$mode" = "--host" ]; then
+if [ "$mode" = "--test" ]; then
+  cargo test --manifest-path "$manifest" --target-dir "$target_dir" --config "$c1" --config "$c2" --config "$c3" --config "$c4"
+elif [ "$mode" = "--host" ]; then
   cargo build --release --manifest-path "$manifest" --target-dir "$target_dir" --config "$c1" --config "$c2" --config "$c3" --config "$c4"
   mkdir -p "$build/core/host"
   cp "$target_dir/release/opennow-core" "$build/core/host/opennow-core"

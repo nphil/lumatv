@@ -1327,11 +1327,12 @@ fn prepare_on_endpoint(
         "INFO",
         "nvst-handoff",
         &format!(
-            "video_local_port={video_local_port} bundle_local_port={client_port} video_peer_port={video_peer_port} video_peer_port_end={video_peer_port_end} bundle_peer_port={} same_peer_host={} unified_socket={unified_socket} ping_version={ping_version} ping_bytes={} legacy_ping_payload={} srtp_profile={srtp_profile} rtcp_on_sctp={rtcp_on_sctp} sockets_retained=true reachability=unverified video_startup_timeout_ms={VIDEO_STARTUP_TIMEOUT_MS} video_idle_timeout_ms={VIDEO_TIMEOUT_MS}",
+            "video_local_port={video_local_port} bundle_local_port={client_port} video_peer_port={video_peer_port} video_peer_port_end={video_peer_port_end} bundle_peer_port={} same_peer_host={} unified_socket={unified_socket} ping_version={ping_version} ping_bytes={} legacy_ping_payload={} srtp_profile={srtp_profile} rtcp_on_sctp={rtcp_on_sctp} sockets_retained=true reachability=unverified video_startup_timeout_ms={VIDEO_STARTUP_TIMEOUT_MS} video_idle_timeout_ms={VIDEO_TIMEOUT_MS} rtp_frame_stamps={}",
             bundle_peer.port(),
             bundle_peer.ip().to_string() == video_peer_ip,
             ping_payload.len(),
-            ping_payload == "PING"
+            ping_payload == "PING",
+            offered_bool(&describe.body, "video[0].mapRtpTimestampsToFrames").map_or("unoffered", |on| if on { "1" } else { "0" })
         ),
     );
 
@@ -1433,7 +1434,6 @@ fn omit_server_announce_attributes(announce: &str, describe: &str) -> String {
         "video[0].framePacing.feedbackMode",
         "video[0].initialBitrateKbps",
         "video[0].initialPeakBitrateKbps",
-        "video[0].mapRtpTimestampsToFrames",
         "vqos[0].fec.enable",
         "vqos[0].fec.rateDropWindow",
         "vqos[0].fec.minRequiredFecPackets",
@@ -1534,6 +1534,7 @@ fn build_announce(context: &SessionContext, params: AnnounceParams<'_>) -> Strin
     };
     let dynamic_streaming_mode = negotiated_dynamic_streaming_mode(context);
     let adjust_res_and_fps = negotiated_adjustment_enabled(dynamic_streaming_mode);
+    let ten_bit_hevc = format == 1 && params.stream.color_quality.bit_depth() == 10;
     let mut lines = vec![
         "v=0".to_owned(),
         "o=unknown 0 14 IN IPv4 127.0.0.1".to_owned(),
@@ -1567,7 +1568,6 @@ fn build_announce(context: &SessionContext, params: AnnounceParams<'_>) -> Strin
         "a=x-nv-video[0].prefilterParams.sharpnessLevel:0".to_owned(),
         "a=x-nv-video[0].encoderCscMode:2".to_owned(),
         "a=x-nv-video[0].encoderHdrCscMode:4".to_owned(),
-        "a=x-nv-video[0].mapRtpTimestampsToFrames:0".to_owned(),
         format!("a=x-nv-video[0].maxFPS:{fps}"),
         format!("a=x-nv-video[0].initialBitrateKbps:{bitrate}"),
         format!("a=x-nv-video[0].initialPeakBitrateKbps:{bitrate}"),
@@ -1656,6 +1656,7 @@ fn build_announce(context: &SessionContext, params: AnnounceParams<'_>) -> Strin
         lines.push("a=x-nv-mic.micSsrcConfig.senderSsrc:1".to_owned());
     }
     lines.extend(announce_color_lines(params.stream));
+    lines.extend(official_tv_lines(fps, dynamic_streaming_mode, ten_bit_hevc));
     lines.extend([
         "t=0 0".to_owned(),
         format!("m=video {}", params.video_port),
@@ -1664,6 +1665,39 @@ fn build_announce(context: &SessionContext, params: AnnounceParams<'_>) -> Strin
         String::new(),
     ]);
     lines.join("\r\n")
+}
+
+/// What the official client (play.geforcenow.com, which LG's app wraps) adds for a TV, beyond the lines above. `video.dx9EnableHdr`
+/// it always sends. Above 60 fps, frame-rate control replaces bitrate-driven resolution control (except in dynamic streaming mode
+/// 1), and a 120 fps stream keeps 100 fps or more under the v2 controller. At 120 fps on webOS and Tizen it asks for a fixed
+/// 120 fps encode whatever the game renders, with shorter capture and decode-time thresholds. 10-bit HEVC gets a QP floor of 14.
+/// The seat must honour them; nothing here changes what the client accepts.
+fn official_tv_lines(fps: u64, dynamic_streaming_mode: u8, ten_bit_hevc: bool) -> Vec<String> {
+    let mut lines = vec!["a=x-nv-video[0].dx9EnableHdr:1".to_owned()];
+    if fps > 60 || dynamic_streaming_mode == 2 {
+        if dynamic_streaming_mode != 1 {
+            lines.push("a=x-nv-vqos[0].dfc.enable:1".to_owned());
+        }
+        let (version, floor) = if fps >= 120 { (2, 100) } else { (1, 60) };
+        lines.extend([
+            "a=x-nv-vqos[0].dfc.decodeFpsAdjPercent:85".to_owned(),
+            "a=x-nv-vqos[0].dfc.targetDownCooldownMs:250".to_owned(),
+            format!("a=x-nv-vqos[0].dfc.dfcAlgoVersion:{version}"),
+            format!("a=x-nv-vqos[0].dfc.minTargetFps:{floor}"),
+            "a=x-nv-vqos[0].resControl.dfc.useClientFpsPerf:0".to_owned(),
+        ]);
+    }
+    if fps == 120 {
+        lines.extend([
+            "a=x-nv-video[0].fakeEncodeFps:120".to_owned(),
+            "a=x-nv-video[0].fbcDynamicFpsGrabTimeoutMs:6".to_owned(),
+            "a=x-nv-vqos[0].resControl.cpmRtc.decodeTimeThresholdMs:9".to_owned(),
+        ]);
+    }
+    if ten_bit_hevc {
+        lines.push("a=x-nv-video[0].minQp:14".to_owned());
+    }
+    lines
 }
 
 fn resolution(context: &SessionContext) -> (u64, u64) {
@@ -2958,6 +2992,53 @@ mod tests {
         assert!(sdp.contains("a=x-nv-general.rtcDataChannelOnNativeBundle:1"));
         assert!(sdp.contains("a=x-nv-runtime.encryptionKey:"));
         assert!(sdp.contains("m=video 5004"));
+        for line in [
+            "a=x-nv-video[0].dx9EnableHdr:1",
+            "a=x-nv-vqos[0].dfc.enable:1",
+            "a=x-nv-vqos[0].dfc.decodeFpsAdjPercent:85",
+            "a=x-nv-vqos[0].dfc.targetDownCooldownMs:250",
+            "a=x-nv-vqos[0].dfc.dfcAlgoVersion:2",
+            "a=x-nv-vqos[0].dfc.minTargetFps:100",
+            "a=x-nv-vqos[0].resControl.dfc.useClientFpsPerf:0",
+            "a=x-nv-video[0].fakeEncodeFps:120",
+            "a=x-nv-video[0].fbcDynamicFpsGrabTimeoutMs:6",
+            "a=x-nv-vqos[0].resControl.cpmRtc.decodeTimeThresholdMs:9",
+        ] {
+            assert!(sdp.contains(&format!("{line}\r\n")), "{line}");
+        }
+        assert!(!sdp.contains("mapRtpTimestampsToFrames"), "the server's offer stands");
+        assert!(!sdp.contains("minQp"), "AV1 has no QP floor");
+    }
+
+    #[test]
+    fn sixty_fps_ten_bit_hevc_gets_a_qp_floor_and_no_frame_rate_control() {
+        let mut value = context();
+        value.session.extra["negotiatedStreamProfile"]["codec"] = json!("H265");
+        value.session.extra["negotiatedStreamProfile"]["fps"] = json!(60);
+        value.session.extra["negotiatedStreamProfile"]["colorQuality"] = json!("10bit_420");
+        let sdp = build_announce(
+            &value,
+            AnnounceParams {
+                stream: stream_config(&value),
+                key: &"01".repeat(32),
+                key_id: 7,
+                port: 49006,
+                address: "192.0.2.10",
+                ufrag: "abcd",
+                password: "abcdefghijklmnopqrstuv",
+                fingerprint: "AA:BB",
+                video_port: 5004,
+                video_packet_size: 1280,
+                rtcp_on_sctp: true,
+                microphone_available: false,
+                qos_timings_v5: false,
+                unified_socket: false,
+            },
+        );
+        assert!(sdp.contains("a=x-nv-video[0].minQp:14\r\n"));
+        assert!(sdp.contains("a=x-nv-video[0].dx9EnableHdr:1\r\n"));
+        assert!(!sdp.contains("dfc.enable"));
+        assert!(!sdp.contains("fakeEncodeFps"));
     }
 
     #[test]
@@ -3088,6 +3169,7 @@ mod tests {
             assert!(sdp.contains(&format!("a=x-nv-vqos[0].dynamicStreamingMode:{policy}\r\n")));
             assert!(sdp.contains(&format!("a=x-nv-vqos[0].dfc.adjustResAndFps:{adjust}\r\n")));
             assert!(sdp.contains("a=x-nv-vqos[0].drc.enable:0\r\n"));
+            assert_eq!(sdp.contains("a=x-nv-vqos[0].dfc.enable:1\r\n"), policy != 1, "mode {policy}");
         }
     }
 

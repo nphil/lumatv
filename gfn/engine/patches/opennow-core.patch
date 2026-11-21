@@ -1,0 +1,151 @@
+diff --git a/native/opennow-core/src/cloudmatch.rs b/native/opennow-core/src/cloudmatch.rs
+index 74cc7946..5a20e4c3 100644
+--- a/native/opennow-core/src/cloudmatch.rs
++++ b/native/opennow-core/src/cloudmatch.rs
+@@ -1703,7 +1703,8 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id:
+     features["hidDevices"] = Value::Null;
+     let mut body = json!({"sessionRequestData":{
+         "appId":app_id.parse::<i64>().unwrap_or_default(),
+-        "internalTitle":params["title"].as_str(),
++        // Always null in the official client's request.
++        "internalTitle":null,
+         "availableSupportedControllers":[2],
+         "preferredController":2,
+         "networkTestSessionId":params["networkTestSessionId"].as_str(),
+@@ -5875,7 +5876,7 @@ mod tests {
+         );
+         assert!(request.get("externalAppId").is_none());
+         assert_eq!(request["enablePersistingInGameSettings"], true);
+-        assert_eq!(request["internalTitle"], "Portal 2");
++        assert!(request["internalTitle"].is_null());
+         assert_eq!(request["accountLinked"], true);
+         assert_eq!(request["appLaunchMode"], 2);
+         assert_eq!(request["secureRTSPSupported"], true);
+diff --git a/native/opennow-core/src/gfn.rs b/native/opennow-core/src/gfn.rs
+index 8fed7e15..51a55386 100644
+--- a/native/opennow-core/src/gfn.rs
++++ b/native/opennow-core/src/gfn.rs
+@@ -1806,10 +1806,9 @@ impl GfnService {
+             )
+         })?;
+         let (mut params, settings) = self.scoped_session_route(params, &settings, &session)?;
+-        params["accountLinked"] = variant["inLibrary"].clone();
++        params["accountLinked"] = json!(inspection["accountLinked"] == true);
+         params["supportsInGameSettingsPersistence"] =
+             variant["supportsInGameSettingsPersistence"].clone();
+-        params["title"] = inspection["game"]["title"].clone();
+         let result = admission
+             .create(&params, &settings, &session, &self.device_id)
+             .map(|result| scoped_result(result, &session, generation));
+diff --git a/native/opennow-core/src/gfn/catalog_actions.rs b/native/opennow-core/src/gfn/catalog_actions.rs
+index 86f13d9a..d50e1a11 100644
+--- a/native/opennow-core/src/gfn/catalog_actions.rs
++++ b/native/opennow-core/src/gfn/catalog_actions.rs
+@@ -182,6 +182,26 @@ pub(super) fn account_decision(
+     None
+ }
+ 
++/// The session request's `accountLinked`, as the official client sets it: the variant's store signs
++/// in through GeForce NOW (single sign-on), the link covers this variant, and the account is
++/// connected and unexpired. Owning the game is not a link; Steam offers no sign-on, so a Steam
++/// variant is never linked.
++pub(super) fn store_account_linked(variant: &Value, variant_id: &str, access: &Value) -> bool {
++    let store =
++        crate::catalog_types::normalize_store(variant["store"].as_str().unwrap_or_default());
++    access["accounts"]
++        .as_array()
++        .and_then(|accounts| accounts.iter().find(|account| account["provider"] == store))
++        .is_some_and(|account| {
++            account["supportsLinking"] == true
++                && account["isConnected"] == true
++                && account["status"] != "expired"
++                && account["accountLinkingMetadata"]["supportedVariantIds"]
++                    .as_array()
++                    .is_none_or(|ids| ids.is_empty() || ids.iter().any(|id| id == variant_id))
++        })
++}
++
+ pub(super) fn requires_paid_membership(game: &Value) -> bool {
+     game["membershipTierLabel"].as_str().is_some_and(|tier| {
+         !tier.trim().is_empty() && !tier.trim().to_ascii_lowercase().starts_with("free")
+@@ -419,6 +439,10 @@ impl GfnService {
+             Ok(subscription["subscription"].clone())
+         })?;
+         result["decision"] = serde_json::to_value(decision).expect("launch decision serializable");
++        result["accountLinked"] = json!(
++            selected_variant(&result["game"], &variant_id)
++                .is_some_and(|variant| store_account_linked(variant, &variant_id, &access))
++        );
+         result["appId"] = json!(app_id);
+         result["variantId"] = json!(variant_id);
+         Ok(result)
+diff --git a/native/opennow-core/src/gfn/catalog_actions/tests.rs b/native/opennow-core/src/gfn/catalog_actions/tests.rs
+index 5ff4c3f1..7cc32c7d 100644
+--- a/native/opennow-core/src/gfn/catalog_actions/tests.rs
++++ b/native/opennow-core/src/gfn/catalog_actions/tests.rs
+@@ -118,6 +118,39 @@ fn nullable_variant_scope_preserves_required_account_linking() {
+     }
+ }
+ 
++#[test]
++fn account_linked_means_a_connected_sign_on_link_not_ownership() {
++    let game = app_to_game(&app("MANUAL", true, false)).unwrap();
++    let (steam, epic) = (
++        selected_variant(&game, "123").unwrap(),
++        selected_variant(&game, "456").unwrap(),
++    );
++    let linked = |variant: &Value, id: &str, account: Value| {
++        super::store_account_linked(variant, id, &json!({"accounts":[account]}))
++    };
++    assert!(!linked(
++        steam,
++        "123",
++        json!({"provider":"STEAM","supportsLinking":false,"isConnected":true,"status":"connected"})
++    ));
++    let sign_on =
++        json!({"provider":"EPIC","supportsLinking":true,"isConnected":true,"status":"connected"});
++    assert!(linked(epic, "456", sign_on.clone()));
++    for (key, value) in [
++        ("isConnected", json!(false)),
++        ("status", json!("expired")),
++        (
++            "accountLinkingMetadata",
++            json!({"supportedVariantIds":["999"]}),
++        ),
++    ] {
++        let mut account = sign_on.clone();
++        account[key] = value;
++        assert!(!linked(epic, "456", account), "{key}");
++    }
++    assert!(!super::store_account_linked(epic, "456", &Value::Null));
++}
++
+ #[test]
+ fn no_subscription_sentinel_is_normalized_without_bypassing_real_subscriptions() {
+     for subscription in [
+diff --git a/native/opennow-core/src/gfn/routing_tests.rs b/native/opennow-core/src/gfn/routing_tests.rs
+index d3a3db54..7f00253c 100644
+--- a/native/opennow-core/src/gfn/routing_tests.rs
++++ b/native/opennow-core/src/gfn/routing_tests.rs
+@@ -802,7 +802,8 @@ fn reject_concurrent_create_during(discovery: bool) {
+             assert!(request.starts_with("POST /v2/session?"));
+             let body: Value =
+                 serde_json::from_str(request.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+-            assert_eq!(body["sessionRequestData"]["accountLinked"], true);
++            // The fixture is a Steam variant in the library: owned, but Steam has no sign-on link.
++            assert_eq!(body["sessionRequestData"]["accountLinked"], false);
+         }
+         entered_tx.send(()).unwrap();
+         release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+diff --git a/native/opennow-core/src/streamer.rs b/native/opennow-core/src/streamer.rs
+index ae84bd82..59223b06 100644
+--- a/native/opennow-core/src/streamer.rs
++++ b/native/opennow-core/src/streamer.rs
+@@ -910,6 +910,7 @@ impl StreamerService {
+             "toggle-fullscreen" => "fullscreen-toggle",
+             "toggle-microphone" => "microphone-toggle",
+             "anti-afk-pulse" => "anti-afk-pulse",
++            "steam-overlay" => "steam-overlay",
+             _ => return Err(invalid("Unknown native streamer control action")),
+         };
+         self.reap_finished();

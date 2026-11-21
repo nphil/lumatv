@@ -138,7 +138,10 @@ struct Tracked {
 }
 
 #[derive(Default)]
-struct Latest { fps: Option<f32>, client_ms: Option<f32>, host_ms: Option<f32>, pad_bursts: Option<u32>, pad_gap_us: Option<u32> }
+struct Latest {
+    fps: Option<f32>, client_ms: Option<f32>, host_ms: Option<f32>, pad_bursts: Option<u32>, pad_gap_us: Option<u32>,
+    pacing_ms: Option<f32>, host_gap_ms: Option<[f32; 2]>, arrival_gap_ms: Option<[f32; 2]>,
+}
 
 /// Per-frame samples since the last pacing line.
 #[derive(Default)]
@@ -292,7 +295,8 @@ impl Observer {
     }
     fn stats(&mut self, now: u64, stats: &ipc::Stats, out: &mut Vec<Event>) {
         let pad = stats.pad.as_ref();
-        self.latest = Latest { fps: stats.fps.map(tenth), client_ms: stats.client_ms, host_ms: stats.host_ms, pad_bursts: pad.map(|p| p.bursts), pad_gap_us: pad.map(|p| p.burst_gap_us) };
+        self.latest = Latest { fps: stats.fps.map(tenth), client_ms: stats.client_ms, host_ms: stats.host_ms, pad_bursts: pad.map(|p| p.bursts), pad_gap_us: pad.map(|p| p.burst_gap_us),
+            pacing_ms: stats.pacing_ms, host_gap_ms: stats.host_gap_ms, arrival_gap_ms: stats.arrival_gap_ms };
         if self.stream_at.is_none_or(|at| now.saturating_sub(at) >= 1000) {
             self.stream_at = Some(now);
             out.push(Event::Stream {
@@ -358,7 +362,9 @@ impl Observer {
         let bursts = self.latest.pad_bursts.filter(|n| *n > 0);
         out.push(Event::Detail {
             ms: now, fps: tenth(w.n as f32 * 1000.0 / now.saturating_sub(from) as f32), gap_us: percentiles(w.gaps).unwrap_or_default(), feed_us: percentiles(w.feeds).unwrap_or_default(),
-            queue: w.queue, late: w.late, stalls: w.stalls, client_ms: self.latest.client_ms.map(tenth), host_ms: self.latest.host_ms.map(tenth), pad_bursts: bursts,
+            queue: w.queue, late: w.late, stalls: w.stalls, client_ms: self.latest.client_ms.map(tenth), host_ms: self.latest.host_ms.map(tenth),
+            pacing_ms: self.latest.pacing_ms.map(tenth), host_gap_ms: self.latest.host_gap_ms.map(|g| g.map(tenth)),
+            arrival_gap_ms: self.latest.arrival_gap_ms.map(|g| g.map(tenth)), pad_bursts: bursts,
             pad_gap_us: bursts.and(self.latest.pad_gap_us), hz: panel.and_then(|r| r.hz), min_hz: panel.and_then(|r| r.min_hz), fewest: panel.and_then(|r| r.fewest),
         });
     }
@@ -489,6 +495,7 @@ mod tests {
         let stats = ipc::Stats {
             rtt_ms: Some(12.345_678), jitter_ms: Some(1.234_567), loss_pct: Some(2.5), bitrate_kbps: Some(40_000), fps: Some(59.94), dropped: Some(0), socket_drops: Some(0), client_ms: Some(2.345_678), host_ms: Some(6.5),
             pad: Some(PadStats { name: "Alice's Pad".into(), reports: 120, rate_hz: 125.123_45, p99_us: 9_000, bursts: 2, burst_gap_us: 30_000, age_ms: 5 }),
+            pacing_ms: None, host_gap_ms: None, arrival_gap_ms: None,
         };
         let trip = RoundTrip { presses: Some(12), press_p50_ms: Some(1.234_567), press_p99_ms: Some(4.5), network_ms: Some(9.0), host_ms: Some(6.5), arrival_p50_ms: Some(14.0), arrival_p95_ms: Some(20.0), client_ms: Some(2.5) };
         for ms in (0..secs * 1000).step_by(100) {
@@ -685,14 +692,16 @@ mod tests {
         let mut o = running(Level::Debug);
         let mut out = Vec::new();
         o.display(900, &panel(1, 60.0, None), &mut out);
-        let stats = ipc::Stats { client_ms: Some(2.5), host_ms: Some(6.5), pad: Some(PadStats { bursts: 2, burst_gap_us: 30_000, ..PadStats::default() }), ..ipc::Stats::default() };
+        let stats = ipc::Stats { client_ms: Some(2.5), host_ms: Some(6.5), pad: Some(PadStats { bursts: 2, burst_gap_us: 30_000, ..PadStats::default() }),
+            pacing_ms: Some(2.5), host_gap_ms: Some([8.5, 9.0]), arrival_gap_ms: Some([4.5, 16.5]), ..ipc::Stats::default() };
         o.engine_event(950, "gfn", &ipc::Event::Stats { session: SessionId(7), stats }, &mut out);
         out.clear();
         o.frames(1000, &frames(10, calm(10)), &mut out);
         o.frames(3000, &frames(20, calm(10)), &mut out);
         assert_eq!(only(&out, "detail"), vec![json!({
             "event": "detail", "ms": 3000, "fps": 10.0, "gap_us": [16_666, 16_666, 16_666, 16_666], "feed_us": [300, 300, 300, 300], "queue": 1,
-            "client_ms": 2.5, "host_ms": 6.5, "pad_bursts": 2, "pad_gap_us": 30_000, "hz": 60.0, "min_hz": 59.5, "fewest": 3,
+            "client_ms": 2.5, "host_ms": 6.5, "pacing_ms": 2.5, "host_gap_ms": [8.5, 9.0], "arrival_gap_ms": [4.5, 16.5], "pad_bursts": 2, "pad_gap_us": 30_000,
+            "hz": 60.0, "min_hz": 59.5, "fewest": 3,
         })]);
     }
 

@@ -106,6 +106,8 @@ word_enum! {
         RoundTrip => "round-trip",
         /// Hands controller keys to the app while the app's overlay holds the input.
         OverlayKeys => "overlay-keys",
+        /// Opens Steam's overlay over a running Steam game ([`crate::ipc::Request::SteamOverlay`]).
+        SteamOverlay => "steam-overlay",
         Rumble => "rumble",
         Keyboard => "keyboard",
         Mouse => "mouse",

@@ -301,12 +301,13 @@ fn streaming(p: &mut Paint<'_>, x: f32, w: f32) {
         p.text(450, "AV1 is available at 60 fps", Frame::new(x + 26.0, y, w - 52.0, p.line(Type::Caption)), Type::Caption, Role::Ink2, false, 10);
         y += p.line(Type::Caption) + 12.0;
     }
+    y += row(p, 540, Focus::Setting(5), "Frame pacing", None, Control::Segments(&["Smooth", "Lowest latency"], usize::from(!m.prefs.smooth_pacing)), Frame::new(x, y, w, 0.0));
     y += 24.0;
     p.text(460, "Playing", Frame::new(x + 26.0, y, w - 52.0, p.line(Type::Body)), Type::Body, Role::Ink2, false, 10);
     y += p.line(Type::Body) + 20.0;
     let preferred = m.state().profile().user.preferred_engine.as_ref().map_or("Ask each time", |id| m.engine_name(id));
-    y += row(p, 480, Focus::Setting(5), "Preferred way to play", None, Control::Value(preferred), Frame::new(x, y, w, 0.0));
-    row(p, 510, Focus::Setting(6), "Stats while playing", None, Control::Segments(&["Off", "Compact", "Full"], m.prefs.stats.mode.index()), Frame::new(x, y, w, 0.0));
+    y += row(p, 480, Focus::Setting(6), "Preferred way to play", None, Control::Value(preferred), Frame::new(x, y, w, 0.0));
+    row(p, 510, Focus::Setting(7), "Stats while playing", None, Control::Segments(&["Off", "Compact", "Full"], m.prefs.stats.mode.index()), Frame::new(x, y, w, 0.0));
 }
 fn integrations(p: &mut Paint<'_>, x: f32, w: f32) {
     let h = 100.0f32.max(p.line(Type::Body) + p.line(Type::Caption) + 24.0);

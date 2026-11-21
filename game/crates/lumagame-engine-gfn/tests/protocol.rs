@@ -145,6 +145,8 @@ fn launch_ack_queue_start_running_stats_and_remote_end() {
     let create=f.reply("session.create",json!({"sessionId":"seat","status":1,"phase":"queued","queuePosition":8}));
     assert_eq!(create["params"]["scope"],scope(3));
     assert_eq!(create["params"]["runtimeCapabilities"]["nativeHdrSupported"],true);
+    assert_eq!(create["params"]["appLaunchMode"],"gamepadFriendly","what NVIDIA's own client asks for on a TV");
+    assert!(create["params"].get("accountLinked").is_none(),"the core decides it from the store's sign-on link");
     assert!(create["params"]["runtimeCapabilities"]["nativeHdrDisplay"].is_null(),"a luminance pair without primaries makes the core drop the frame average from the HDR display data");
     f.collect();assert_eq!(f.receipts.len(),1);
     f.event("session.changed",json!({"sessionId":"seat","status":1,"phase":"queued","queuePosition":3}));
@@ -170,12 +172,12 @@ fn launch_ack_queue_start_running_stats_and_remote_end() {
 
 #[test]
 fn the_hdr_setting_goes_to_the_core_before_the_session_is_created() {
-    for (hdr, depth) in [(true,"10bit_420"),(false,"8bit_420")] {
+    for hdr in [true,false] {
         let mut f=FakeCore::new(true);
         f.send(4,Request::Settings{values:Values::from([("hdr".into(),lumagame_core::settings::Value::Bool(hdr))])});
         let set=f.launch();
         assert!(set.contains(&("enableHdr".into(),json!(hdr))),"{set:?}");
-        assert!(set.contains(&("colorQuality".into(),json!(depth))),"{set:?}");
+        assert!(set.contains(&("colorQuality".into(),json!("10bit_420"))),"HEVC streams 10-bit, HDR or not: {set:?}");
         assert!(set.contains(&("codec".into(),json!("h265"))),"HDR needs a codec that carries it: {set:?}");
         f.reply("session.create",json!({"sessionId":"seat","status":1,"phase":"queued"}));
     }
@@ -258,6 +260,17 @@ fn round_trip_answers_with_the_latest_stream_and_press_legs_once_running() {
     f.send(24,Request::RoundTrip{session:SessionId(9)});
     let trip=f.events.iter().find_map(|e| match &e.event {Event::RoundTrip{trip,..} if e.re==Some(24)=>Some(trip.clone()),_=>None}).unwrap();
     assert_eq!(trip,RoundTrip{presses:Some(14),press_p50_ms:Some(0.42),press_p99_ms:Some(1.9),network_ms:Some(21.5),..RoundTrip::default()});
+}
+
+#[test]
+fn steam_overlay_asks_the_running_streamer_for_the_shortcut() {
+    let mut f=FakeCore::new(true);f.launch();
+    f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));
+    f.send(23,Request::SteamOverlay{session:SessionId(9)});
+    assert!(f.events.iter().any(|e| e.re==Some(23) && matches!(e.event,Event::Error{code:ErrorCode::BadRequest,..})),"not running yet");
+    f.reply("streamer.start",json!({"status":"running"}));
+    f.send(24,Request::SteamOverlay{session:SessionId(9)});
+    assert_eq!(f.reply("streamer.control",json!({"action":"steam-overlay","streamerRunning":true}))["params"],json!({"action":"steam-overlay"}));
 }
 
 #[test]

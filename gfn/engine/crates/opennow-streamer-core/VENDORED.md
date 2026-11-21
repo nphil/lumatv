@@ -26,4 +26,17 @@ Upstream changes applied:
   idc values, and the seat ended it with 0x800e8605. Touches `nvst_rtsp_color.rs`, its tests and
   the ANNOUNCE tests in `nvst_rtsp.rs`; applied as the commit has it.
 
-No local changes.
+Local changes, all in `build_announce` (`nvst_rtsp.rs`) and taken from what the official web client
+(the 2026 play.geforcenow.com bundle LG's app wraps) sends from a TV, with ANNOUNCE tests for each:
+
+- `video[0].mapRtpTimestampsToFrames` is no longer forced to 0, so the server's offer stands and
+  RTP timestamps can name frames for the platform's playout pacing. The handoff log records the
+  offer as `rtp_frame_stamps`.
+- `video[0].dx9EnableHdr:1` always.
+- Above 60 fps, frame-rate control (`vqos[0].dfc.*`) is on, except in dynamic streaming mode 1;
+  at 120 fps it runs algorithm v2 with a 100 fps floor. Resolution control (`drc.enable:0`) stays
+  off.
+- At 120 fps, `fakeEncodeFps:120` asks for a fixed 120 fps encode whatever the game renders, with
+  `fbcDynamicFpsGrabTimeoutMs:6` and `resControl.cpmRtc.decodeTimeThresholdMs:9`. DLSS frame
+  generation otherwise reaches the TV as bursts of two frames.
+- 10-bit HEVC gets `video[0].minQp:14`.

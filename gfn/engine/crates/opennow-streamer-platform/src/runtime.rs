@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use opennow_streamer_protocol::{
@@ -18,6 +18,7 @@ use opennow_streamer_protocol::{
 };
 
 use lumagame_feeder::{self as feeder, FeederClient, FeederMessage, Hdr, Load};
+use crate::pacing::{self, Pacer, Report};
 use crate::pads::PadBridge;
 use crate::recording::{EncodedRecordingReceiver, ReplaySnapshot};
 use crate::types::{
@@ -72,6 +73,8 @@ struct RuntimeInner {
     child: Mutex<Option<Child>>,
     shutdown: Mutex<Option<Sender<()>>>,
     sessions: AtomicU64,
+    /// The pacer's latest second of cadence, added to the next telemetry event.
+    cadence: Mutex<Option<Report>>,
 }
 
 static RUNTIME: OnceLock<Arc<RuntimeInner>> = OnceLock::new();
@@ -85,7 +88,14 @@ pub fn controller_rumble(controller_id: u8, low_frequency: u16, high_frequency: 
 /// The streamer's `telemetry` event, forwarded to the engine's side socket (the binary calls this before writing the event out).
 pub fn stream_telemetry(telemetry: &serde_json::Value) {
     if let Some(rt) = RUNTIME.get() {
-        rt.pads.stream_telemetry(telemetry);
+        match rt.cadence.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            Some(report) => {
+                let mut telemetry = telemetry.clone();
+                report.add_to(&mut telemetry);
+                rt.pads.stream_telemetry(&telemetry);
+            }
+            None => rt.pads.stream_telemetry(telemetry),
+        }
     }
 }
 
@@ -125,6 +135,7 @@ pub fn create_runtime() -> Result<(MainThreadHost, MediaRuntime), String> {
         child: Mutex::new(None),
         shutdown: Mutex::new(Some(tx)),
         sessions: AtomicU64::new(0),
+        cadence: Mutex::new(None),
     });
     let _ = RUNTIME.set(Arc::clone(&inner));
     inner.pads.start();
@@ -194,12 +205,14 @@ impl MediaRuntime {
         if !library {
             return Err("the feeder has no NDL library: nothing can show the stream on this set".to_owned());
         }
+        let smooth = pacing::smooth_from_prefs();
         opennow_streamer_protocol::log::log_line(
             "INFO",
             "ndl",
-            &format!("feeder connected: window {window_id}, library {library_name}, codec {:?} {}x{} at {} fps, hdr {}",
-                stream.codec, stream.width, stream.height, stream.fps, stream.hdr),
+            &format!("feeder connected: window {window_id}, library {library_name}, codec {:?} {}x{} at {} fps, hdr {}, pacing {}",
+                stream.codec, stream.width, stream.height, stream.fps, stream.hdr, if smooth { "smooth" } else { "latency" }),
         );
+        let pacer = Pacer::new(stream.fps, smooth);
         let load = Load {
             codec: match stream.codec {
                 MediaVideoCodec::H264 => feeder::codec::H264,
@@ -223,13 +236,15 @@ impl MediaRuntime {
             stopped: AtomicBool::new(false),
             paused: AtomicBool::new(false),
             playing: AtomicBool::new(false),
-            muted: Arc::clone(&self.inner).muted_flag(),
+            runtime: Arc::clone(&self.inner),
             in_flight: Mutex::new(VecDeque::new()),
             accepted: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
             started_at: Instant::now(),
             last_status: Mutex::new(None),
             video_mid: Mutex::new(String::new()),
+            pace: Mutex::new(Pace { pacer, held: VecDeque::new(), sending: false }),
+            pace_wake: Condvar::new(),
         });
         let (loaded_tx, loaded_rx) = mpsc::channel::<Result<(), String>>();
         let reader_shared = Arc::clone(&shared);
@@ -249,11 +264,20 @@ impl MediaRuntime {
             }
         }
         self.inner.sessions.fetch_add(1, Ordering::Release);
+        *self.inner.cadence.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let client = Arc::new(Mutex::new(Some(client)));
+        if smooth {
+            let (paced, feeder) = (Arc::clone(&shared), Arc::clone(&client));
+            if let Err(e) = std::thread::Builder::new().name("gfn-pacer".to_owned()).spawn(move || pace_loop(&paced, &feeder)) {
+                opennow_streamer_protocol::log::log_line("INFO", "ndl", &format!("frames go unpaced: no pacing thread ({e})"));
+                shared.pace.lock().unwrap_or_else(|e| e.into_inner()).pacer = Pacer::new(shared.stream.fps, false);
+            }
+        }
         self.inner.pads.set_active(true);
         self.inner.pads.set_grab(true);
         Ok(MediaSession {
             shared,
-            client: Arc::new(Mutex::new(Some(client))),
+            client,
             captured_input: Arc::clone(&self.inner.captured_input),
             runtime: Arc::clone(&self.inner),
         })
@@ -315,12 +339,6 @@ impl MediaRuntime {
     }
 }
 
-impl RuntimeInner {
-    fn muted_flag(self: Arc<Self>) -> Arc<RuntimeInner> {
-        self
-    }
-}
-
 struct InFlight {
     pts_ns: i64,
     frame_index: Option<u32>,
@@ -335,13 +353,24 @@ struct Shared {
     stopped: AtomicBool,
     paused: AtomicBool,
     playing: AtomicBool,
-    muted: Arc<RuntimeInner>,
+    runtime: Arc<RuntimeInner>,
     in_flight: Mutex<VecDeque<InFlight>>,
     accepted: AtomicU64,
     dropped: AtomicU64,
     started_at: Instant,
     video_mid: Mutex<String>,
     last_status: Mutex<Option<feeder::Status>>,
+    pace: Mutex<Pace>,
+    /// Wakes the pacing thread for a newly held frame, a finished write or the stop.
+    pace_wake: Condvar,
+}
+
+/// Video frames waiting for their release time, oldest first. `sending` covers a write in progress outside the lock, so no later
+/// frame overtakes it.
+struct Pace {
+    pacer: Pacer,
+    held: VecDeque<(EncodedFrame, i64)>,
+    sending: bool,
 }
 
 impl Shared {
@@ -458,50 +487,109 @@ impl MediaSink {
         if self.shared.stopped.load(Ordering::Acquire) {
             return PushOutcome::Closed;
         }
-        let (kind, is_video) = match frame.codec {
-            MediaCodec::H264 | MediaCodec::H265 | MediaCodec::Av1 => (feeder::msg::VIDEO, true),
-            MediaCodec::Opus { .. } => (feeder::msg::AUDIO, false),
-            MediaCodec::Unsupported(_) => return PushOutcome::Unsupported,
-        };
-        if !is_video && self.shared.muted.muted.load(Ordering::Acquire) {
-            return PushOutcome::Queued;
+        match frame.codec {
+            MediaCodec::H264 | MediaCodec::H265 | MediaCodec::Av1 => self.pace(frame),
+            MediaCodec::Opus { .. } if self.shared.runtime.muted.load(Ordering::Acquire) => PushOutcome::Queued,
+            MediaCodec::Opus { .. } => send(&self.shared, &self.client, &frame, false),
+            MediaCodec::Unsupported(_) => PushOutcome::Unsupported,
         }
-        let mut guard = self.client.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(client) = guard.as_mut() else { return PushOutcome::Closed };
-        let mut pts = now_ns();
-        if is_video {
-            let mut mid = self.shared.video_mid.lock().unwrap_or_else(|e| e.into_inner());
-            if *mid != frame.mid { mid.clone_from(&frame.mid); }
-            drop(mid);
-            let mut q = self.shared.in_flight.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(last) = q.back() {
-                if pts <= last.pts_ns {
-                    pts = last.pts_ns + 1;   /* ACCEPT/DROP correlation must remain unique, even inside one clock tick. */
-                }
-            }
-            q.push_back(InFlight {
-                pts_ns: pts,
-                frame_index: frame.frame_index,
-                timestamp: frame.timestamp,
-                bytes: frame.data.len() as u32,
-                keyframe: frame.keyframe,
-            });
-            while q.len() > 64 {
-                q.pop_front();
+    }
+
+    /// A video frame goes at its release time: straight away when it is due and nothing is held, otherwise behind the held frames
+    /// on the pacing thread, which keeps their order.
+    fn pace(&self, frame: EncodedFrame) -> PushOutcome {
+        let mut mid = self.shared.video_mid.lock().unwrap_or_else(|e| e.into_inner());
+        if *mid != frame.mid { mid.clone_from(&frame.mid); }
+        drop(mid);
+        let now = now_ns();
+        let resync = frame.keyframe || !frame.contiguous;
+        let mut pace = self.shared.pace.lock().unwrap_or_else(|e| e.into_inner());
+        let release = pace.pacer.schedule(now, frame.timestamp, frame.clock_rate_hz, resync);
+        if let Some(report) = pace.pacer.take_report() {
+            *self.shared.runtime.cadence.lock().unwrap_or_else(|e| e.into_inner()) = Some(report);
+        }
+        if !pace.pacer.smooth() {
+            drop(pace);
+            return send(&self.shared, &self.client, &frame, true);
+        }
+        if release <= now && pace.held.is_empty() && !pace.sending {
+            pace.sending = true;
+            drop(pace);
+            let outcome = send(&self.shared, &self.client, &frame, true);
+            self.shared.pace.lock().unwrap_or_else(|e| e.into_inner()).sending = false;
+            self.shared.pace_wake.notify_one();
+            return outcome;
+        }
+        if resync {
+            for held in &mut pace.held {
+                held.1 = held.1.min(now);
             }
         }
-        let sent = (|| {
-            if is_video && !frame.contiguous && !frame.keyframe { client.send_flush()?; }
-            client.send_media(kind, pts, frame.keyframe, &frame.data)
-        })();
-        match sent {
-            Ok(()) => PushOutcome::Queued,
-            Err(e) => {
-                if !self.shared.stopped.swap(true, Ordering::AcqRel) {
-                    let _ = self.shared.feedback.send(MediaFeedback::OutputError { message: format!("feeder write: {e}") });
-                }
-                PushOutcome::Closed
+        pace.held.push_back((frame, release));
+        drop(pace);
+        self.shared.pace_wake.notify_one();
+        PushOutcome::Queued
+    }
+}
+
+/// Hands held video frames to the feeder at their release times, in order, until the session stops.
+fn pace_loop(shared: &Shared, client: &Mutex<Option<FeederClient>>) {
+    let mut pace = shared.pace.lock().unwrap_or_else(|e| e.into_inner());
+    while !shared.stopped.load(Ordering::Acquire) {
+        let now = now_ns();
+        match pace.held.front().map(|held| held.1) {
+            Some(at) if at <= now && !pace.sending => {
+                let Some((frame, _)) = pace.held.pop_front() else { continue };
+                pace.sending = true;
+                drop(pace);
+                send(shared, client, &frame, true);
+                pace = shared.pace.lock().unwrap_or_else(|e| e.into_inner());
+                pace.sending = false;
             }
+            Some(at) if !pace.sending => {
+                let wait = Duration::from_nanos(u64::try_from(at - now).unwrap_or(0));
+                pace = shared.pace_wake.wait_timeout(pace, wait).unwrap_or_else(|e| e.into_inner()).0;
+            }
+            _ => pace = shared.pace_wake.wait(pace).unwrap_or_else(|e| e.into_inner()),
+        }
+    }
+}
+
+/// Writes one unit to the feeder. A video unit's pts is its hand-over time, by which the feeder's ACCEPT and DROP name it.
+fn send(shared: &Shared, client: &Mutex<Option<FeederClient>>, frame: &EncodedFrame, is_video: bool) -> PushOutcome {
+    let mut guard = client.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(client) = guard.as_mut() else { return PushOutcome::Closed };
+    let mut pts = now_ns();
+    if is_video {
+        let mut q = shared.in_flight.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(last) = q.back() {
+            if pts <= last.pts_ns {
+                pts = last.pts_ns + 1;   /* ACCEPT/DROP correlation must remain unique, even inside one clock tick. */
+            }
+        }
+        q.push_back(InFlight {
+            pts_ns: pts,
+            frame_index: frame.frame_index,
+            timestamp: frame.timestamp,
+            bytes: frame.data.len() as u32,
+            keyframe: frame.keyframe,
+        });
+        while q.len() > 64 {
+            q.pop_front();
+        }
+    }
+    let kind = if is_video { feeder::msg::VIDEO } else { feeder::msg::AUDIO };
+    let sent = (|| {
+        if is_video && !frame.contiguous && !frame.keyframe { client.send_flush()?; }
+        client.send_media(kind, pts, frame.keyframe, &frame.data)
+    })();
+    match sent {
+        Ok(()) => PushOutcome::Queued,
+        Err(e) => {
+            if !shared.stopped.swap(true, Ordering::AcqRel) {
+                let _ = shared.feedback.send(MediaFeedback::OutputError { message: format!("feeder write: {e}") });
+            }
+            PushOutcome::Closed
         }
     }
 }
@@ -565,6 +653,9 @@ impl MediaControl {
 
     pub fn stop(&self) {
         self.shared.stopped.store(true, Ordering::Release);
+        self.shared.pace.lock().unwrap_or_else(|e| e.into_inner()).held.clear();
+        self.shared.pace_wake.notify_all();
+        *self.runtime.cadence.lock().unwrap_or_else(|e| e.into_inner()) = None;
         self.runtime.pads.set_grab(false);
         self.runtime.pads.set_active(false);
         if let Some(mut client) = self.client.lock().unwrap_or_else(|e| e.into_inner()).take() {
@@ -596,6 +687,7 @@ mod feeder_feedback_tests {
             child: Mutex::new(None),
             shutdown: Mutex::new(None),
             sessions: AtomicU64::new(0),
+            cadence: Mutex::new(None),
         });
         let (feedback, rx) = mpsc::channel();
         let (loaded, _) = mpsc::channel();
@@ -607,13 +699,15 @@ mod feeder_feedback_tests {
             stopped: AtomicBool::new(false),
             paused: AtomicBool::new(false),
             playing: AtomicBool::new(false),
-            muted: runtime,
+            runtime,
             in_flight: Mutex::new(VecDeque::new()),
             accepted: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
             started_at: Instant::now(),
             video_mid: Mutex::new("video-0".to_owned()),
             last_status: Mutex::new(None),
+            pace: Mutex::new(Pace { pacer: Pacer::new(120, true), held: VecDeque::new(), sending: false }),
+            pace_wake: Condvar::new(),
         };
         (shared, rx, loaded)
     }
