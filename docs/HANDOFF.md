@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Foreground priority installed, 2026-11-20 (main d34aef82, installed 23:31 EST with the TV on, at the owner's request)
+
+Helper `6789b3eb280914008d40f1d542a208e783625f16bcd6a4c59340c626ccaec0b4` (replaces 2507abda; pids 3491/3492, healthy), built from the committed tree. With Home in front and Netflix in the background, topic `app_priority` reported Netflix `cached`, and the process read `oom_score_adj` 900 in `cpu,cpuacct:/lumatv-background` (`cpu.shares` 52) with a memory soft limit of 0. It stayed `THAWED`: Netflix is on memchute's kept list, which the policy leaves unfrozen. Memory PSI was 0 and MemAvailable 950 MB. Freeze, thaw on relaunch, a pressure close and the restore on `lumatv helper stop` are untested on the TV. Rollback: `/tmp/cs/18172b987bff/app-snapshot/backup/lumatv-helper-2507abda`.
+
 ## Helper memory trimmed, 2026-11-20 (main 59df91b6, installed 21:58 EST with the TV on, at the owner's request)
 
 At 21:11 the helper held 49 MB (44 MB anon) after 5 h 15 min: 24.5 MB in the hub's 256-event replay ring, each event kept as a `serde_json::Value` about 8× its text, with On Home republished every 10 s for an `at` nothing reads (98 copies, 19.5 MB); about 7.6 MB of freed but unreturned heap; the guide 7.3 MB (14,800 programmes, 1.4 MB of spare capacity). Events are now kept as raw JSON text (answers byte-identical), an `at`-only On Home change is not an event, and the guide shrinks its tables after a rebuild. A two-hour host replay of the TV's mix under musl's allocator: 32.8 MB → 5.8 MB. Installed helper `2507abda5c71465091367bb7ac67110836990fc83be0ba3583da0bbbc45c3653` (replaces b9686eba; pids 22831/22832, healthy); 20 s after start the worker read 18.9 MB RSS (13.9 MB anon, 5.0 MB file), and at 22:45 after 58 min 20.4 MB RSS (14.7 MB anon, 5.7 MB file), against 49 MB / 44 MB anon before. Rollback: `/tmp/cs/18172b987bff/app-snapshot/backup/lumatv-helper-b9686eba`.
