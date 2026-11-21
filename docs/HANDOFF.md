@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## SSH key login lost after the 2026-11-20 16:05 reboot
+
+After the set's reboot at about 16:05 EST, `/home/root/.ssh/` was gone, so dropbear refused this server's key and `tv-ssh` fell back to the password. At 19:55 `/home/root/.ssh/authorized_keys` (0600) was re-created with `/data/home/.ssh/id_ed25519.pub` and key login works again. What removed the directory is not known. LumaTV came back by itself: compositor live and persistent, zero failures, ui `7b4530fb` and helper `b9686eba` as installed.
+
 ## LumaTV channel number entry on Live TV, 2026-11-18 (main 2c6e0ac2, installed 22:10 EST with the TV on, at the owner's request; unaccepted)
 
 The owner accepted the OK banner (21:33 EST) but found the digits still opened LG's number entry. Digits and the dash (771) on Live TV now open LumaTV's entry strip, styled like the banner, with up to four matching channels; it tunes 2.5 s after the last digit (1.5 s on a single match) or on OK, through the guide's launch, and then shows LumaTV's banner. Up/Down pick a match, Back/Left delete, Guide while typing adds the dash, List opens the guide; the dash at rest opens the guide. "52" lists 52 first, then 5-2. Taken only under the OK banner's conditions; LG's entry stays over its pop-ups and while the shell is not running. Installed compositor `cb605100ac9eedde38e436584963bf83b726041f8cc6c25bd2cf7b9eadcfce03` (replaces 0b861309) and ui `7b4530fb6387281e2934de6268023cc7175a414f11de418fcd774a2318685cca` (replaces 6db46e1b); sm `65f6ca69` and the helper unchanged. With the panel on, `cutover.sh disable` and `enable` both reported a picture; live, persistent, zero failures. Untested on the TV: the entry itself, a held digit (LG's Quick Access), CH+ during entry. Rollback: `/tmp/cs/18172b987bff/app-snapshot/backup/lumatv-compositor-0b861309`, `lumatv-ui-6db46e1b`.
