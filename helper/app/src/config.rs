@@ -149,6 +149,9 @@ pub struct Config {
     /// write only its own short list, and puts everything back); with `enabled` false the routes refuse. A journal an earlier run left is put
     /// back at the helper's start whatever this says.
     pub display_lab: DisplayLabConfig,
+    /// Foreground priority (`app_priority/`): the app on screen first, after Android's process states. Always on; `enabled` false is a
+    /// diagnostic switch, and a journal an earlier run left is put back at the helper's start whatever this says.
+    pub app_priority: AppPriorityConfig,
     /// How far the helper's scheduling priority is lowered (`nice`): it is background work and must never take a core from the
     /// compositor. 0 leaves it as started.
     pub nice: i32,
@@ -189,6 +192,7 @@ impl Default for Config {
             hdhr: HdhrConfig::default(),
             previews: PreviewsConfig::default(),
             display_lab: DisplayLabConfig::default(),
+            app_priority: AppPriorityConfig::default(),
             nice: 10,
             allowed_origins: Vec::new(),
             brand_app_id: None,
@@ -269,6 +273,19 @@ pub struct DisplayLabConfig {
 }
 
 impl Default for DisplayLabConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+/// Foreground priority's diagnostic switch (`app_priority/`): core behaviour, on unless this says otherwise.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct AppPriorityConfig {
+    pub enabled: bool,
+}
+
+impl Default for AppPriorityConfig {
     fn default() -> Self {
         Self { enabled: true }
     }

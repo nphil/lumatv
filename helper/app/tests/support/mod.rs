@@ -638,7 +638,8 @@ pub fn test_config(overrides: Value) -> Config {
         "screen": {"source": "on", "pollMs": 40},
         "receiver": {"pollMs": 30, "fastPollMs": 10, "burstMs": 300, "maxBackoffMs": 60, "hideAfterMs": 300,
                      "connectTimeoutMs": 300, "requestTimeoutMs": 500, "telnetPort": 0},
-        "nice": 0
+        "nice": 0,
+        "appPriority": {"enabled": false}
     });
     merge(&mut base, &overrides);
     Config::parse(&base.to_string()).unwrap()

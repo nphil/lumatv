@@ -111,6 +111,29 @@ With `denon-receiver` on and the receiver as the TV's sound output, the helper k
 
 `ssgw` (docs in `plugins/ssgw.md`, engine crate `helper/ssgw`) runs the Rust gateway for port 3001 as uid 19998 while on, behind xinetd's entry as `tools/ssgw.sh` binds it; `ssgw-accept` hands every connection the gateway does not take to LG's `nsl`. Crash records are in `/var/lib/lumatv/ssgw/crash/` (`latest` names the newest). `lumatv ssgw off` is the escape: it switches the plugin off and gives the port back to LG's entry without the helper.
 
+## Foreground priority
+
+The helper's `app_priority` (`helper/app/src/app_priority/`) is core behaviour, not a plugin: it runs whenever the helper does and is meant to become the TV's one memory and priority manager. It follows Android's process states. SAM's front list (`getForegroundAppInfo`) and life status (`getAppLifeStatus`) are subscribed; `getActivePipelines` names the apps playing audio.
+
+| Android | Here |
+|---|---|
+| top / visible / perceptible `oom_score_adj` 0 / 100 / 200 | the app in front, other apps on screen, apps holding an audio pipeline: `min(original, band)` |
+| cached 900–999 by LRU | apps behind: 900 + 10 per newer cached app, capped at 999 |
+| `background` cpu group, `cpu.shares` 52 | `cpu,cpuacct/lumatv-background`, shares 52, made on first use and removed with the last |
+| cached-app freezer, 10 s debounce | the app's own `freezer/<appId>` group 10 s after it left the screen; thawed at any status but `background` |
+| trim before kill | `memory.soft_limit_in_bytes` 0 on cached apps; under medium pressure `memory.force_empty` on the oldest frozen app, once per cached spell |
+| lmkd PSI mode | one `/proc/pressure/memory` sample a second, only while a cached app could be closed |
+
+Closing follows lmkd's low-RAM defaults (`pressure::Tuning`): a full stall of 700 ms/s closes at once; otherwise a partial stall of 200 ms/s for two samples in a row plus one of lmkd's reasons (swap free under 10%, free pages under the high watermark, or file refaults at 30% of the file LRU, decaying by 50% while lmkd's would). The victim is the oldest cached app, the larger first on a tie; it is thawed, closed through SAM `closeByAppId` and named in a toast. One close at a time (the next waits for its processes to exit or 3 s, then 100 ms), three a minute at most.
+
+Never touched: LG apps (`com.webos.`, `com.lge.`, `com.palm.`), LumaTV's apps (`org.nphil.`, the brand), anything not in SAM's running list (services, media and audio daemons, the compositor, the helper), processes owned by root, apps without their own memory group. Apps playing audio or on screen are never frozen or closed.
+
+LG's memchute still runs. Its kept lists (`KeepAlive`, `KeepOnLaunch`, `KeepOnLaunchEx`, `InputList`, `HomeGroup` from every `com.webos.memorymanager.json` layer) are ranked but never frozen or closed, `memory.swappiness` is left to it, and a group memchute froze is neither frozen again nor thawed. All of that is in `app_priority/memchute.rs`, to be removed when this policy takes memchute's jobs over; memchute also creates the per-app `memory` and `freezer` groups the policy uses today.
+
+Every change is journalled in `/run/lumatv-app-priority/state.json` with the value it replaced and put back when the app returns, at the helper's stop, when either subscription is lost, and at the next start after a crash. `"appPriority": {"enabled": false}` in `helper.json` is a diagnostic off switch; the journal is still put back. State: `GET /v1/state/app_priority`.
+
+Checks on the TV with an app in front and Marquee behind: `/proc/<pid>/oom_score_adj` 900 or more, `/proc/<pid>/cgroup` `cpu,cpuacct:/lumatv-background`, `/sys/fs/cgroup/freezer/<appId>/freezer.state` `FROZEN` after 10 s and `THAWED` at relaunch, `memory.soft_limit_in_bytes` 0, all back on return and after `tools/lumatv helper stop`.
+
 ## Test events
 
 `POST /v1/cameras/event` fires a test pop-up only with `cameras.testEvents` in `/var/lib/lumatv/helper.json`; otherwise it answers 403 `test_events_off`. Tests that turn it on must put `helper.json` back as found, restart the helper (`tools/lumatv helper stop`, `helper start`), clear the pop-up (`POST /v1/cameras/popup/clear`) and confirm a test event is refused. Leaving it on makes pop-ups appear unprompted and spoils the next frame-gate run.
