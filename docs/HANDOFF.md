@@ -9,6 +9,22 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Morning acceptance, 2026-11-21 (10:35–11:08 EST; nothing installed)
+
+Checked on the set as installed: compositor 36462095, ui ca95dbb5, helper e37a3363, bridge 0.2.9, memory-manager shim on. Receipts (screenshots, polls, collector logs, gate JSON): `/data/home/tmp/lumatv-morning-20261121/`. The set was woken from Active Standby with `power/powerOn {"reason":"remoteKey"}` (`turnOnScreen` refuses outside "screen off") and returned to Active Standby with `power/powerOff`; the Denon was not touched.
+
+**A, panel care over an idle app: partly as specified.** YouTube was launched and left alone. Its start screen moved until 76 s, so stillness counted from there: at 3.5 min after launch the level was still 1.0 and the offset [0,0]; the shift engaged at 185 s still ([-1,0]), the dim reached 0.99 at about 225 s still, and the saver came up between 302 s and 322 s after launch (about 5.3 min after the last key), before the dim got near its 0.75 target. Back dismissed the saver without reaching YouTube; level 1.0 and offset [0,0] after.
+
+**B, separate picture: pass.** Home runs "LumaTV Vivid" (pictureMode eco). An SDR YouTube video (`aqz-KE-bpKQ`) switched `/v1/picture` to video and pictureMode to filmMaker 2.7 s after its pipeline appeared; Home switched back to eco 3.25 s after the Home key. Cosmetic: the Settings rail reads "Picture Eco" rather than the preset's name, the RTINGS chips are cut ("RTINGS Accu…", "RTINGS Rich…") and the quick panel's Picture mode subtitle is cut ("Each input keeps its…").
+
+**C, pointer standby: read from the logs only.** lginput2 shows `cursorVisibility: STANDBY(2)` at both installs (05:07, 07:08), the cursor coming on with a Settings key at 05:11 (`MRCU[S->AR]`) and going off when the remote was set down at 05:12 (`MRCU[A->SR]`, `CUSTOM_KEY_CURSOR_OFF`). Untested: an arrow key hiding the pointer and the wheel bringing it back, which needs the owner's remote.
+
+**D, memory and game mode: pass.** `mm status` serving lumatv, memchute pid 1904 up since 01:30 with 0 restarts and no fallbacks or give-up. Launch to foreground: Netflix 1880 ms, YouTube 1310 ms, LG browser 2590 ms, Marquee 2000 ms, LumaGame 640 ms. With LumaGame in front, game mode closed Netflix, YouTube and Marquee (47 MB, 2500 ms), paused the feeds, reclaimed Home's and the browser's groups (56 MB, 1091 ms), then compact and drop caches (0 MB). Home key to Home in front 320 ms; game mode off 5.45 s later (the 5 s exit delay). Weather and news refreshed on their 15-min schedule at 11:06:51.
+
+**E, Settings frame gate at 120 Hz: fail.** Three runs of `gate.py --surfaces settings-scroll,quick --refresh 120 --cycles 3`. First frames pass (settings-scroll 8.9–12.0 ms, quick 20.0–23.2 ms), rss growth 0, log errors 0. Each run had one dropped frame: run 1 in the first quick open (also the one frame over 20 ms in its burst), runs 2 and 3 in settings-scroll. Refresh went back to auto after. The test bundle's `/tmp/lumatv/lib/ld-linux-aarch64.so.1` had lost its exec bit, which fails `gate.sh refresh` until it is `chmod 755`.
+
+**F, cameras: pass with one fault.** Front Door lists native 1920x2560, balanced 672x896, light 480x640. Plant Room plays in the full view (h264 2688x1520 native); it was online, so playing while marked offline stays untested. A recording 10 s behind live ran dry and handed to live in 262 ms on the helper (250 ms without a picture, then the prebuffered live session in 12 ms on the same window). Fault: pausing Backyard live and pressing OK again starts a recording session 0.94 s after the key, with a black (not grey) picture for at least 1.1 s, resuming about 4 s before the held frame; 1.7 s later it fails with "the stream ran behind and did not catch up" and falls back to live.
+
 ## ScryptedBridge 0.2.9 and the camera fixes, 2026-11-21 (bridge 8684051 deployed 06:59 EST; lumaglass 6a6137b4 installed 07:10 EST in Active Standby, with the owner's approval)
 
 Bridge 0.2.9 (lumashow-scrypted main 8684051; `out/plugin.zip` `23413a98b6a55dd9394d0cb5d23f8784ab8c9b746bb83f39aabafdef9f20394d`) was deployed with `npm run scrypted-deploy 192.168.1.69`. It carries the 0.2.8 changes:
