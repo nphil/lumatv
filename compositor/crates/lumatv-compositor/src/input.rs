@@ -1054,6 +1054,7 @@ impl State {
             };
             self.run_actions(actions);
         }
+        seat::poll_im_show(self, now);
         if self.seat.cursor_visible
             && let Some(t) = self.seat.cursor_shown_at
             && t.elapsed() >= seat::CURSOR_TIMEOUT

@@ -58,6 +58,10 @@ pub struct SeatState {
     pub pointer_focus_rect: crate::Rect,
     /// When the cursor was last shown or moved, for the timeout.
     pub cursor_shown_at: Option<std::time::Instant>,
+    /// The pointer was shown by a turn of the wheel and lginput2 is told at this time, not at once ([`WHEEL_SHOW_NOTICE_DELAY`]).
+    pub im_show_due: Option<std::time::Instant>,
+    /// Set while a wheel notch shows the pointer, for [`set_cursor_visible`].
+    pub showing_by_wheel: bool,
     pub motions: u64,
     /// A press of the pointer's button was delivered to a client and its release is owed: a release with no press seen is nothing.
     pub button_down: bool,
@@ -405,7 +409,10 @@ pub fn wheel_turn(state: &mut State) -> bool {
     }
     if state.keys.pointer_show == PointerShow::Wheel {
         let (x, y) = state.seat.pointer_position;
-        return pointer_motion(state, x, y);
+        state.seat.showing_by_wheel = true;
+        let heard = pointer_motion(state, x, y);
+        state.seat.showing_by_wheel = false;
+        return heard;
     }
     false
 }
@@ -534,9 +541,32 @@ fn set_cursor_visible(state: &mut State, visible: bool) {
     for r in &state.seat.input_managers {
         r.cursor_visibility(visible as u32, None);
     }
-    state.im_cursor_visible(visible);
+    if visible && state.seat.showing_by_wheel {
+        // lginput2 sends the remote's cursor-on report (1198), which starts the motion it streams, only while it still believes the pointer
+        // hidden when it handles the notch. Told at once (the notice reaches it 0.75 ms after the notch; 2929 motions before the wake and 1
+        // after on 2026-11-21), it never sends it and the pointer shows but does not follow the remote.
+        state.seat.im_show_due = Some(std::time::Instant::now() + WHEEL_SHOW_NOTICE_DELAY);
+    } else {
+        state.seat.im_show_due = None;
+        state.im_cursor_visible(visible);
+    }
     state.pointer_sync();
     state.shell_sync_topics();
+}
+
+/// How long lginput2 is left believing the pointer hidden after a wheel notch showed it (it handles a notch within a few ms).
+pub const WHEEL_SHOW_NOTICE_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// Tells lginput2 the pointer shows once the wheel's grace has passed, if it still does.
+pub fn poll_im_show(state: &mut State, now: std::time::Instant) {
+    if let Some(due) = state.seat.im_show_due
+        && now >= due
+    {
+        state.seat.im_show_due = None;
+        if state.seat.cursor_visible {
+            state.im_cursor_visible(true);
+        }
+    }
 }
 
 impl State {

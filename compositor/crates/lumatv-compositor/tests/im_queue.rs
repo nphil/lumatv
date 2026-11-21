@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use harness::{Client, Server};
 use lumatv_compositor::im_queue::{CursorInfo, HIDDEN, ImQueue, MSG_LEN, Names, SPEED_KEEP, SUPPORT_CURSOR, VISIBLE, message, msg};
-use lumatv_compositor::server::seat::{BTN_LEFT, remote_motion, wheel_turn};
+use lumatv_compositor::server::seat::{BTN_LEFT, WHEEL_SHOW_NOTICE_DELAY, remote_motion, wheel_turn};
 
 const WAIT: Duration = Duration::from_secs(3);
 /// libim waits this long for an answer (`IM_CallMethodSyncWithMq`); the fix is that none takes a measurable part of it.
@@ -328,6 +328,9 @@ fn the_compositor_tells_lginput2_of_the_pointer_and_takes_btn_left_as_the_wheels
     // The wheel shows the pointer: lginput2 is told (and from then on sends the wheel's press as BTN_LEFT).
     assert!(server.eval(wheel_turn));
     assert!(client.wait_until(WAIT, |s| !s.pointer_enters.is_empty()));
+    // Not at once: lginput2 must still believe the pointer hidden while it handles the notch, or it never asks for the motion (1198).
+    assert_eq!(mrcu.waiting(), 0, "the notice waits for lginput2 to handle the notch");
+    server.eval(|s| lumatv_compositor::server::seat::poll_im_show(s, Instant::now() + WHEEL_SHOW_NOTICE_DELAY));
     assert_eq!(&words(&mrcu.receive().expect("shown is told"))[..2], &[msg::SEND_CURSOR_VISIBILITY, VISIBLE]);
     server.eval(move |s| {
         s.key_event(lumatv_compositor::server::seat::SeatId(0), BTN_LEFT, true, false);
