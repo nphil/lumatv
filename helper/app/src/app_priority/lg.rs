@@ -10,9 +10,19 @@ pub const FRONT_PAYLOAD: &str = r#"{"extraInfo":true,"subscribe":true}"#;
 pub const LIFE_URI: &str = "luna://com.webos.applicationManager/getAppLifeStatus";
 pub const LIFE_PAYLOAD: &str = r#"{"subscribe":true}"#;
 
+/// One of SAM's running apps.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Running {
+    pub id: String,
+    /// `processid` and, for a web app, `webprocessid`: the processes SAM started for it.
+    pub pids: Vec<i32>,
+    /// `web`, `native`, `qml`...
+    pub app_type: String,
+}
+
 pub trait Lg: Send + Sync {
     /// SAM's running apps; `None` when SAM did not answer.
-    fn running(&self) -> Option<Vec<String>>;
+    fn running(&self) -> Option<Vec<Running>>;
     /// Apps holding an audio decoder or a sound output: playing, or paused with their media loaded.
     fn playing(&self) -> Option<BTreeSet<String>>;
     fn close(&self, app: &str) -> bool;
@@ -35,7 +45,7 @@ impl Luna {
 }
 
 impl Lg for Luna {
-    fn running(&self) -> Option<Vec<String>> {
+    fn running(&self) -> Option<Vec<Running>> {
         running(&self.call("running", &json!({}))?)
     }
 
@@ -60,14 +70,19 @@ impl Lg for Luna {
     }
 }
 
-/// SAM's `running`: `{running: [{id, processid, ...}]}`.
-pub fn running(reply: &Value) -> Option<Vec<String>> {
+/// SAM's `running`: `{running: [{id, processid, webprocessid, appType}]}`, the numbers as strings (empty for none).
+pub fn running(reply: &Value) -> Option<Vec<Running>> {
     let list = reply.get("running")?.as_array()?;
+    let pid = |a: &Value, key: &str| a.get(key).and_then(Value::as_str).and_then(|p| p.parse::<i32>().ok()).filter(|&p| p > 1);
     Some(
         list.iter()
-            .filter_map(|a| a.get("id")?.as_str())
-            .filter(|id| valid_id(id))
-            .map(str::to_owned)
+            .filter_map(|a| {
+                let id = a.get("id")?.as_str().filter(|id| valid_id(id))?;
+                let mut pids: Vec<i32> = ["processid", "webprocessid"].iter().filter_map(|k| pid(a, k)).collect();
+                pids.dedup();
+                let app_type = a.get("appType").and_then(Value::as_str).unwrap_or("").to_owned();
+                Some(Running { id: id.to_owned(), pids, app_type })
+            })
             .collect(),
     )
 }
@@ -139,8 +154,12 @@ mod tests {
 
     #[test]
     fn sams_and_the_media_servers_answers_read_as_the_tv_gives_them() {
-        let r: Value = serde_json::from_str(r#"{"running":[{"webprocessid":"","id":"com.webos.app.home","processid":"15229","appType":"native"},{"id":"com.beb.plxnative","processid":"32428"},{"id":"../x"}],"returnValue":true}"#).unwrap();
-        assert_eq!(running(&r).unwrap(), vec!["com.webos.app.home", "com.beb.plxnative"]);
+        let r: Value = serde_json::from_str(r#"{"running":[{"webprocessid":"","id":"com.webos.app.home","processid":"15229","appType":"native"},{"webprocessid":"13779","id":"com.webos.app.lgchannels","processid":"13779","appType":"web"},{"id":"com.beb.plxnative","processid":"32428"},{"id":"../x"}],"returnValue":true}"#).unwrap();
+        let run = |id: &str, pids: Vec<i32>, t: &str| Running { id: id.into(), pids, app_type: t.into() };
+        assert_eq!(
+            running(&r).unwrap(),
+            vec![run("com.webos.app.home", vec![15229], "native"), run("com.webos.app.lgchannels", vec![13779], "web"), run("com.beb.plxnative", vec![32428], "")]
+        );
         let p: Value = serde_json::from_str(r#"[{"currentAppId":"netflix","type":"media","resource":[{"index":1,"resource":"ADEC"},{"index":3,"resource":"VDEC"}]},
             {"currentAppId":"tv.twitch","type":"avconnector","resource":[{"index":0,"resource":"MAIN_SOUND"}]},
             {"currentAppId":"youtube.leanback.v4","type":"media","resource":[{"index":0,"resource":"VDEC"}]},
