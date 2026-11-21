@@ -11,7 +11,7 @@ and the standing rules; this file is the dated record behind it.
 
 ## Passthrough, receiver page and auto brightness installed, 2026-11-21 (main e34e23bc, 14:25 EST)
 
-Installed by the standard path: ui `e0c6ed46` (replaces df0e6da2) and helper `a32da0f4` (replaces 33fa3f1f); compositor `7addcfd1` and sm `65f6ca69` unchanged. Netflix was in front when the install started and the cutover returned the set to Home; whether it was playing is unknown. `/var/log/dbg-log` holds no `SET_MERGE_FAIL` after install. Untested on the set: Passthrough holding across inputs, standby and reboot; the receiver page with Live TV DD surround; auto brightness start, ramps and HDR pause.
+Installed by the standard path: ui `e0c6ed46` (replaces df0e6da2) and helper `a32da0f4` (replaces 33fa3f1f); compositor `7addcfd1` and sm `65f6ca69` unchanged. Netflix was in front when the install started and the cutover returned the set to Home; whether it was playing is unknown. `/var/log/dbg-log` holds no `SET_MERGE_FAIL` after install. Accepted by the owner on the set at 14:36: Passthrough holds across input change and standby, the receiver page on Live TV is steady and usable, auto brightness ramps smoothly with a lamp, and the full-card rain and Apps tile look right. Untested: Passthrough across a reboot and the HDR pause.
 
 ## Full-card rain and Apps tile without LG art installed, 2026-11-21 (main 02ab490f, 13:55 EST)
 
