@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Shared wallpaper clock and letterbox picture fix installed, 2026-11-21 (main 5d04d355, 18:4x EST)
+
+Installed: compositor `5254e676` (replaces a3acd46a), ui `3ef55429` (replaces 655ab295), both built at f86f12b5 (no compositor or rustui change since), and helper `e6dc3ace` (main 39dd2be2, replaces 76f0d68a); sm `65f6ca69` unchanged. Video check: picture after 1 s. A 2:1 film letterboxed by Marquee (3840x1920, `fullScreen` false) had kept the ui slot's Eco mode; it now counts as full-screen video. Idle Home, 20 s windows, GPU busy / flips a second at wallpaper fps 0/10/15/30/60: 6.8/60.2, 21.0/65.3, 27.5/73.2, 40.1/77.5, 61.9/119.9; the shared clock did not merge steps into existing frames at fps 60, and an idle Home flips 60 times a second with the wallpaper still. Untested on the set: the letterbox switch during a film.
+
 ## Dolby Vision room mode, power-alert text, left profile pill and the wallpaper ceiling installed, 2026-11-21 (main 3eda58aa, 15:5x EST)
 
 Installed over Netflix with the owner's leave: compositor `a3acd46a` (replaces 7addcfd1), ui `655ab295` (replaces e0c6ed46), helper `76f0d68a` (replaces a32da0f4); sm `65f6ca69` unchanged. Video check: picture after 1 s. Profile `nitin` set to `layout.statusBar.profile` `left`; a capture shows the pill at the left end and the buttons at the right. The ceiling brought no GPU gain on the set (idle Home, owner's theme, 20 s windows; GPU busy at 10/15/30/60 fps: 25.7/34.0/46.4/70.1 % against 24.8/33.2/49.6/75.5 % before) although the host count fell from 108 to about 44 layers a step; the cause is open. Untested on the set: the Dolby Vision room choice and the power-warning text.
