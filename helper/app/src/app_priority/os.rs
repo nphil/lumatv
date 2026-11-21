@@ -1,0 +1,292 @@
+//! The kernel files the policy reads and writes: `/proc` and LG's cgroup v1 hierarchies, both under roots a test points at a
+//! made-up tree.
+
+use super::pressure::{self, Sample};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io;
+use std::path::PathBuf;
+
+/// A process as the policy names it: the number, and the tick it started at, so a reused number is never mistaken for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Pid {
+    pub pid: i32,
+    pub start: u64,
+}
+
+/// LumaTV's cpu cgroup for cached apps. Its existence at the helper's start is the trace of a run that did not restore.
+pub const BACKGROUND_GROUP: &str = "lumatv-background";
+/// Android's `SCHED_GROUP_BACKGROUND` weight against the 1024 of every task left in the root group.
+pub const BACKGROUND_SHARES: u32 = 52;
+
+pub trait Os: Send + Sync {
+    /// The processes of an app not owned by root, from SAM's memory cgroup of the app; `None` when the app has no such group.
+    fn app_procs(&self, app: &str) -> Option<Vec<Pid>>;
+    fn alive(&self, p: Pid) -> bool;
+    fn oom(&self, p: Pid) -> Option<i32>;
+    fn set_oom(&self, p: Pid, value: i32) -> io::Result<()>;
+    /// Every thread of the process is in the root cpu group: the only place it is moved from, so going back is exact.
+    fn cpu_root(&self, p: Pid) -> bool;
+    fn to_background(&self, p: Pid) -> io::Result<()>;
+    fn to_root(&self, pid: i32) -> io::Result<()>;
+    /// Moves whatever is left in the background group back and removes the group.
+    fn drop_background(&self) -> io::Result<()>;
+    fn freezer(&self, app: &str) -> Option<String>;
+    fn set_freezer(&self, app: &str, state: &str) -> io::Result<()>;
+    fn soft_limit(&self, app: &str) -> Option<u64>;
+    fn set_soft_limit(&self, app: &str, bytes: u64) -> io::Result<()>;
+    /// The app's charged memory, to choose among equally old apps.
+    fn usage(&self, app: &str) -> u64;
+    /// Reclaims what the app's memory cgroup holds (`memory.force_empty`); blocks until the kernel has done what it can.
+    fn reclaim(&self, app: &str) -> io::Result<()>;
+    fn sample(&self) -> Option<Sample>;
+}
+
+/// The soft limit a v1 memory cgroup reads back when it has none; written as `-1`.
+pub const UNLIMITED: u64 = 9_223_372_036_854_771_712;
+
+pub struct Fs {
+    proc: PathBuf,
+    cgroup: PathBuf,
+}
+
+impl Fs {
+    pub fn new(proc: impl Into<PathBuf>, cgroup: impl Into<PathBuf>) -> Self {
+        Self {
+            proc: proc.into(),
+            cgroup: cgroup.into(),
+        }
+    }
+
+    pub fn lg() -> Self {
+        Self::new("/proc", "/sys/fs/cgroup")
+    }
+
+    fn proc_file(&self, pid: i32, name: &str) -> PathBuf {
+        self.proc.join(pid.to_string()).join(name)
+    }
+
+    fn memory(&self, app: &str, name: &str) -> PathBuf {
+        self.cgroup.join("memory").join(app).join(name)
+    }
+
+    fn cpu(&self) -> PathBuf {
+        self.cgroup.join("cpu,cpuacct")
+    }
+
+    fn started(&self, pid: i32) -> Option<u64> {
+        let stat = fs::read_to_string(self.proc_file(pid, "stat")).ok()?;
+        stat.get(stat.rfind(')')? + 1..)?
+            .split_whitespace()
+            .nth(19)?
+            .parse()
+            .ok()
+    }
+
+    fn uid(&self, pid: i32) -> Option<u32> {
+        fs::read_to_string(self.proc_file(pid, "status"))
+            .ok()?
+            .lines()
+            .find_map(|l| l.strip_prefix("Uid:"))?
+            .split_whitespace()
+            .next()?
+            .parse()
+            .ok()
+    }
+
+    fn same(&self, p: Pid) -> io::Result<()> {
+        if self.started(p.pid) == Some(p.start) {
+            Ok(())
+        } else {
+            Err(io::Error::new(io::ErrorKind::NotFound, "the process is gone"))
+        }
+    }
+}
+
+fn read_trim(path: PathBuf) -> Option<String> {
+    fs::read_to_string(path).ok().map(|s| s.trim().to_owned())
+}
+
+/// A cgroup v1 file takes one value per `write`.
+fn put(path: PathBuf, value: &str) -> io::Result<()> {
+    fs::write(path, value)
+}
+
+impl Os for Fs {
+    fn app_procs(&self, app: &str) -> Option<Vec<Pid>> {
+        let text = fs::read_to_string(self.memory(app, "cgroup.procs")).ok()?;
+        Some(
+            text.lines()
+                .filter_map(|l| l.trim().parse::<i32>().ok())
+                .filter(|&pid| pid > 1 && self.uid(pid).is_some_and(|u| u != 0))
+                .filter_map(|pid| Some(Pid { pid, start: self.started(pid)? }))
+                .collect(),
+        )
+    }
+
+    fn alive(&self, p: Pid) -> bool {
+        self.started(p.pid) == Some(p.start)
+    }
+
+    fn oom(&self, p: Pid) -> Option<i32> {
+        self.same(p).ok()?;
+        read_trim(self.proc_file(p.pid, "oom_score_adj"))?.parse().ok()
+    }
+
+    fn set_oom(&self, p: Pid, value: i32) -> io::Result<()> {
+        self.same(p)?;
+        put(self.proc_file(p.pid, "oom_score_adj"), &value.to_string())
+    }
+
+    fn cpu_root(&self, p: Pid) -> bool {
+        let Ok(tasks) = fs::read_dir(self.proc_file(p.pid, "task")) else {
+            return false;
+        };
+        let mut any = false;
+        for task in tasks.flatten() {
+            let Ok(text) = fs::read_to_string(task.path().join("cgroup")) else {
+                return false;
+            };
+            let root = text.lines().any(|l| {
+                let mut f = l.splitn(3, ':');
+                f.nth(1).is_some_and(|c| c.split(',').any(|c| c == "cpu")) && f.next() == Some("/")
+            });
+            if !root {
+                return false;
+            }
+            any = true;
+        }
+        any && self.alive(p)
+    }
+
+    fn to_background(&self, p: Pid) -> io::Result<()> {
+        let group = self.cpu().join(BACKGROUND_GROUP);
+        if !group.is_dir() {
+            fs::create_dir(&group)?;
+            put(group.join("cpu.shares"), &BACKGROUND_SHARES.to_string())?;
+        }
+        self.same(p)?;
+        put(group.join("cgroup.procs"), &p.pid.to_string())
+    }
+
+    fn to_root(&self, pid: i32) -> io::Result<()> {
+        put(self.cpu().join("cgroup.procs"), &pid.to_string())
+    }
+
+    fn drop_background(&self) -> io::Result<()> {
+        let group = self.cpu().join(BACKGROUND_GROUP);
+        let Ok(text) = fs::read_to_string(group.join("cgroup.procs")) else {
+            return Ok(());
+        };
+        for pid in text.lines().filter_map(|l| l.trim().parse::<i32>().ok()) {
+            let _ = self.to_root(pid);
+        }
+        fs::remove_dir(group)
+    }
+
+    fn freezer(&self, app: &str) -> Option<String> {
+        read_trim(self.cgroup.join("freezer").join(app).join("freezer.state"))
+    }
+
+    fn set_freezer(&self, app: &str, state: &str) -> io::Result<()> {
+        put(self.cgroup.join("freezer").join(app).join("freezer.state"), state)
+    }
+
+    fn soft_limit(&self, app: &str) -> Option<u64> {
+        read_trim(self.memory(app, "memory.soft_limit_in_bytes"))?.parse().ok()
+    }
+
+    fn set_soft_limit(&self, app: &str, bytes: u64) -> io::Result<()> {
+        let value = if bytes >= UNLIMITED { "-1".to_owned() } else { bytes.to_string() };
+        put(self.memory(app, "memory.soft_limit_in_bytes"), &value)
+    }
+
+    fn usage(&self, app: &str) -> u64 {
+        read_trim(self.memory(app, "memory.usage_in_bytes"))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0)
+    }
+
+    fn reclaim(&self, app: &str) -> io::Result<()> {
+        put(self.memory(app, "memory.force_empty"), "0")
+    }
+
+    fn sample(&self) -> Option<Sample> {
+        let read = |name: &str| fs::read_to_string(self.proc.join(name)).ok();
+        pressure::sample(
+            &read("pressure/memory")?,
+            &read("meminfo")?,
+            &read("vmstat")?,
+            &read("zoneinfo").unwrap_or_default(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn process(proc: &Path, pid: i32, uid: u32, cpu: &str) {
+        let dir = proc.join(pid.to_string());
+        fs::create_dir_all(dir.join("task").join(pid.to_string())).unwrap();
+        fs::write(dir.join("stat"), format!("{pid} (Plex Main (x)) S 1 {pid} {pid} 0 -1 4194560 1 0 0 0 0 0 0 0 20 0 44 0 777 0 0")).unwrap();
+        fs::write(dir.join("status"), format!("Name:\tplex\nUid:\t{uid}\t{uid}\t{uid}\t{uid}\n")).unwrap();
+        fs::write(dir.join("oom_score_adj"), "-1000\n").unwrap();
+        fs::write(dir.join("task").join(pid.to_string()).join("cgroup"), format!("7:memory:/app\n3:cpu,cpuacct:{cpu}\n")).unwrap();
+    }
+
+    #[test]
+    fn an_apps_processes_come_from_its_memory_group_without_roots() {
+        let dir = tempfile::tempdir().unwrap();
+        let (proc, cg) = (dir.path().join("proc"), dir.path().join("cg"));
+        process(&proc, 300, 5365, "/");
+        process(&proc, 301, 0, "/");
+        fs::create_dir_all(cg.join("memory/app")).unwrap();
+        fs::write(cg.join("memory/app/cgroup.procs"), "300\n301\n302\n").unwrap();
+        let os = Fs::new(&proc, &cg);
+        assert_eq!(os.app_procs("app"), Some(vec![Pid { pid: 300, start: 777 }]));
+        assert_eq!(os.app_procs("other"), None);
+        let p = Pid { pid: 300, start: 777 };
+        assert_eq!(os.oom(p), Some(-1000));
+        assert!(os.cpu_root(p));
+        assert!(os.set_oom(Pid { pid: 300, start: 778 }, 900).is_err());
+        os.set_oom(p, 900).unwrap();
+        assert_eq!(os.oom(p), Some(900));
+    }
+
+    #[test]
+    fn a_process_with_a_thread_outside_the_root_cpu_group_is_not_moved() {
+        let dir = tempfile::tempdir().unwrap();
+        let proc = dir.path().join("proc");
+        process(&proc, 300, 5365, "/update-3152");
+        assert!(!Fs::new(&proc, dir.path()).cpu_root(Pid { pid: 300, start: 777 }));
+    }
+
+    #[test]
+    fn the_background_group_is_made_with_androids_weight_and_removed_with_its_members_sent_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let (proc, cg) = (dir.path().join("proc"), dir.path().join("cg"));
+        process(&proc, 300, 5365, "/");
+        fs::create_dir_all(cg.join("cpu,cpuacct")).unwrap();
+        let os = Fs::new(&proc, &cg);
+        os.to_background(Pid { pid: 300, start: 777 }).unwrap();
+        let group = cg.join("cpu,cpuacct").join(BACKGROUND_GROUP);
+        assert_eq!(fs::read_to_string(group.join("cpu.shares")).unwrap(), "52");
+        assert_eq!(fs::read_to_string(group.join("cgroup.procs")).unwrap(), "300");
+        // A real cgroup directory removes its own files; the test's must be emptied first.
+        let _ = os.drop_background();
+        assert_eq!(fs::read_to_string(cg.join("cpu,cpuacct/cgroup.procs")).unwrap(), "300");
+    }
+
+    #[test]
+    fn an_unlimited_soft_limit_is_written_back_as_minus_one() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("memory/app")).unwrap();
+        let os = Fs::new(dir.path(), dir.path());
+        os.set_soft_limit("app", UNLIMITED).unwrap();
+        assert_eq!(fs::read_to_string(dir.path().join("memory/app/memory.soft_limit_in_bytes")).unwrap(), "-1");
+        os.set_soft_limit("app", 0).unwrap();
+        assert_eq!(os.soft_limit("app"), Some(0));
+    }
+}
