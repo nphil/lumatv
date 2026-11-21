@@ -32,3 +32,6 @@ integration, the second-screen (SSAP) websocket on port 3001, with `ssgw` (`help
 The page also shows whether LG's service host repair (`lumatv sysbus`) is on, which decides what the fallback costs (about 22 % of a
 core without it), and whether LG's extras are kept from loading (`lumatv lgextras`). With the extras off, declutter's boot hook
 restarts LG's JavaScript host once when it still holds one of them after boot.
+
+Soak, 2026-11-14 to 2026-11-21: no crash or hang, back by itself after 22 boots, 1.3 MB resident, no measurable idle CPU (HANDOFF
+"Rust gateway seven-day soak").
