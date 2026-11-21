@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Video check no longer switches the picture mode, 2026-11-21 (main 197a1b9d, installed 00:14 EST)
+
+Every `video-check` switched the set from Filmmaker Mode to Game Optimizer (backlight 75 → 90) for about 2 s: the NDL load tells the TV that the clip is a game. Three such flips showed in `/var/log/dbg-log` during the game-mode install (00:10:38, 00:11:35 and 00:11:49). The check now plays through the ES player (`--pipe es`), and the picture mode stays Filmmaker. Installed `tools/compositor.sh` `8de47c76446110941def034ac6be4a95a18e8514a94e267b195c4aa31eeb817d`, replacing a51ef9f6, and `video-check` found a picture after 1 s. Rollback: `/tmp/cs/18172b987bff/app-snapshot/backup/compositor.sh-a51ef9f6`.
+
 ## Game mode installed, 2026-11-21 (main f03c5fdb, installed 00:11 EST with the TV on, at the owner's request)
 
 Helper `a4a6bf5bbdda649ab553bf4333b193ae9da9d8317754b177706f5cd5aeb5c6be` (replaces 6789b3eb; pids 21220/21221) and ui `eb4deeb4aa6565a35acc7c1244405ffeba2ef81bc27630fc4d35e23afcaad61c` (replaces 7b4530fb). The compositor (cb605100) and sm (65f6ca69) are unchanged. Marquee was in front during the install; the cutover's recovery brought Home to the front. `video-check` found a picture after 1 s, and the compositor is live and persistent with 0 failures. `GET /v1/gamemode` answers `switch:true, on:false`. Untested on the TV: entry with LumaGame in front and apps in the background, MB freed per step, feeds paused and resumed, and the time back to Home. Rollback: `/tmp/cs/18172b987bff/app-snapshot/backup/lumatv-helper-6789b3eb` and `lumatv-ui-7b4530fb`.
