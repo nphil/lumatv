@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Apps tile and LG Content Store row, game-mode measures installed, 2026-11-21 (main 28c54aff, 13:12 EST)
+
+Installed with the screen on, no media pipeline, standard path: ui `28518604` (replaces c6416fe1) and helper `33fa3f1f` (main 114720ff, replaces 48916c12); compositor `7addcfd1` and sm `65f6ca69` unchanged. Video check: picture after 1 s. The dock's Apps tile is theme glass with an accent dot grid; `com.webos.app.discovery` left the Apps tiles for a "LG Content Store" rail row. Native store Phase 0 (install and remove of `com.masterclass.lg` through `appInstallService/install` as root) passed: `docs/research/native-store.md`. Untested on screen: the tile, the rail row, game-mode step fields.
+
 ## Commit thread, theme roles, picture labels and camera resume installed, 2026-11-21 (main 6b263386, 12:32 EST)
 
 Installed with the screen on Home after the owner left GeForce NOW, no media pipeline, by the standard path (`cutover.sh disable/install/probe/enable`, helper staged in `payload/helper/`): compositor `7addcfd1` (replaces 36462095), ui `c6416fe1` (replaces ca95dbb5), helper `48916c12` (replaces b382a586; backups kept); sm `65f6ca69` unchanged. Video check: picture after 1 s, both before and after enable. The compositor's `lumatv-commit` thread runs SCHED_FIFO 21 beside the loop's FIFO 20. Bridge 0.2.10 (lumashow-scrypted main 371fd57), which the camera resume fix needs for H.265-only sources, is not deployed. Untested on the set: the 120 Hz Settings gate, the theme roles and picture labels on screen, and Backyard resume.
