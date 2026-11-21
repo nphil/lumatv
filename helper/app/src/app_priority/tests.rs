@@ -352,3 +352,209 @@ fn every_way_out_puts_everything_back() {
     r.assert_all_back();
     assert!(!journal.exists());
 }
+
+mod game_mode {
+    use super::*;
+    use crate::app_priority::game::{EXIT_AFTER, Pause};
+    use std::sync::atomic::AtomicUsize;
+
+    struct GameRig {
+        r: Rig,
+        switch: Arc<AtomicBool>,
+        pause: &'static Pause,
+        resumed: Arc<AtomicUsize>,
+    }
+
+    /// The core rig with game mode switched on and Twitch playing; LumaGame comes to the front at 3 s.
+    fn game_rig() -> GameRig {
+        let mut r = rig(Timing::default());
+        let switch = Arc::new(AtomicBool::new(true));
+        let pause: &'static Pause = Box::leak(Box::new(Pause::new()));
+        let resumed = Arc::new(AtomicUsize::new(0));
+        {
+            let resumed = resumed.clone();
+            pause.on_resume(move || {
+                resumed.fetch_add(1, Ordering::Relaxed);
+            });
+        }
+        let s = switch.clone();
+        r.engine.set_game(Box::new(move || s.load(Ordering::Relaxed)), pause);
+        r.lg.0.lock().playing.insert(TWITCH.into());
+        r.os.0.lock().available_kb = 300 * 1024;
+        GameRig { r, switch, pause, resumed }
+    }
+
+    impl GameRig {
+        fn status(&self) -> Value {
+            self.r.engine.game_status()
+        }
+        fn on(&self) -> bool {
+            self.status()["on"] == true
+        }
+        fn exit_reason(&self) -> Value {
+            self.status()["lastExit"]["reason"].clone()
+        }
+        /// The closed apps exit, freeing 200 MB.
+        fn exited(&self, apps: &[&str]) {
+            let mut w = self.r.os.0.lock();
+            for a in apps {
+                w.procs.remove(*a);
+            }
+            w.available_kb += 200 * 1024;
+        }
+        fn front(&mut self, app: &str, secs: f64) {
+            self.r.engine.front(vec![app.into()], self.r.t0 + s(secs));
+        }
+    }
+
+    #[test]
+    fn entry_closes_waits_pauses_and_reclaims_in_order_sparing_lg_ours_kept_and_playing_apps() {
+        let mut g = game_rig();
+        g.front(LUMAGAME, 3.0);
+        assert!(g.on());
+        // Twitch plays, Netflix is memchute's, Home is LG's, LumaGame is the game: Plex and the other game are closed, with a toast.
+        assert_eq!(g.r.lg.0.lock().closed, vec![PLEX, GAME]);
+        assert_eq!(g.r.lg.0.lock().toasts, vec!["Game mode closed Plex, com.example.game to free memory for the game"]);
+        // Nothing more until they have exited.
+        g.r.at(3.5);
+        assert!(!g.pause.paused() && g.r.os.0.lock().reclaimed.is_empty());
+        g.exited(&[PLEX, GAME]);
+        g.r.at(3.6);
+        assert!(g.pause.paused());
+        // Home's group is reclaimed; Twitch's (playing) and LumaGame's are not.
+        assert_eq!(g.r.os.0.lock().reclaimed, vec![NETFLIX, HOME]);
+        assert_eq!(g.r.os.0.lock().vm, vec!["compact_memory=1", "drop_caches=1"]);
+        let steps: Vec<(String, i64)> = g.status()["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| (s["step"].as_str().unwrap().to_owned(), s["freedMb"].as_i64().unwrap()))
+            .collect();
+        let want = [("close", 200), ("pause", 0), ("reclaim", 100), ("compact", 10), ("dropCaches", 100)];
+        assert_eq!(steps, want.map(|(s, mb)| (s.to_owned(), mb)));
+        assert_eq!(g.status()["app"], LUMAGAME);
+    }
+
+    #[test]
+    fn with_no_word_on_who_plays_nothing_is_closed_or_reclaimed() {
+        let mut g = game_rig();
+        g.r.lg.0.lock().playing_unknown = true;
+        g.front(LUMAGAME, 3.0);
+        assert!(g.on() && g.pause.paused());
+        assert!(g.r.lg.0.lock().closed.is_empty());
+        assert!(g.r.os.0.lock().reclaimed.is_empty());
+        assert_eq!(g.status()["steps"][0]["note"], "it is unknown which app plays: none closed");
+    }
+
+    #[test]
+    fn leaving_the_front_ends_it_after_five_seconds_and_the_feeds_resume() {
+        let mut g = game_rig();
+        g.front(LUMAGAME, 3.0);
+        g.exited(&[PLEX, GAME]);
+        g.r.at(3.1);
+        g.front(HOME, 10.0);
+        // A trip out and back inside the five seconds keeps it.
+        g.front(LUMAGAME, 12.0);
+        g.front(HOME, 13.0);
+        g.r.at(13.0 + EXIT_AFTER.as_secs_f64() - 0.1);
+        assert!(g.on() && g.pause.paused());
+        g.r.at(13.0 + EXIT_AFTER.as_secs_f64());
+        assert!(!g.on() && !g.pause.paused());
+        assert_eq!(g.exit_reason(), "left");
+        assert_eq!(g.resumed.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn an_api_lease_counts_thirty_seconds_while_its_app_is_in_front_and_is_renewed_by_asking_again() {
+        let mut g = game_rig();
+        let t0 = g.r.t0;
+        // The rig's game is in front and is not a named game.
+        assert!(!g.on());
+        let (t3, t30, t64) = (t0 + s(3.0), t0 + s(30.0), t0 + s(64.0));
+        g.r.engine.game_request(true, GAME, t3);
+        assert!(g.on());
+        g.r.engine.game_request(true, GAME, t30);
+        g.r.at(40.0);
+        assert!(g.on(), "renewed at 30 s");
+        g.r.at(59.9);
+        assert!(g.on());
+        g.r.engine.tick(t64);
+        assert!(!g.on());
+        assert_eq!(g.exit_reason(), "lease");
+    }
+
+    #[test]
+    fn on_false_ends_it_and_keeps_it_off_until_the_game_leaves_the_front() {
+        let mut g = game_rig();
+        g.front(LUMAGAME, 3.0);
+        let status = g.r.engine.game_request(false, LUMAGAME, g.r.t0 + s(4.0));
+        assert_eq!((status["on"].clone(), status["lastExit"]["reason"].clone()), (json!(false), json!("off")));
+        g.r.at(30.0);
+        assert!(!g.on());
+        g.front(HOME, 31.0);
+        g.front(LUMAGAME, 32.0);
+        assert!(g.on());
+    }
+
+    #[test]
+    fn the_switch_off_keeps_it_from_starting_and_ends_it_at_once() {
+        let mut g = game_rig();
+        g.switch.store(false, Ordering::Relaxed);
+        g.front(LUMAGAME, 3.0);
+        assert!(!g.on() && g.r.lg.0.lock().closed.is_empty());
+        assert_eq!(g.status()["switch"], false);
+        assert_eq!(g.r.engine.game_request(true, LUMAGAME, g.r.t0 + s(3.5))["switch"], false);
+        g.switch.store(true, Ordering::Relaxed);
+        g.r.at(4.0);
+        assert!(g.on());
+        g.switch.store(false, Ordering::Relaxed);
+        g.r.at(5.0);
+        assert!(!g.on());
+        assert_eq!(g.exit_reason(), "switch");
+    }
+
+    #[test]
+    fn a_failed_step_ends_it_resumes_the_feeds_and_waits_for_the_game_to_leave() {
+        let mut g = game_rig();
+        g.r.os.0.lock().vm_fails = true;
+        g.front(LUMAGAME, 3.0);
+        g.exited(&[PLEX, GAME]);
+        g.r.at(3.1);
+        // The reclaim went through; the compaction was refused.
+        assert!(g.pause.paused());
+        g.r.at(3.2);
+        assert!(!g.on() && !g.pause.paused());
+        assert_eq!(g.exit_reason(), "failed");
+        g.r.at(10.0);
+        assert!(!g.on());
+
+        // A close SAM refuses ends it before anything is paused.
+        let mut g = game_rig();
+        g.r.lg.0.lock().close_fails = true;
+        g.front(LUMAGAME, 3.0);
+        assert!(!g.on() && !g.pause.paused());
+        assert_eq!(g.exit_reason(), "failed");
+    }
+
+    #[test]
+    fn a_lost_subscription_ends_it_and_the_worker_stops_at_its_next_step() {
+        let mut g = game_rig();
+        type Queue = Mutex<Vec<Box<dyn FnOnce() + Send>>>;
+        let queued: Arc<Queue> = Arc::default();
+        {
+            let queued = queued.clone();
+            g.r.engine.run = Box::new(move |work| queued.lock().push(work));
+        }
+        g.front(LUMAGAME, 3.0);
+        g.exited(&[PLEX, GAME]);
+        g.r.at(3.1);
+        assert!(g.pause.paused());
+        g.r.engine.lost("test");
+        assert!(!g.on() && !g.pause.paused());
+        assert_eq!(g.exit_reason(), "subscription");
+        for work in queued.lock().drain(..) {
+            work();
+        }
+        assert!(g.r.os.0.lock().reclaimed.is_empty() && g.r.os.0.lock().vm.is_empty());
+    }
+}
