@@ -22,7 +22,14 @@ The compositor (cb605100) and sm (65f6ca69) are unchanged. The cutover ran disab
 
 With Home in front, `/v1/picture` reports slot `ui` in Eco (preset LumaTV vivid), slot `video` in Filmmaker, and separate picture on. `dbg-log` shows Eco at OLED brightness 75, the owner's level.
 
-Untested on the set: switching to Filmmaker and back during SDR playback, the presets in Quick Settings and Settings, standby held while sound plays, and `mm on`.
+Untested on the set: switching to Filmmaker and back during SDR playback, the presets in Quick Settings and Settings, and standby held while sound plays.
+
+At 01:29, at the owner's word ("I want this finished up"), `lumatv mm on` bound the shim, and `mm status` reports `enabled:true, bin:ours, serving:lumatv`. `getCurrentMemState` answers `normal`, with 1141 MB usable. A browser launch through SAM answered in 50 ms and the browser came to the front; Home launched back. Two log lines are expected:
+
+- LG's memchute logged a duplicate-name refusal at 06:29:04 UTC, during the swap.
+- emmcd lost its `getEFS` subscription, since LG's flash swap is dropped on purpose.
+
+Not yet run: the low-memory close order, the crash fallback and three-failure give-up, reboot, and game mode under the shim. `lumatv mm off` restores LG's memchute.
 
 The engine restart at 00:51 wiped `/tmp/cs/18172b987bff`, so the earlier rollback copies listed above are gone. Rollback for this install is in `/data/agent/cody-data-scratch/18172b987bff/backup/`: `lumatv-helper-a4a6bf5b`, `lumatv-ui-eb4deeb4`, `lumatv-compositor-cb605100`, `lumatv-adb11696` (`tools/lumatv`) and `autostart.sh-6dd9e7d3`.
 
