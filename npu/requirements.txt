@@ -1,3 +1,0 @@
-flatbuffers>=2.0,<26
-pyelftools>=0.30,<1
-unicorn>=2.1,<3
