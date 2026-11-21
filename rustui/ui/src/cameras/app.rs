@@ -468,14 +468,20 @@ impl App {
         self.live_on() && camera.live
     }
 
-    /// The live session plays the camera shown, in the mode the person asked for: the layer is a hole over the video plane.
+    /// The live session plays the camera shown in the mode the person asked for, or holds its picture (paused, or playing on from the held
+    /// picture until the stream's first takes its place): the layer is a hole over the video plane.
     pub fn hole(&self) -> bool {
         let Some(c) = self.current() else { return false };
         let mode_ok = match self.expect {
             Expect::Live => self.live.mode == LiveMode::Live,
             Expect::Recording => self.live.is_recording(),
         };
-        self.live.camera == c.id && self.live.state == LiveState::Playing && mode_ok && self.asked.as_deref() == Some(&c.id) && self.window != Window::Waiting
+        let shown = match self.live.state {
+            LiveState::Playing => mode_ok || self.live.paused,
+            LiveState::Starting => self.live.paused,
+            _ => false,
+        };
+        self.live.camera == c.id && shown && self.asked.as_deref() == Some(&c.id) && self.window != Window::Waiting
     }
 
     /// What the compositor made of the claim: the picture follows (a window not drawing yet is no hole; a refusal is a glyph). Returns whether it
@@ -858,7 +864,7 @@ impl App {
         self.ask(Ask::Pause { live, paused }, "POST", "/v1/cameras/live/pause".into(), Some(json!({"paused": paused})), fx);
         self.hold_asked = paused;
         if live && !paused {
-            // the helper dials the recording from the key picture the held one was decoded from
+            // the helper dials the recording from just before the held picture and plays on from it
             self.expect = Expect::Recording;
         }
     }

@@ -1500,10 +1500,15 @@ fn ok_holds_live_on_its_last_picture_plays_on_as_the_recording_from_there_and_ba
     held["paused"] = json!(true);
     r.helper("cameras.live", held);
     assert!(r.full().paused && r.full().hole);
-    // OK plays on as the recording from there
+    // OK plays on as the recording from there: the held picture stays in view until the recording's first takes its place
     r.at(3200);
     let fx = r.press("ok");
     assert!(requests(&fx).iter().any(|(_, p, b)| p == "/v1/cameras/live/pause" && b["paused"] == json!(false)), "{fx:?}");
+    assert!(r.full().hole, "the held picture, not black, while the recording is dialled");
+    let mut starting = live_topic("273", "playback", "starting");
+    starting["paused"] = json!(true);
+    r.helper("cameras.live", starting);
+    assert!(r.full().hole);
     r.helper("cameras.live", live_topic("273", "playback", "playing"));
     let f = r.full();
     assert!(!f.paused && f.hole);

@@ -31,6 +31,7 @@ pub mod gf;
 pub mod rate;
 
 use parking_lot::{Condvar, Mutex};
+use rtsp_client::depay::nal_units;
 use rtsp_client::{Codec, Frame, Options, Session as Rtsp, Url};
 use serde_json::{Value, json};
 use std::borrow::Cow;
@@ -232,6 +233,9 @@ pub struct Plan {
     /// has come (the panel is not held for the wait), a dropped stream is not dialled again (every call wakes the camera), and ending the stream hangs the
     /// call up at once instead of when the dial gives up.
     pub battery: bool,
+    /// Play after a pause: the stream plays on from the picture held on the plane. The view stays paused (that picture is what is seen) until the
+    /// stream's first picture takes its place.
+    pub resume: bool,
     /// Called once, off the caller's path, when this stream is over for any reason (the bridge is told to end its playback session).
     pub on_end: Option<Box<dyn FnOnce() + Send>>,
 }
@@ -271,6 +275,7 @@ pub struct View {
     pub delay_ms: u64,
     pub window: String,
     pub since: u64,
+    /// The picture on the plane is held: the stream is paused, or one that plays on from the held picture has not shown its first yet.
     pub paused: bool,
     /// What the stream was asked for, as the plan says it (`Plan::purpose`); empty for a start that is nobody's pop-up.
     pub purpose: String,
@@ -1080,10 +1085,8 @@ struct Counters {
     dropped: AtomicU64,
     /// Pictures that never reached the feeder: packets lost on the way and pictures the queue let go.
     lost: AtomicU64,
-    /// The newest picture's time in its stream (microseconds), and the epoch it belongs to.
+    /// The newest picture fed, by its time in its stream (microseconds; -1: none of this stream yet). A held picture plays on from it.
     pts_us: AtomicI64,
-    /// The newest key picture fed, by its time in its stream (microseconds; -1: none yet of this stream). A held picture plays on from it.
-    key_pts_us: AtomicI64,
     /// This TV's clock (milliseconds) at time 0 of the stream: the soonest any picture fed arrived after its time (`i64::MAX`: none yet).
     /// Pictures handed over from a prebuffer arrive late, so the soonest dates the stream best.
     clock_ms: AtomicI64,
@@ -1095,46 +1098,53 @@ impl Counters {
             fed: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
             lost: AtomicU64::new(0),
-            pts_us: AtomicI64::new(0),
-            key_pts_us: AtomicI64::new(-1),
+            pts_us: AtomicI64::new(-1),
             clock_ms: AtomicI64::new(i64::MAX),
         }
     }
 
     /// A new stream: its pictures have times of their own.
     fn restart(&self) {
-        self.key_pts_us.store(-1, Ordering::Relaxed);
+        self.pts_us.store(-1, Ordering::Relaxed);
         self.clock_ms.store(i64::MAX, Ordering::Relaxed);
     }
 
     /// A picture went to the feeder. Its time is stored last: a reader that sees it sees the rest.
     fn fed(&self, unit: &Unit) {
-        if unit.key {
-            self.key_pts_us.store(unit.pts_us, Ordering::Relaxed);
-        }
         let arrived_ms = crate::timeutil::now_ms() as i64 - unit.arrived.elapsed().as_millis() as i64;
         self.clock_ms.fetch_min(arrived_ms - unit.pts_us / 1000, Ordering::Relaxed);
         self.pts_us.store(unit.pts_us, Ordering::Release);
     }
 }
 
-/// How far before its key picture a held picture plays on from. Asked even a moment late, a recording begins at the next key picture, after
-/// the held one; the clock that dates live pictures (their soonest arrival) runs behind the camera's by the network's delay.
+/// How far before the held picture the recording that plays on from it is dialled: asked even a moment late, it would begin after the held
+/// picture; the clock that dates live pictures (their soonest arrival) runs behind the camera's by the network's delay. The writer passes over
+/// what comes before the held picture's twin.
 const RESUME_LEAD_MS: i64 = 500;
 
-/// Where a held picture plays on from: the key picture its decoding began at, [`RESUME_LEAD_MS`] early, by the recording's clock, or for
-/// live by this TV's. A recording with nothing on the plane yet plays on from where it was asked to start; live with nothing has no place.
-fn resume_point(playing: &Playing, key_pts_us: i64, clock_ms: i64) -> Option<i64> {
-    let key_ms = (key_pts_us >= 0).then_some(key_pts_us / 1000);
+/// Where a held picture plays on from: its own time, [`RESUME_LEAD_MS`] early, by the recording's clock, or for live by this TV's. A recording
+/// with nothing on the plane yet plays on from where it was asked to start; live with nothing has no place.
+fn resume_point(playing: &Playing, pts_us: i64, clock_ms: i64) -> Option<i64> {
+    let pts_ms = (pts_us >= 0).then_some(pts_us / 1000);
     match playing.mode {
         Mode::Live => {
-            let key_ms = key_ms?;
-            (clock_ms != i64::MAX).then(|| clock_ms + key_ms - RESUME_LEAD_MS)
+            let pts_ms = pts_ms?;
+            (clock_ms != i64::MAX).then(|| clock_ms + pts_ms - RESUME_LEAD_MS)
         }
         Mode::Playback | Mode::Clip => {
-            Some(key_ms.map_or(playing.started_at, |k| playing.started_at + k * i64::from(playing.rate) - RESUME_LEAD_MS))
+            Some(pts_ms.map_or(playing.started_at, |p| playing.started_at + p * i64::from(playing.rate) - RESUME_LEAD_MS))
         }
     }
+}
+
+/// Whether two access units are the same picture: the same slices, byte for byte. What comes in front of them (parameter sets, SEI) may differ
+/// between a camera's live stream and its recording.
+fn same_picture(codec: Codec, a: &[u8], b: &[u8]) -> bool {
+    let slice = |nal: &&[u8]| match codec {
+        Codec::H264 => nal.first().is_some_and(|b| matches!(b & 0x1f, 1..=5)),
+        Codec::H265 => nal.first().is_some_and(|b| (b >> 1) & 0x3f < 32),
+    };
+    nal_units(a).into_iter().filter(slice).eq(nal_units(b).into_iter().filter(slice))
 }
 
 /// What tells the bridge that a stream is over (`Plan::on_end`), once, from whichever thread gets there first.
@@ -1574,7 +1584,8 @@ impl Live {
             v.rate = plan.rate.max(1);
             v.started_at = (plan.mode != Mode::Live).then_some(plan.started_at);
             v.position_ms = (plan.mode != Mode::Live).then_some(plan.started_at);
-            v.paused = false;
+            // a resume keeps the held picture in view until the stream's first picture takes its place
+            v.paused = v.paused && plan.resume;
             v.reason = String::new();
             v.state = "starting";
             v.purpose.clone_from(&plan.purpose);
@@ -1620,8 +1631,7 @@ impl Live {
         let (mode, from) = {
             let playing = session.playing.lock();
             let counters = &session.counters;
-            let key = counters.key_pts_us.load(Ordering::Relaxed);
-            (playing.mode, resume_point(&playing, key, counters.clock_ms.load(Ordering::Relaxed)))
+            (playing.mode, resume_point(&playing, counters.pts_us.load(Ordering::Relaxed), counters.clock_ms.load(Ordering::Relaxed)))
         };
         let from = from.ok_or_else(|| "nothing is on the picture yet".to_owned())?;
         session.detach();
@@ -1741,6 +1751,7 @@ impl Answers {
                                 session.first_at.lock().get_or_insert_with(Instant::now);
                                 inner.update(session.id, |v| {
                                     if v.state == "starting" {
+                                        v.paused = false;
                                         v.state = "playing";
                                     }
                                 });
@@ -2010,6 +2021,15 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
     let mut last_pts: i64 = -1;
     let mut next_base: i64 = 0;
     let mut epoch_first: Option<i64> = None;
+    // the newest picture fed and the key picture its run began at, kept (not copied) for a stream that plays on from them
+    let mut newest: Option<Unit> = None;
+    let mut run_key: Option<Unit> = None;
+    // a new stream on the pipeline that holds those pictures: what comes before the newest's twin is passed over and what follows it plays on
+    // from the picture on the plane; a key picture of another run ends the search, the decoder is flushed and the stream starts there. The run's
+    // own key picture is passed over once: a scene that does not change can repeat a key picture byte for byte
+    let mut joining = false;
+    let mut passed = 0u32;
+    let mut own_key_passed = false;
     // a stream on the main window has the rate its parameter sets declare kept off 100 Hz (`rate`); said once for each stream
     let panel = !texture && !sub;
     let mut said_rate = false;
@@ -2041,6 +2061,9 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
             pending = None;
             need_key = true;
             last_pts = -1;
+            newest = None;
+            run_key = None;
+            joining = false;
             next_base = 0;
             epoch_first = None;
             said_rate = false;
@@ -2067,9 +2090,10 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
         };
         match item {
             Item::Stream(info) => {
-                // a stream of another codec or size than the pipeline holds loads it again; the same one flushes what the pipeline still
-                // holds of the last stream and goes on, with times that keep rising
-                if !loaded.is_some_and(|l| l.same_pipeline(&info)) {
+                // a stream of another codec or size than the pipeline holds loads it again; the same one goes on from the picture on the plane
+                // (`joining`), with times that keep rising
+                let reloaded = !loaded.is_some_and(|l| l.same_pipeline(&info));
+                if reloaded {
                     if lease.loaded
                         && let Err(e) = lease.feeder().client.send_unload()
                     {
@@ -2083,18 +2107,22 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
                     need_key = true;
                     last_pts = -1;
                     next_base = 0;
+                    newest = None;
+                    run_key = None;
+                    joining = false;
                 } else if last_pts >= 0 {
-                    if let Err(e) = lease.feeder().client.send_flush() {
-                        return Fed::Broke(went(e), Resume { loaded, unit: None });
-                    }
-                    next_base = last_pts + 100_000_000;
-                    // the flushed decoder holds no picture to refer to
-                    need_key = true;
+                    joining = true;
+                    passed = 0;
+                    own_key_passed = false;
                 }
                 session.counters.restart();
                 epoch_first = None;
                 said_rate = false;
                 inner.update(session.id, |v| {
+                    // the held picture went with the old pipeline
+                    if reloaded {
+                        v.paused = false;
+                    }
                     v.codec = codec_word(info.codec).to_owned();
                     v.width = info.width;
                     v.height = info.height;
@@ -2105,6 +2133,42 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
             }
             Item::Unit(unit) => {
                 let Some(info) = loaded else { continue };
+                if joining && let Some(key) = &run_key {
+                    let held = newest.as_ref().unwrap_or(key);
+                    if same_picture(info.codec, &unit.data, &held.data) {
+                        joining = false;
+                        crate::log_info!(
+                            "cameras: live session {} on camera {camera}: the new stream plays on from the picture on the plane, {passed} pictures passed over",
+                            session.id
+                        );
+                        // the decoder holds this picture already: what follows it is placed after it
+                        epoch_first = Some(unit.pts_us);
+                        next_base = last_pts;
+                        session.counters.fed(&unit);
+                        if unit.key {
+                            run_key = Some(unit);
+                            newest = None;
+                        } else {
+                            newest = Some(unit);
+                        }
+                        continue;
+                    }
+                    let own_key = unit.key && !own_key_passed && same_picture(info.codec, &unit.data, &key.data);
+                    if !unit.key || own_key {
+                        own_key_passed |= own_key;
+                        passed += 1;
+                        continue;
+                    }
+                    joining = false;
+                    crate::log_info!(
+                        "cameras: live session {} on camera {camera}: the new stream does not hold the picture on the plane, it starts at its first key picture",
+                        session.id
+                    );
+                    if let Err(e) = lease.feeder().client.send_flush() {
+                        return Fed::Broke(went(e), Resume { loaded, unit: Some(unit) });
+                    }
+                    next_base = last_pts + 100_000_000;
+                }
                 if need_key {
                     if !unit.key {
                         continue;
@@ -2158,6 +2222,12 @@ fn feed(inner: &Arc<Inner>, session: &Arc<Session>, lease: &mut Lease, resume: R
                 }
                 sent_at.get_or_insert_with(Instant::now);
                 session.counters.fed(&unit);
+                if unit.key {
+                    run_key = Some(unit);
+                    newest = None;
+                } else {
+                    newest = Some(unit);
+                }
             }
         }
     }
@@ -2738,6 +2808,7 @@ mod tests {
             purpose: String::new(),
             window: String::new(),
             battery: false,
+            resume: false,
             on_end: None,
         };
         assert_eq!(
@@ -3167,7 +3238,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stream_of_another_codec_reloads_the_decoder_from_a_key_picture_and_held_live_plays_on_from_that_key() {
+    fn a_stream_of_another_codec_reloads_the_decoder_from_a_key_picture_and_held_live_plays_on_from_the_newest_picture() {
         let dir = tempfile::tempdir().unwrap();
         let (pool, mut peer) = test_pool(dir.path(), Duration::from_secs(1));
         let (inner, session) = test_inner();
@@ -3200,17 +3271,70 @@ mod tests {
         while session.counters.pts_us.load(Ordering::Acquire) != 80_000 {
             thread::yield_now();
         }
-        // every picture arrived as it was given, so the one at 80 ms dates time 0 at `wall` - 80; the key picture is at 40 ms
+        // every picture arrived as it was given, so the one at 80 ms dates time 0 at `wall` - 80; the held picture is that one
         let (mode, from) = Live { inner: inner.clone() }.pause().unwrap();
         assert_eq!(mode, Mode::Live);
-        assert!((from - (wall - 80 + 40 - RESUME_LEAD_MS)).abs() <= 5, "{from} for {wall}");
+        assert!((from - (wall - RESUME_LEAD_MS)).abs() <= 5, "{from} for {wall}");
         assert!(inner.view.lock().1.paused);
         session.end(true);
         writer.join().unwrap();
     }
 
+    /// An H.264 access unit: one slice of the kind asked for, ending in `tag`, with `front` (parameter sets) before it.
+    fn picture(key: bool, pts_us: i64, front: &[u8], tag: u8) -> Unit {
+        let mut data = front.to_vec();
+        data.extend_from_slice(&[0, 0, 0, 1, if key { 0x65 } else { 0x41 }, 0x88, tag]);
+        Unit { data, ..unit(key, pts_us, 0) }
+    }
+
     #[test]
-    fn a_held_recording_plays_on_from_its_key_picture_by_its_rate_or_from_its_start_when_nothing_was_shown() {
+    fn a_new_stream_plays_on_from_the_picture_on_the_plane_or_is_flushed_at_a_key_picture_of_another_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let (pool, mut peer) = test_pool(dir.path(), Duration::from_secs(1));
+        let (inner, session) = test_inner();
+        inner.pipes.lock().remember("273", "ndl");
+        session.queue.begin(1);
+        session.queue.settle();
+        let (frames, heard) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            while let Ok((kind, payload)) = gf::read_frame(&mut peer) {
+                if [gf::FLUSH, gf::VIDEO].contains(&kind) && frames.send((kind, payload)).is_err() {
+                    break;
+                }
+            }
+        });
+        let next = || heard.recv_timeout(Duration::from_secs(5)).expect("the feeder is sent more");
+        let give = |units: [Unit; 3]| {
+            for u in units {
+                assert!(matches!(session.queue.give(1, u), Give::Done));
+            }
+        };
+        let pts = |head: &[u8]| i64::from_ne_bytes(head[..8].try_into().unwrap());
+        let writer = run_writer(&inner, &pool, &session);
+        give([picture(true, 0, &[], 1), picture(false, 40_000, &[], 2), picture(false, 80_000, &[], 3)]);
+        next();
+        next();
+        let held = next();
+        // the recording dialled to play on: a picture before the held one, the held one's twin, and the one after it
+        assert!(session.queue.stream(1, SMALL));
+        give([picture(false, 5_000_000, &[], 2), picture(false, 5_040_000, &[], 3), picture(false, 5_080_000, &[], 4)]);
+        let (kind, after) = next();
+        assert_eq!(kind, gf::VIDEO, "nothing is flushed");
+        assert_eq!(after[16..], picture(false, 0, &[], 4).data);
+        assert_eq!(pts(&after) - pts(&held.1), 40_000_000, "the times go on from the held picture");
+        // a stream without that picture: the run's key picture (another parameter set in front of it) is passed over, and the decoder is
+        // flushed at a key picture of another run
+        assert!(session.queue.stream(1, SMALL));
+        give([picture(true, 0, &[0, 0, 0, 1, 0x67, 9], 1), picture(false, 40_000, &[], 7), picture(true, 80_000, &[], 8)]);
+        assert_eq!(next().0, gf::FLUSH);
+        let (kind, key) = next();
+        assert_eq!((kind, key[8], &key[16..]), (gf::VIDEO, 1, &picture(true, 0, &[], 8).data[..]));
+        session.end(true);
+        writer.join().unwrap();
+    }
+
+    #[test]
+    fn a_held_recording_plays_on_from_the_held_picture_by_its_rate_or_from_its_start_when_nothing_was_shown() {
         let playing = Playing { mode: Mode::Playback, started_at: 1_000_000, rate: 2, ..test_session(1, &test_inner().0, SMALL).playing.lock().clone() };
         assert_eq!(resume_point(&playing, 3_000_000, i64::MAX), Some(1_006_000 - RESUME_LEAD_MS));
         assert_eq!(resume_point(&playing, -1, i64::MAX), Some(1_000_000));
@@ -3280,6 +3404,7 @@ mod tests {
             purpose: String::new(),
             window: String::new(),
             battery,
+            resume: false,
             on_end: None,
         }
     }
@@ -3558,6 +3683,7 @@ mod tests {
                 purpose: String::new(),
                 window: String::new(),
                 battery: false,
+                resume: false,
                 on_end: None,
             };
             inner.expected(&plan).map(|i| (i.width, i.height))
