@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Weather through LumaShow's weather module, 2026-11-21 (11:18–11:25 EST)
+
+lumashow-ha 0.3.3 (tag v0.3.3, main bdc4fd84) installed in Home Assistant through the Marketplace and Home Assistant restarted (up 11:21:01); "Send a weather entity to the device" switched on for the LumaTV entry, other options unchanged. Helper `b382a586` (main ec9beac8, built in the clean worktree) installed in Active Standby with no media pipeline, replacing e37a3363 (backup kept); healthy, pid 24809. With the screen off the feeds fetch only on request, so `POST /v1/refresh {"what":["weather"]}` was sent: the document came back fresh at 11:24 with lat/lon 33.72/−84.44 (the module's two-decimal `home`, where the token link gives full precision), sunrise 07:15, sunset 17:32 and daily `uvMax`. `/v1/weather/entities` lists `weather.pirate_weather`. The card and weather view on the lit screen and the fallback with the option off are untested.
+
 ## Morning acceptance, 2026-11-21 (10:35–11:08 EST; nothing installed)
 
 Checked on the set as installed: compositor 36462095, ui ca95dbb5, helper e37a3363, bridge 0.2.9, memory-manager shim on. Receipts (screenshots, polls, collector logs, gate JSON): `/data/home/tmp/lumatv-morning-20261121/`. The set was woken from Active Standby with `power/powerOn {"reason":"remoteKey"}` (`turnOnScreen` refuses outside "screen off") and returned to Active Standby with `power/powerOff`; the Denon was not touched.
