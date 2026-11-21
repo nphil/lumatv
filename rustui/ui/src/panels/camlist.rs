@@ -183,7 +183,8 @@ impl CameraList {
         self.life.presented() || self.prefetching(now)
     }
 
-    /// The stills wanted now, the focused row first and the rest by how near they are to it.
+    /// The stills wanted now, the focused row first and the rest by how near they are to it. A camera Scrypted marks offline is asked for too:
+    /// the mark can be wrong, and the bridge tries such a camera (one whose try failed is refused at once for the next 10 s).
     fn want_list(&self, now: u64) -> Vec<Want> {
         let list = &self.topic.list;
         if self.topic.state != LinkState::Ready || !self.asking(now) {
@@ -199,9 +200,6 @@ impl CameraList {
             rows.sort_by_key(|i| i.abs_diff(self.index));
             for i in rows {
                 let c = &list[i];
-                if !c.online {
-                    continue;
-                }
                 let (every, pace) = if i == self.index {
                     (FOCUS_MS, "&fps=8")
                 } else if (self.first..self.first + self.fit).contains(&i) {
@@ -212,7 +210,7 @@ impl CameraList {
                 out.push(Want::repeating(&c.id, &path(&c.id, pace), every));
             }
         } else {
-            for c in list.iter().filter(|c| c.online).take(PREFETCH_ROWS) {
+            for c in list.iter().take(PREFETCH_ROWS) {
                 out.push(Want::repeating(&c.id, &path(&c.id, ""), NEAR_MS));
             }
         }
@@ -574,15 +572,17 @@ mod tests {
     }
 
     #[test]
-    fn an_offline_camera_is_not_asked_for_and_says_so_and_a_stale_picture_says_its_age_dimmed() {
+    fn a_camera_marked_offline_is_asked_for_says_so_until_its_picture_comes_and_a_stale_picture_says_its_age_dimmed() {
         let mut l = CameraList::new();
         let data = json!({"state": "ready", "cameras": [{"id": "a", "name": "Front", "online": true}, {"id": "b", "name": "Garage", "online": false}]});
         l.update(&Input::Helper { topic: "cameras".into(), data }, 1000);
         let asked = fetches(&open(&mut l, 2000));
-        assert_eq!(asked.len(), 1, "{asked:?}");
+        assert_eq!(asked.len(), 2, "{asked:?}");
         answer(&mut l, asked[0].0, 2100);
         let words = |l: &CameraList, at: u64| l.view(false, at).rows.iter().map(|r| (r.words.clone(), r.dim)).collect::<Vec<_>>();
         assert_eq!(words(&l, 2100), [("Live".to_string(), false), ("Offline".to_string(), false)]);
+        answer(&mut l, asked[1].0, 2100);
+        assert_eq!(words(&l, 2100)[1], ("Live".to_string(), false), "a picture that comes shows");
         assert_eq!(words(&l, 2100 + 8_000)[0], ("8 s ago".to_string(), false));
         assert_eq!(words(&l, 2100 + 13_000)[0], ("13 s ago".to_string(), true), "past twelve seconds the picture is dimmed");
     }

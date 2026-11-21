@@ -244,11 +244,13 @@ pub struct TileWords {
 }
 
 /// What tile words say (spec "Tile words"): nothing while the picture is fresh and the link is `ready`; `Connecting` before the
-/// first; `No picture` after two refused asks; a camera that is not online "Offline" (with its age past a minute); any other state of
-/// the link, or a picture older than 12 s, dims the tile and gives its age.
+/// first; `No picture` after two refused asks; a camera Scrypted marks offline "Offline" (with its age past a minute) unless its picture is
+/// fresh, since the mark can be wrong and the bridge tries the camera anyway; any other state of the link, or a picture older than 12 s,
+/// dims the tile and gives its age.
 pub fn tile_words(online: bool, link: LinkState, pic: Pic, now: u64) -> TileWords {
     let age = pic.last_at.map(|t| now.saturating_sub(t));
-    if !online {
+    let fresh = link == LinkState::Ready && age.is_some_and(|a| a < FRESH_MS);
+    if !online && !fresh {
         let mut lines = vec![words::OFFLINE.to_string()];
         if let Some(a) = age.filter(|a| *a >= 60_000) {
             lines.push(words::age(a as i64));
@@ -429,13 +431,14 @@ mod tests {
     }
 
     #[test]
-    fn an_offline_camera_says_offline_with_its_age_past_a_minute() {
+    fn a_camera_marked_offline_says_offline_with_its_age_past_a_minute_unless_its_picture_is_fresh() {
         let pic = Pic { last_at: Some(0), refused: 0 };
         let t = tile_words(false, LinkState::Ready, pic, 30_000);
         assert_eq!((t.lines, t.dim), (vec!["Offline".to_string()], true));
         let t = tile_words(false, LinkState::Ready, pic, 3 * 60_000);
         assert_eq!(t.lines, ["Offline", "3 min ago"]);
         assert!(!tile_words(false, LinkState::Ready, Pic::default(), 0).dim, "nothing to dim");
+        assert_eq!(tile_words(false, LinkState::Ready, pic, 5_000), TileWords::default(), "a fresh picture shows: Scrypted's mark was wrong");
     }
 
     #[test]

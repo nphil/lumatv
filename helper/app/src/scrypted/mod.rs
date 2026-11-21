@@ -1108,9 +1108,9 @@ impl Inner {
         }
     }
 
-    /// Takes, on a thread of its own and one camera after another, a picture of each shown camera that pops up, is online and on mains power and has
-    /// none newer than [`KEEP_AGAIN`] (nor failed within it): a pop-up shows it the moment it comes, while the live video or the stills start (a
-    /// stream's first picture takes 0.5 to 4 s). A camera on a battery is not woken for it. The pictures go when the TV sleeps or the link does.
+    /// Takes, on a thread of its own and one camera after another, a picture of each shown camera `popup_stream::to_keep` names that has none
+    /// newer than [`KEEP_AGAIN`] (nor failed within it): a pop-up shows it the moment it comes, while the live video or the stills start (a
+    /// stream's first picture takes 0.5 to 4 s). The pictures go when the TV sleeps or the link does.
     fn keep_pictures(self: &Arc<Self>, generation: u64, bridge: &Bridge) {
         let options = self.options();
         let todo: Vec<(String, u32, u32)> = {
@@ -1121,7 +1121,7 @@ impl Inner {
             let todo: Vec<(String, u32, u32)> = state
                 .shown
                 .iter()
-                .filter(|c| c.online && !c.battery && !options.notify_for(&c.id).is_empty())
+                .filter(|c| popup_stream::to_keep(c, !options.notify_for(&c.id).is_empty()))
                 .filter(|c| state.unkept.get(&c.id).is_none_or(|at| at.elapsed() >= KEEP_AGAIN))
                 .filter(|c| self.stills.latest(&c.id).is_none_or(|p| p.age() >= KEEP_AGAIN))
                 .map(|c| {

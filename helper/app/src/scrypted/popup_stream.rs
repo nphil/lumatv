@@ -48,14 +48,20 @@ pub fn window_ok(camera: &Camera) -> bool {
         .any(|s| codec_ok(&s.codec) && calm(s.width, s.height, s.fps))
 }
 
-/// Whether the pop-up's stream is to be read from the stream itself: an online camera on the mains with live video whose listing gives no stream a size,
-/// and nothing read yet. A camera on a battery is never dialled for it.
+/// Whether the pop-up's stream is to be read from the stream itself: a camera on the mains with live video whose listing gives no stream a size,
+/// and nothing read yet. A camera on a battery is never dialled for it. Scrypted's offline mark is not asked: it can be wrong, and a read that
+/// fails waits `LEARN_AGAIN`.
 pub fn to_learn(camera: &Camera) -> bool {
-    camera.online
-        && !camera.battery
+    !camera.battery
         && camera.has("live")
         && camera.learned.is_none()
         && !camera.streams.iter().chain(camera.native.iter()).any(|s| s.width > 0 && s.height > 0)
+}
+
+/// Whether the helper keeps a picture of the camera for its pop-ups: one that pops up and is on mains power (a camera on a battery is not woken
+/// for it). Scrypted's offline mark is not asked: it can be wrong, and a picture that fails waits `KEEP_AGAIN`.
+pub fn to_keep(camera: &Camera, pops_up: bool) -> bool {
+    pops_up && !camera.battery
 }
 
 /// What a dial is judged by: its own codec, size and rate, or for one that gives no size, what was read from the camera's pop-up stream.
@@ -237,6 +243,9 @@ mod tests {
         ring.battery = true;
         assert!(!to_learn(&ring), "a camera on a battery is never dialled for it");
         assert!(!to_learn(&camera(vec![stream("native", "h264", 1920, 1080, 25.0)])), "the listing says the size");
+        let marked = Camera { online: false, ..camera(vec![stream("native", "", 0, 0, 0.0)]) };
+        assert!(to_learn(&marked), "Scrypted's offline mark is not trusted");
+        assert!(to_keep(&marked, true) && !to_keep(&marked, false) && !to_keep(&ring, true), "nor for the picture a pop-up shows first");
     }
 
     #[test]

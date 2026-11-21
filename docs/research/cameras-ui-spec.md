@@ -70,7 +70,8 @@ Under it, when tiles exist and the state is not `ready`, one banner line with th
 - **Picture pacing:** each shown tile asks `/frame` at its own pixel size, the next ask after the last arrived plus the interval of the `video.grid` choice: Light 333 ms, Balanced 200 ms (default),
   Smooth 125 ms. Tiles scrolled away or a closed grid ask nothing; their last pictures stay.
 - **Tile words:** nothing while the picture is fresh (under 12 s) and the link is `ready`; `Connecting` before the first; `No picture` after two refused asks; a camera with `online: false`
-  "Offline" (with " · 3 min ago" past a minute); any other state of the link or a picture older than 12 s dims the tile and gives its age.
+  "Offline" (with " · 3 min ago" past a minute) unless its picture is fresh (Scrypted's mark can be wrong and the bridge tries the camera anyway); any other state of the link or a picture
+  older than 12 s dims the tile and gives its age.
 - **Scroll:** more than 8 cameras scroll by whole rows, only as far as the focus needs, 300 ms; the foot's left says the range left below ("9 to 12", `chevron-down`).
 - **Keys:** Left and Right move along a row without wrapping, Up and Down by rows; Down from the last tile of a longer row above a short last row lands on the last tile; Up from the top row moves to the header's
   buttons (Left and Right between them, Down back to the tiles). OK opens the focused camera's full view, `Events` opens the sheet for every camera, `Settings` opens Settings, Home & look, Cameras. Back closes.
