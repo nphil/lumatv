@@ -881,7 +881,7 @@ impl HomeSurface {
         let profile = home.profile().cloned().unwrap_or(Value::Null);
         let strip = home.strip();
         let titles = if strip.items.iter().any(|i| i.get("type").and_then(Value::as_str) == Some(strip::TICKER)) { home.unread.titles.as_slice() } else { &[] };
-        let profile_key = format!("{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}", profile, home.status_items().len(), home.chip(), home.mark_frame(), home.status_mark().map(|m| m.0), strip.items, titles);
+        let profile_key = format!("{}|{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}", profile, home.status_items().len(), home.profile_left(), home.chip(), home.mark_frame(), home.status_mark().map(|m| m.0), strip.items, titles);
         let mend = self.status.as_mut().is_some_and(|s| s.mend.due(&kit.ui.scene, now));
         if !mend && self.status.as_ref().is_some_and(|s| s.profile_key == profile_key && s.frame == frame && s.group == group) {
             return Ok(());

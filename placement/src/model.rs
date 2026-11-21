@@ -1080,6 +1080,13 @@ fn widen(it: &Item, p: &Placement, f: &Frame, own: Rect) -> Rect {
     }
 }
 
+/// The status bar with the profile pill at its left end (a profile's choice, `layout.statusBar.profile`): the glass spans the whole `zone`
+/// and the buttons are at its right end, at the height the placement gave them. The pill itself is at the glass's left inset. Home and the
+/// pop-up layout editor both draw the bar from this. Returns `(buttons, glass)`.
+pub fn bar_profile_left(zone: &Rect, buttons: Rect, glass: Rect) -> (Rect, Rect) {
+    (Rect::new(zone.right() - buttons.w, buttons.y, buttons.w, buttons.h), Rect::new(zone.x, glass.y, zone.w, glass.h))
+}
+
 // ---- stacking ---------------------------------------------------------------------------------------------------------------------------
 
 /// `r` raised to rest `gap` above the film's subtitles when it would cover them (a toast at the foot of the screen over an app; the surface

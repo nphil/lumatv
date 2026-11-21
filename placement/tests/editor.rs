@@ -469,3 +469,28 @@ fn moving_the_status_bar_by_key_or_pointer_keeps_its_glass_spread() {
     assert!(rect(&e, "statusbar", pad.t + 2).x > at.x + 200, "the buttons followed the pointer: {at:?} -> {:?}", rect(&e, "statusbar", pad.t + 2));
     assert_eq!(glass(&e, "statusbar", pad.t + 2), Rect::new(64, 54, 1792, 60));
 }
+
+#[test]
+fn a_fixed_item_is_chosen_but_neither_a_key_nor_the_pointer_picks_it_up_and_a_notice_says_why() {
+    let (mut e, mut pad) = (editor_on(json!({})), Pad::new());
+    e.set_fixed(Some(("statusbar", "the profile button is on the left")));
+    e.start(Some("statusbar"));
+    assert!(pad.taps(&mut e, &[Key::Ok]).is_empty());
+    let v = e.view(pad.t);
+    assert!(!e.in_hand() && v.mode == "browse", "OK does not pick it up");
+    assert_eq!(v.notice, "Status bar stays put: the profile button is on the left");
+    assert_eq!(v.subject, "Status bar  \u{b7}  Fixed");
+    let before = rect(&e, "statusbar", pad.t);
+    e.pointer_down("statusbar", 200.0, 84.0);
+    e.pointer_move(500.0, 300.0, true, pad.t + 1);
+    assert!(e.pointer_up().is_empty());
+    assert!(!e.in_hand() && rect(&e, "statusbar", pad.t + 2) == before, "a drag does not move it");
+    // other items are still moved, and the bar is again when it is no longer fixed
+    e.start(Some("popup"));
+    pad.taps(&mut e, &[Key::Ok]);
+    assert!(e.in_hand());
+    e.start(Some("statusbar"));
+    e.set_fixed(None);
+    pad.taps(&mut e, &[Key::Ok]);
+    assert!(e.in_hand());
+}
