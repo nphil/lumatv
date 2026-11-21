@@ -159,6 +159,7 @@ into the compositor's pages on the host (41c6e83); not on the TV.
      467 ms with the stub, 117 and 267 ms without; the stub's own page-ins
      show as verity reads), so the paging is the compositor's. The preload
      trim and the heap shim are what is left to try.
+     Replacing memchute with foreground priority's engine (plan, 2026-11-20): `docs/research/lg-memchute.md`.
   4. New surfaces gated at p90 render under 3 ms with no ShaderEffectSource
      rebuild on show (the third vblank on every Home return is the blur and
      icon rebuild).
