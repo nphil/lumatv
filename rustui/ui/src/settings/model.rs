@@ -2466,12 +2466,12 @@ mod tests {
             m.topics.set_helper("receiver", receiver_fixture(json!("new"), true, json!({"requestId":"r1","status":"failed","error":"Disconnected"})));
             m.open(Some("receiver"), 1004);
             let rows = m.rows();
-            assert!(rows.iter().any(|r| r.text == "Change failed: Disconnected"));
+            assert_eq!(rows.iter().find(|r| r.id == "power").unwrap().detail, "Not changed: Disconnected");
             assert!(rows.iter().find(|r| r.id == "power").unwrap().on);
         }
     }
     #[test]
-    fn receiver_rejection_survives_closed_page_and_lost_reachability() {
+    fn receiver_busy_answer_requeues_the_change_after_the_page_closed() {
         let mut m = receiver_model();
         m.topics.helper_up = true;
         m.topics.set_helper("receiver", receiver_fixture(json!("old"), true, Value::Null));
@@ -2480,9 +2480,10 @@ mod tests {
         m.close(1002);
         m.topics.set_helper("receiver", receiver_fixture(json!("old"), false, Value::Null));
         m.update(&Input::Fetched { tag, status: 409, data: json!({"error":{"message":"Busy"}}) }, 1003);
-        assert_eq!(m.local.get("receiver.write")["error"], "Busy");
+        assert!(m.local.get("receiver.write").is_null());
+        assert_eq!(m.local.get("receiver.queue")["power"]["value"], false);
         m.open(Some("receiver"), 1004);
-        assert!(m.rows().iter().any(|r| r.text == "Change failed: Busy"));
+        assert_eq!(m.rows().iter().find(|r| r.id == "power").unwrap().detail, "Queued");
     }
 
     #[test]
@@ -2492,13 +2493,14 @@ mod tests {
         m.topics.set_helper("receiver", receiver_fixture(json!("same"), true, Value::Null));
         m.open(Some("receiver"), 1000);
         let first = receiver_write(&mut m, 1001);
-        m.now = 8000;
-        m.topics.set_helper("receiver",json!({"settingsSession":"same","reachable":true,"fresh":true,"updatedAt":8000,"settings":{"power":{"support":"supported","value":true,"updatedAt":8000,"writable":true,"pending":null,"result":null,"options":[]}}}));
-        let second = receiver_write(&mut m, 8000);
+        // past the wait for the first one's answer, so the second is sent rather than queued
+        m.now = 14_000;
+        m.topics.set_helper("receiver",json!({"settingsSession":"same","reachable":true,"fresh":true,"updatedAt":14_000,"settings":{"power":{"support":"supported","value":true,"updatedAt":14_000,"writable":true,"pending":null,"result":null,"options":[]}}}));
+        let second = receiver_write(&mut m, 14_000);
         assert_ne!(first, second);
-        m.update(&Input::Fetched { tag: first, status: 202, data: json!({"accepted":true,"requestId":"old","session":"same"}) }, 8001);
+        m.update(&Input::Fetched { tag: first, status: 202, data: json!({"accepted":true,"requestId":"old","session":"same"}) }, 14_001);
         assert!(m.local.get("receiver.write").get("requestId").is_none());
-        m.update(&Input::Fetched { tag: second, status: 202, data: json!({"accepted":true,"requestId":"new","session":"same"}) }, 8002);
+        m.update(&Input::Fetched { tag: second, status: 202, data: json!({"accepted":true,"requestId":"new","session":"same"}) }, 14_002);
         assert_eq!(m.local.get("receiver.write")["requestId"], "new");
     }
 }

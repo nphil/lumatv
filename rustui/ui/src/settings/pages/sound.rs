@@ -33,6 +33,28 @@ pub fn usb() -> Page {
     child("usbsound", "USB Device", "usb").reads(usb_reads).rows(usb_rows)
 }
 
+// ------------------------------------------------------------------------------------------------------------------ digital output
+
+const DIGITAL_VALUES: [&str; 3] = ["auto", "pcm", "passThrough"];
+
+/// The audio inputs `soundOutputDigital` is stored under (`dimension: ["audioInput"]`; the set's `defaultSettings.json` defaults each
+/// to `auto`). LG keeps one value per input, so a choice made while Live TV plays left HDMI, the apps (`media`) and games on Auto.
+const AUDIO_INPUTS: [&str; 23] = [
+    "dtv", "atv", "av", "comp", "default", "ipch", "media", "hdmi1", "hdmi2", "hdmi3", "hdmi4", "hdmi1_game", "hdmi2_game", "hdmi3_game",
+    "hdmi4_game", "dp1", "dp1_game", "dp2", "dp2_game", "usb1", "usb1_game", "usb2", "usb2_game",
+];
+
+/// The digital sound output for every input: the one playing through the settings model (shown at once, read back), each other with its
+/// own `audioInput`, so the choice holds whatever the TV plays next.
+fn digital_everywhere(value: &str, here: &str) -> Vec<Op> {
+    let mut ops = vec![Op::Lg { ds: "sound.soundOutputDigital".into(), value: json!(value), app: None }];
+    ops.extend(AUDIO_INPUTS.iter().filter(|input| **input != here).map(|input| Op::Act {
+        uri: format!("{SERVICE}/setSystemSettings"),
+        payload: json!({"category": "sound", "settings": {"soundOutputDigital": value}, "dimension": {"audioInput": input}}),
+    }));
+    ops
+}
+
 // ------------------------------------------------------------------------------------------------------------------ the sound out
 
 /// The ways out as the Sound page names them (the chooser's own table is LG's).
@@ -263,16 +285,21 @@ fn rows(c: &Ctx) -> Vec<Row> {
                 .lg_shown(),
         ),
     );
+    let here = c.lg.dimension("sound").and_then(|d| d.get("audioInput")).and_then(Value::as_str).unwrap_or_default().to_owned();
     rows.push(
         c.seg(
             Spec::new("sound.soundOutputDigital")
                 .tab(0)
                 .icon("cable")
                 .label("Digital sound output")
-                .help("Pass through hands the original soundtrack to the receiver.")
+                .help("Pass through hands the original soundtrack to the receiver. Applies to every input and app.")
                 .options(&["Auto", "PCM", "Pass through"])
-                .values(&["auto", "pcm", "passThrough"]),
-        ),
+                .values(&DIGITAL_VALUES),
+        )
+        .act(move |a| match a {
+            Arg::Index(i) => DIGITAL_VALUES.get(i).map(|v| digital_everywhere(v, &here)).unwrap_or_default(),
+            _ => Vec::new(),
+        }),
     );
     let mut too = Row::toggle("tvtoo")
         .tab(0)
@@ -856,5 +883,25 @@ mod tests {
         assert!(
             matches!(&ops[..], [Op::Act { uri, payload }, Op::RefreshIn(600)] if uri.ends_with("/setSoundOutput") && payload == &json!({"soundOutput": "usb_speaker", "cardNumber": 3}))
         );
+    }
+
+    #[test]
+    fn digital_output_writes_each_input_under_its_own_dimension() {
+        // as answered on the set: the category's union dimension, and the key's own (`audioInput` only)
+        let mut w = World::new(lg_with(
+            &[("sound", json!({"settings": {"soundOutputDigital": "auto"}, "dimension": {"audioOutput": "default", "audioInput": "dtv", "soundOutput": "external_arc"}}))],
+            &[("sound", json!({"results": [{"category": "sound", "key": "soundOutputDigital", "dimension": ["audioInput"]}]}))],
+        ));
+        let r = rows(&w.ctx());
+        let ops = (by_id(&r, "sound.soundOutputDigital").act.as_ref().unwrap())(Arg::Index(2));
+        let Op::Lg { ds, value, .. } = &ops[0] else { panic!("the playing input goes through the model") };
+        let crate::kit::screen::Effect::Luna { payload, .. } = &w.lg.write(ds, value, None, 0)[0] else { panic!() };
+        assert_eq!(payload["dimension"], json!({"audioInput": "dtv"}), "not the union: that write lands nowhere");
+        let others: Vec<&str> = ops[1..].iter().map(|op| match op {
+            Op::Act { payload, .. } if payload["settings"]["soundOutputDigital"] == "passThrough" => payload["dimension"]["audioInput"].as_str().unwrap(),
+            _ => panic!("each other input is one setSystemSettings"),
+        }).collect();
+        assert_eq!(others.len(), AUDIO_INPUTS.len() - 1);
+        assert!(!others.contains(&"dtv") && others.contains(&"media") && others.contains(&"hdmi1_game"));
     }
 }

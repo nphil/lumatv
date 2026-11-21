@@ -7,7 +7,7 @@ use std::time::Duration;
 
 const INFO: &str = include_str!("fixtures/denon-device-capabilities.xml");
 const BASIC: &str = include_str!("fixtures/denon-basic-discovery.xml");
-const AUDYSSEY: &str = include_str!("fixtures/denon-audyssey-discovery.xml");
+const PARAMETERS: &str = include_str!("fixtures/denon-parameters-discovery.xml");
 
 #[test]
 fn declared_appcommand_envelope_discovers_receiver_capabilities() {
@@ -59,8 +59,8 @@ fn declared_appcommand_envelope_discovers_receiver_capabilities() {
                     BASIC
                 } else {
                     assert!(head.starts_with("POST /goform/AppCommand0300.xml "));
-                    assert!(body.contains("GetAudyssey"));
-                    AUDYSSEY
+                    assert!(body.contains("GetAudyssey") && body.contains("GetSurroundParameter") && body.contains("GetSoundMode"));
+                    PARAMETERS
                 }
             };
             write!(stream, "HTTP/1.0 200 OK\r\nContent-Length: {}\r\n\r\n{}", response.len(), response).unwrap();
@@ -76,11 +76,14 @@ fn declared_appcommand_envelope_discovers_receiver_capabilities() {
     assert_eq!(names, vec![("MPLAY", "Apple TV"), ("BD", "MAGNAVOX 4K BD"), ("GAME", "PS4"), ("TV", "TV Audio"), ("NET", "HEOS Music"), ("BT", "Bluetooth")]);
     assert_eq!(result.tone_available, Some(false));
     assert_eq!(result.tone_enabled, None);
-    // An unrecognized explicit control code is not proof of availability.
-    assert_eq!(result.dynamic_eq_available, None);
-    assert_eq!(result.reference_level_available, None);
-    assert_eq!(result.dynamic_volume_available, None);
-    assert_eq!(result.mult_eq_available, None);
+    // Control code 2 is what the receiver reports for the controls its own setup page shows active.
+    assert_eq!(result.dynamic_eq_available, Some(true));
+    assert_eq!(result.reference_level_available, Some(true));
+    assert_eq!(result.dynamic_volume_available, Some(true));
+    assert_eq!(result.mult_eq_available, Some(true));
+    assert_eq!((result.lfe_available, result.drc_available, result.loudness_available), (Some(true), Some(true), Some(true)));
+    assert_eq!(result.dialog_control_available, Some(false));
+    assert_eq!(result.sound_mode_available, Some(true));
     assert_eq!(result.zone2_present, None);
     assert_eq!(result.zone2_sources, None);
     assert_eq!(result.zone2_volume_variable, Some(true));

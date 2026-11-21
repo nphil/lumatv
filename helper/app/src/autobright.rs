@@ -15,9 +15,13 @@
 //!   over, or a value the owner chose since. Moving the slider while auto brightness is on is read as Android reads it: the value
 //!   chosen is the level wanted in this light, and the curve is fitted through it (the gamma, then the floor); a value above the level
 //!   becomes the new level.
-//! - **The ramp.** One unit a write toward the target, at most [`DARKEN_RATE`] (down) or [`BRIGHTEN_RATE`] (up) of the level a second
-//!   and never closer than [`MIN_GAP`]. A picture mode coming into force (a video starting) goes to its target in one write, hidden
-//!   by the mode change.
+//! - **The ramp.** One unit a write toward the target, never more: a unit is the smallest step the panel takes, 2% of a level of 50,
+//!   so what keeps a step unseen is the time between steps. A drift goes at most [`DARKEN_RATE`] (down) or [`BRIGHTEN_RATE`] (up) of
+//!   the level a second, never closer than [`MIN_GAP`], and starts only for a target [`START_DEADBAND`] units away. A sudden shift (a
+//!   lamp on or off: [`JUMP_RATIO`] and [`JUMP_LUX`] past the accepted light for [`JUMP_UP_SAMPLES`] or [`JUMP_DOWN_SAMPLES`]
+//!   samples in a row) ramps at [`FAST_BRIGHTEN_RATE`] or [`FAST_DARKEN_RATE`], eased at both ends. The switch coming on ramps from the
+//!   picture's value; a picture mode coming into force (a video starting) goes to its target in one write, hidden by the mode change.
+//!   The design follows `docs/research/auto-brightness-research.md`.
 //! - **LG's Energy saving Auto** reads the same sensor and dims on its own; two of them would fight. A mode whose Energy saving is
 //!   Auto has it switched off while this drives it, and put back exactly when this lets go. Minimum, Medium and Maximum are fixed caps
 //!   and are left as they are. HDR and Dolby Vision modes carry no Energy saving and are never touched.
@@ -67,11 +71,31 @@ pub const BRIGHTEN_BAND: f64 = 0.3;
 pub const DARKEN_BAND: f64 = 0.4;
 /// The least width of either band, in lux (Android's minimum thresholds).
 pub const MIN_BAND_LUX: f64 = 2.0;
-/// The fastest ramp down and up, as a fraction of the level per second: one unit at level 50 is 2%, so down is a unit every 4 s there.
-pub const DARKEN_RATE: f64 = 0.005;
-pub const BRIGHTEN_RATE: f64 = 0.015;
-/// Never two writes closer than this (the compositor's panel dim uses the same).
+/// The fastest drift down and up, as a fraction of the level per second. A step is one unit of the setting, the smallest the panel
+/// takes, which is 2% of a level of 50: the rate is what spaces the steps in time so that none is seen as a step, a unit every 5 s
+/// down and every 2.5 s up at level 50. Up is twice as fast: a room that has lit up should not wait long, one that has dimmed can.
+pub const DARKEN_RATE: f64 = 0.004;
+pub const BRIGHTEN_RATE: f64 = 0.008;
+/// Never two drift writes closer than this (the compositor's panel dim uses the same).
 pub const MIN_GAP: Duration = Duration::from_secs(2);
+/// A drift does not start for a target less than this many units away: the accepted light moves only past its bands, so this is only
+/// the rounding of the curve, and it never leaves a ramp half done (a ramp that has started goes to its target).
+pub const START_DEADBAND: u32 = 2;
+/// A sudden shift (a lamp on or off): the newest [`JUMP_UP_SAMPLES`] samples all at least [`JUMP_RATIO`] times and [`JUMP_LUX`] above
+/// the accepted light, or the newest [`JUMP_DOWN_SAMPLES`] all as far below it. Samples are [`SAMPLE`] apart, so a lamp on counts after
+/// 2 s and a lamp off after 4 s: one reading is a hand or a person passing the sensor, and the screen's own light never makes a jump
+/// this size (4 to 5 lux blips in the dark). Darkening wants one more sample than brightening for the same reason the debounce is longer.
+pub const JUMP_RATIO: f64 = 2.0;
+pub const JUMP_LUX: f64 = 4.0;
+pub const JUMP_UP_SAMPLES: usize = 2;
+pub const JUMP_DOWN_SAMPLES: usize = 3;
+/// The ramp after a sudden shift, at its fastest: 10% of the level a second up, 6% down (35 units in about 8 s up and 13 s down at level
+/// 60), eased: its speed rises from [`EASE_FLOOR`] of that at the start to all of it in the middle and falls again, so a fade has no
+/// edge where it begins or ends. Never a write closer than [`FAST_GAP`] (each write is a luna call).
+pub const FAST_BRIGHTEN_RATE: f64 = 0.10;
+pub const FAST_DARKEN_RATE: f64 = 0.06;
+pub const EASE_FLOOR: f64 = 0.3;
+pub const FAST_GAP: Duration = Duration::from_millis(250);
 /// How often the setting is read while the level is at its target: the owner's slider, a mode change.
 pub const LOOK: Duration = Duration::from_secs(10);
 /// This many failed calls in a row put everything back and stop for [`LATCH`].
@@ -180,7 +204,17 @@ impl Decide for Curve {
     }
 }
 
-/// The room's light: Android's short and long means, bands and debounce.
+/// What [`Ambient::update`] did to the accepted light.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Move {
+    Still,
+    /// The room drifted: a slow ramp follows.
+    Drift,
+    /// The room changed at once and stayed so: a faster, eased ramp follows.
+    Sudden,
+}
+
+/// The room's light: Android's short and long means, bands and debounce, and the sudden shifts above them.
 #[derive(Default)]
 pub struct Ambient {
     samples: VecDeque<(Instant, f64)>,
@@ -255,21 +289,37 @@ impl Ambient {
         since
     }
 
-    /// Moves the accepted light when the room has changed for long enough; true when it moved.
-    pub fn update(&mut self, now: Instant) -> bool {
-        let Some(fast) = self.mean(now, SHORT) else { return false };
+    /// The mean of the newest `n` samples when all of them satisfy `past`.
+    fn tail_mean(&self, n: usize, past: impl Fn(f64) -> bool) -> Option<f64> {
+        let len = self.samples.len();
+        if len < n {
+            return None;
+        }
+        let tail: Vec<f64> = self.samples.iter().skip(len - n).map(|s| s.1).collect();
+        tail.iter().all(|l| past(*l)).then(|| tail.iter().sum::<f64>() / n as f64)
+    }
+
+    /// Moves the accepted light when the room has changed for long enough, or at once when it changed by a lot and stayed so.
+    pub fn update(&mut self, now: Instant) -> Move {
+        let Some(fast) = self.mean(now, SHORT) else { return Move::Still };
         let Some(lux) = self.lux else {
             self.lux = Some(fast);
-            return true;
+            return Move::Drift;
         };
+        let (up_jump, down_jump) = ((lux * JUMP_RATIO).max(lux + JUMP_LUX), (lux / JUMP_RATIO).min(lux - JUMP_LUX));
+        if let Some(l) = self.tail_mean(JUMP_UP_SAMPLES, |l| l >= up_jump).or_else(|| self.tail_mean(JUMP_DOWN_SAMPLES, |l| l <= down_jump)) {
+            self.lux = Some(l);
+            return Move::Sudden;
+        }
         let slow = self.mean(now, LONG).unwrap_or(fast);
         let (up, down) = Ambient::bands(lux);
         let brighter = fast >= up && slow >= up && self.past_since(|l| l > up).is_some_and(|t| t + BRIGHTEN_DEBOUNCE <= now);
         let darker = fast <= down && slow <= down && self.past_since(|l| l < down).is_some_and(|t| t + DARKEN_DEBOUNCE <= now);
         if brighter || darker {
             self.lux = Some(fast);
+            return Move::Drift;
         }
-        brighter || darker
+        Move::Still
     }
 }
 
@@ -299,12 +349,12 @@ pub fn load(path: &Path) -> Journal {
     std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
-/// The setting in force: its mode, input and range, the value and Energy saving.
+/// The setting in force: its mode and input, the value and Energy saving. The reply carries no dynamic range (a read of these keys
+/// names only `pictureMode` and `input` in its dimension, measured on the set), so the range is [`Env::range`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct Here {
     pub mode: String,
     pub input: String,
-    pub range: String,
     pub value: u32,
     pub energy: Option<String>,
 }
@@ -316,8 +366,6 @@ impl Here {
         Some(Here {
             mode: s(d.get("pictureMode")).or_else(|| s(reply.pointer("/settings/pictureMode")))?,
             input: s(d.get("input"))?,
-            // without a range nothing is written (only SDR is)
-            range: s(d.get("dynamicRange")).unwrap_or_default(),
             value: paneldim::backlight(reply)?,
             energy: s(reply.pointer("/settings/energySaving")),
         })
@@ -342,6 +390,9 @@ pub struct Env {
     /// The picture in force as the picture module last heard it (mode, input, range): a change is looked at at once, so a mode
     /// coming into force goes to its target with the mode change.
     pub context: String,
+    /// The picture's dynamic range from the same place (`sdr`, `hdr10`, `dolbyVision`...); empty while it is not known. Only SDR is
+    /// written.
+    pub range: String,
 }
 
 /// LG's Game mode: its low-latency picture is left alone.
@@ -361,12 +412,32 @@ pub struct Engine {
     target: Option<u32>,
     next_sample: Instant,
     next_turn: Instant,
+    /// Failed calls in a row to the settings service and to the light sensor, each reset by its own success: a ramp's settings calls
+    /// succeeding must not hide a dead sensor.
     fails: u32,
+    sensor_fails: u32,
     latch: Option<Instant>,
     hold: Option<&'static str>,
     error: Option<String>,
     on: bool,
     context: String,
+    /// Set once a pass has run since this last stood idle: the first pass after the switch, the screen or the sensor comes back is
+    /// not held back by the sample and look timers.
+    running: bool,
+    /// The first pass since `running` began: the mode in force is taken over by ramping from where it is, not by a jump (a mode
+    /// coming into force later is hidden by its own change and does jump).
+    fresh: bool,
+    /// A sudden shift of the room was accepted and is not ramped yet.
+    sudden: bool,
+    /// The ramp in progress, from the value it began at.
+    ramp: Option<Ramp>,
+}
+
+/// A ramp toward the target: where it began, and whether a sudden shift started it (faster, eased).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Ramp {
+    from: u32,
+    fast: bool,
 }
 
 impl Engine {
@@ -385,11 +456,16 @@ impl Engine {
             next_sample: now,
             next_turn: now,
             fails: 0,
+            sensor_fails: 0,
             latch: None,
             hold: None,
             error: None,
             on: false,
             context: String::new(),
+            running: false,
+            fresh: false,
+            sudden: false,
+            ramp: None,
         }
     }
 
@@ -404,6 +480,7 @@ impl Engine {
         if self.latch.is_some_and(|t| now >= t) {
             self.latch = None;
             self.fails = 0;
+            self.sensor_fails = 0;
         }
         if !env.on || self.latch.is_some() {
             self.hold = Some(if env.on { "error" } else { "off" });
@@ -419,14 +496,26 @@ impl Engine {
             self.idle(now);
             return;
         }
+        if !self.running {
+            self.running = true;
+            self.fresh = true;
+            self.next_sample = now;
+            self.next_turn = now;
+        }
         if now >= self.next_sample {
             self.next_sample = now + SAMPLE;
             match self.read_lux() {
                 Ok(lux) => {
+                    self.sensor_fails = 0;
                     self.ambient.push(now, lux);
-                    self.ambient.update(now);
+                    if self.ambient.update(now) == Move::Sudden {
+                        self.sudden = true;
+                        self.next_turn = now;
+                    }
                 }
-                Err(e) => return self.failed(now, format!("light sensor: {e}")),
+                Err(e) => {
+                    return self.failed(now, format!("light sensor: {e}"), true);
+                }
             }
         }
         let Some(lux) = self.ambient.lux() else {
@@ -448,7 +537,7 @@ impl Engine {
         }
         self.next_turn = now + LOOK;
         if let Err(e) = self.turn(now, lux, env) {
-            self.failed(now, e);
+            self.failed(now, e, false);
         }
     }
 
@@ -457,12 +546,14 @@ impl Engine {
         self.here = None;
         self.key = None;
         self.target = None;
+        self.ramp = None;
+        self.running = false;
         self.next_sample = now + SAMPLE;
     }
 
-    fn failed(&mut self, now: Instant, e: String) {
-        self.fails += 1;
-        if self.fails >= FAILS {
+    fn failed(&mut self, now: Instant, e: String, sensor: bool) {
+        *(if sensor { &mut self.sensor_fails } else { &mut self.fails }) += 1;
+        if self.fails >= FAILS || self.sensor_fails >= FAILS {
             crate::log_warn!("auto brightness: {e}; everything put back for {} min", LATCH.as_secs() / 60);
             self.error = Some(e);
             self.latch = Some(now + LATCH);
@@ -487,10 +578,20 @@ impl Engine {
         self.fails = 0;
         self.error = None;
         self.here = Some(here.clone());
-        if !here.range.eq_ignore_ascii_case("sdr") || LG_GAME.contains(&here.mode.as_str()) {
+        if env.range.is_empty() {
+            // the picture module has not said yet: look again soon, write nothing
+            self.hold = Some("range");
+            self.key = None;
+            self.target = None;
+            self.next_turn = now + MIN_GAP;
+            return Ok(());
+        }
+        if !env.range.eq_ignore_ascii_case("sdr") || LG_GAME.contains(&here.mode.as_str()) {
             self.hold = Some(if LG_GAME.contains(&here.mode.as_str()) { "game" } else { "hdr" });
             self.key = None;
             self.target = None;
+            self.ramp = None;
+            self.fresh = false;
             return Ok(());
         }
         self.hold = None;
@@ -498,32 +599,49 @@ impl Engine {
         let history = self.ambient.history(now);
         let inputs = self.inputs(lux, &history, env);
         let dimension = json!({"pictureMode": here.mode, "input": here.input});
-        let entered = self.key.as_deref() != Some(key.as_str());
-        let Some(mut entry) = self.journal.modes.get(&key).cloned() else {
-            // a mode taken over: its value is the owner's level; it goes to its target at once (the owner just switched this on, or a
-            // mode change hides it), then LG's Energy saving Auto is switched off
-            let target = self.decide.target(&inputs, f64::from(here.value)).round() as u32;
-            let entry = Entry {
+        let fresh = std::mem::take(&mut self.fresh);
+        let mut entered = self.key.as_deref() != Some(key.as_str());
+        let known = self.journal.modes.get(&key).cloned();
+        if fresh && known.as_ref().is_some_and(|e| e.written == here.value) {
+            // a restart with the switch on: the value is the one this wrote, so it carries on from there
+            entered = false;
+            self.recent = VecDeque::from([here.value]);
+        }
+        let mut entry = if let Some(entry) = known {
+            entry
+        } else {
+            // a mode taken over: its value is the owner's level. The owner just switched this on: it ramps from there. A mode change
+            // hides it: it goes to its target at once. Then LG's Energy saving Auto is switched off.
+            let mut entry = Entry {
                 mode: here.mode.clone(),
                 input: here.input.clone(),
                 own: here.value,
-                written: target.min(here.value),
+                written: here.value,
                 energy: here.energy.clone().filter(|e| e == "auto"),
             };
+            if !fresh {
+                let target = self.decide.target(&inputs, f64::from(here.value)).round() as u32;
+                entry.written = target.min(here.value);
+            }
             crate::log_info!("auto brightness: {key} taken over at {} (level {}), lux {lux:.1}", entry.written, entry.own);
             self.journal.modes.insert(key.clone(), entry.clone());
             self.save();
-            self.key = Some(key);
+            self.key = Some(key.clone());
             self.recent = VecDeque::from([entry.written]);
             self.target = Some(entry.written);
+            self.ramp = None;
             if entry.written != here.value {
                 self.write(&dimension, json!({"backlight": entry.written.to_string()}))?;
             }
             if entry.energy.is_some() {
                 self.write(&dimension, json!({"energySaving": "off"}))?;
             }
-            self.next_turn = now + MIN_GAP;
-            return Ok(());
+            if !fresh {
+                self.next_turn = now + MIN_GAP;
+                return Ok(());
+            }
+            entered = false;
+            entry
         };
         // Energy saving put back to Auto meanwhile (a preset, LG's own menu): this is the one switch, so it goes off again and the
         // value it had is what a release puts back
@@ -543,20 +661,32 @@ impl Engine {
             }
         } else if !ours {
             // set by hand elsewhere (LG's own menu): the value chosen is the level wanted in this light
+            self.ramp = None;
             self.learned(&inputs, &key, entry, here.value);
             return Ok(());
         }
         let target = (self.decide.target(&inputs, f64::from(entry.own)).round() as u32).min(entry.own);
         self.target = Some(target);
         self.key = Some(key.clone());
+        if std::mem::take(&mut self.sudden) {
+            self.ramp = Some(Ramp { from: here.value, fast: true });
+        }
         let value = if entered {
+            self.ramp = None;
             target
-        } else if here.value > target {
-            here.value - 1
-        } else if here.value < target {
-            here.value + 1
         } else {
-            return Ok(());
+            let apart = target.abs_diff(here.value);
+            if apart == 0 {
+                self.ramp = None;
+                return Ok(());
+            }
+            if self.ramp.is_none() {
+                if apart < START_DEADBAND {
+                    return Ok(());
+                }
+                self.ramp = Some(Ramp { from: here.value, fast: false });
+            }
+            if target > here.value { here.value + 1 } else { here.value - 1 }
         };
         if entered && value == here.value {
             if entry != self.journal.modes[&key] {
@@ -573,8 +703,13 @@ impl Engine {
             self.recent.pop_front();
         }
         self.write(&dimension, json!({"backlight": value.to_string()}))?;
-        if value != target {
-            self.next_turn = now + gap(value, value > here.value);
+        match self.ramp {
+            Some(ramp) if value != target => {
+                let total = f64::from(target.abs_diff(ramp.from).max(1));
+                let eased = ramp.fast.then(|| f64::from(value.abs_diff(ramp.from)) / total);
+                self.next_turn = now + gap(value, value > here.value, eased);
+            }
+            _ => self.ramp = None,
         }
         Ok(())
     }
@@ -590,6 +725,7 @@ impl Engine {
         self.save();
         self.recent = VecDeque::from([value]);
         self.target = Some(value);
+        self.ramp = None;
     }
 
     /// The owner's slider (`POST /v1/autobright/level`): written at once, and while this drives the mode in force, learned as
@@ -676,10 +812,18 @@ impl Engine {
     }
 }
 
-/// The wait after a one-unit step at `level`: the ramp's rate as a fraction of the level, never under [`MIN_GAP`].
-pub fn gap(level: u32, up: bool) -> Duration {
-    let rate = if up { BRIGHTEN_RATE } else { DARKEN_RATE };
-    Duration::from_secs_f64((1.0 / (rate * f64::from(level.max(1)))).max(MIN_GAP.as_secs_f64()))
+/// The wait after a one-unit step at `level`. A drift (`eased` is `None`) goes at its rate, never under [`MIN_GAP`]. A ramp after a
+/// sudden shift is eased by its `progress` (0 at its start, 1 at its end): slowest at both ends, at its rate in the middle.
+pub fn gap(level: u32, up: bool, eased: Option<f64>) -> Duration {
+    let level = f64::from(level.max(1));
+    let secs = match eased {
+        None => (1.0 / ((if up { BRIGHTEN_RATE } else { DARKEN_RATE }) * level)).max(MIN_GAP.as_secs_f64()),
+        Some(progress) => {
+            let speed = EASE_FLOOR + (1.0 - EASE_FLOOR) * (std::f64::consts::PI * progress.clamp(0.0, 1.0)).sin();
+            (1.0 / ((if up { FAST_BRIGHTEN_RATE } else { FAST_DARKEN_RATE }) * level * speed)).max(FAST_GAP.as_secs_f64())
+        }
+    };
+    Duration::from_secs_f64(secs)
 }
 
 /// The owner's switch: `system.autoBrightness` of theme.json, off unless `true`.
@@ -752,13 +896,17 @@ fn run(ctx: &Ctx, remote: &Remote) {
     let mut switch = Switch { path: ctx.paths.theme_file(), seen: None, on: false };
     let dim = ctx.paths.data_dir.join(paneldim::JOURNAL);
     let mut engine = Engine::new(Box::new(LunaSource::new(&ctx.config.luna.send)), load(&path), Some(path), Instant::now());
-    let env = |switch: &mut Switch| Env {
-        on: switch.on(),
-        screen: crate::screen::is_on(&ctx.hub),
-        game: crate::picture::game_in_front(&ctx.hub),
-        panel_dim: dim.exists(),
-        minute: minute_now(),
-        context: ctx.hub.get(crate::picture::TOPIC).and_then(|p| p.get("context").map(Value::to_string)).unwrap_or_default(),
+    let env = |switch: &mut Switch| {
+        let picture = ctx.hub.get(crate::picture::TOPIC);
+        Env {
+            on: switch.on(),
+            screen: crate::screen::is_on(&ctx.hub),
+            game: crate::picture::game_in_front(&ctx.hub),
+            panel_dim: dim.exists(),
+            minute: minute_now(),
+            context: picture.as_ref().and_then(|p| p.get("context").map(Value::to_string)).unwrap_or_default(),
+            range: picture.as_ref().and_then(|p| p.pointer("/context/range").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default(),
+        }
     };
     loop {
         engine.tick(Instant::now(), &env(&mut switch));

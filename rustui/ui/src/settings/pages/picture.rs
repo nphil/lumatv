@@ -39,8 +39,8 @@ fn chip(c: &Ctx) -> Option<(String, &'static str)> {
 
 fn reads(c: &Ctx) -> Vec<Read> {
     let mut r = vec![
-        Read::lg("picture", &["pictureMode", "backlight", "energySaving", "eyeComfortMode", "filmmakerAmbientLight", "contrast", "brightness", "color", "tint", "sharpness"]),
-        Read::lg("picture", &["dynamicContrast", "peakBrightness", "gamma", "nearBlackDetail", "motionEyeCare", "colorTemperature", "colorGamut", "dynamicColor", "blackLevel", "energySavingAutoMin"]),
+        Read::lg("picture", &["pictureMode", "backlight", "eyeComfortMode", "filmmakerAmbientLight", "contrast", "brightness", "color", "tint", "sharpness"]),
+        Read::lg("picture", &["dynamicContrast", "peakBrightness", "gamma", "nearBlackDetail", "motionEyeCare", "colorTemperature", "colorGamut", "dynamicColor", "blackLevel"]),
         Read::lg("picture", &["superResolution", "noiseReduction", "mpegNoiseReduction", "smoothGradation", "realCinema", "dolbyPrecisionDetail"]),
         Read::lg("picture", &["truMotionJudder", "truMotionBlur", "motionPro", "filmMakerMode", "hdrDynamicToneMapping", "expressionEnhancer", "applyToAllInput"]),
         Read::lg("aiPicture", &["ai_Picture", "ai_Genre", "ai_Brightness"]),
@@ -125,27 +125,6 @@ fn rows(c: &Ctx) -> Vec<Row> {
         c.seg(Spec::new("aspectRatio.arcPerApp").tab(0).icon("rectangle-horizontal").label("Aspect ratio").app(app.clone()).help("Original keeps the film's own shape. It is set for the input in front.").options(&["16:9", "Original", "4:3"]).values(&["16x9", "original", "4x3"])),
         "aspectRatio.arcPerApp",
     ));
-    // auto brightness replaces LG's Energy saving Auto (it switches it off and puts it back), so there is one switch for it
-    let ours = crate::autobright::switched_on(c.theme_at(crate::autobright::SWITCH));
-    let mut energy = c.seg(Spec::new("picture.energySaving").tab(0).icon("leaf").label("Energy saving").options(&["Auto", "Off", "Minimum", "Medium", "Maximum"]).values(&["auto", "off", "min", "med", "max"]));
-    if ours {
-        energy.enabled = false;
-        energy.detail = crate::autobright::IN_CHARGE.into();
-    }
-    rows.push(energy);
-    let auto = c.lg.is("picture.energySaving", "auto");
-    let mut min = c.range(Spec::new("picture.energySavingAutoMin").tab(0).icon("leaf").label("Minimum Brightness").range(0.0, 10.0, 1.0).help("How dark Auto energy saving may make the picture."));
-    min.enabled = !ours && auto && c.lg.usable("picture.energySavingAutoMin");
-    min.detail = if !c.lg.has("picture.energySavingAutoMin") {
-        "TV not answering".into()
-    } else if ours {
-        crate::autobright::IN_CHARGE.into()
-    } else if auto {
-        String::new()
-    } else {
-        "Energy saving is not Auto".into()
-    };
-    rows.push(min);
     // Just Scan is per input like the aspect ratio: LG reads and writes it with the app's id, and the TV answers nothing to a read without one
     rows.push(per_app(c, c.toggle(Spec::new("aspectRatio.justScan").tab(0).icon("monitor").label("Show the whole picture (Just Scan)").app(app.clone()).help("Shows the picture whole, without cropping its edges. Turn it off if a line shows at an edge.")), "aspectRatio.justScan"));
 
@@ -676,16 +655,13 @@ mod tests {
     }
 
     #[test]
-    fn de_judder_and_de_blur_show_only_for_the_user_motion_mode_and_energy_saving_minimum_waits_for_auto() {
+    fn de_judder_and_de_blur_show_only_for_the_user_motion_mode() {
         let mut w = picture_world();
         let r = rows(&w.ctx());
         assert!(by_id(&r, "picture.truMotionJudder").visible, "the user motion mode shows the two sliders it has");
         w.lg.learn("picture", &json!({"settings": {"truMotionMode": "off"}}));
         let r2 = rows(&w.ctx());
         assert!(!by_id(&r2, "picture.truMotionJudder").visible && !by_id(&r2, "picture.truMotionBlur").visible);
-        let min = by_id(&r, "picture.energySavingAutoMin");
-        assert!(!min.enabled);
-        assert_eq!(min.detail, "TV not answering");
     }
 
     #[test]
@@ -827,12 +803,12 @@ mod tests {
 
     #[test]
     fn auto_brightness_sits_beside_oled_pixel_brightness_and_while_it_drives_the_picture_the_slider_is_the_helpers() {
-        let picture = json!({"settings": {"pictureMode": "filmMaker", "backlight": "75", "energySaving": "off", "energySavingAutoMin": "2"}, "dimension": {"input": "default", "pictureMode": "filmMaker", "dynamicRange": "sdr"}});
+        let picture = json!({"settings": {"pictureMode": "filmMaker", "backlight": "75"}, "dimension": {"input": "default", "pictureMode": "filmMaker", "dynamicRange": "sdr"}});
         let mut w = World::new(lg_with(&[("picture", picture)], &[]));
         let r = rows(&w.ctx());
         let at = |r: &[Row], id: &str| r.iter().position(|x| x.id == id).unwrap();
         assert_eq!(at(&r, "autobrightness"), at(&r, "picture.backlight") + 1);
-        assert!(!by_id(&r, "autobrightness").on && by_id(&r, "picture.energySaving").enabled);
+        assert!(!by_id(&r, "autobrightness").on);
         assert!(matches!(&(by_id(&r, "autobrightness").act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Patch(p), Op::RefreshIn(_)] if p["system"]["autoBrightness"] == true));
 
         w.theme = crate::autobright::patch(true);
@@ -841,7 +817,5 @@ mod tests {
         let oled = by_id(&r, "picture.backlight");
         assert_eq!((oled.num, oled.value_text.as_deref()), (33.0, Some("33")));
         assert!(matches!(&(oled.act.as_ref().unwrap())(Arg::Value(50.0))[..], [Op::Send { path, body: Some(b), .. }] if path == crate::autobright::LEVEL && b["value"] == 50.0));
-        let energy = by_id(&r, "picture.energySaving");
-        assert_eq!((energy.enabled, energy.detail.as_str()), (false, crate::autobright::IN_CHARGE));
     }
 }

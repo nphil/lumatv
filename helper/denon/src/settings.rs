@@ -564,11 +564,46 @@ pub struct Prerequisites {
     pub reference_level_available: Option<bool>,
     pub dynamic_volume_available: Option<bool>,
     pub mult_eq_available: Option<bool>,
+    pub cinema_eq_available: Option<bool>,
+    pub loudness_available: Option<bool>,
+    pub dialog_control_available: Option<bool>,
+    pub lfe_available: Option<bool>,
+    pub drc_available: Option<bool>,
+    /// The receiver takes at least one of the Movie, Music, Game and Pure buttons now.
+    pub sound_mode_available: Option<bool>,
     pub main_sources: Option<Vec<SourceChoice>>,
     pub zone2_sources: Option<Vec<SourceChoice>>,
     pub zone2_present: Option<bool>,
     pub zone2_volume_limit: Option<f64>,
     pub zone2_volume_variable: Option<bool>,
+}
+
+impl Prerequisites {
+    /// Takes a newer read in, keeping what it did not report: one request that timed out says nothing about its controls.
+    pub fn merge(&mut self, newer: Self) {
+        fn keep<T>(old: &mut Option<T>, new: Option<T>) {
+            if new.is_some() {
+                *old = new;
+            }
+        }
+        keep(&mut self.tone_available, newer.tone_available);
+        keep(&mut self.tone_enabled, newer.tone_enabled);
+        keep(&mut self.dynamic_eq_available, newer.dynamic_eq_available);
+        keep(&mut self.reference_level_available, newer.reference_level_available);
+        keep(&mut self.dynamic_volume_available, newer.dynamic_volume_available);
+        keep(&mut self.mult_eq_available, newer.mult_eq_available);
+        keep(&mut self.cinema_eq_available, newer.cinema_eq_available);
+        keep(&mut self.loudness_available, newer.loudness_available);
+        keep(&mut self.dialog_control_available, newer.dialog_control_available);
+        keep(&mut self.lfe_available, newer.lfe_available);
+        keep(&mut self.drc_available, newer.drc_available);
+        keep(&mut self.sound_mode_available, newer.sound_mode_available);
+        keep(&mut self.main_sources, newer.main_sources);
+        keep(&mut self.zone2_sources, newer.zone2_sources);
+        keep(&mut self.zone2_present, newer.zone2_present);
+        keep(&mut self.zone2_volume_limit, newer.zone2_volume_limit);
+        keep(&mut self.zone2_volume_variable, newer.zone2_volume_variable);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

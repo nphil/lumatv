@@ -2,7 +2,8 @@
 use crate::settings::{Prerequisites, Source, SourceChoice};
 
 pub(crate) const BASIC_REQUEST: &str = "<tx><cmd id=\"1\">GetToneControl</cmd><cmd id=\"1\">GetRenameSource</cmd><cmd id=\"1\">GetDeletedSource</cmd><cmd id=\"1\">GetAllZoneVolume</cmd></tx>";
-pub(crate) const AUDYSSEY_REQUEST: &str = "<tx><cmd id=\"3\"><name>GetAudyssey</name><list><param name=\"dynamiceq\"/><param name=\"reflevoffset\"/><param name=\"dynamicvol\"/><param name=\"multeq\"/></list></cmd></tx>";
+/// Asks which Audyssey controls, surround parameters and sound-mode buttons the receiver offers for what it plays now.
+pub(crate) const PARAMETER_REQUEST: &str = "<tx><cmd id=\"3\"><name>GetAudyssey</name><list><param name=\"dynamiceq\"/><param name=\"reflevoffset\"/><param name=\"dynamicvol\"/><param name=\"multeq\"/></list></cmd><cmd id=\"3\"><name>GetSurroundParameter</name><list><param name=\"cinemaeq\"/><param name=\"loudness\"/><param name=\"dialogcontrol\"/><param name=\"lfe\"/><param name=\"dyncomp\"/></list></cmd><cmd id=\"3\"><name>GetSoundMode</name><list><param name=\"movie\"/><param name=\"music\"/><param name=\"game\"/><param name=\"pure\"/></list></cmd></tx>";
 
 // A deliberately narrow XML reader: reject malformed structure, DTDs and entities rather
 // than making unsupported fields look like receiver-reported capabilities.
@@ -116,6 +117,16 @@ fn flag(s: &str) -> Option<bool> {
         _ => None,
     }
 }
+/// An AppCommand0300 `control` code. Measured on the S760H playing Dolby Digital in Dolby Surround: `2` on every control its
+/// own setup page shows active (`/ajax/audio/get_config`, display 3, not grey) and `0` on Dialog Control, which that page
+/// hides. `1` was never seen; it is not taken as controllable.
+fn control(s: &str) -> Option<bool> {
+    match s {
+        "2" => Some(true),
+        "0" | "1" => Some(false),
+        _ => None,
+    }
+}
 fn attr<'a>(attrs: &'a str, name: &str) -> Option<&'a str> {
     let mut rest = attrs.trim();
     while !rest.is_empty() {
@@ -206,12 +217,12 @@ fn source_choices(
 pub(crate) fn parse(
     info: Option<&[u8]>,
     basic: Option<&[u8]>,
-    audyssey: Option<&[u8]>,
+    parameters: Option<&[u8]>,
 ) -> Prerequisites {
     let mut result = Prerequisites::default();
     let info = document(info).filter(|n| n[0].name == "Device_Info");
     let basic = document(basic).filter(|n| n[0].name == "rx");
-    let audyssey = document(audyssey).filter(|n| n[0].name == "rx");
+    let parameters = document(parameters).filter(|n| n[0].name == "rx");
     if let Some(nodes) = &basic {
         let cmds: Vec<_> = children(nodes, 0, "cmd").collect();
         if cmds.len() == 4 {
@@ -230,19 +241,33 @@ pub(crate) fn parse(
             }
         }
     }
-    if let Some(nodes) = &audyssey {
-        if let Some(cmd) = child(nodes, 0, "cmd") {
-            if let Some(list) = child(nodes, cmd, "list") {
-                for p in children(nodes, list, "param") {
-                    let available = attr(nodes[p].attrs, "control").and_then(flag);
-                    match attr(nodes[p].attrs, "name") {
-                        Some("dynamiceq") => result.dynamic_eq_available = available,
-                        Some("reflevoffset") => result.reference_level_available = available,
-                        Some("dynamicvol") => result.dynamic_volume_available = available,
-                        Some("multeq") => result.mult_eq_available = available,
-                        _ => {}
+    if let Some(nodes) = &parameters {
+        for cmd in children(nodes, 0, "cmd") {
+            let name = value(nodes, cmd, "name");
+            let Some(list) = child(nodes, cmd, "list") else {
+                continue;
+            };
+            for p in children(nodes, list, "param") {
+                let available = attr(nodes[p].attrs, "control").and_then(control);
+                let slot = match (name, attr(nodes[p].attrs, "name")) {
+                    (Some("GetAudyssey"), Some("dynamiceq")) => &mut result.dynamic_eq_available,
+                    (Some("GetAudyssey"), Some("reflevoffset")) => &mut result.reference_level_available,
+                    (Some("GetAudyssey"), Some("dynamicvol")) => &mut result.dynamic_volume_available,
+                    (Some("GetAudyssey"), Some("multeq")) => &mut result.mult_eq_available,
+                    (Some("GetSurroundParameter"), Some("cinemaeq")) => &mut result.cinema_eq_available,
+                    (Some("GetSurroundParameter"), Some("loudness")) => &mut result.loudness_available,
+                    (Some("GetSurroundParameter"), Some("dialogcontrol")) => {
+                        &mut result.dialog_control_available
                     }
-                }
+                    (Some("GetSurroundParameter"), Some("lfe")) => &mut result.lfe_available,
+                    (Some("GetSurroundParameter"), Some("dyncomp")) => &mut result.drc_available,
+                    // Any one button the receiver takes means the mode can be changed now.
+                    (Some("GetSoundMode"), Some("movie" | "music" | "game" | "pure")) => {
+                        &mut result.sound_mode_available
+                    }
+                    _ => continue,
+                };
+                *slot = if *slot == Some(true) { Some(true) } else { available.or(*slot) };
             }
         }
     }
@@ -286,9 +311,14 @@ mod tests {
         <list><FuncName>Blu-ray</FuncName><use>1</use></list>
       </functiondelete></cmd>
       <cmd><zone2><volume>-4</volume><state>variable</state><limit>0.0</limit></zone2></cmd></rx>"#;
-    const AUDYSSEY: &str = r#"<rx><cmd><list>
-      <param name="dynamiceq" control="1">1</param><param control="0" name="reflevoffset">0</param>
-      <param name="dynamicvol" control="1">2</param><param name="multeq" control="0">3</param>
+    const PARAMETERS: &str = r#"<rx><cmd><name>GetAudyssey</name><list>
+      <param name="dynamiceq" control="2">1</param><param control="0" name="reflevoffset">0</param>
+      <param name="dynamicvol" control="2">2</param><param name="multeq" control="1">3</param>
+      </list></cmd><cmd><name>GetSurroundParameter</name><list>
+      <param name="cinemaeq" control="2">0</param><param name="dialogcontrol" control="0"></param>
+      <param name="lfe" control="2">0</param><param name="dyncomp" control="9">0</param>
+      </list></cmd><cmd><name>GetSoundMode</name><list>
+      <param name="movie" control="0">0</param><param name="pure" control="2">1</param>
       </list></cmd></rx>"#;
 
     #[test]
@@ -307,7 +337,7 @@ mod tests {
         let result = parse(
             Some(INFO.as_bytes()),
             Some(BASIC.as_bytes()),
-            Some(AUDYSSEY.as_bytes()),
+            Some(PARAMETERS.as_bytes()),
         );
         assert_eq!(result.tone_available, Some(true));
         assert_eq!(result.tone_enabled, Some(false));
@@ -315,6 +345,12 @@ mod tests {
         assert_eq!(result.reference_level_available, Some(false));
         assert_eq!(result.dynamic_volume_available, Some(true));
         assert_eq!(result.mult_eq_available, Some(false));
+        assert_eq!(result.cinema_eq_available, Some(true));
+        assert_eq!(result.dialog_control_available, Some(false));
+        assert_eq!(result.lfe_available, Some(true));
+        assert_eq!(result.drc_available, None, "an unknown code is not proof either way");
+        assert_eq!(result.loudness_available, None);
+        assert_eq!(result.sound_mode_available, Some(true));
         assert_eq!(result.zone2_present, Some(true));
         assert_eq!(result.zone2_volume_variable, Some(true));
         assert_eq!(result.zone2_volume_limit, Some(80.0));
@@ -336,7 +372,7 @@ mod tests {
 
     #[test]
     fn partial_and_malformed_responses_do_not_invent_capabilities() {
-        let partial = parse(Some(INFO.as_bytes()), None, Some(AUDYSSEY.as_bytes()));
+        let partial = parse(Some(INFO.as_bytes()), None, Some(PARAMETERS.as_bytes()));
         assert_eq!(partial.zone2_present, Some(true));
         assert_eq!(partial.main_sources, None);
         assert_eq!(partial.zone2_sources, None);

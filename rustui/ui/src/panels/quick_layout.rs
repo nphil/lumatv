@@ -809,12 +809,12 @@ mod tests {
         r
     }
 
-    /// The owner's tiles (picture, receiver, sleep, do-not-disturb, OLED brightness, energy) as the panel builds them.
+    /// The owner's tiles (picture, receiver, sleep, do-not-disturb, OLED brightness, auto brightness) as the panel builds them.
     fn owner_rows() -> Vec<Row> {
         let env = crate::panels::env::Env::new(serde_json::json!({}));
         let mut all = crate::panels::quick::tiles::tiles(&env);
         all.extend(crate::panels::quick::tiles::extras(&env));
-        ["picture", "receiver", "sleep", "dnd", "oled", "energy"].iter().map(|id| all.iter().find(|r| r.id == *id).cloned().expect("a tile")).collect()
+        ["picture", "receiver", "sleep", "dnd", "oled", "autobright"].iter().map(|id| all.iter().find(|r| r.id == *id).cloned().expect("a tile")).collect()
     }
 
     /// At 100 % text the owner's tiles, the strip, the header and the foot fit the sheet without scrolling, over an app and over Home (where the

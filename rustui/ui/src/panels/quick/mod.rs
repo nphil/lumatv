@@ -534,7 +534,6 @@ impl Quick {
                 out.asks.push(Ask::Settings((*page).to_string()));
                 out.close = true;
             }
-            (Act::Energy, Val::Index(i)) => out.effects = env.sio.write("picture.energySaving", &json!(tiles::ENERGY_VALUES[i.min(4)]), None, now),
             (Act::Oled, Val::Delta(d)) => out.effects = Self::set_level(env, Self::level(env, 0.0) + f64::from(d) * 5.0, now),
             (Act::Oled, Val::Num(n)) => out.effects = Self::set_level(env, n, now),
             (Act::AutoBright, Val::On(on)) => out.effects.push(Effect::Theme { tag: tags::THEME, patch: crate::autobright::patch(on) }),
@@ -1046,7 +1045,7 @@ impl Quick {
         if self.read_due.is_some_and(|d| now >= d) {
             self.read_due = None;
             // each reading's answer rebinds rows; they are asked for once the slide is over
-            out.effects.extend(env.sio.read("picture", &["pictureMode", "backlight", "energySaving", "eyeComfortMode"], None, now));
+            out.effects.extend(env.sio.read("picture", &["pictureMode", "backlight", "eyeComfortMode"], None, now));
             out.effects.extend(env.sio.read("general", &["remotePointer"], None, now));
             out.effects.extend(env.sio.read("option", &["screenOff"], None, now));
             out.effects.extend(env.inputs.refresh());

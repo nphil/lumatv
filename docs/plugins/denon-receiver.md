@@ -44,12 +44,23 @@ Settings › Sound › Receiver shows the receiver's own settings while the plug
 - **Levels:** Dialog Enhancer (not in Direct or Virtual), Dialog Control 0–6 (DTS:X), subwoofer level and each configured speaker's
   level (−12 to +12 dB in 0.5 dB steps; `CV?` lists only configured speakers), LFE 0 to −10 dB, dynamic compression (Auto not for
   DTS) and LFE for Dolby and DTS signals, loudness management for Dolby, subwoofer in Direct and Stereo, tone, Cinema EQ.
-- **Audyssey:** MultEQ, Dynamic EQ, reference level offset, Dynamic Volume, under the manual's mode conditions.
+- **Audyssey:** MultEQ, Dynamic EQ, reference level offset, Dynamic Volume.
 - **Zones and power:** Zone 2 power, input, volume (only with variable volume and a read limit) and mute; ECO.
 - **Not carried:** Quick Select names (no protocol command), Zone 2 Quick Select, and the surround parameters the S760H manual marks
   unused (Center Spread, Speaker Virtualizer, Neural:X, effect, room size, delay, Restorer, manual EQ).
 
-Every change is one command for one press, sent only for a value the helper currently advertises and only while the values it
-depends on are fresh. A change counts as applied when the receiver's read-back matches; the screen shows the read-back, never the
-requested value. A sound mode write waits for a matching mode until the 3 s deadline, because the receiver first repeats the mode
-being left. Nothing is written in the background.
+What can be changed right now comes from the receiver itself where it says: one `AppCommand0300.xml` request carries
+`GetAudyssey`, `GetSurroundParameter` and `GetSoundMode`, and each control's `control` attribute is 2 for usable and 0 or 1 for
+not (the S760H's own setup page agrees: `control="2"` items are shown, Dialog Control's `0` is hidden). The manual's mode and
+signal rules apply only to what that reply leaves out. A Dolby Digital surround programme from Live TV reports `SYSDA Unknown`
+and `SSINFAISSIG 12`, so the signal alone does not identify Dolby there; the receiver's reply does. A control that cannot be
+changed stays on the page, disabled, with the reason under it.
+
+Every change is one command, sent only for a value the helper advertises. After a mode, input or signal change, a control that
+depends on it is held until the helper reads it again, which it does at once; values stay on screen meanwhile and are never
+expired. A change counts as applied when the receiver's read-back matches. The page shows a change as soon as it is made, with
+"Applying…" under it, and the read-back settles it; one that fails returns to the read-back with the error under the row. One
+change is on its way at a time: changes made meanwhile wait, the latest per setting, and follow when it is settled. A sound mode
+write waits for a matching mode until the 3 s deadline, because the receiver first repeats the mode being left. Nothing is
+written in the background. While the receiver does not answer, the page keeps its last values, disabled, and the status chip
+says "Not answering"; rows keep their size and place.

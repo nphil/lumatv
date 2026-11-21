@@ -28,7 +28,7 @@ pub(crate) fn rig(popups: bool) -> (Quick, Env) {
 /// The settings service answers every read the panel asks for, as a TV that has all of them.
 fn answer_settings(env: &mut Env) {
     let mut calls = Vec::new();
-    calls.extend(env.sio.read("picture", &["pictureMode", "backlight", "energySaving", "eyeComfortMode"], None, 0));
+    calls.extend(env.sio.read("picture", &["pictureMode", "backlight", "eyeComfortMode"], None, 0));
     calls.extend(env.sio.read("general", &["remotePointer"], None, 0));
     calls.extend(env.sio.read("option", &["screenOff"], None, 0));
     let mut guard = 0;
@@ -40,7 +40,7 @@ fn answer_settings(env: &mut Env) {
             json!({"results": []})
         } else {
             match cat.as_str() {
-                "picture" => json!({"category": "picture", "dimension": {"dynamicRange": "sdr"}, "settings": {"pictureMode": "cinema", "backlight": "40", "energySaving": "auto", "eyeComfortMode": "off"}}),
+                "picture" => json!({"category": "picture", "dimension": {"dynamicRange": "sdr"}, "settings": {"pictureMode": "cinema", "backlight": "40", "eyeComfortMode": "off"}}),
                 "general" => json!({"category": "general", "settings": {"remotePointer": "on"}}),
                 _ => json!({"category": "option", "settings": {"screenOff": "off"}}),
             }

@@ -14,9 +14,7 @@ pub const POINTER: &str = "/system/autoBrightness";
 pub const LEVEL: &str = "/v1/autobright/level";
 pub const LABEL: &str = "Auto brightness";
 pub const ICON: &str = "sun-medium";
-pub const HELP: &str = "Follows the room's light from the TV's own sensor, never brighter than the level you set. Moving OLED pixel brightness while it is on sets the level wanted in that light. Replaces LG's Energy saving Auto.";
-/// What LG's Energy saving rows say while auto brightness has its Auto switched off.
-pub const IN_CHARGE: &str = "Auto brightness is on";
+pub const HELP: &str = "Follows the room's light from the TV's own sensor, never brighter than the level you set. Moving OLED pixel brightness while it is on sets the level wanted in that light. LG's Energy saving is held off while it is on.";
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct State {

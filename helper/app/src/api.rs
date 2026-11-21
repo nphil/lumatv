@@ -1759,7 +1759,7 @@ mod tests {
                                 assert!(request.contains("GetAudyssey"));
                                 (
                                     "200 OK",
-                                    "<rx><cmd><list><param name=\"dynamiceq\" control=\"1\">0</param><param name=\"reflevoffset\" control=\"1\">0</param><param name=\"dynamicvol\" control=\"1\">0</param><param name=\"multeq\" control=\"1\">1</param></list></cmd></rx>",
+                                    "<rx><cmd><name>GetAudyssey</name><list><param name=\"dynamiceq\" control=\"2\">0</param><param name=\"reflevoffset\" control=\"2\">0</param><param name=\"dynamicvol\" control=\"2\">0</param><param name=\"multeq\" control=\"2\">1</param></list></cmd></rx>",
                                 )
                             } else {
                                 ("404 Not Found", "")

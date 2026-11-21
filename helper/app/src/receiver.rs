@@ -668,13 +668,12 @@ fn drain_link_events(
                 target: event_target,
                 context_revision,
                 reply,
-                at,
                 at_ms,
                 ..
             } => {
                 if target == Some(&event_target) {
                     poller.settings.observe_context(session, context_revision);
-                    poller.settings.observe(session, reply, at, at_ms);
+                    poller.settings.observe(session, reply, at_ms);
                 }
             }
             Event::SettingsMode {
@@ -682,12 +681,12 @@ fn drain_link_events(
                 target: event_target,
                 context_revision,
                 mode,
-                at,
                 at_ms,
+                ..
             } => {
                 if target == Some(&event_target) {
                     poller.settings.observe_context(session, context_revision);
-                    poller.settings.mode(session, mode, at, at_ms);
+                    poller.settings.mode(session, mode, at_ms);
                 }
             }
             Event::SettingsSignal {
@@ -695,12 +694,11 @@ fn drain_link_events(
                 target: event_target,
                 context_revision,
                 signal,
-                at,
                 ..
             } => {
                 if target == Some(&event_target) {
                     poller.settings.observe_context(session, context_revision);
-                    poller.settings.signal(session, signal, at);
+                    poller.settings.signal(session, signal);
                 }
             }
             Event::SettingsResult {

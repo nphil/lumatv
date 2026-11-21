@@ -1,5 +1,5 @@
-//! The Denon receiver, a page of Sound: the Denon receiver plugin's switch and address, then the receiver's own settings, shown only from
-//! independent, fresh receiver readbacks.
+//! The Denon receiver, a page of Sound: the Denon receiver plugin's switch and address, then the receiver's own settings, shown from its
+//! readbacks. While it does not answer, the last values it gave stay on screen, unchangeable.
 //!
 //! The plugin asks first, as the cameras do: off, the page is its switch in the words of its entry in the `plugins` topic, nothing is
 //! read from the receiver and the volume keys change the TV's own volume; off is one press. The address and web port are the plugin's
@@ -14,8 +14,21 @@ use crate::settings::row::{Arg, Card, Op, Row};
 use serde_json::{Value, json};
 use std::rc::Rc;
 
-pub const STALE_MS: f64 = 6000.0;
+/// The helper's report is live while its stamp is this recent.
+const LIVE_MS: f64 = 6000.0;
 const ASK_MS: u64 = 2000;
+/// How soon the page reads again while a change is on its way, so the next queued one follows quickly.
+const FAST_MS: u64 = 400;
+/// A write with no result after this long is reported as not confirmed.
+const WAIT_MS: u64 = 12_000;
+/// How long a row says what became of its change.
+const SAY_MS: u64 = 60_000;
+/// The last live settings, shown while the receiver does not answer.
+const LAST: &str = "receiver.last";
+/// The write on its way: `{setting, value, session, at, token, requestId | error}`.
+const WRITE: &str = "receiver.write";
+/// Changes made while another is on its way, only the latest per setting: `{setting: {value, session, at}}`.
+const QUEUE: &str = "receiver.queue";
 const ID: &str = "denon-receiver";
 const TABS: [&str; 5] = ["Receiver", "Sound mode", "Levels", "Audyssey", "Zones & power"];
 /// The name the switch's answer comes back under.
@@ -89,10 +102,17 @@ fn answered(c: &Ctx, name: &str, response: &Value) -> Vec<Op> {
         _ => {}
     }
     if name == "receiver" {
-        return vec![Op::RefreshIn(ASK_MS)];
+        let mut ops = Vec::new();
+        if let (Some(live), true) = shown(c) {
+            ops.push(Op::Set(LAST.into(), live.clone()));
+        }
+        ops.extend(next(c));
+        let hurry = in_flight(c) || c.local.get(QUEUE).as_object().is_some_and(|q| !q.is_empty());
+        ops.push(Op::RefreshIn(if hurry { FAST_MS } else { ASK_MS }));
+        return ops;
     }
     if let Some((setting, token)) = name.strip_prefix("receiver.set:").and_then(|n| n.rsplit_once(':')) {
-        let local = c.local.get("receiver.write");
+        let local = c.local.get(WRITE);
         let Some(session) = local.get("session").and_then(Value::as_str).filter(|s| !s.is_empty()) else { return Vec::new() };
         let token = token.parse::<u64>().ok();
         if token.is_none() || local.get("token").and_then(Value::as_u64) != token || local.get("setting").and_then(Value::as_str) != Some(setting) {
@@ -103,20 +123,29 @@ fn answered(c: &Ctx, name: &str, response: &Value) -> Vec<Op> {
         if response.get("session").and_then(Value::as_str).is_some_and(|s| s != session) {
             return Vec::new();
         }
+        let value = local.get("value").cloned().unwrap_or(Value::Null);
+        if status == 409 {
+            // The helper takes one change at a time; this one goes back in line unless a newer one for it waits.
+            let mut queue = c.local.get(QUEUE).clone();
+            if queue.get(setting).is_none() {
+                queue[setting] = json!({"value": value, "session": session, "at": c.now});
+            }
+            return vec![Op::Set(WRITE.into(), Value::Null), Op::Set(QUEUE.into(), queue), Op::RefreshIn(FAST_MS)];
+        }
         let accepted = status == 202
             && response.get("accepted").and_then(Value::as_bool) == Some(true)
             && response.get("session").and_then(Value::as_str) == Some(session);
         let state = if accepted && id.is_some() {
-            json!({"setting": setting, "requestId": id, "session": session, "token": token, "at": c.now})
+            json!({"setting": setting, "value": value, "requestId": id, "session": session, "token": token, "at": local.get("at")})
         } else {
             let error = response
                 .pointer("/error/message")
                 .and_then(Value::as_str)
                 .or_else(|| response.get("error").and_then(Value::as_str))
                 .unwrap_or("Receiver did not accept the change");
-            json!({"setting": setting, "error": error, "session": session, "token": token, "at": c.now})
+            json!({"setting": setting, "value": value, "error": error, "session": session, "token": token, "at": c.now})
         };
-        return vec![Op::Set("receiver.write".into(), state)];
+        return vec![Op::Set(WRITE.into(), state), Op::RefreshIn(FAST_MS)];
     }
     Vec::new()
 }
@@ -148,19 +177,39 @@ pub fn doc<'a>(c: &'a Ctx<'_>) -> Option<&'a Value> {
         && r.get("reachable").and_then(Value::as_bool) == Some(true)
         && r.get("fresh").and_then(Value::as_bool) == Some(true)
         && stamp(r) > 0.0
-        && age < STALE_MS
+        && age < LIVE_MS
         && age > -1000.0)
         .then_some(r)
+}
+
+fn session(r: &Value) -> Option<&str> {
+    r.get("settingsSession").and_then(Value::as_str).filter(|s| !s.is_empty())
+}
+
+/// The settings to show, and whether they are live: the receiver's current ones, or the last it gave while it does not answer.
+fn shown<'a>(c: &'a Ctx<'_>) -> (Option<&'a Value>, bool) {
+    if let Some(live) = doc(c).filter(|r| session(r).is_some() && r.get("settings").is_some_and(Value::is_object)) {
+        return (Some(live), true);
+    }
+    let last = c.local.get(LAST);
+    (last.is_object().then_some(last), false)
 }
 
 fn chip(c: &Ctx) -> Option<(String, &'static str)> {
     if !on(c) {
         return Some(("Off".into(), "info"));
     }
-    Some(if doc(c).is_some() { ("Answering".into(), "positive") } else { ("Not answering".into(), "danger") })
+    Some(if doc(c).is_some() {
+        ("Answering".into(), "positive")
+    } else if shown(c).0.is_some() {
+        // the last values stay on the page; the chip alone says they are not current
+        ("Not answering".into(), "info")
+    } else {
+        ("Not answering".into(), "danger")
+    })
 }
 fn subtitle(c: &Ctx) -> String {
-    doc(c).and_then(|r| r.get("model")).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("Denon receiver").into()
+    shown(c).0.and_then(|r| r.get("model")).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("Denon receiver").into()
 }
 
 pub fn db(v: Option<f64>, half: bool) -> String {
@@ -178,9 +227,9 @@ fn plain(v: f64) -> String {
     if v.fract() == 0.0 { format!("{}", v as i64) } else { format!("{v}") }
 }
 
-fn set(setting: &'static str, value: Value, now: u64, session: &str) -> Vec<Op> {
+fn set(setting: &str, value: Value, now: u64, session: &str) -> Vec<Op> {
     vec![
-        Op::Set("receiver.write".into(), json!({"setting": setting, "session": session, "at": now})),
+        Op::Set(WRITE.into(), json!({"setting": setting, "value": value, "session": session, "at": now})),
         Op::Send {
             name: Some(format!("receiver.set:{setting}")),
             method: "POST",
@@ -190,87 +239,160 @@ fn set(setting: &'static str, value: Value, now: u64, session: &str) -> Vec<Op> 
     ]
 }
 
+enum Fate<'a> {
+    Waiting,
+    Applied,
+    Failed(&'a str),
+    Unconfirmed,
+}
+
+/// The latest write and what became of it.
+struct Write<'a> {
+    setting: &'a str,
+    value: &'a Value,
+    age: u64,
+    fate: Fate<'a>,
+}
+
+fn write<'a>(c: &'a Ctx<'_>) -> Option<Write<'a>> {
+    let w = c.local.get(WRITE);
+    let setting = w.get("setting")?.as_str()?;
+    let age = c.now.saturating_sub(w.get("at").and_then(Value::as_u64).unwrap_or(0));
+    let value = w.get("value").unwrap_or(&Value::Null);
+    if let Some(e) = w.get("error").and_then(Value::as_str) {
+        return Some(Write { setting, value, age, fate: Fate::Failed(e) });
+    }
+    let result = w.get("requestId").and_then(Value::as_str).and_then(|id| {
+        newest(c)?.get("settings")?.get(setting)?.get("result").filter(|r| r.get("requestId").and_then(Value::as_str) == Some(id))
+    });
+    // a new connection drops what the old one had on its way
+    let moved = doc(c).and_then(session).is_some_and(|s| Some(s) != w.get("session").and_then(Value::as_str));
+    let fate = match result.and_then(|r| r.get("status")).and_then(Value::as_str) {
+        Some("applied") => Fate::Applied,
+        Some(_) => Fate::Failed(result.and_then(|r| r.get("error")).and_then(Value::as_str).unwrap_or("the receiver did not take it")),
+        None if age < WAIT_MS && !moved => Fate::Waiting,
+        None => Fate::Unconfirmed,
+    };
+    Some(Write { setting, value, age, fate })
+}
+
+fn in_flight(c: &Ctx) -> bool {
+    write(c).is_some_and(|w| matches!(w.fate, Fate::Waiting))
+}
+
+/// Sends the oldest queued change once nothing is on its way and the receiver answers.
+fn next(c: &Ctx) -> Vec<Op> {
+    let Some(queue) = c.local.get(QUEUE).as_object().filter(|q| !q.is_empty()) else { return Vec::new() };
+    let (Some(live), true) = shown(c) else { return Vec::new() };
+    if in_flight(c) {
+        return Vec::new();
+    }
+    let Some(session) = session(live) else { return Vec::new() };
+    let at = |item: &Value| item.get("at").and_then(Value::as_u64).unwrap_or(0);
+    let Some((key, item)) = queue.iter().min_by_key(|(_, item)| at(item)) else { return Vec::new() };
+    if item.get("session").and_then(Value::as_str) != Some(session) {
+        // made for an earlier connection: the receiver may be in another state now
+        return vec![Op::Set(QUEUE.into(), Value::Null)];
+    }
+    let mut rest = queue.clone();
+    rest.remove(key);
+    let mut ops = vec![Op::Set(QUEUE.into(), Value::Object(rest))];
+    ops.extend(set(key, item.get("value").cloned().unwrap_or(Value::Null), c.now, session));
+    ops
+}
+
+/// How a row's change leaves: now, or in line behind the one on its way, where a newer value for the same setting replaces
+/// the older one (a slider dragged through ten steps sends the first and the last).
+#[derive(Clone)]
+struct Tx {
+    session: String,
+    now: u64,
+    busy: bool,
+    queue: Value,
+}
+impl Tx {
+    fn send(&self, key: &str, value: Value) -> Vec<Op> {
+        if self.session.is_empty() {
+            return Vec::new();
+        }
+        let mut queue = self.queue.clone();
+        if self.busy {
+            queue[key] = json!({"value": value, "session": self.session, "at": self.now});
+            return vec![Op::Set(QUEUE.into(), queue)];
+        }
+        if let Some(q) = queue.as_object_mut() {
+            q.remove(key);
+        }
+        let mut ops = vec![Op::Set(QUEUE.into(), queue)];
+        ops.extend(set(key, value, self.now, &self.session));
+        ops
+    }
+}
+
+/// What the page shows and how its rows send.
+struct View<'a> {
+    r: Option<&'a Value>,
+    live: bool,
+    tx: Tx,
+}
+impl<'a> View<'a> {
+    fn of(c: &'a Ctx<'_>) -> Self {
+        let (r, live) = shown(c);
+        let session = r.filter(|_| live).and_then(session).unwrap_or_default().to_string();
+        View { r, live, tx: Tx { session, now: c.now, busy: in_flight(c), queue: c.local.get(QUEUE).clone() } }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct H(&'static str, usize, &'static str, &'static str, &'static str);
 
 struct Setting<'a> {
     d: Option<&'a Value>,
-    local: &'a Value,
-    now: u64,
-    busy: bool,
-    has_session: bool,
+    live: bool,
+    queued: Option<&'a Value>,
+    write: Option<Write<'a>>,
     key: &'static str,
 }
 impl<'a> Setting<'a> {
-    fn new(c: &'a Ctx<'_>, r: Option<&'a Value>, key: &'static str) -> Self {
-        let settings = r.and_then(|r| r.get("settings"));
-        let d = settings.and_then(|s| s.get(key)).filter(|d| d.is_object());
-        let session = r.and_then(|r| r.get("settingsSession")).and_then(Value::as_str).filter(|s| !s.is_empty());
-        let local = if session.is_some() && c.local.get("receiver.write").get("session").and_then(Value::as_str) == session {
-            c.local.get("receiver.write")
-        } else {
-            &Value::Null
-        };
-        let local_age = c.now.saturating_sub(local.get("at").and_then(Value::as_u64).unwrap_or(0));
-        let local_wait = local.get("setting").and_then(Value::as_str).is_some()
-            && local.get("error").is_none()
-            && local_age < STALE_MS as u64
-            && !local.get("requestId").and_then(Value::as_str).is_some_and(|id| {
-                settings.and_then(Value::as_object).is_some_and(|all| all.values().any(|s| s.pointer("/result/requestId").and_then(Value::as_str) == Some(id)))
-            });
-        let busy = local_wait || settings.and_then(Value::as_object).is_some_and(|all| all.values().any(|s| s.get("pending").is_some_and(Value::is_object)));
-        Self { d, local, now: c.now, busy, key, has_session: session.is_some() }
+    fn new(c: &'a Ctx<'_>, v: &View<'a>, key: &'static str) -> Self {
+        let d = v.r.and_then(|r| r.get("settings")).and_then(|s| s.get(key)).filter(|d| d.is_object());
+        let queued = c.local.get(QUEUE).get(key).and_then(|q| q.get("value")).filter(|x| !x.is_null());
+        Self { d, live: v.live, queued, write: write(c).filter(|w| w.setting == key), key }
     }
-    fn fresh(&self) -> bool {
-        let t = self.d.map(stamp).unwrap_or(0.0);
-        let age = self.now as f64 - t;
-        t > 0.0 && age < STALE_MS && age > -1000.0
+    /// What the receiver last reported.
+    fn read(&self) -> Option<&'a Value> {
+        self.d.filter(|d| d.get("support").and_then(Value::as_str) == Some("supported")).and_then(|d| d.get("value")).filter(|v| !v.is_null())
     }
-    fn value(&self) -> Option<&Value> {
-        self.d
-            .filter(|d| d.get("support").and_then(Value::as_str) == Some("supported"))
-            .filter(|_| self.fresh())
-            .and_then(|d| d.get("value"))
-            .filter(|v| !v.is_null())
+    /// What the row shows: the change on its way or in line, until the receiver's readback settles it.
+    fn value(&self) -> Option<&'a Value> {
+        let sent = self.write.as_ref().filter(|w| matches!(w.fate, Fate::Waiting)).map(|w| w.value).filter(|v| !v.is_null());
+        self.queued.or(sent).or_else(|| self.read())
     }
     /// Settings the receiver model does not offer stay off the page.
     fn offered(&self) -> bool {
         self.d.and_then(|d| d.get("support")).and_then(Value::as_str) != Some("unsupported")
     }
     fn enabled(&self) -> bool {
-        self.has_session && self.value().is_some() && !self.busy && self.d.and_then(|d| d.get("writable")).and_then(Value::as_bool) == Some(true)
+        self.live && self.read().is_some() && self.d.and_then(|d| d.get("writable")).and_then(Value::as_bool) == Some(true)
     }
     fn detail(&self) -> String {
-        if self.local.get("setting").and_then(Value::as_str) == Some(self.key) {
-            let age = self.now.saturating_sub(self.local.get("at").and_then(Value::as_u64).unwrap_or(0));
-            if age < STALE_MS as u64 {
-                if let Some(e) = self.local.get("error").and_then(Value::as_str) {
-                    return e.into();
-                }
-            }
-            if let Some(id) = self.local.get("requestId").and_then(Value::as_str) {
-                if let Some(result) = self.d.and_then(|d| d.get("result"))
-                    && result.get("requestId").and_then(Value::as_str) == Some(id)
-                    && result.get("status").and_then(Value::as_str) == Some("failed")
-                {
-                    return result.get("error").and_then(Value::as_str).unwrap_or("Change failed").into();
-                }
-                let applied = self
-                    .d
-                    .and_then(|d| d.get("result"))
-                    .is_some_and(|r| r.get("requestId").and_then(Value::as_str) == Some(id) && r.get("status").and_then(Value::as_str) == Some("applied"));
-                if !applied && age >= STALE_MS as u64 && age < 2 * STALE_MS as u64 && self.d.and_then(|d| d.get("pending")).is_none_or(Value::is_null) {
-                    return "Change not confirmed".into();
-                }
+        if self.queued.is_some() {
+            return "Queued".into();
+        }
+        if let Some(w) = self.write.as_ref().filter(|w| w.age < SAY_MS) {
+            match w.fate {
+                Fate::Waiting => return "Applying…".into(),
+                Fate::Failed(e) => return format!("Not changed: {e}"),
+                Fate::Unconfirmed => return "Change not confirmed".into(),
+                Fate::Applied => {}
             }
         }
-        if self.d.and_then(|d| d.get("pending")).is_some_and(Value::is_object)
-            || (self.busy && self.local.get("setting").and_then(Value::as_str) == Some(self.key))
-        {
+        if self.d.and_then(|d| d.get("pending")).is_some_and(Value::is_object) {
             return "Applying…".into();
         }
-        if self.busy {
-            return "Another change is pending".into();
+        // not answering: the chip says so once, rather than every row
+        if !self.live {
+            return String::new();
         }
         if let Some(reason) = self.d.and_then(|d| d.get("reason")).and_then(Value::as_str).filter(|s| !s.is_empty()) {
             return reason.into();
@@ -278,14 +400,8 @@ impl<'a> Setting<'a> {
         if self.d.and_then(|d| d.get("support")).and_then(Value::as_str) == Some("unsupported") {
             return "Not supported".into();
         }
-        if self.value().is_none() {
+        if self.read().is_none() {
             return "Unavailable".into();
-        }
-        if !self.has_session {
-            return "Receiver unavailable".into();
-        }
-        if !self.enabled() {
-            return "Read only".into();
         }
         String::new()
     }
@@ -314,35 +430,34 @@ impl<'a> Setting<'a> {
     }
 }
 
-fn switch(c: &Ctx, live: Option<&Value>, h: H, key: &'static str) -> Row {
-    let s = Setting::new(c, live, key);
-    let v = s.value().and_then(Value::as_bool);
-    let enabled = s.enabled() && v.is_some();
-    let mut r = Row::toggle(h.0).tab(h.1).icon(h.2).label(h.3).help(h.4).on(v == Some(true)).admin().visible(s.offered());
+fn switch(c: &Ctx, v: &View, h: H, key: &'static str) -> Row {
+    let s = Setting::new(c, v, key);
+    let on = s.value().and_then(Value::as_bool);
+    let enabled = s.enabled() && on.is_some();
+    let mut r = Row::toggle(h.0).tab(h.1).icon(h.2).label(h.3).help(h.4).on(on == Some(true)).admin().visible(s.offered());
     r.enabled = enabled;
+    r.steady = true;
     r.detail = s.detail();
-    if v.is_none() && r.detail.is_empty() {
+    if on.is_none() && r.detail.is_empty() && v.live {
         r.detail = "Unavailable".into();
     }
-    let now = c.now;
-    let session = live.and_then(|d| d.get("settingsSession")).and_then(Value::as_str).unwrap_or("").to_string();
+    let tx = v.tx.clone();
     r.act(move |a| match a {
-        Arg::Toggle(x) if enabled && !session.is_empty() => set(key, json!(x), now, &session),
+        Arg::Toggle(x) if enabled => tx.send(key, json!(x)),
         _ => Vec::new(),
     })
 }
 
-fn choice(c: &Ctx, live: Option<&Value>, h: H, key: &'static str, numeric: bool, kind: u8) -> Row {
-    let s = Setting::new(c, live, key);
+fn choice(c: &Ctx, v: &View, h: H, key: &'static str, numeric: bool, kind: u8) -> Row {
+    let s = Setting::new(c, v, key);
     let opts: Vec<_> = s.options(numeric, None).into_iter().filter(|(v, _)| key != "quickSelect" || v.as_i64().is_some()).collect();
     let index = s.value().and_then(|v| opts.iter().position(|(x, _)| x == v));
     // Quick Select reports 0 until a memory is recalled; any memory can still be chosen.
-    pick(c, live, h, &s, opts, index, key == "quickSelect", kind)
+    pick(v, h, &s, opts, index, key == "quickSelect", kind)
 }
 
 /// A row of choices. `free` keeps it usable while the current value is none of them.
-#[allow(clippy::too_many_arguments)]
-fn pick(c: &Ctx, live: Option<&Value>, h: H, s: &Setting, opts: Vec<(Value, String)>, index: Option<usize>, free: bool, kind: u8) -> Row {
+fn pick(v: &View, h: H, s: &Setting, opts: Vec<(Value, String)>, index: Option<usize>, free: bool, kind: u8) -> Row {
     let key = s.key;
     let labels: Vec<String> = opts.iter().map(|(_, l)| l.clone()).collect();
     let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
@@ -365,63 +480,62 @@ fn pick(c: &Ctx, live: Option<&Value>, h: H, s: &Setting, opts: Vec<(Value, Stri
     .visible(s.offered());
     let enabled = s.enabled() && (free || index.is_some()) && !opts.is_empty();
     r.enabled = enabled;
+    r.steady = true;
     r.detail = s.detail();
-    if index.is_none() && !free && r.detail.is_empty() {
+    if index.is_none() && !free && r.detail.is_empty() && v.live {
         r.detail = "Unavailable".into();
     }
-    let now = c.now;
-    let session = live.and_then(|d| d.get("settingsSession")).and_then(Value::as_str).unwrap_or("").to_string();
+    let tx = v.tx.clone();
     r.act(move |a| match a {
-        Arg::Index(i) if enabled && !session.is_empty() => opts.get(i).map(|(v, _)| set(key, v.clone(), now, &session)).unwrap_or_default(),
+        Arg::Index(i) if enabled => opts.get(i).map(|(v, _)| tx.send(key, v.clone())).unwrap_or_default(),
         _ => Vec::new(),
     })
 }
 
 /// The MOVIE/MUSIC/GAME/PURE buttons and the modes themselves, both written through `soundMode`. The receiver reports
 /// only the mode, so a button is highlighted only when its mode belongs to that button alone.
-fn sound_modes(c: &Ctx, live: Option<&Value>, observed: bool) -> [Row; 2] {
-    let s = Setting::new(c, live, "soundMode");
+fn sound_modes(c: &Ctx, v: &View, observed: bool) -> [Row; 2] {
+    let s = Setting::new(c, v, "soundMode");
     let row = |h: H, kind: &str, field: &str| {
         let opts = s.options(false, Some(kind));
-        let current = s.value().and(s.d).and_then(|d| d.get(field)).and_then(Value::as_str);
+        // a mode on its way is shown as its own button; the readback names its category and style
+        let current = s.queued.or(s.write.as_ref().filter(|w| matches!(w.fate, Fate::Waiting)).map(|w| w.value)).and_then(Value::as_str).filter(|x| opts.iter().any(|(o, _)| o.as_str() == Some(x)));
+        let current = current.or_else(|| s.read().and(s.d).and_then(|d| d.get(field)).and_then(Value::as_str));
         let index = current.and_then(|v| opts.iter().position(|(x, _)| x.as_str() == Some(v)));
-        pick(c, live, h, &s, opts, index, observed, 2)
+        pick(v, h, &s, opts, index, observed, 2)
     };
     let categories = row(H("modes", 1, "audio-waveform", "Category", "Movie, Music and Game recall that button's last mode; choosing it again steps to the next."), "category", "category");
     let shown = categories.visible && !categories.cards.is_empty();
     [categories.visible(shown), row(H("styles", 1, "audio-waveform", "Mode", ""), "style", "style")]
 }
 
-fn level(c: &Ctx, live: Option<&Value>, h: H, key: &'static str) -> Row {
-    let s = Setting::new(c, live, key);
+fn level(c: &Ctx, v: &View, h: H, key: &'static str) -> Row {
+    let s = Setting::new(c, v, key);
     let number = |k| s.d.and_then(|d| d.get(k)).and_then(Value::as_f64).filter(|n| n.is_finite());
     let range = number("min").zip(number("max")).zip(number("step")).map(|((a, b), step)| (a, b, step)).filter(|(a, b, step)| a < b && *step > 0.0);
-    let v = s.value().and_then(Value::as_f64).filter(|n| n.is_finite());
+    let x = s.value().and_then(Value::as_f64).filter(|n| n.is_finite());
     let (min, max, step) = range.unwrap_or((0.0, 1.0, 1.0));
-    let valid = v.is_some_and(|x| x >= min && x <= max && ((x - min) / step - ((x - min) / step).round()).abs() < 0.00001);
+    let on_step = move |x: f64| x >= min && x <= max && ((x - min) / step - ((x - min) / step).round()).abs() < 0.00001;
+    let valid = x.is_some_and(on_step);
     let enabled = s.enabled() && range.is_some() && valid;
     let unit = s.d.and_then(|d| d.get("unit")).and_then(Value::as_str).unwrap_or("");
     let mut r = Row::slider(h.0, min, max, step).tab(h.1).icon(h.2).label(h.3).help(h.4).admin().visible(s.offered());
     r.enabled = enabled;
+    r.steady = true;
     r.detail = s.detail();
-    r.num = v.filter(|_| valid).unwrap_or(min);
-    r.value_text = Some(match v.filter(|_| valid) {
+    r.num = x.filter(|_| valid).unwrap_or(min);
+    r.value_text = Some(match x.filter(|_| valid) {
         Some(x) if unit == "dB" => db(Some(x), step.fract() != 0.0),
         Some(x) if unit.is_empty() => plain(x),
         Some(x) => format!("{} {unit}", plain(x)),
         None => "\u{2013}".into(),
     });
-    if !valid && r.detail.is_empty() {
+    if !valid && r.detail.is_empty() && v.live {
         r.detail = "Unavailable".into();
     }
-    let now = c.now;
-    let session = live.and_then(|d| d.get("settingsSession")).and_then(Value::as_str).unwrap_or("").to_string();
+    let tx = v.tx.clone();
     r.act(move |a| match a {
-        Arg::Value(x)
-            if enabled && !session.is_empty() && x.is_finite() && x >= min && x <= max && ((x - min) / step - ((x - min) / step).round()).abs() < 0.00001 =>
-        {
-            set(key, json!(x), now, &session)
-        }
+        Arg::Value(x) if enabled && x.is_finite() && on_step(x) => tx.send(key, json!(x)),
         _ => Vec::new(),
     })
 }
@@ -473,92 +587,67 @@ fn address(c: &Ctx) -> Vec<Row> {
     vec![host_row, port_row]
 }
 
-/// The receiver's own settings, on the tabs after the plugin's.
+/// The receiver's own settings, on the tabs after the plugin's. Every row the receiver model offers keeps its place: what
+/// cannot be changed now is disabled with the reason under it, never removed.
 fn controls(c: &Ctx) -> Vec<Row> {
-    let live = doc(c);
+    let v = View::of(c);
     let mut rows = Vec::new();
-    let why = if live.is_none() {
-        "Receiver not answering"
-    } else if live.and_then(|r| r.get("settings")).and_then(Value::as_object).is_none() {
-        "Receiver settings unavailable"
-    } else {
-        ""
-    };
-    rows.push(Row::note(why, 1).visible(!why.is_empty()));
-    let local = c.local.get("receiver.write");
-    let local_error = local.get("error").and_then(Value::as_str);
-    let failure = if live.is_none() { local_error } else { None }.or_else(|| {
-        newest(c).filter(|r| live.is_none() || r.get("settingsSession").and_then(Value::as_str) != local.get("session").and_then(Value::as_str)).and_then(|r| {
-            if let Some(error) = local_error {
-                return Some(error);
-            }
-            let setting = local.get("setting")?.as_str()?;
-            let request = local.get("requestId")?.as_str()?;
-            let result = r.get("settings")?.get(setting)?.get("result")?;
-            (result.get("requestId")?.as_str()? == request && result.get("status")?.as_str()? == "failed")
-                .then(|| result.get("error").and_then(Value::as_str).unwrap_or("Change failed"))
-        })
-    });
-    if let Some(error) = failure {
-        for tab in 1..TABS.len() {
-            let mut note = Row::note(&format!("Change failed: {error}"), tab);
-            note.id = format!("receiver.write.failure:{tab}");
-            rows.push(note);
-        }
-    }
-    rows.push(switch(c, live, H("power", 1, "power", "Receiver power", "Turns on with the TV over HDMI-CEC. Off here keeps the TV on."), "power"));
-    rows.push(choice(c, live, H("input", 1, "cable", "Input", "What the receiver plays."), "input", false, 1));
-    let mode_setting = Setting::new(c, live, "soundMode");
+    let old_helper = doc(c).is_some_and(|r| !r.get("settings").is_some_and(Value::is_object));
+    rows.push(Row::note("Receiver settings unavailable", 1).visible(old_helper));
+    rows.push(switch(c, &v, H("power", 1, "power", "Receiver power", "Turns on with the TV over HDMI-CEC. Off here keeps the TV on."), "power"));
+    rows.push(choice(c, &v, H("input", 1, "cable", "Input", "What the receiver plays."), "input", false, 1));
+    let mode_setting = Setting::new(c, &v, "soundMode");
     let mode = mode_setting
-        .value()
+        .read()
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|v| !v.is_empty() && !v.eq_ignore_ascii_case("unknown") && !v.eq_ignore_ascii_case("unavailable"));
     rows.push(Row::head(&mode.map(|v| format!("Sound mode · now {v}")).unwrap_or_else(|| "Sound mode".into()), 1));
-    rows.extend(sound_modes(c, live, mode.is_some()));
-    rows.push(choice(c, live, H("quick", 1, "zap", "Quick Select", "Receiver memories."), "quickSelect", true, 0));
-    let absolute = live.and_then(|r| r.get("volumeDisplay")).and_then(Value::as_str) == Some("absolute");
+    rows.extend(sound_modes(c, &v, mode.is_some()));
+    rows.push(choice(c, &v, H("quick", 1, "zap", "Quick Select", "Receiver memories."), "quickSelect", true, 0));
+    let r = v.r;
+    let absolute = r.and_then(|r| r.get("volumeDisplay")).and_then(Value::as_str) == Some("absolute");
     let (min, max) = if absolute { (0.0, 98.0) } else { (-80.0, 18.0) };
     let mut volume = Row::slider("volume", min, max, 0.5).tab(2).icon("volume-2").label("Volume");
     volume.info = true;
-    volume.num = live.and_then(|r| r.get(if absolute { "volumeAbs" } else { "volumeDb" })).and_then(Value::as_f64).unwrap_or(0.0);
-    volume.value_text = Some(live.and_then(|r| r.get("volumeText")).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("\u{2013}").into());
+    volume.num = r.and_then(|r| r.get(if absolute { "volumeAbs" } else { "volumeDb" })).and_then(Value::as_f64).unwrap_or(0.0);
+    volume.value_text = Some(r.and_then(|r| r.get("volumeText")).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("\u{2013}").into());
     rows.push(volume);
-    rows.push(choice(c, live, H("dialog", 2, "mic", "Dialog Enhancer", "Louder voices without louder everything."), "dialog", false, 0));
-    rows.push(level(c, live, H("dialogControl", 2, "mic", "Dialog Control", "DTS:X dialogue level."), "dialogControl"));
-    rows.push(level(c, live, H("subwoofer", 2, "speaker", "Subwoofer level", ""), "subwoofer"));
-    rows.push(level(c, live, H("lfe", 2, "speaker", "LFE level", "The low-frequency effects channel of Dolby and DTS sound."), "lfe"));
-    rows.push(switch(c, live, H("toneEnabled", 2, "sliders-vertical", "Tone control", ""), "toneEnabled"));
+    rows.push(choice(c, &v, H("dialog", 2, "mic", "Dialog Enhancer", "Louder voices without louder everything."), "dialog", false, 0));
+    rows.push(level(c, &v, H("dialogControl", 2, "mic", "Dialog Control", "DTS:X dialogue level."), "dialogControl"));
+    rows.push(level(c, &v, H("subwoofer", 2, "speaker", "Subwoofer level", ""), "subwoofer"));
+    rows.push(level(c, &v, H("lfe", 2, "speaker", "LFE level", "The low-frequency effects channel of Dolby and DTS sound."), "lfe"));
+    rows.push(switch(c, &v, H("toneEnabled", 2, "sliders-vertical", "Tone control", ""), "toneEnabled"));
     for (h, key) in
         [(H("bass", 2, "sliders-vertical", "Bass", "Tone control."), "bass"), (H("treble", 2, "sliders-vertical", "Treble", "Tone control."), "treble")]
     {
-        rows.push(level(c, live, h, key));
+        rows.push(level(c, &v, h, key));
     }
-    rows.push(switch(c, live, H("cinemaeq", 2, "theater", "Cinema EQ", "Softens bright film soundtracks."), "cinemaEq"));
-    rows.push(choice(c, live, H("drc", 2, "activity", "Dynamic compression", "Narrows the gap between loud and quiet scenes."), "drc", false, 0));
-    rows.push(switch(c, live, H("loudness", 2, "volume-1", "Loudness management", "For Dolby sound."), "loudness"));
-    rows.push(switch(c, live, H("subwooferDirect", 2, "speaker", "Subwoofer in Direct and Stereo", ""), "subwooferDirect"));
+    rows.push(switch(c, &v, H("cinemaeq", 2, "theater", "Cinema EQ", "Softens bright film soundtracks."), "cinemaEq"));
+    rows.push(choice(c, &v, H("drc", 2, "activity", "Dynamic compression", "Narrows the gap between loud and quiet scenes."), "drc", false, 0));
+    rows.push(switch(c, &v, H("loudness", 2, "volume-1", "Loudness management", "For Dolby sound."), "loudness"));
+    rows.push(switch(c, &v, H("subwooferDirect", 2, "speaker", "Subwoofer in Direct and Stereo", ""), "subwooferDirect"));
     let channels: Vec<Row> = CHANNELS
         .iter()
         .map(|&(key, label)| {
-            let row = level(c, live, H(key, 2, "speaker", label, ""), key);
-            let shown = row.visible && Setting::new(c, live, key).d.is_some();
+            let row = level(c, &v, H(key, 2, "speaker", label, ""), key);
+            let shown = row.visible && Setting::new(c, &v, key).d.is_some();
             row.visible(shown)
         })
         .collect();
     rows.push(Row::head("Channel levels", 2).visible(channels.iter().any(|r| r.visible)));
     rows.extend(channels);
-    rows.push(choice(c, live, H("multeq", 3, "audio-lines", "MultEQ", "Audyssey room correction."), "multEq", false, 0));
-    rows.push(switch(c, live, H("dyneq", 3, "activity", "Dynamic EQ", "Keeps bass and surround full at low volume."), "dynEq"));
-    rows.push(choice(c, live, H("refoffset", 3, "gauge", "Reference level offset", "For Dynamic EQ."), "refOffset", true, 0));
-    rows.push(choice(c, live, H("dynvol", 3, "volume-1", "Dynamic Volume", "Evens out loud adverts and quiet dialogue."), "dynVol", false, 0));
-    let zone2 = Setting::new(c, live, "zone2Power").offered();
+    rows.push(choice(c, &v, H("multeq", 3, "audio-lines", "MultEQ", "Audyssey room correction."), "multEq", false, 0));
+    rows.push(switch(c, &v, H("dyneq", 3, "activity", "Dynamic EQ", "Keeps bass and surround full at low volume."), "dynEq"));
+    rows.push(choice(c, &v, H("refoffset", 3, "gauge", "Reference level offset", "For Dynamic EQ."), "refOffset", true, 0));
+    rows.push(choice(c, &v, H("dynvol", 3, "volume-1", "Dynamic Volume", "Evens out loud adverts and quiet dialogue."), "dynVol", false, 0));
+    let zone2 = Setting::new(c, &v, "zone2Power").offered();
     rows.push(Row::head("Zone 2", 4).visible(zone2));
-    rows.push(switch(c, live, H("zone2power", 4, "power", "Zone 2 power", "The second pair of speakers."), "zone2Power"));
-    rows.push(level(c, live, H("zone2volume", 4, "volume-2", "Zone 2 volume", ""), "zone2Volume"));
-    rows.push(choice(c, live, H("zone2input", 4, "cable", "Zone 2 input", ""), "zone2Input", false, 1));
-    rows.push(switch(c, live, H("zone2mute", 4, "volume-1", "Zone 2 mute", ""), "zone2Mute"));
-    let eco = choice(c, live, H("eco", 4, "leaf", "ECO mode", "Less power at low volume."), "eco", false, 0);
+    rows.push(switch(c, &v, H("zone2power", 4, "power", "Zone 2 power", "The second pair of speakers."), "zone2Power"));
+    rows.push(level(c, &v, H("zone2volume", 4, "volume-2", "Zone 2 volume", ""), "zone2Volume"));
+    rows.push(choice(c, &v, H("zone2input", 4, "cable", "Zone 2 input", ""), "zone2Input", false, 1));
+    rows.push(switch(c, &v, H("zone2mute", 4, "volume-1", "Zone 2 mute", ""), "zone2Mute"));
+    let eco = choice(c, &v, H("eco", 4, "leaf", "ECO mode", "Less power at low volume."), "eco", false, 0);
     rows.push(Row::head("Power", 4).visible(eco.visible));
     rows.push(eco);
     rows
@@ -597,10 +686,17 @@ mod tests {
     }
     fn send(r: &Row, arg: Arg) -> Value {
         let ops = (r.act.as_ref().unwrap())(arg);
-        let [Op::Set(_, _), Op::Send { name: Some(name), method: "POST", path, body: Some(body) }] = &ops[..] else { panic!("{ops:?}") };
+        let [Op::Set(_, _), Op::Set(_, _), Op::Send { name: Some(name), method: "POST", path, body: Some(body) }] = &ops[..] else { panic!("{ops:?}") };
         assert_eq!(name, &format!("receiver.set:{}", body["setting"].as_str().unwrap()));
         assert_eq!(path, "/v1/receiver/set");
         body.clone()
+    }
+    fn apply(w: &mut World, ops: &[Op]) {
+        for op in ops {
+            if let Op::Set(key, v) = op {
+                w.local.set(key, v.clone());
+            }
+        }
     }
     #[test]
     fn capabilities_are_per_setting_and_types_are_strict() {
@@ -700,38 +796,71 @@ mod tests {
     }
 
     #[test]
-    fn named_response_and_readback_control_pending_and_errors() {
+    fn a_write_shows_on_its_row_until_the_readback_settles_it() {
         let mut w = world();
         put(&mut w, "power", descriptor(json!(true)));
-        w.local.set("receiver.write", json!({"setting":"power","session":"session-1","token":1,"at":NOW}));
+        put(&mut w, "dynEq", descriptor(json!(true)));
+        w.local.set(WRITE, json!({"setting":"power","value":false,"session":"session-1","token":1,"at":NOW}));
         w.docs.set("receiver.set:power:1.status", json!(202));
         let ops = answered(&w.ctx(), "receiver.set:power:1", &json!({"accepted":true,"requestId":"r1","session":"session-1"}));
-        let Op::Set(key, state) = &ops[0] else { panic!() };
-        w.local.set(key, state.clone());
+        apply(&mut w, &ops);
         let r = rows(&w.ctx());
-        assert!(row(&r, "power").on && !row(&r, "power").enabled);
+        assert!(!row(&r, "power").on && row(&r, "power").enabled, "the change shows at once and the row stays usable");
         assert_eq!(row(&r, "power").detail, "Applying…");
-        let mut d = descriptor(json!(false));
-        d["result"] = json!({"requestId":"r1","status":"applied","error":null});
+        assert!(row(&r, "dyneq").enabled && row(&r, "dyneq").detail.is_empty(), "other rows are not held up");
+        let mut d = descriptor(json!(true));
+        d["result"] = json!({"requestId":"r1","status":"failed","error":"No readback"});
         put(&mut w, "power", d.clone());
         let r = rows(&w.ctx());
-        assert!(!row(&r, "power").on && row(&r, "power").enabled);
-        d["result"] = json!({"requestId":"r1","status":"failed","error":"No readback"});
+        assert!(row(&r, "power").on, "a failed change falls back to the readback");
+        assert_eq!(row(&r, "power").detail, "Not changed: No readback");
+        d["result"] = json!({"requestId":"r1","status":"applied","error":null});
+        d["value"] = json!(false);
         put(&mut w, "power", d);
-        assert_eq!(row(&rows(&w.ctx()), "power").detail, "No readback");
-        w.docs.set("receiver.set:power:1.status", json!(409));
-        let ops = answered(&w.ctx(), "receiver.set:power:1", &json!({"error":{"message":"Busy"}}));
-        assert!(matches!(&ops[0],Op::Set(_, v) if v["error"] == "Busy"));
+        let r = rows(&w.ctx());
+        assert!(!row(&r, "power").on && row(&r, "power").detail.is_empty());
     }
+
+    #[test]
+    fn changes_queue_behind_the_one_on_its_way_latest_value_wins() {
+        let mut w = world();
+        let mut bass = descriptor(json!(0));
+        (bass["min"], bass["max"], bass["step"]) = (json!(-6), json!(6), json!(1));
+        put(&mut w, "bass", bass);
+        put(&mut w, "power", descriptor(json!(true)));
+        w.local.set(WRITE, json!({"setting":"power","value":false,"requestId":"r1","session":"session-1","token":1,"at":NOW}));
+        for x in [1.0, 2.0, 3.0] {
+            let ops = (row(&rows(&w.ctx()), "bass").act.as_ref().unwrap())(Arg::Value(x));
+            assert!(!ops.iter().any(|o| matches!(o, Op::Send { .. })), "nothing is sent while a change is on its way");
+            apply(&mut w, &ops);
+        }
+        let r = rows(&w.ctx());
+        assert_eq!((row(&r, "bass").num, row(&r, "bass").detail.as_str()), (3.0, "Queued"));
+        let mut d = descriptor(json!(false));
+        d["result"] = json!({"requestId":"r1","status":"applied","error":null});
+        put(&mut w, "power", d);
+        let ops = answered(&w.ctx(), "receiver", &Value::Null);
+        let sent: Vec<_> = ops.iter().filter_map(|o| if let Op::Send { body: Some(b), .. } = o { Some(b.clone()) } else { None }).collect();
+        assert_eq!(sent, [json!({"setting":"bass","value":3.0,"session":"session-1"})], "only the latest value is sent");
+        apply(&mut w, &ops);
+        assert_eq!(w.local.get(QUEUE), &json!({}));
+        w.local.set(WRITE, json!({"setting":"bass","value":3.0,"session":"session-1","token":2,"at":NOW}));
+        w.docs.set("receiver.set:bass:2.status", json!(409));
+        let ops = answered(&w.ctx(), "receiver.set:bass:2", &json!({"error":{"message":"busy"}}));
+        apply(&mut w, &ops);
+        assert_eq!((w.local.get(WRITE), &w.local.get(QUEUE)["bass"]["value"]), (&Value::Null, &json!(3.0)), "a busy answer puts the change back in line");
+    }
+
     #[test]
     fn changed_session_discards_pending_and_old_response() {
         let mut w = world();
         put(&mut w, "power", descriptor(json!(true)));
-        w.local.set("receiver.write", json!({"setting":"power","session":"session-1","token":2,"at":NOW}));
+        w.local.set(WRITE, json!({"setting":"power","session":"session-1","token":2,"at":NOW}));
         let mut changed = w.topics.helper("receiver").unwrap().clone();
         changed["settingsSession"] = json!("session-2");
         w.topics.set_helper("receiver", changed);
         assert!(row(&rows(&w.ctx()), "power").enabled);
+        assert!(!in_flight(&w.ctx()));
         assert!(answered(&w.ctx(), "receiver.set:power:1", &json!({"accepted":true,"session":"session-1","requestId":"old"})).is_empty());
         let mut no_session = w.topics.helper("receiver").unwrap().clone();
         no_session["settingsSession"] = Value::Null;
@@ -740,38 +869,31 @@ mod tests {
     }
 
     #[test]
-    fn disconnect_shows_the_matching_failed_write() {
+    fn last_values_stay_in_place_while_the_receiver_does_not_answer() {
         let mut w = world();
-        let mut d = descriptor(Value::Null);
-        d["result"] = json!({"requestId":"r1","status":"failed","error":"Connection lost"});
-        put(&mut w, "power", d);
-        w.local.set("receiver.write", json!({"setting":"power","requestId":"r1","session":"session-1","at":NOW}));
+        put(&mut w, "power", descriptor(json!(true)));
+        put(&mut w, "dynEq", descriptor(json!(false)));
+        let ops = answered(&w.ctx(), "receiver", &Value::Null);
+        apply(&mut w, &ops);
+        let layout = |r: &[Row]| r.iter().map(|r| (r.id.clone(), r.text.clone(), r.visible, r.steady)).collect::<Vec<_>>();
+        let live = rows(&w.ctx());
+        w.local.set(WRITE, json!({"setting":"dynEq","value":true,"requestId":"r1","session":"session-1","at":NOW}));
         let mut disconnected = w.topics.helper("receiver").unwrap().clone();
         disconnected["reachable"] = json!(false);
-        w.topics.set_helper("receiver", disconnected.clone());
-        assert_eq!(rows(&w.ctx()).iter().filter(|r| r.text == "Change failed: Connection lost").count(), 4);
-        w.local.set("receiver.write", json!({"setting":"power","error":"Busy","session":"session-1","at":NOW}));
-        assert_eq!(rows(&w.ctx()).iter().filter(|r| r.text == "Change failed: Busy").count(), 4);
-        w.local.set("receiver.write", json!({"setting":"power","requestId":"r1","session":"session-1","at":NOW}));
         disconnected["settingsSession"] = Value::Null;
+        disconnected["settings"]["dynEq"]["result"] = json!({"requestId":"r1","status":"failed","error":"Connection lost"});
         w.topics.set_helper("receiver", disconnected);
         let r = rows(&w.ctx());
-        assert_eq!(r.iter().filter(|r| r.text == "Change failed: Connection lost").count(), 4);
-        assert!(!row(&r, "power").enabled);
-    }
-
-    #[test]
-    fn stale_and_old_backend_values_do_not_enable_controls() {
-        let mut w = world();
-        let mut d = descriptor(json!(true));
-        d["updatedAt"] = json!(NOW - 7000);
-        put(&mut w, "power", d);
-        let r = rows(&w.ctx());
-        assert!(!row(&r, "power").enabled && !row(&r, "power").on);
+        assert_eq!(layout(&r), layout(&live), "no row comes, goes or changes height");
+        assert!(row(&r, "power").on && !row(&r, "power").enabled && row(&r, "power").detail.is_empty());
+        assert_eq!(row(&r, "dyneq").detail, "Not changed: Connection lost");
+        assert_eq!(chip(&w.ctx()), Some(("Not answering".into(), "info")));
         let mut old = w.topics.helper("receiver").unwrap().clone();
+        old["reachable"] = json!(true);
         old.as_object_mut().unwrap().remove("settings");
         w.topics.set_helper("receiver", old);
-        assert_eq!(controls(&w.ctx())[0].text, "Receiver settings unavailable");
+        let r = controls(&w.ctx());
+        assert!(r[0].visible && r[0].text == "Receiver settings unavailable");
     }
 
     #[test]

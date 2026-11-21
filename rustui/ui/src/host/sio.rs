@@ -115,6 +115,8 @@ pub struct Desc {
     pub visible: Option<bool>,
     pub active: Option<bool>,
     pub values: Value,
+    /// The dimensions the key is stored under (`dimension`: `["audioInput"]`), when the description gives them.
+    pub dims: Option<Vec<String>>,
 }
 
 /// The limits of a number the description gives (`values.range`).
@@ -486,6 +488,7 @@ impl Sio {
                     visible: ui.and_then(|u| u.get("visible")).and_then(Value::as_bool),
                     active: ui.and_then(|u| u.get("active")).and_then(Value::as_bool),
                     values: e.get("values").cloned().unwrap_or(Value::Null),
+                    dims: e.get("dimension").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()),
                 },
             );
         }
@@ -564,9 +567,9 @@ impl Sio {
         let backlight_only = category == "picture" && body["settings"].as_object().is_some_and(|s| s.len() == 1 && s.contains_key("backlight"));
         let dimension = if backlight_only && self.backlight_context_required { self.backlight_dimension.as_ref() } else { self.dimensions.get(category) };
         if !(category == "picture" && body["settings"].get("pictureMode").is_some())
-            && let Some(d) = dimension
+            && let Some(d) = dimension.and_then(|d| self.own_dimension(category, &body["settings"], d))
         {
-            body["dimension"] = d.clone();
+            body["dimension"] = d;
         }
         if let Some(app) = app {
             body["app_id"] = json!(app);
@@ -576,6 +579,24 @@ impl Sio {
             self.picture_writes.insert(tag, now.saturating_add(READ_MS));
         }
         Effect::Luna { tag, uri: format!("{SERVICE}/setSystemSettings"), payload: body, subscribe: false }
+    }
+
+    /// The part of the last answer's dimension the written keys are stored under. A category's answer carries the union of its keys'
+    /// dimensions (`sound`: audioOutput, audioInput, soundOutput); `soundOutputDigital` written with that union is reported changed but
+    /// lands nowhere (`SET_MERGE_FAIL {"target":"volatile"}`, no record, audio not told), and the next read shows the old value. Keys
+    /// whose description is not known yet keep the whole dimension; a key stored under none gets none.
+    fn own_dimension(&self, category: &str, settings: &Value, dimension: &Value) -> Option<Value> {
+        let Some(keys) = settings.as_object().map(|s| s.keys()) else { return Some(dimension.clone()) };
+        let mut own = Map::new();
+        for key in keys {
+            let Some(dims) = self.descs.get(&ds_name(category, key)).and_then(|d| d.dims.as_ref()) else { return Some(dimension.clone()) };
+            for dim in dims {
+                if let Some(v) = dimension.get(dim) {
+                    own.insert(dim.clone(), v.clone());
+                }
+            }
+        }
+        (!own.is_empty()).then_some(Value::Object(own))
     }
 }
 

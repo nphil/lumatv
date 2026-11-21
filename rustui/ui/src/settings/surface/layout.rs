@@ -269,9 +269,10 @@ pub fn measure_row(kit: &mut Kit, row: &Row, w: f32) -> RowGeom {
     let room = (w - g.text_x - sz.s6 - trail_w - trail_gap - value_room).max(60.0);
     g.text_w = room;
     g.label = lines(kit, &row.label, TypeRole::Label, room - info_mark, 2);
-    g.detail = lines(kit, &row.detail, TypeRole::Caption, room, 2);
-    let words = g.label.len().max(1) as f32 * line_l + g.detail.len() as f32 * line_c;
-    let base = if g.detail.is_empty() { sz.row } else { sz.row + sz.s2 };
+    g.detail = lines(kit, &row.detail, TypeRole::Caption, room, if row.steady { 1 } else { 2 });
+    let detail_lines = if row.steady { 1 } else { g.detail.len() };
+    let words = g.label.len().max(1) as f32 * line_l + detail_lines as f32 * line_c;
+    let base = if detail_lines == 0 { sz.row } else { sz.row + sz.s2 };
     // the control is as tall as a target, so a row with a tall one (a tray of segments) is at least that and its air
     let control = match row.kind {
         Kind::Seg | Kind::Slider => sz.target + sz.s4,

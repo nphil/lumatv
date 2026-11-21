@@ -82,7 +82,7 @@ mod tests {
     use super::*;
 
     fn all() -> Vec<Cat> {
-        [("picture", true), ("receiver", true), ("sleep", true), ("wifi", true), ("plugin.ambient.ambient", true), ("ai", true), ("screenoff", false), ("energy", false), ("oled", false)]
+        [("picture", true), ("receiver", true), ("sleep", true), ("wifi", true), ("plugin.ambient.ambient", true), ("ai", true), ("screenoff", false), ("oled", false)]
             .into_iter()
             .map(|(id, dflt)| Cat { id: id.into(), dflt })
             .collect()
@@ -105,8 +105,8 @@ mod tests {
 
     #[test]
     fn add_a_tile_offers_what_is_not_shown_in_the_catalogues_order() {
-        assert_eq!(missing(&v(&["picture", "ai"]), &all()), v(&["receiver", "sleep", "wifi", "plugin.ambient.ambient", "screenoff", "energy", "oled"]));
-        assert_eq!(missing(&shown(None, &all()), &all()), v(&["screenoff", "energy", "oled"]));
+        assert_eq!(missing(&v(&["picture", "ai"]), &all()), v(&["receiver", "sleep", "wifi", "plugin.ambient.ambient", "screenoff", "oled"]));
+        assert_eq!(missing(&shown(None, &all()), &all()), v(&["screenoff", "oled"]));
     }
 
     #[test]

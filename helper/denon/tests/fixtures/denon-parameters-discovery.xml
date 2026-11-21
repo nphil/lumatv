@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<rx>
+<cmd>
+<name>GetAudyssey</name>
+<list>
+<param name="dynamiceq" control="2">1</param>
+<param name="reflevoffset" control="2">0</param>
+<param name="dynamicvol" control="2">0</param>
+<param name="multeq" control="2">3</param>
+</list>
+</cmd>
+<cmd>
+<name>GetSurroundParameter</name>
+<list>
+<param name="cinemaeq" control="2">0</param>
+<param name="loudness" control="2">1</param>
+<param name="dialogcontrol" control="0"></param>
+<param name="lfe" control="2">0</param>
+<param name="dyncomp" control="2">0</param>
+</list>
+</cmd>
+<cmd>
+<name>GetSoundMode</name>
+<list>
+<param name="movie" control="2">0</param>
+<param name="music" control="2">0</param>
+<param name="game" control="2">0</param>
+<param name="pure" control="2">1</param>
+</list>
+</cmd>
+</rx>

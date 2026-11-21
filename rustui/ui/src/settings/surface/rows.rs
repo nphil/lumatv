@@ -371,7 +371,7 @@ impl RowArt {
         let g = &self.geom;
         let (tl, tc) = (kit.ty(TypeRole::Label), kit.ty(TypeRole::Caption));
         let (ll, lc) = (line_height(tl), line_height(tc));
-        let block = g.label.len().max(1) as f32 * ll + g.detail.len() as f32 * lc;
+        let block = g.label.len().max(1) as f32 * ll + (if row.steady { 1 } else { g.detail.len() }) as f32 * lc;
         let mut y = at.y + ((at.h - block) / 2.0).round();
         let ink = paint.dim(if row.danger { paint.danger_ink } else { paint.ink }, row.enabled || row.info);
         let muted = !(row.enabled || row.info);
@@ -545,7 +545,7 @@ impl RowArt {
         let geom = self.geom.clone();
         let (tl, tc) = (env.kit.ty(TypeRole::Label), env.kit.ty(TypeRole::Caption));
         let (ll, lc) = (line_height(tl), line_height(tc));
-        let block = geom.label.len().max(1) as f32 * ll + geom.detail.len() as f32 * lc;
+        let block = geom.label.len().max(1) as f32 * ll + (if row.steady { 1 } else { geom.detail.len() }) as f32 * lc;
         let top = ((self.rect.h - block) / 2.0).round();
         let paint = env.paint;
         let label_ink = paint.dim(if row.danger { paint.danger_ink } else { paint.ink }, row.enabled || row.info);

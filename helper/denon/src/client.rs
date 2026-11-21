@@ -184,18 +184,18 @@ impl Client {
             Some(crate::prerequisites::BASIC_REQUEST),
             deadline,
         );
-        let audyssey = self.optional_request(
+        let parameters = self.optional_request(
             "/goform/AppCommand0300.xml",
-            Some(crate::prerequisites::AUDYSSEY_REQUEST),
+            Some(crate::prerequisites::PARAMETER_REQUEST),
             deadline,
         );
-        if info.is_err() && basic.is_err() && audyssey.is_err() {
+        if info.is_err() && basic.is_err() && parameters.is_err() {
             return Err(info.err().unwrap());
         }
         Ok(crate::prerequisites::parse(
             info.ok().flatten().as_deref(),
             basic.ok().flatten().as_deref(),
-            audyssey.ok().flatten().as_deref(),
+            parameters.ok().flatten().as_deref(),
         ))
     }
 

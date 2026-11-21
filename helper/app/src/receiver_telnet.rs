@@ -754,6 +754,11 @@ fn converse(
                         if failed || context_changed {
                             wake();
                         }
+                        if context_changed {
+                            // Values read before the change are kept but not written until read again; read them now.
+                            settings_index = 0;
+                            next_settings_round = Instant::now();
+                        }
                         context[field] = Some(value.to_owned());
                     }
                 }

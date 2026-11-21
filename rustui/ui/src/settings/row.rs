@@ -269,6 +269,9 @@ pub struct Row {
     pub face: Option<Face>,
     pub label: String,
     pub detail: String,
+    /// Keeps one line for the detail whether or not there is one, so a status that comes and goes does not move the rows
+    /// below (a device's settings, whose state lines change as it answers).
+    pub steady: bool,
     /// The sentence behind the row's info mark; empty draws no mark.
     pub help: String,
     pub value: String,
@@ -331,6 +334,7 @@ impl Row {
             face: None,
             label: String::new(),
             detail: String::new(),
+            steady: false,
             help: String::new(),
             value: String::new(),
             value_icon: String::new(),
