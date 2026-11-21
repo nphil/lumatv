@@ -101,6 +101,11 @@ fn rows(c: &Ctx) -> Vec<Row> {
     // ---- Home
     let shown = c.layout.get("widgets").and_then(Value::as_array).map_or(0, |l| l.iter().filter(|e| e.get("type").and_then(Value::as_str) != Some("dock") && e.get("hidden").and_then(Value::as_bool) != Some(true)).count());
     rows.push(Row::link("widgets").tab(1).icon("layout-grid").label("Home widgets").value(&format!("{shown} shown")).does(vec![Op::Open { page: "widgets".into(), arg: Default::default() }]));
+    // a profile's own key (`layout` is in profile-scope.json): saved to the active profile and gone with a switch to another
+    let left = c.theme_str("layout.statusBar.profile") == Some("left");
+    let mut profile_button = theme_seg("profilebutton", 1, "user", "Profile button", &["Left", "Right"], Some(usize::from(!left)), |i| json!({"layout": {"statusBar": {"profile": if i == 0 { "left" } else { "right" }}}}));
+    profile_button.help = "Which end of the top bar has your profile; the other buttons take the other end.".into();
+    rows.push(profile_button);
     rows.push(theme_toggle(c, ("twelvehour", 1, "clock", "12-hour clock", ""), "clock.twelveHour", true));
     rows.push(Row::link("homeassistant").tab(1).icon("house-wifi").label("Home Assistant").value(&super::homeassistant::words(c)).does(vec![Op::Open { page: "homeassistant".into(), arg: Default::default() }]));
     rows.push(Row::link("cameras").tab(1).icon("video").label("Cameras").value(&super::cameras::summary(c)).does(vec![Op::Open { page: "cameras".into(), arg: Default::default() }]));
@@ -279,6 +284,17 @@ mod tests {
         let row = by_id(&r, "dnddoorbell");
         assert!(!row.on);
         assert!(matches!(&(row.act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Send { method: "POST", path, body: Some(b), .. }] if path == "/v1/dnd/settings" && b == &json!({"letDoorbell": true})));
+    }
+
+    #[test]
+    fn the_profile_button_row_reads_the_themes_key_and_writes_only_that_key() {
+        let mut w = world();
+        let r = rows(&w.ctx());
+        let row = by_id(&r, "profilebutton");
+        assert_eq!((row.tab, row.index), (1, Some(1)), "on the right until it is set");
+        assert_eq!(patch_of_row(row, Arg::Index(0)), json!({"layout": {"statusBar": {"profile": "left"}}}));
+        w.theme["layout"] = json!({"statusBar": {"profile": "left"}});
+        assert_eq!(by_id(&rows(&w.ctx()), "profilebutton").index, Some(0));
     }
 
     #[test]

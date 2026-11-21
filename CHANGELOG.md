@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Dolby Vision plays in LG's Cinema for a dark room or a bright one, picked by the helper from the TV's light sensor and, when the light is in between, the time of day. The choice is made as a video starts and changes during it only for a lasting change of the room's light, at most once every 15 minutes; a mode picked by hand, or a session that starts in Game or Personalized, is left alone until the next video. Settings › Picture › Dolby Vision room mode switches it off. The two Cinema modes of HDR and Dolby Vision read Cinema · Dark room and Cinema · Bright room. Not yet checked on the TV.
+Settings › Home › Profile button puts the profile pill at the left end of the top bar, with the search, camera, bell and gear buttons at the right end (`layout.statusBar.profile`: `left` or `right`, kept for the active profile only; Right is unchanged).
 
 Settings › Sound › Digital sound output keeps Passthrough. LG keeps that setting per audio input, and the page wrote it under the Sound category's whole dimension (audio output, input and sound output), which SettingsService rejects with `SET_MERGE_FAIL` and reads back as Auto. A setting is now written under its own dimension only, and Digital sound output is written for every audio input, so it holds across inputs and apps. Not yet checked on the TV across standby and reboot.
 

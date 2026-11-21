@@ -874,12 +874,18 @@ impl Shell {
         sizes
     }
 
+    /// The profile's pill's width when Home has it at the status bar's left end: the editor's stand-in of the bar draws it there too.
+    fn layout_profile_left(&self) -> Option<i32> {
+        self.home.profile_left().then(|| self.home.chip().width.round() as i32)
+    }
+
     /// The editor is started with the sizes of the stand-ins it draws, measured as the real surfaces are at the person's text size.
     fn start_layout(&mut self, item: Option<&str>) {
         if !self.kinds.layout {
             return;
         }
         let sizes = self.layout_sizes();
+        self.sys.set_layout_profile_left(self.layout_profile_left());
         self.sys.start_layout(item, sizes);
         self.redraw = true;
     }
@@ -1871,6 +1877,7 @@ impl Shell {
         self.guide.restyle(&mut self.engine);
         if self.kinds.layout && self.sys.layout_open() {
             let sizes = self.layout_sizes();
+            self.sys.set_layout_profile_left(self.layout_profile_left());
             self.sys.set_layout_sizes(sizes);
         }
         self.redraw = true;

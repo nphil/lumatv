@@ -122,6 +122,8 @@ pub struct Editor {
     grab: (f64, f64),
     down: (f64, f64),
     dragging: bool,
+    /// An item that cannot be moved and why ("its profile button is on the left"): it is chosen like any, but not picked up.
+    fixed: Option<(&'static str, &'static str)>,
 }
 
 impl Editor {
@@ -150,6 +152,7 @@ impl Editor {
             grab: (0.0, 0.0),
             down: (0.0, 0.0),
             dragging: false,
+            fixed: None,
         }
     }
 
@@ -167,6 +170,14 @@ impl Editor {
         self.held_foot = None;
         self.dragging = false;
         self.clear_notice();
+    }
+
+    /// Makes an item fixed (or none): the owner's placement of it does not apply, so the editor does not offer to move it.
+    pub fn set_fixed(&mut self, fixed: Option<(&'static str, &'static str)>) {
+        self.fixed = fixed;
+        if self.mode == Mode::Move && fixed.is_some_and(|(id, _)| id == self.sel) {
+            self.put_back();
+        }
     }
 
     /// The map changed under the editor (another profile took over); a move in the hand is put back.
@@ -235,7 +246,12 @@ impl Editor {
         }
     }
 
-    fn pick_up(&mut self) {
+    fn pick_up(&mut self, now: u64) {
+        if let Some((id, why)) = self.fixed.filter(|(id, _)| *id == self.sel) {
+            let text = format!("{} stays put: {why}", self.title(id));
+            self.tell(text, None, now);
+            return;
+        }
         let Some(held) = self
             .reg
             .placement_of(self.sel, &self.user)
@@ -497,7 +513,7 @@ impl Editor {
             Key::Left | Key::Up => self.choose(-1),
             Key::Right => self.choose(1),
             Key::Down => self.focus = Focus::Bar,
-            Key::Ok => self.pick_up(),
+            Key::Ok => self.pick_up(now),
             Key::Back => return vec![Effect::Close],
         }
         Vec::new()
@@ -534,7 +550,7 @@ impl Editor {
             }
             self.dragging = true;
             if self.mode != Mode::Move {
-                self.pick_up();
+                self.pick_up(now);
             }
         }
         let Some(work) = self.work else { return };
@@ -629,7 +645,7 @@ impl Editor {
                     placement: laid.placement,
                     custom: effective.has(laid.id),
                     waits: laid.waits,
-                    words: self.reg.words(laid.id, &effective),
+                    words: self.words(laid.id, &effective),
                     selected: laid.id == self.sel,
                     in_hand: self.mode == Mode::Move && laid.id == self.sel,
                     flagged: self.blocker == Some(laid.id) && self.notice_live(now),
@@ -685,7 +701,7 @@ impl Editor {
             subject: format!(
                 "{}  \u{b7}  {}",
                 self.title(self.sel),
-                self.reg.words(self.sel, &effective)
+                self.words(self.sel, &effective)
             ),
             notice: if self.notice_live(now) {
                 self.notice.clone()
@@ -709,6 +725,14 @@ impl Editor {
                 subtitles: Rect::from_edges(0, SUBS.top, W, SUBS.bottom),
             },
         }
+    }
+
+    /// An item's place in words; a fixed item has none to speak of.
+    fn words(&self, id: &str, user: &User) -> String {
+        if self.fixed.is_some_and(|(f, _)| f == id) {
+            return "Fixed".into();
+        }
+        self.reg.words(id, user)
     }
 
     fn notice_live(&self, now: u64) -> bool {

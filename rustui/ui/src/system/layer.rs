@@ -592,8 +592,24 @@ impl Layer {
     /// Hands the editor the sizes the shell measured and starts it (called by the shell with the whole set).
     pub fn start_layout(&mut self, item: Option<&str>, sizes: Sizes) {
         let mut editor = Editor::new(Registry::shipped().clone(), self.user.clone(), self.frame, sizes);
+        editor.set_fixed(self.layout_fixed());
         editor.start(item);
         self.layout = Some(editor);
+        self.redraw = true;
+    }
+
+    /// Home takes the status bar's place itself with the pill on the left, so the editor does not offer to move it.
+    fn layout_fixed(&self) -> Option<(&'static str, &'static str)> {
+        self.layout_surface.profile_left().map(|_| ("statusbar", "the profile button is on the left"))
+    }
+
+    /// Whether the editor draws the status bar with the profile's pill on the left (`Some` with the pill's width): Home's choice for the profile.
+    pub fn set_layout_profile_left(&mut self, chip: Option<i32>) {
+        self.layout_surface.set_profile_left(chip);
+        let fixed = self.layout_fixed();
+        if let Some(editor) = &mut self.layout {
+            editor.set_fixed(fixed);
+        }
         self.redraw = true;
     }
 

@@ -39,6 +39,10 @@ const W: f32 = 1920.0;
 const H: f32 = 1080.0;
 /// The buttons of the status bar's stand-in, drawn over its glass (which may be as wide as the row, with the buttons where the placement puts them).
 const BUTTONS_PART: &str = "statusbar/buttons";
+/// With the profile pill at the bar's left end (see [`LayoutSurface::set_profile_left`]) the bar's stand-in is its glass over the whole row, the
+/// four glyphs at the right end and the pill, a part of its own, at the left.
+const ICONS_PART: &str = "statusbar/icons";
+const CHIP_PART: &str = "statusbar/chip";
 
 /// Depths above the surface's base: the picture, the items, what marks them, the panel.
 const Z_GUIDE: i32 = 1;
@@ -135,6 +139,8 @@ pub struct LayoutSurface {
     /// What the last draw said, for the harness and the pointer's hit test.
     last: Value,
     rects: Vec<(&'static str, Frame)>,
+    /// The profile's pill is at the status bar's left end: its width in pixels (what Home measures for the name).
+    profile_left: Option<i32>,
 }
 
 fn rect_frame(r: &lumatv_placement::Rect) -> Frame {
@@ -164,11 +170,34 @@ impl LayoutSurface {
             dirty: false,
             last: Value::Null,
             rects: Vec::new(),
+            profile_left: None,
         }
     }
 
     pub fn is_open(&self) -> bool {
         self.modal
+    }
+
+    pub fn profile_left(&self) -> Option<i32> {
+        self.profile_left
+    }
+
+    /// The status bar as Home draws it for a profile that has its pill on the left (`Some` with the pill's width), or as it always was (`None`).
+    /// The editor's placement of the bar is then drawn through the same rule Home lays the bar out by (`lumatv_placement::bar_profile_left`).
+    pub fn set_profile_left(&mut self, chip: Option<i32>) {
+        if self.profile_left != chip {
+            self.profile_left = chip;
+            self.dirty = true;
+        }
+    }
+
+    /// `view` with the status bar's glass and buttons where Home puts them for a pill on the left.
+    fn with_profile_left(view: &View) -> View {
+        let mut out = view.clone();
+        if let Some(bar) = out.items.iter_mut().find(|i| i.id == "statusbar") {
+            (bar.rect, bar.glass) = lumatv_placement::bar_profile_left(&view.guides.status_bar, bar.rect, bar.glass);
+        }
+        out
     }
 
     // ---- the picture and the stand-ins
@@ -225,7 +254,7 @@ impl LayoutSurface {
         let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
         let frame = Frame::new(at.0, at.1, w, h);
         let kind = if matches!(item, "volume" | "mute" | "statusbar" | "format") { PaneKind::Pill } else { PaneKind::Card };
-        if item != BUTTONS_PART {
+        if !matches!(item, BUTTONS_PART | ICONS_PART | CHIP_PART) {
             sheet.pane(Pane::new(kit, frame, z, kind, false));
         }
         let pad = kit.space(5);
@@ -267,8 +296,8 @@ impl LayoutSurface {
             }
             // the glass only: the buttons are a stand-in of their own over it
             "statusbar" => {}
-            BUTTONS_PART => {
-                // the pill's buttons as the bar draws them: four glyphs and the profile chip (the real buttons are Home's)
+            BUTTONS_PART | ICONS_PART => {
+                // the pill's buttons as the bar draws them: four glyphs, and the profile chip after them unless it is a part of its own (the real buttons are Home's)
                 let inset = 6.0;
                 let side = (h - 2.0 * inset).max(8.0);
                 let glyph = ((side / 2.0).round() as u32).max(8);
@@ -284,9 +313,12 @@ impl LayoutSurface {
                     x += side + gap;
                 }
                 let chip = Frame::new(x, at.1 + inset, (at.0 + w - inset - x).max(0.0), side);
-                if chip.w > side / 2.0 {
+                if item == BUTTONS_PART && chip.w > side / 2.0 {
                     sheet.shape(plate::shape(&kit.ui, chip, z + 1, plate::solid(faded(ink, 0.12), (side / 2.0).floor())), (chip.x, chip.y));
                 }
+            }
+            CHIP_PART => {
+                sheet.shape(plate::shape(&kit.ui, frame, z + 1, plate::solid(faded(ink, 0.12), (h / 2.0).floor())), (at.0, at.1));
             }
             "popup" => {
                 let name = role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Left);
@@ -362,11 +394,21 @@ impl LayoutSurface {
             // the status bar is its glass, which may span the whole row, and over it its buttons, which are where the placement puts them
             if it.id == "statusbar" {
                 self.sync_part(kit, it.id, &it.glass, it.waits, view.dragging)?;
-                self.sync_part(kit, BUTTONS_PART, &it.rect, it.waits, view.dragging)?;
+                if let Some(chip) = self.profile_left {
+                    let side = (it.glass.h - 12).max(8);
+                    let pill = lumatv_placement::Rect::new(it.glass.x + 6, it.glass.y + 6, chip, side);
+                    self.sync_part(kit, CHIP_PART, &pill, it.waits, view.dragging)?;
+                    self.sync_part(kit, ICONS_PART, &it.rect, it.waits, view.dragging)?;
+                } else {
+                    self.sync_part(kit, BUTTONS_PART, &it.rect, it.waits, view.dragging)?;
+                }
             } else {
                 self.sync_part(kit, it.id, &it.rect, it.waits, view.dragging)?;
             }
         }
+        // the parts of the other way of drawing the bar go
+        let left = self.profile_left.is_some();
+        self.items.retain(|s| if left { s.id != BUTTONS_PART } else { s.id != ICONS_PART && s.id != CHIP_PART });
         Ok(())
     }
 
@@ -709,6 +751,13 @@ impl LayoutSurface {
     /// Draws `view`. Returns whether anything is on the screen.
     pub fn apply(&mut self, kit: &mut Kit, engine: &mut Engine, view: &View, editor: &Editor, now_ms: u64, now_ns: u64) -> std::io::Result<bool> {
         let _ = now_ms;
+        let left_view;
+        let view = if self.profile_left.is_some() {
+            left_view = Self::with_profile_left(view);
+            &left_view
+        } else {
+            view
+        };
         if self.stat.as_ref().is_some_and(|s| s.generation != kit.generation()) {
             self.reset(engine);
         }
@@ -1131,6 +1180,31 @@ mod tests {
                 assert!(found.is_empty(), "{mode:?} at {scale}: {found:?}");
                 assert!(s.layers() < 150, "{}", s.layers());
             }
+        }
+    }
+
+    #[test]
+    fn with_the_profile_pill_on_the_left_the_bar_is_drawn_as_home_lays_it_out_glass_across_the_row_pill_at_the_left_buttons_at_the_right() {
+        for scale in [1.0, 2.0] {
+            let (_h, mut kit, mut engine, mut s, mut e) = rig(Mode::Dark, scale);
+            e.start(Some("statusbar"));
+            s.set_profile_left(Some(110));
+            draw(&mut kit, &mut engine, &mut s, &e, 1000);
+            let g = s.geometry();
+            let bar = g["items"].as_array().unwrap().iter().find(|i| i["id"] == "statusbar").unwrap().clone();
+            let (own, glass) = (rect(&bar), rect(&bar["glass"]));
+            assert_eq!((glass.0, glass.0 + glass.2), (64.0, 1856.0), "at {scale}: the glass spans the row");
+            assert_eq!(own.0 + own.2, 1856.0, "at {scale}: the buttons end at the right end: {own:?}");
+            let ids: Vec<&str> = s.items.iter().map(|i| i.id).collect();
+            assert!(ids.contains(&CHIP_PART) && ids.contains(&ICONS_PART) && !ids.contains(&BUTTONS_PART), "{ids:?}");
+            let pill = s.items.iter().find(|i| i.id == CHIP_PART).unwrap();
+            assert_eq!((pill.at.0, pill.size.0), (glass.0 as f32 + 6.0, 110), "at {scale}: the pill at the glass's left inset");
+            assert!(s.rects.iter().any(|(id, f)| *id == "statusbar" && f.x == 64.0 && f.w == 1792.0), "the pointer finds the whole glass");
+            // and back on the right it is as it was
+            s.set_profile_left(None);
+            draw(&mut kit, &mut engine, &mut s, &e, 1100);
+            let ids: Vec<&str> = s.items.iter().map(|i| i.id).collect();
+            assert!(ids.contains(&BUTTONS_PART) && !ids.contains(&CHIP_PART) && !ids.contains(&ICONS_PART), "{ids:?}");
         }
     }
 }

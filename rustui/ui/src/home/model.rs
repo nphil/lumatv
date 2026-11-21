@@ -606,15 +606,22 @@ impl Home {
         self.status_item_list().cloned().chain(self.strip().items).collect()
     }
 
-    /// [`Self::status_items`] without copying them and without the strip's; the cameras' button only while the Cameras plugin is on.
+    /// [`Self::status_items`] without copying them and without the strip's; the cameras' button only while the Cameras plugin is on. With the chip
+    /// on the left it comes first, so the D-pad order is the order they are drawn in.
     fn status_item_list(&self) -> impl Iterator<Item = &Value> {
         let cameras_off = self.cameras_off();
-        self.layout
-            .pointer("/statusBar/items")
-            .and_then(Value::as_array)
-            .map_or(&[][..], Vec::as_slice)
-            .iter()
-            .filter(move |it| !(cameras_off && kind_of(it) == "cameras"))
+        let left = self.profile_left();
+        let all = self.layout.pointer("/statusBar/items").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+        let first = all.iter().filter(move |it| left && kind_of(it) == "profile");
+        let rest = all.iter().filter(move |it| !(left && kind_of(it) == "profile"));
+        first.chain(rest).filter(move |it| !(cameras_off && kind_of(it) == "cameras"))
+    }
+
+    /// The profile's choice (`layout.statusBar.profile` of the theme, a profile's own key) to have the chip at the bar's left end and the buttons
+    /// at its right end; the chip ends the bar otherwise. Only a layout that has the chip can have it on the left.
+    pub fn profile_left(&self) -> bool {
+        self.theme.pointer("/layout/statusBar/profile").and_then(Value::as_str) == Some("left")
+            && self.layout.pointer("/statusBar/items").and_then(Value::as_array).is_some_and(|l| l.iter().any(|it| kind_of(it) == "profile"))
     }
 
     /// The place of the button of type `kind` among the status bar's items (its focus id is `STATUS_ID` plus it).
@@ -687,7 +694,8 @@ impl Home {
         let mut out = Vec::new();
         let mut x = if self.mark.is_some() { self.mark_span() + self.status_gaps.1 } else { 0.0 };
         let mut before: Option<Purpose> = None;
-        for it in self.status_item_list() {
+        // the chip on the left is not in the run: it has its own place at the glass's left (see `status_frames`)
+        for it in self.status_item_list().skip(usize::from(self.profile_left())) {
             let purpose = Purpose::of(kind_of(it));
             if let Some(b) = before {
                 x += if b == purpose { self.status_gaps.0 } else { self.status_gaps.1 };
@@ -709,7 +717,9 @@ impl Home {
         (group, glass)
     }
 
-    /// [`Self::status_boxes`] and the placement's switches: Full width and the ticker.
+    /// [`Self::status_boxes`] and the placement's switches: Full width and the ticker. With the chip on the left the glass always spans the
+    /// bar's row, since the chip and the buttons are at its two ends, and the buttons are at the right end whatever the placement's anchor says
+    /// (the placement still gives their height).
     fn status_place(&self) -> (ui::geometry::Frame, ui::geometry::Frame, (bool, bool)) {
         const ITEM: &str = "statusbar";
         let span = self.status_run().last().map_or(0.0, |(x, w)| x + w) + 2.0 * STATUS_INSET;
@@ -718,12 +728,17 @@ impl Home {
         let registry = lumatv_placement::Registry::shipped();
         let user = registry.user_from_json(self.theme.pointer("/layout/overlays").unwrap_or(&Value::Null));
         let size = lumatv_placement::Size::new(span.round() as i32, h.round() as i32);
-        let group = registry.rect_of(ITEM, &user, &frame, size).expect("the status bar is an item of the registry");
-        let glass = registry.glass_of(ITEM, &user, &frame, size).expect("the status bar is an item of the registry");
+        let mut group = registry.rect_of(ITEM, &user, &frame, size).expect("the status bar is an item of the registry");
+        let mut glass = registry.glass_of(ITEM, &user, &frame, size).expect("the status bar is an item of the registry");
         let placed = registry.placement_of(ITEM, &user);
-        let spread = placed.as_ref().is_some_and(|p| p.placement.full);
+        let full = placed.as_ref().is_some_and(|p| p.placement.full);
         let ticker = placed.as_ref().is_none_or(|p| p.placement.ticker);
-        (ui::geometry::Frame::new(group.x as f32, group.y as f32, span, h), ui::geometry::Frame::new(glass.x as f32, glass.y as f32, if spread { glass.w as f32 } else { span }, h), (spread, ticker))
+        let mut wide = full;
+        if self.profile_left() {
+            (group, glass) = lumatv_placement::bar_profile_left(&lumatv_placement::ZoneKind::Bar.rect(&frame), group, glass);
+            wide = true;
+        }
+        (ui::geometry::Frame::new(group.x as f32, group.y as f32, span, h), ui::geometry::Frame::new(glass.x as f32, glass.y as f32, if wide { glass.w as f32 } else { span }, h), (full, ticker))
     }
 
     /// What the status bar's free side holds with Full width on: a glyph for each source with unread notifications and the line with the
@@ -739,9 +754,15 @@ impl Home {
         }
         let scale = self.text_scale.max(1.0);
         let item_h = self.status_height() - 2.0 * STATUS_INSET;
-        let (left, right) = (group.x - glass.x - STATUS_INSET, glass.x + glass.w - group.x - group.w - STATUS_INSET);
-        // the larger side is the free one; the strip starts at the glass's inner edge there, or after the buttons on the right
-        let room = if left >= right { (glass.x + STATUS_INSET, left - self.status_gaps.1) } else { (group.x + group.w + self.status_gaps.1, right - self.status_gaps.1) };
+        let room = if self.profile_left() {
+            // between the chip at the left and the buttons at the right
+            let from = glass.x + STATUS_INSET + self.chip().width + self.status_gaps.1;
+            (from, group.x - self.status_gaps.1 - from)
+        } else {
+            let (left, right) = (group.x - glass.x - STATUS_INSET, glass.x + glass.w - group.x - group.w - STATUS_INSET);
+            // the larger side is the free one; the strip starts at the glass's inner edge there, or after the buttons on the right
+            if left >= right { (glass.x + STATUS_INSET, left - self.status_gaps.1) } else { (group.x + group.w + self.status_gaps.1, right - self.status_gaps.1) }
+        };
         strip::place(&self.unread, ticker, room, (group.y + STATUS_INSET, item_h), self.status_gaps.0, (strip::MIN_TICKER * scale, strip::MAX_TICKER * scale))
     }
 
@@ -767,11 +788,12 @@ impl Home {
     }
 
     /// The status bar's buttons in their box, one square of the box's inner height each (the profile chip adds its name): `(x, y, w, h)` in the
-    /// order of [`Self::status_items`], which is the order the D-pad walks them in.
+    /// order of [`Self::status_items`], which is the order the D-pad walks them in. The chip on the left is first, at the glass's left inset.
     pub fn status_frames(&self) -> Vec<(f32, f32, f32, f32)> {
-        let group = self.status_group();
+        let (group, glass, _) = self.status_place();
         let item_h = self.status_height() - 2.0 * STATUS_INSET;
-        self.status_run().into_iter().map(|(x, w)| (group.x + STATUS_INSET + x, group.y + STATUS_INSET, w, item_h)).chain(self.strip().frames).collect()
+        let chip = self.profile_left().then(|| (glass.x + STATUS_INSET, group.y + STATUS_INSET, self.chip().width, item_h));
+        chip.into_iter().chain(self.status_run().into_iter().map(|(x, w)| (group.x + STATUS_INSET + x, group.y + STATUS_INSET, w, item_h))).chain(self.strip().frames).collect()
     }
 
     /// A button is a square of the pill's inner height; the profile chip adds its name.
@@ -4729,6 +4751,84 @@ mod tests {
         assert_eq!(h.status_pill().x, 64.0);
         placed(&mut h, "top-right", 0.0);
         assert_eq!(h.status_pill().x + h.status_pill().w, 1856.0);
+    }
+
+    /// The profile's choice of the chip's end of the bar (`layout.statusBar.profile`) with the bar placed as the owner may have it.
+    fn chip_at(h: &mut Home, side: &str, anchor: &str, dx: f64, full: bool) {
+        let mut theme = h.theme.clone();
+        theme["layout"] = json!({"statusBar": {"profile": side}, "overlays": {"statusbar": {"anchor": anchor, "dx": dx, "dy": 0, "full": full}}});
+        h.set_theme(theme);
+    }
+
+    #[test]
+    fn the_chip_on_the_left_is_the_bars_left_end_the_buttons_its_right_end_and_the_dpad_walks_them_as_drawn() {
+        for scale in [1.0, 2.0] {
+            for (anchor, dx) in PLACES {
+                let tag = format!("{anchor} {dx}, text {scale}");
+                let mut h = home();
+                h.set_text_scale(scale);
+                named(&mut h);
+                h.set_name_width("Nitin".into(), 47.63);
+                chip_at(&mut h, "right", anchor, dx, false);
+                assert_eq!(kinds(&h), ["search", "cameras", "notifications", "settings", "profile"], "{tag}: the right is what it was");
+                let at_right = h.status_frames();
+                assert_eq!(at_right.last().map(|f| f.0 + f.2), Some(h.status_pill().x + h.status_pill().w - STATUS_INSET), "{tag}: the chip ends the bar");
+
+                chip_at(&mut h, "left", anchor, dx, false);
+                assert_eq!(kinds(&h), ["profile", "search", "cameras", "notifications", "settings"], "{tag}: the chip first, as it is drawn");
+                let (pill, group, frames) = (h.status_pill(), h.status_group(), h.status_frames());
+                assert_eq!((pill.x, pill.x + pill.w), (64.0, 1856.0), "{tag}: the glass spans the bar's row, whatever the placement");
+                assert_eq!(frames[0].0, pill.x + STATUS_INSET, "{tag}: the chip at the glass's left inset");
+                assert_eq!(frames.last().map(|f| f.0 + f.2), Some(pill.x + pill.w - STATUS_INSET), "{tag}: the buttons end at its right inset");
+                assert_eq!(group.x + group.w, pill.x + pill.w, "{tag}: their box is at the right end");
+                assert!(frames.windows(2).all(|w| w[0].0 + w[0].2 < w[1].0), "{tag}: left to right, no overlap: {frames:?}");
+                assert!(frames.iter().all(|f| f.1 == frames[0].1 && f.3 == frames[0].3 && f.1 >= pill.y && f.1 + f.3 <= pill.y + pill.h), "{tag}: one row, inside the glass");
+                let within = h.status_gaps.0;
+                for i in 1..4 {
+                    let gap = frames[i + 1].0 - (frames[i].0 + frames[i].2);
+                    assert_eq!(gap, within, "{tag}: the buttons' gaps are the theme's ({i})");
+                }
+                for (i, f) in frames.iter().enumerate() {
+                    assert_eq!(h.focus.frame(Id(STATUS_ID + i as u32)).map(|g| (g.x, g.w)), Some((f.0, f.2)), "{tag}: button {i} is registered where it is drawn");
+                }
+                // every popup grows out of its button where it is now, on the screen
+                for (kind, got) in [("cameras", h.camera_frame()), ("notifications", h.bell_frame()), ("settings", h.gear_frame()), ("profile", h.chip_frame())] {
+                    let f = frames[h.status_index(kind).expect(kind)];
+                    assert_eq!(got, [f.0, f.1, f.2, f.3], "{tag}: {kind}'s way in is its button");
+                    assert!(got[0] >= 0.0 && got[0] + got[2] <= 1920.0, "{tag}: {kind} on the screen");
+                }
+                assert_eq!(h.focus.current(), Some(Id(STATUS_ID)), "{tag}: the focus starts on the chip, the first button");
+                for i in 1..5u32 {
+                    press(&mut h, "right", 2000 + u64::from(i) * 100);
+                    assert_eq!(h.focus.current(), Some(Id(STATUS_ID + i)), "{tag}: Right {i}");
+                }
+                for i in (0..4u32).rev() {
+                    press(&mut h, "left", 3000 + u64::from(i) * 100);
+                    assert_eq!(h.focus.current(), Some(Id(STATUS_ID + i)), "{tag}: Left to {i}");
+                }
+                press(&mut h, "ok", 4000);
+                assert_eq!(h.layer, Layer::Picker, "{tag}: OK on the chip opens Who's watching");
+            }
+        }
+    }
+
+    #[test]
+    fn the_cards_and_the_status_bar_lead_to_each_other_with_the_chip_on_the_left_and_the_strip_fills_between() {
+        let mut h = home();
+        named(&mut h);
+        h.set_name_width("Nitin".into(), 47.63);
+        chip_at(&mut h, "left", "top", 0.0, false);
+        press(&mut h, "down", 2000);
+        assert_ne!(h.state()["focusLayer"], "statusbar", "down from the chip leaves the bar");
+        press(&mut h, "up", 2100);
+        assert_eq!(h.state()["focusLayer"], "statusbar", "and up comes back to it");
+        // with Full width the unread's strip is the room between the chip and the buttons
+        chip_at(&mut h, "left", "top", 0.0, true);
+        h.set_unread(unread_of(3));
+        let (frames, real) = (h.status_frames(), h.status_items().len() - h.strip().items.len());
+        assert!(real < frames.len(), "a strip");
+        let (chip, first_button) = (frames[0], frames[1]);
+        assert!(frames[real..].iter().all(|f| f.0 >= chip.0 + chip.2 && f.0 + f.2 <= first_button.0), "the strip is between the chip and the buttons: {frames:?}");
     }
 
     #[test]
