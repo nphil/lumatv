@@ -194,8 +194,29 @@ impl Frames {
         };
         let assignment = decide(&facts);
         // (a frame with the screen showing the page composed last and no motion before it: `set_still`, the module's notes)
-        let still = keeps_unchanged(std::mem::take(&mut self.still) && self.keep && self.composed.is_some() && !standin, self.moving);
+        let may = std::mem::take(&mut self.still);
+        let unkept = if !may {
+            None
+        } else if !self.keep {
+            Some("keeping is off")
+        } else if self.composed.is_none() {
+            Some("no page composed last")
+        } else if standin {
+            Some("a stand-in is owed")
+        } else if self.moving {
+            Some("a motion ran after the frame before")
+        } else {
+            None
+        };
+        let still = keeps_unchanged(may && self.keep && self.composed.is_some() && !standin, self.moving);
         self.moving = plan.animating || gl.ui_animating();
+        // A frame of no change drawn with no flip in flight flips the same picture; flagged as a motion's, it makes the next flip a motion's
+        // refresh (the 120 Hz gate's quick-open drop: a gear tap's empty frame, then the panel's first frame 16.7 ms later).
+        if tiles.is_empty()
+            && let Some(why) = unkept
+        {
+            crate::ring_note!("K frame changes nothing, drawn: {why}");
+        }
         if still && !needs_commit(&assignment, !tiles.is_empty()) {
             self.calm = false;
             gl.skip_ui_frame()?;

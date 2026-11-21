@@ -313,6 +313,26 @@ fn after_waiting_frame(waiting: bool, committed_ns: u64) -> Option<u64> {
     waiting.then_some(committed_ns + FLIP_OVERDUE_NS)
 }
 
+/// How long before the refresh a flip skipped the GPU had finished its frame (the in-fence's signal), when it had: the kernel's commit, a
+/// time-shared kworker woken by the in-fence, got no CPU before that refresh (0.8 and 1.9 ms early in the 120 Hz gate, held off by the loop
+/// and by the UI at nice -19). A frame that waited behind the last flip was committed when it landed: counted from there.
+fn done_before_skip(last_ns: u64, period_ns: u64, presented_ns: u64, gpu_ns: Option<u64>) -> Option<u64> {
+    let g = gpu_ns.filter(|&g| last_ns != 0 && presented_ns.saturating_sub(last_ns) > period_ns * 5 / 4 && g <= presented_ns)?;
+    (last_ns + period_ns).checked_sub(g.max(last_ns))
+}
+
+/// The L line's note of [`done_before_skip`].
+struct Early(Option<u64>);
+
+impl std::fmt::Display for Early {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            Some(ns) => write!(f, " gpu done {:.1} ms before the refresh it missed", ns as f64 / 1e6),
+            None => Ok(()),
+        }
+    }
+}
+
 /// How long nothing may have been drawn or flipped before the output calls the screen at rest (`Output::idle_ok`): a frame owed by something
 /// that is not an event (a stand-in, a warm) is drawn within a few refreshes, so a second without one is a still screen.
 const IDLE_QUIET_NS: u64 = 1_000_000_000;
@@ -786,7 +806,9 @@ impl Kms {
             }
             (flight.timing, flight.fence.as_ref().and_then(crate::render::sync::signal_ns))
         });
-        let since_ns = presented_ns.saturating_sub(self.timing.last_flip_ns());
+        let last_ns = self.timing.last_flip_ns();
+        let since_ns = presented_ns.saturating_sub(last_ns);
+        let early_ns = done_before_skip(last_ns, self.timing.period_ns(), presented_ns, frame.and_then(|(_, gpu)| gpu));
         let landed = self.timing.landed(presented_ns, frame);
         // A refresh the motion missed: the frame of the flip before this one had an animation running after it, so this flip was due at the next
         // refresh; a gap over the frame rule's 20 ms is a drop in a motion, where a gap after a still screen or between a motion's phases is not.
@@ -796,7 +818,7 @@ impl Kms {
         // (the in-fence's signal) and what the pacer made of it, so a long interval is read as a frame that took long or as no frame at all.
         match frame {
             Some((t, gpu)) => crate::ring_note!(
-                "L flip {:.3} +{:.1} ms: frame {:.1} ms ({}), late {} lost {}{}{}",
+                "L flip {:.3} +{:.1} ms: frame {:.1} ms ({}), late {} lost {}{}{}{}",
                 presented_ns as f64 / 1e9,
                 since_ns as f64 / 1e6,
                 gpu.filter(|&g| g <= presented_ns).unwrap_or(t.ready_ns).saturating_sub(t.started_ns) as f64 / 1e6,
@@ -804,7 +826,8 @@ impl Kms {
                 landed.late,
                 landed.lost,
                 if landed.missed { " missed" } else { "" },
-                if animating { " anim" } else { "" }
+                if animating { " anim" } else { "" },
+                Early(early_ns)
             ),
             None => crate::ring_note!("L flip {:.3} +{:.1} ms: no frame of ours", presented_ns as f64 / 1e9, since_ns as f64 / 1e6),
         }
@@ -1899,5 +1922,17 @@ mod tests {
         let committed = 5_000_000_000;
         assert_eq!(after_waiting_frame(true, committed), Some(committed + FLIP_OVERDUE_NS));
         assert_eq!(after_waiting_frame(false, committed), None, "nothing waits: the pacer's latch decides");
+    }
+
+    #[test]
+    fn a_skipped_refresh_names_how_early_the_gpu_finished_before_it() {
+        let (last, period) = (1_000_000_000, 8_333_333);
+        let skipped = last + 2 * period;
+        // Settings in the 120 Hz gate: the fence 1.92 ms before the refresh, the flip one refresh later.
+        assert_eq!(done_before_skip(last, period, skipped, Some(last + period - 1_920_000)), Some(1_920_000));
+        assert_eq!(done_before_skip(last, period, skipped, Some(last + period + 1_000_000)), None, "the GPU finished after it");
+        assert_eq!(done_before_skip(last, period, last + period, Some(last + 1_000_000)), None, "no refresh skipped");
+        assert_eq!(done_before_skip(last, period, skipped, Some(last - 2_000_000)), Some(period), "waited behind the last flip");
+        assert_eq!(done_before_skip(last, period, skipped, None), None);
     }
 }
