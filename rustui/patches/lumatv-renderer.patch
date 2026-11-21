@@ -233,7 +233,20 @@
      pub fn new(gl: Gles, panel: Panel) -> io::Result<Self> {
          let started = Instant::now();
          let ndc = [2.0 / panel.width as f32, 2.0 / panel.height as f32];
-@@ -1058,35 +1141,32 @@
+@@ -966,8 +1049,10 @@
+         let wallpapers = Wallpapers::new(&gl, (panel.width, panel.height), Look::default())?;
+         let meshes = MeshRenderer::new(&gl)?;
+         log(format!(
+-            "shader programs compiled and linked in {} ms",
+-            started.elapsed().as_millis()
++            "shader programs compiled and linked in {} ms ({} linked, {} loaded from kept binaries)",
++            started.elapsed().as_millis(),
++            gl.programs_linked(),
++            gl.programs_loaded()
+         ));
+         let vertex_buffer = gl.new_vertex_buffer();
+         let compose_buffer = gl.new_vertex_buffer();
+@@ -1058,35 +1143,32 @@
              })
          };
          let glass = |backdrop, depth| {
@@ -294,7 +307,7 @@
          };
          let shape = |radius, fill, border| {
              Content::Shape(Shape {
-@@ -1256,6 +1336,8 @@
+@@ -1256,6 +1338,8 @@
              },
              slot: None,
              target: target.framebuffer,
@@ -303,7 +316,7 @@
          };
          let planes = [
              plane(&target, 0, walls, false),
-@@ -1313,6 +1395,19 @@
+@@ -1313,6 +1397,19 @@
          self.wallpapers.set_look(look);
      }
  
@@ -323,7 +336,7 @@
      pub fn gles(&self) -> &Gles {
          &self.gl
      }
-@@ -1383,6 +1478,7 @@
+@@ -1383,6 +1480,7 @@
                  self.glass.forget(*id);
              }
              Op::Clear => {
@@ -331,7 +344,7 @@
                  let ids: Vec<LayerId> = self.textures.keys().copied().collect();
                  for id in ids {
                      self.remove(id);
-@@ -1471,6 +1567,22 @@
+@@ -1471,6 +1569,22 @@
          }
      }
  
@@ -354,7 +367,7 @@
      /// The events the renderer's own work has produced since the last call, for the engine to send to the client.
      pub fn drain_events(&mut self) -> Vec<compositor_protocol::Event> {
          std::mem::take(&mut self.events)
-@@ -1657,6 +1769,9 @@
+@@ -1657,6 +1771,9 @@
          out.clear();
          for layer in layers {
              let mut layer = *layer;
@@ -364,7 +377,7 @@
              if let (level @ 1.., Content::Glass(glass)) = (self.ladder, layer.content) {
                  let plainer = ladder::rewrite(glass, level);
                  if plainer != glass {
-@@ -1960,6 +2075,17 @@
+@@ -1960,6 +2077,17 @@
              let body = [0.0, 0.0, at.width, at.height];
              bounds(&self.panel.quad_of(&at, body), None).unwrap_or([0; 4])
          };
@@ -382,7 +395,7 @@
          // A blur is soft, so its picture can be small: with `ideas::HALF_RES` half of the size it was, in each direction (which
          // is one halving less for the blur's chain to make).
          let smaller = |downsample: u8| {
-@@ -2001,7 +2126,10 @@
+@@ -2001,7 +2129,10 @@
                  downsample,
                  body_now: body_in(View::Now),
                  body_rest: body_in(View::Rest),
@@ -393,7 +406,7 @@
          }
      }
  
-@@ -2113,6 +2241,8 @@
+@@ -2113,6 +2244,8 @@
              surface: Surface::whole(layers.len()),
              slot: None,
              target,
@@ -402,7 +415,7 @@
          };
          self.draw_frame(layers, &[draw], source).remove(0)
      }
-@@ -2133,6 +2263,8 @@
+@@ -2133,6 +2266,8 @@
              surface: Surface::whole(layers.len()),
              slot: Some(slot),
              target,
@@ -411,7 +424,7 @@
          };
          self.draw_frame(layers, &[draw], source).remove(0)
      }
-@@ -2234,22 +2366,22 @@
+@@ -2234,22 +2369,22 @@
          damage::intersect(&grown, &panel_area_of(&self.panel))
      }
  
@@ -443,7 +456,7 @@
          let Facts {
              members,
              layers,
-@@ -2258,8 +2390,9 @@
+@@ -2258,8 +2393,9 @@
              asks,
              revisions,
          } = facts;
@@ -454,7 +467,7 @@
          };
          let before: HashMap<LayerId, &Frozen> = prev.iter().map(|f| (f.layer.id, f)).collect();
          // Layers that were there and are still are stacked as they were (a layer that is made again is a new one, and
-@@ -2273,44 +2406,46 @@
+@@ -2273,44 +2409,46 @@
                  .filter(|l| before.contains_key(&l.id))
                  .map(|l| l.id));
          if !same_order {
@@ -521,7 +534,7 @@
          let panel = panel_area_of(&self.panel);
          let mut forced = vec![false; count];
          loop {
-@@ -2330,13 +2465,13 @@
+@@ -2330,13 +2468,13 @@
                          grew = true;
                      }
                  }
@@ -538,7 +551,7 @@
                  {
                      for &u in *users {
                          grew |= !std::mem::replace(&mut forced[u], true);
-@@ -2347,13 +2482,22 @@
+@@ -2347,13 +2485,22 @@
                  break;
              }
          }
@@ -567,7 +580,7 @@
              }
          }
          total
-@@ -2361,31 +2505,30 @@
+@@ -2361,31 +2508,30 @@
  
      /// What a layer changes from the frame before: in the frame (where it was seen and where it is seen now) and in the
      /// pictures behind the glass above it (everywhere it was drawn and is). `now` is where it is drawn now, and what the
@@ -613,7 +626,7 @@
          }
          // A picture the app changed in places, on a layer that is what it was in every other way: only those places.
          let unversioned = Drawn {
-@@ -2404,34 +2547,46 @@
+@@ -2404,34 +2550,46 @@
                  places = damage::union(places, self.image_area(layer, *rect));
              }
              if any {
@@ -670,7 +683,7 @@
                      layer: *layer,
                      revision: revisions[i],
                      member: members.contains(&i),
-@@ -2440,22 +2595,36 @@
+@@ -2440,22 +2598,36 @@
                  })
                  .collect(),
          );
@@ -714,7 +727,7 @@
          let mut first = DrawReport::default();
          // The count of what the GL is asked is the frame's: what the housekeeping between frames asked is not in it.
          self.gl.take_calls();
-@@ -2479,7 +2648,7 @@
+@@ -2479,7 +2651,7 @@
              || self.ladder > 0
              || layers
                  .iter()
@@ -723,7 +736,7 @@
          {
              self.revise(layers, adapting, &mut revised);
              first.fading = adapting
-@@ -2557,7 +2726,7 @@
+@@ -2557,7 +2729,7 @@
          });
          let fingerprints: Vec<u64> = plan
              .iter()
@@ -732,7 +745,7 @@
              .collect();
          let casts = Casts::of(&plan, layers.len());
          let stale: Vec<bool> = plan
-@@ -2632,8 +2801,10 @@
+@@ -2632,8 +2804,10 @@
          first.shadow_ns += mesh_ns;
          first.plan_ns += nanos(planning);
  
@@ -744,7 +757,7 @@
              panel_area,
              job_of,
              extents,
-@@ -2646,30 +2817,62 @@
+@@ -2646,30 +2820,62 @@
              sights,
              looked,
          };
@@ -827,7 +840,7 @@
      }
  
      /// What of the layers of the jobs `members` can be seen: a layer that an opaque one of them covers is not drawn, and one
-@@ -2700,11 +2903,12 @@
+@@ -2700,11 +2906,12 @@
      /// `region` with the rectangles merged that are cheaper drawn in one pass over their cover than in a pass each ([`Region::merged`]).
      /// A pass over a rectangle draws every layer that meets it, so the pass costs the rectangle's pixels and [`damage::DRAW_WORTH`]
      /// for each of them: the rows of a page that scrolls are a band each, with a few percent of the page between them, and under
@@ -842,7 +855,7 @@
          // One bit for each backdrop of the plan; a plan of more than that leaves the region as it is.
          if region.rects().len() < 2 || frame.plan.len() > u64::BITS as usize {
              return region;
-@@ -2714,15 +2918,27 @@
+@@ -2714,15 +2921,27 @@
                  .and_then(|job| sights[job].area())
                  .is_some_and(|seen| backdrop::overlaps(&seen, area))
          };
@@ -872,7 +885,7 @@
              damage::RECT_WORTH + damage::pixels(area) + damage::DRAW_WORTH * drawn
          };
          let groups = |area: &Area| {
-@@ -2736,6 +2952,83 @@
+@@ -2736,6 +2955,83 @@
          region.merged(cost, |a, b, one| groups(one) == groups(a) | groups(b))
      }
  
@@ -956,7 +969,7 @@
      /// One render target of a frame: what of its layers can be seen, what of it is owed, the pictures behind its glass, and
      /// the layers themselves.
      fn draw_surface(
-@@ -2743,6 +3036,7 @@
+@@ -2743,6 +3039,7 @@
          frame: &Frame,
          draw: &Draw,
          done: &mut Done,
@@ -964,7 +977,7 @@
          report: &mut DrawReport,
      ) {
          let Surface {
-@@ -2751,7 +3045,7 @@
+@@ -2751,7 +3048,7 @@
              to,
              transparent,
          } = draw.surface;
@@ -973,7 +986,7 @@
  
          // What of the frame can be seen: a layer that an opaque layer above it covers is not drawn, and one that it covers
          // in part is drawn where it is not. (The pictures the glass surfaces are made of below still draw everything below
-@@ -2771,58 +3065,32 @@
+@@ -2771,58 +3068,32 @@
              .iter()
              .filter(|&&k| sights[k] == Sight::Hidden)
              .count() as u32;
@@ -1056,7 +1069,7 @@
                  region
              }
          };
-@@ -2834,10 +3102,17 @@
+@@ -2834,10 +3105,17 @@
          // A region that is nearly all of the panel is drawn as all of it: a scissor would save nothing. Otherwise each of
          // its rectangles is drawn in whole tiles (drawing more of what the frame shows is never wrong), on its own, as far
          // as the account keeps them apart (`LUMASHOW_DRAW_OFF=rects` draws their one cover, to measure what that costs) and
@@ -1078,7 +1091,7 @@
          let drawn_region = partial.unwrap_or(Region::of(panel_area));
          report.region_px = drawn_region.pixels();
          report.rects = drawn_region.rects().len() as u16;
-@@ -2859,6 +3134,26 @@
+@@ -2859,6 +3137,26 @@
              }
          }
  
@@ -1105,7 +1118,7 @@
          // Glass that stands still is shown from plates (`ideas::STILL_GLASS`): which surfaces, and whose pictures are made.
          let drawn_groups: Vec<bool> = frame
              .plan
-@@ -3139,14 +3434,18 @@
+@@ -3139,14 +3437,18 @@
          match partial {
              None => {
                  gl.disable(GL_SCISSOR_TEST);
@@ -1126,7 +1139,7 @@
                      // The pass before may have ended with blending off, and a pass begins with it on.
                      gl.enable(GL_BLEND);
                      report.drawn += drawing.draw(layers, &self.jobs, &pass(Some(rect)));
-@@ -3509,6 +3808,7 @@
+@@ -3509,6 +3811,7 @@
                          gl,
                          &wallpaper,
                          &wallpapers::Draw {
@@ -1134,7 +1147,7 @@
                              size: (width, height),
                              opacity,
                              origin: {
-@@ -3800,22 +4100,19 @@
+@@ -3800,22 +4103,19 @@
      fn warming_up_raises_no_error_leaves_no_layer_behind_and_changes_nothing_that_is_drawn_after() {
          use compositor_protocol::{Backdrop, Glass, Rgba, Wallpaper, WallpaperKind};
          let scene = || {
