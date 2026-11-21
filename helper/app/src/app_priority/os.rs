@@ -42,6 +42,12 @@ pub trait Os: Send + Sync {
     fn sample(&self) -> Option<Sample>;
     /// `MemAvailable` of `/proc/meminfo`, in kB.
     fn available_kb(&self) -> Option<u64>;
+    /// `Cached` + `Buffers` + `SReclaimable` of `/proc/meminfo`, in kB: what `drop_caches` can release.
+    fn cache_kb(&self) -> Option<u64>;
+    /// Free memory in contiguous blocks of at least `min_order` (4 KiB pages, 2^order each) from `/proc/buddyinfo`, in kB.
+    fn contiguous_kb(&self, min_order: usize) -> Option<u64>;
+    /// What the app's processes hold, as `/proc/<pid>/status` says; what closing the app gives back.
+    fn footprint(&self, app: &str) -> Footprint;
     /// Writes one of the kernel's `/proc/sys/vm` knobs (`compact_memory`, `drop_caches`); blocks while the kernel does it.
     fn vm(&self, name: &str, value: &str) -> io::Result<()>;
 
@@ -268,14 +274,35 @@ impl Os for Fs {
     }
 
     fn available_kb(&self) -> Option<u64> {
-        fs::read_to_string(self.proc.join("meminfo"))
-            .ok()?
-            .lines()
-            .find_map(|l| l.strip_prefix("MemAvailable:"))?
-            .split_whitespace()
-            .next()?
-            .parse()
-            .ok()
+        kb_of(&fs::read_to_string(self.proc.join("meminfo")).ok()?, "MemAvailable")
+    }
+
+    fn cache_kb(&self) -> Option<u64> {
+        let text = fs::read_to_string(self.proc.join("meminfo")).ok()?;
+        Some(kb_of(&text, "Cached")? + kb_of(&text, "Buffers")? + kb_of(&text, "SReclaimable").unwrap_or(0))
+    }
+
+    fn contiguous_kb(&self, min_order: usize) -> Option<u64> {
+        let text = fs::read_to_string(self.proc.join("buddyinfo")).ok()?;
+        let mut kb = 0;
+        for line in text.lines() {
+            // `Node 0, zone   Normal  <free blocks of order 0> <order 1> ...`
+            let counts = line.split_once("zone")?.1.split_whitespace().skip(1);
+            for (order, n) in counts.enumerate().skip(min_order) {
+                kb += n.parse::<u64>().ok()? * (4 << order);
+            }
+        }
+        Some(kb)
+    }
+
+    fn footprint(&self, app: &str) -> Footprint {
+        let mut total = Footprint::default();
+        for p in self.app_procs(app).unwrap_or_default() {
+            let Some(status) = read_trim(self.proc_file(p.pid, "status")) else { continue };
+            total.anon_kb += kb_of(&status, "RssAnon").or_else(|| kb_of(&status, "VmRSS")).unwrap_or(0);
+            total.swap_kb += kb_of(&status, "VmSwap").unwrap_or(0);
+        }
+        total
     }
 
     fn vm(&self, name: &str, value: &str) -> io::Result<()> {
@@ -370,6 +397,19 @@ fn systrim_names(v: &serde_json::Value) -> std::collections::BTreeSet<String> {
     out
 }
 
+/// The memory of an app's processes in kB: `anon_kb` is what exiting returns to the system (`RssAnon`, or `VmRSS` on a kernel
+/// without it), `swap_kb` what they hold in swap.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Footprint {
+    pub anon_kb: u64,
+    pub swap_kb: u64,
+}
+
+/// One `Key:  <n> kB` line of a `/proc` text.
+fn kb_of(text: &str, key: &str) -> Option<u64> {
+    text.lines().find_map(|l| l.strip_prefix(key)?.strip_prefix(':'))?.split_whitespace().next()?.parse().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,6 +487,31 @@ mod tests {
         assert_eq!(os.available_kb(), Some(612_340));
         os.vm("drop_caches", "1").unwrap();
         assert_eq!(fs::read_to_string(dir.path().join("sys/vm/drop_caches")).unwrap(), "1");
+    }
+
+    #[test]
+    fn page_cache_free_blocks_and_an_apps_own_memory_are_read_from_proc() {
+        let dir = tempfile::tempdir().unwrap();
+        let (proc, cg) = (dir.path().join("proc"), dir.path().join("cg"));
+        fs::create_dir_all(&proc).unwrap();
+        fs::write(proc.join("meminfo"), "MemAvailable:  600 kB\nBuffers:  10 kB\nCached:  200 kB\nSwapCached:  999 kB\nSReclaimable:  30 kB\n").unwrap();
+        // Orders 0..=5 in two zones: order 4 is 64 kB, order 5 is 128 kB.
+        fs::write(proc.join("buddyinfo"), "Node 0, zone      DMA     9    9    9    9    1    0\nNode 0, zone   Normal    50   40   30   20    3    2\n").unwrap();
+        process(&proc, 300, 5365, "/");
+        fs::write(proc.join("300/status"), "Name:\tplex\nUid:\t5365\t5365\t5365\t5365\nVmRSS:\t 900 kB\nRssAnon:\t 400 kB\nVmSwap:\t 70 kB\n").unwrap();
+        process(&proc, 301, 5365, "/");
+        fs::write(proc.join("301/status"), "Name:\tplex\nUid:\t5365\t5365\t5365\t5365\nVmRSS:\t 50 kB\n").unwrap();
+        fs::create_dir_all(cg.join("memory/app")).unwrap();
+        fs::write(cg.join("memory/app/cgroup.procs"), "300\n301\n").unwrap();
+        let os = Fs::new(&proc, &cg);
+        assert_eq!(os.cache_kb(), Some(240));
+        assert_eq!(os.contiguous_kb(4), Some(4 * 64 + 2 * 128));
+        assert_eq!(os.contiguous_kb(0), Some(604 + 2088));
+        // The second process has no `RssAnon` (an older kernel): its `VmRSS` stands in.
+        assert_eq!(os.footprint("app"), Footprint { anon_kb: 450, swap_kb: 70 });
+        assert_eq!(os.footprint("other"), Footprint::default());
+        fs::remove_file(proc.join("buddyinfo")).unwrap();
+        assert_eq!(os.contiguous_kb(4), None);
     }
 
     #[test]

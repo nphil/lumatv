@@ -323,7 +323,7 @@ impl Engine {
 
     /// The subscriptions ended: with no way to tell which app is in front, nothing stays demoted.
     pub fn lost(&mut self, why: &str) {
-        self.game_exit("subscription");
+        self.game_exit("subscription", Instant::now());
         self.front = None;
         if !self.held.is_empty() {
             self.restore_all(why);
@@ -816,7 +816,7 @@ fn run(ctx: &Ctx, os: Arc<dyn Os>, remote: &game::Remote, policy: ha_link::Addre
     // The shim answers alone from the last state and gives the name back if the helper does not return within its grace.
     link.stop();
     drop(follows);
-    engine.game_exit("stop");
+    engine.game_exit("stop", Instant::now());
     engine.restore_all("helper stop");
     ctx.hub.set(TOPIC, engine.status(Instant::now()));
     ctx.hub.set(game::TOPIC, engine.game_status());

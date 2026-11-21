@@ -1,5 +1,5 @@
 use super::memchute::keeping;
-use super::os::{Os, Pid, UNLIMITED};
+use super::os::{Footprint, Os, Pid, UNLIMITED};
 use super::pressure::Sample;
 use super::*;
 use parking_lot::Mutex;
@@ -30,6 +30,18 @@ struct World {
     attached: Vec<(String, i32)>,
     swappiness: BTreeMap<String, u32>,
     trims: usize,
+    cache_kb: u64,
+    contiguous_kb: u64,
+    footprint: BTreeMap<String, Footprint>,
+    alloc_kb: u64,
+}
+
+impl World {
+    /// The game allocating while a step runs, which moves `MemAvailable` whatever the step freed.
+    fn game_allocates(&mut self) {
+        self.available_kb = self.available_kb.saturating_sub(self.alloc_kb);
+        self.contiguous_kb = self.contiguous_kb.saturating_sub(self.alloc_kb);
+    }
 }
 
 #[derive(Default)]
@@ -85,6 +97,10 @@ impl Os for FakeOs {
         let mut w = self.0.lock();
         w.reclaimed.push(app.to_owned());
         w.available_kb += 50 * 1024;
+        if let Some(u) = w.usage.get_mut(app) {
+            *u /= 4;
+        }
+        w.game_allocates();
         Ok(())
     }
     fn sample(&self) -> Option<Sample> {
@@ -93,13 +109,29 @@ impl Os for FakeOs {
     fn available_kb(&self) -> Option<u64> {
         Some(self.0.lock().available_kb)
     }
+    fn cache_kb(&self) -> Option<u64> {
+        Some(self.0.lock().cache_kb)
+    }
+    fn contiguous_kb(&self, _min_order: usize) -> Option<u64> {
+        Some(self.0.lock().contiguous_kb)
+    }
+    fn footprint(&self, app: &str) -> Footprint {
+        self.0.lock().footprint.get(app).copied().unwrap_or_default()
+    }
     fn vm(&self, name: &str, value: &str) -> std::io::Result<()> {
         let mut w = self.0.lock();
         if w.vm_fails {
             return Err(std::io::Error::other("refused"));
         }
         w.vm.push(format!("{name}={value}"));
-        w.available_kb += if name == "drop_caches" { 100 * 1024 } else { 10 * 1024 };
+        if name == "drop_caches" {
+            w.available_kb += 100 * 1024;
+            w.cache_kb = w.cache_kb.saturating_sub(100 * 1024);
+        } else {
+            w.available_kb += 10 * 1024;
+            w.contiguous_kb += 30 * 1024;
+        }
+        w.game_allocates();
         Ok(())
     }
     fn usable_pages(&self) -> Option<u64> {
@@ -397,7 +429,7 @@ fn every_way_out_puts_everything_back() {
 
 mod game_mode {
     use super::*;
-    use crate::app_priority::game::{EXIT_AFTER, Pause};
+    use crate::app_priority::game::{CLOSE_WAIT, EXIT_AFTER, Pause};
     use std::sync::atomic::AtomicUsize;
 
     struct GameRig {
@@ -422,7 +454,16 @@ mod game_mode {
         let s = switch.clone();
         r.engine.set_game(Box::new(move || s.load(Ordering::Relaxed)), pause);
         r.lg.0.lock().playing.insert(TWITCH.into());
-        r.os.0.lock().available_kb = 300 * 1024;
+        {
+            let mut w = r.os.0.lock();
+            w.available_kb = 300 * 1024;
+            w.cache_kb = 1000 * 1024;
+            w.contiguous_kb = 100 * 1024;
+            w.usage.insert(NETFLIX.into(), 80 << 20);
+            w.usage.insert(HOME.into(), 40 << 20);
+            w.footprint.insert(PLEX.into(), Footprint { anon_kb: 150 * 1024, swap_kb: 20 * 1024 });
+            w.footprint.insert(GAME.into(), Footprint { anon_kb: 50 * 1024, swap_kb: 0 });
+        }
         GameRig { r, switch, pause, resumed }
     }
 
@@ -435,6 +476,18 @@ mod game_mode {
         }
         fn exit_reason(&self) -> Value {
             self.status()["lastExit"]["reason"].clone()
+        }
+        /// Every step's name, the name of the one number it carries and that number in MB.
+        fn measures(&self) -> Vec<(String, String, i64)> {
+            self.status()["steps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| {
+                    let (field, mb) = s.as_object().unwrap().iter().find(|(k, _)| k.ends_with("Mb")).unwrap();
+                    (s["step"].as_str().unwrap().to_owned(), field.clone(), mb.as_i64().unwrap())
+                })
+                .collect()
         }
         /// The closed apps exit, freeing 200 MB.
         fn exited(&self, apps: &[&str]) {
@@ -466,15 +519,40 @@ mod game_mode {
         // Home's group is reclaimed; Twitch's (playing) and LumaGame's are not.
         assert_eq!(g.r.os.0.lock().reclaimed, vec![NETFLIX, HOME]);
         assert_eq!(g.r.os.0.lock().vm, vec!["compact_memory=1", "drop_caches=1"]);
-        let steps: Vec<(String, i64)> = g.status()["steps"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|s| (s["step"].as_str().unwrap().to_owned(), s["freedMb"].as_i64().unwrap()))
-            .collect();
-        let want = [("close", 200), ("pause", 0), ("reclaim", 100), ("compact", 10), ("dropCaches", 100)];
-        assert_eq!(steps, want.map(|(s, mb)| (s.to_owned(), mb)));
-        assert_eq!(g.status()["app"], LUMAGAME);
+        let want = [("close", "freedMb", 200), ("pause", "freedMb", 0), ("reclaim", "freedMb", 90), ("compact", "contiguousMb", 30), ("dropCaches", "cacheMb", 100)];
+        assert_eq!(g.measures(), want.map(|(s, f, mb)| (s.to_owned(), f.to_owned(), mb)));
+        let status = g.status();
+        assert_eq!(status["app"], LUMAGAME);
+        assert_eq!(status["steps"][0]["note"], "closed com.beb.plxnative, com.example.game; 20 MB more was in swap");
+        assert_eq!(status["steps"][3]["note"], "free in blocks of 64 KiB or more: 100 -> 130 MB");
+        assert_eq!(status["memAvailableMb"], json!({"before": 300, "after": 710}));
+    }
+
+    #[test]
+    fn a_game_allocating_meanwhile_makes_no_step_negative_and_shows_only_in_the_context_numbers() {
+        let mut g = game_rig();
+        g.r.os.0.lock().available_kb = 3000 * 1024;
+        g.r.os.0.lock().alloc_kb = 500 * 1024;
+        g.front(LUMAGAME, 3.0);
+        g.exited(&[PLEX, GAME]);
+        g.r.at(3.6);
+        // MemAvailable fell 3000 -> 1410 MB over the steps and the game's allocations ate every contiguous block compaction found;
+        // no step goes below zero.
+        let want = [("close", 200), ("pause", 0), ("reclaim", 90), ("compact", 0), ("dropCaches", 100)];
+        assert_eq!(g.measures().iter().map(|(s, _, mb)| (s.as_str(), *mb)).collect::<Vec<_>>(), want);
+        assert_eq!(g.status()["memAvailableMb"], json!({"before": 3000, "after": 1410}));
+    }
+
+    #[test]
+    fn a_closed_app_still_running_after_the_wait_is_not_counted() {
+        let mut g = game_rig();
+        g.front(LUMAGAME, 3.0);
+        // Plex exits; the other game does not.
+        g.r.os.0.lock().procs.remove(PLEX);
+        g.r.at(3.0 + CLOSE_WAIT.as_secs_f64());
+        let status = g.status();
+        assert_eq!(status["steps"][0]["freedMb"], 150);
+        assert_eq!(status["steps"][0]["note"], "closed com.beb.plxnative, com.example.game; still running after 3 s; 20 MB more was in swap");
     }
 
     #[test]
@@ -504,6 +582,8 @@ mod game_mode {
         assert!(!g.on() && !g.pause.paused());
         assert_eq!(g.exit_reason(), "left");
         assert_eq!(g.resumed.load(Ordering::Relaxed), 1);
+        // Timed from Home coming to the front at 13 s (the earlier trip out and back does not count) to the restore at 18 s.
+        assert_eq!(g.status()["lastExit"]["exitMs"], 5000);
     }
 
     #[test]
@@ -531,6 +611,8 @@ mod game_mode {
         g.front(LUMAGAME, 3.0);
         let status = g.r.engine.game_request(false, LUMAGAME, g.r.t0 + s(4.0));
         assert_eq!((status["on"].clone(), status["lastExit"]["reason"].clone()), (json!(false), json!("off")));
+        // The game was still in front: no return to time.
+        assert_eq!(status["lastExit"]["exitMs"], 0);
         g.r.at(30.0);
         assert!(!g.on());
         g.front(HOME, 31.0);

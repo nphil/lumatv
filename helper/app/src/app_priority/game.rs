@@ -5,14 +5,20 @@
 //! with a toast naming them (none at all while it is unknown who plays); their exit is awaited up to [`CLOSE_WAIT`]; Home's feeds and
 //! the guide's downloads pause ([`FEEDS`]); then on a worker thread, with an abort check between steps, the memory groups of the apps
 //! left (but the game's, those on screen, those holding audio and LumaTV's) are reclaimed (`memory.force_empty`), memory is compacted
-//! and the clean page cache dropped once. Each step logs what it freed (the change of `MemAvailable`).
+//! and the clean page cache dropped once. Each step logs what it did itself, not the change of `MemAvailable`, which the game moves too.
 //!
 //! **Exit**: the worker is told to stop, the feeds resume. [`EXIT_AFTER`] after the game left the front; at once when the switch
 //! (`system.gameMode` of theme.json) goes off, an API lease lapses, the request says `on: false`, an entry step fails, the SAM
 //! subscription ends or the helper stops. Nothing of the game itself is touched, nor any LG service; a closed app is not reopened.
 //!
-//! Topic `gamemode` and `GET /v1/gamemode`: `{switch, on, app, since, steps: [{step, freedMb, ms, note}], lastExit: {reason, exitMs}}`.
+//! Topic `gamemode` and `GET /v1/gamemode`: `{switch, on, app, since, memAvailableMb: {before, after}, steps: [{step, <measure>, ms, note}],
+//! lastExit: {reason, exitMs}}`. `exitMs` runs from the game leaving the front (the next app coming up) to game mode's restore being done, so
+//! a `left` exit includes [`EXIT_AFTER`]; it is 0 when the game was still in front. A step carries the one number it measured of its own: `freedMb` (close: the exited apps' anonymous
+//! memory; pause: 0; reclaim: the groups' charge released), `cacheMb` (dropCaches: page cache and reclaimable slab released) or
+//! `contiguousMb` (compact: free memory in blocks of 64 KiB or more gained). None is negative; `memAvailableMb` is the system's
+//! number before the first step and after the last (`after` null until the worker is done).
 
+use super::os::Footprint;
 use super::{Class, Engine, Msg, OURS_PREFIX};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
@@ -107,9 +113,18 @@ impl Remote {
     }
 }
 
+/// What a step reports, as the name of its field in the status: memory freed by closing or reclaiming, page cache released by
+/// `drop_caches`, and contiguous free memory gained by compaction (which frees nothing).
+const FREED: &str = "freedMb";
+const CACHE: &str = "cacheMb";
+const CONTIGUOUS: &str = "contiguousMb";
+/// Free blocks of at least this order (2^4 pages, 64 KiB) are what compaction is measured on.
+const CONTIGUOUS_ORDER: usize = 4;
+
 struct Step {
     step: &'static str,
-    freed_mb: i64,
+    measure: &'static str,
+    kb: u64,
     ms: u64,
     note: String,
 }
@@ -118,25 +133,23 @@ struct Step {
 #[derive(Default)]
 struct Work {
     steps: Mutex<Vec<Step>>,
+    /// `MemAvailable` before the first step and after the last, in kB: context for the steps, which measure themselves.
+    available: Mutex<(Option<u64>, Option<u64>)>,
     abort: AtomicBool,
     failed: Mutex<Option<String>>,
 }
 
 impl Work {
-    fn push(&self, step: &'static str, before: Option<u64>, after: Option<u64>, took: Duration, note: String) {
-        let freed_mb = match (before, after) {
-            (Some(b), Some(a)) => (a as i64 - b as i64) / 1024,
-            _ => 0,
-        };
+    fn push(&self, step: &'static str, measure: &'static str, kb: u64, took: Duration, note: String) {
         let ms = took.as_millis() as u64;
-        crate::log_info!("game mode: {step}: {freed_mb} MB in {ms} ms ({note})");
-        self.steps.lock().push(Step { step, freed_mb, ms, note });
+        crate::log_info!("game mode: {step}: {measure} {} in {ms} ms ({note})", kb / 1024);
+        self.steps.lock().push(Step { step, measure, kb, ms, note });
     }
 }
 
 enum Phase {
-    /// The closed apps are being waited for.
-    Closing { apps: Vec<String>, started: Instant, before: Option<u64>, note: String },
+    /// The closed apps are being waited for; what each held is what closing them frees.
+    Closing { held: Vec<(String, Footprint)>, started: Instant, note: String },
     Working,
 }
 
@@ -220,11 +233,11 @@ impl Engine {
                 None
             };
             if let Some(why) = why {
-                self.game_exit(why);
+                self.game_exit(why, now);
             } else if top.as_deref() != Some(app.as_str()) {
                 let left = *self.game.left_front.get_or_insert(now);
                 if now.saturating_duration_since(left) >= EXIT_AFTER {
-                    self.game_exit("left");
+                    self.game_exit("left", now);
                 }
             } else {
                 self.game.left_front = None;
@@ -265,7 +278,7 @@ impl Engine {
                 self.game.suppressed = Some(app.to_owned());
             }
             if self.game.active.as_ref().is_some_and(|a| a.app == app) {
-                self.game_exit("off");
+                self.game_exit("off", now);
             }
         }
         self.game_check(now);
@@ -289,10 +302,12 @@ impl Engine {
             ),
         };
         let work = Arc::new(Work::default());
+        work.available.lock().0 = before;
         crate::log_info!("game mode: on for {app}");
         self.game.left_front = None;
         self.game.last = Some(work.clone());
         self.game.active = Some(Active { app: app.clone(), since_ms: crate::timeutil::now_ms(), phase: Phase::Working, work: work.clone() });
+        let held: Vec<(String, Footprint)> = apps.iter().map(|a| (a.clone(), self.os.footprint(a))).collect();
         for a in &apps {
             if let Some(held) = self.held.get_mut(a).filter(|h| h.frozen) {
                 if self.os.set_freezer(a, "THAWED").is_ok() {
@@ -303,9 +318,9 @@ impl Engine {
             if !self.lg.close(a) {
                 let why = format!("SAM did not close {a}");
                 crate::log_warn!("game mode: {why}");
-                work.push("close", before, self.os.available_kb(), Duration::ZERO, why);
+                work.push("close", FREED, 0, Duration::ZERO, why);
                 self.game_spoiled(&app);
-                self.game_exit("failed");
+                self.game_exit("failed", now);
                 return;
             }
         }
@@ -321,7 +336,7 @@ impl Engine {
             note = "nothing to close".to_owned();
         }
         if let Some(active) = &mut self.game.active {
-            active.phase = Phase::Closing { apps, started: now, before, note };
+            active.phase = Phase::Closing { held, started: now, note };
         }
         self.game_closing(now);
     }
@@ -330,18 +345,28 @@ impl Engine {
     fn game_closing(&mut self, now: Instant) {
         let os = self.os.clone();
         let Some(active) = &mut self.game.active else { return };
-        let Phase::Closing { apps, started, .. } = &active.phase else { return };
-        let gone = apps.iter().all(|a| os.app_procs(a).is_none_or(|p| p.is_empty()));
+        let Phase::Closing { held, started, .. } = &active.phase else { return };
+        let gone = |app: &str| os.app_procs(app).is_none_or(|p| p.is_empty());
+        let all_gone = held.iter().all(|(a, _)| gone(a));
         let waited = now.saturating_duration_since(*started);
-        if !gone && waited < CLOSE_WAIT {
+        if !all_gone && waited < CLOSE_WAIT {
             return;
         }
-        let Phase::Closing { before, note, .. } = std::mem::replace(&mut active.phase, Phase::Working) else { return };
+        let Phase::Closing { held, note, .. } = std::mem::replace(&mut active.phase, Phase::Working) else { return };
         let (work, game) = (active.work.clone(), active.app.clone());
-        let note = if gone { note } else { format!("{note}; still running after {} s", CLOSE_WAIT.as_secs()) };
-        work.push("close", before, os.available_kb(), waited, note);
+        // Only what an exited app held counts: the memory of one still running was not given back.
+        let (mut anon_kb, mut swap_kb) = (0, 0);
+        for (_, h) in held.iter().filter(|(a, _)| gone(a)) {
+            anon_kb += h.anon_kb;
+            swap_kb += h.swap_kb;
+        }
+        let mut note = if all_gone { note } else { format!("{note}; still running after {} s", CLOSE_WAIT.as_secs()) };
+        if swap_kb > 0 {
+            note = format!("{note}; {} MB more was in swap", swap_kb / 1024);
+        }
+        work.push("close", FREED, anon_kb, waited, note);
         self.game.pause.set(true);
-        work.push("pause", None, None, Duration::ZERO, "weather, news and guide downloads".to_owned());
+        work.push("pause", FREED, 0, Duration::ZERO, "weather, news and guide downloads".to_owned());
         let front = self.front.clone().unwrap_or_default();
         // While it is unknown who plays, no group is reclaimed: any could be the one playing.
         let groups: Vec<String> = match &self.playing {
@@ -357,14 +382,14 @@ impl Engine {
         (self.run)(Box::new(move || reclaim(&*os, &work, &groups)));
     }
 
-    /// Ends game mode: the worker stops at its next step, the paused work resumes.
-    pub fn game_exit(&mut self, reason: &'static str) {
+    /// Ends game mode: the worker stops at its next step, the paused work resumes. The exit is timed from the game leaving the front,
+    /// when the next app came up, to the restore being done; a game still in front when it ends has no return to time.
+    pub fn game_exit(&mut self, reason: &'static str, now: Instant) {
         let Some(active) = self.game.active.take() else { return };
-        let started = Instant::now();
         active.work.abort.store(true, Ordering::Relaxed);
         self.game.pause.set(false);
-        self.game.left_front = None;
-        let ms = started.elapsed().as_millis() as u64;
+        let left = self.game.left_front.take().unwrap_or(now);
+        let ms = now.saturating_duration_since(left).as_millis() as u64;
         self.game.last_exit = Some((reason, ms));
         crate::log_info!("game mode: off for {} ({reason}, {ms} ms)", active.app);
     }
@@ -386,32 +411,43 @@ impl Engine {
 
     pub fn game_status(&self) -> Value {
         let g = &self.game;
+        let mb = |kb: Option<u64>| kb.map(|kb| kb / 1024);
         let steps: Vec<Value> = g
             .last
             .iter()
-            .flat_map(|w| w.steps.lock().iter().map(|s| json!({"step": s.step, "freedMb": s.freed_mb, "ms": s.ms, "note": s.note})).collect::<Vec<_>>())
+            .flat_map(|w| {
+                w.steps
+                    .lock()
+                    .iter()
+                    .map(|s| json!({"step": s.step, s.measure: s.kb / 1024, "ms": s.ms, "note": s.note}))
+                    .collect::<Vec<_>>()
+            })
             .collect();
+        let available = g.last.as_ref().map(|w| *w.available.lock());
         json!({
             "switch": (g.switch)(),
             "on": g.active.is_some(),
             "app": g.active.as_ref().map(|a| &a.app),
             "since": g.active.as_ref().map(|a| a.since_ms),
+            "memAvailableMb": available.map(|(before, after)| json!({"before": mb(before), "after": mb(after)})),
             "steps": steps,
             "lastExit": g.last_exit.map(|(reason, ms)| json!({"reason": reason, "exitMs": ms})),
         })
     }
 }
 
-/// Step 4, on its own thread: the other apps' memory reclaimed, memory compacted, the clean page cache dropped once.
+/// Step 4, on its own thread: the other apps' memory reclaimed, memory compacted, the clean page cache dropped once. Each step
+/// measures what it did itself (a group's own charge, the free blocks, the page cache): `MemAvailable` moves with whatever the game
+/// allocates meanwhile, and would put a negative number on a step that freed memory.
 fn reclaim(os: &dyn super::os::Os, work: &Work, groups: &[String]) {
-    let step = |name: &'static str, note: String, f: &dyn Fn() -> std::io::Result<()>| -> bool {
+    let step = |name: &'static str, measure: &'static str, f: &dyn Fn() -> std::io::Result<(u64, String)>| -> bool {
         if work.abort.load(Ordering::Relaxed) {
             return false;
         }
-        let (before, started) = (os.available_kb(), Instant::now());
+        let started = Instant::now();
         match f() {
-            Ok(()) => {
-                work.push(name, before, os.available_kb(), started.elapsed(), note);
+            Ok((kb, note)) => {
+                work.push(name, measure, kb, started.elapsed(), note);
                 true
             }
             Err(e) => {
@@ -421,23 +457,49 @@ fn reclaim(os: &dyn super::os::Os, work: &Work, groups: &[String]) {
         }
     };
     let reclaimed = || {
+        let mut bytes = 0;
         for app in groups {
             if work.abort.load(Ordering::Relaxed) {
                 break;
             }
-            // A group that went away with its app has nothing left to reclaim.
-            if let Err(e) = os.reclaim(app)
-                && os.app_procs(app).is_some()
-            {
+            let (before, result) = (os.usage(app), os.reclaim(app));
+            // A group that went away with its app has nothing left to reclaim or to measure.
+            if os.app_procs(app).is_none() {
+                continue;
+            }
+            if let Err(e) = result {
                 return Err(std::io::Error::new(e.kind(), format!("{app}: {e}")));
             }
+            bytes += before.saturating_sub(os.usage(app));
         }
-        Ok(())
+        Ok((bytes / 1024, if groups.is_empty() { "no other app".to_owned() } else { groups.join(", ") }))
     };
-    let note = if groups.is_empty() { "no other app".to_owned() } else { groups.join(", ") };
-    let _ = step("reclaim", note, &reclaimed)
-        && step("compact", String::new(), &|| os.vm("compact_memory", "1"))
-        && step("dropCaches", String::new(), &|| os.vm("drop_caches", "1"));
+    // Free blocks of this order and up are what compaction changes: orders above 3 (`PAGE_ALLOC_COSTLY_ORDER`) are the ones the
+    // kernel fails or must compact for, smaller blocks come off the free lists without it.
+    let compact = || {
+        let before = os.contiguous_kb(CONTIGUOUS_ORDER);
+        os.vm("compact_memory", "1")?;
+        Ok(match (before, os.contiguous_kb(CONTIGUOUS_ORDER)) {
+            (Some(b), Some(a)) => (a.saturating_sub(b), format!("free in blocks of {} KiB or more: {} -> {} MB", 4 << CONTIGUOUS_ORDER, b / 1024, a / 1024)),
+            _ => (0, "/proc/buddyinfo unreadable".to_owned()),
+        })
+    };
+    let drop_caches = || {
+        let before = os.cache_kb();
+        os.vm("drop_caches", "1")?;
+        Ok(match (before, os.cache_kb()) {
+            (Some(b), Some(a)) => (b.saturating_sub(a), format!("page cache and reclaimable slab: {} -> {} MB", b / 1024, a / 1024)),
+            _ => (0, "/proc/meminfo unreadable".to_owned()),
+        })
+    };
+    let _ = step("reclaim", FREED, &reclaimed) && step("compact", CONTIGUOUS, &compact) && step("dropCaches", CACHE, &drop_caches);
+    let after = os.available_kb();
+    let before = {
+        let mut available = work.available.lock();
+        available.1 = after;
+        available.0
+    };
+    crate::log_info!("game mode: MemAvailable {:?} -> {:?} kB", before, after);
 }
 
 
