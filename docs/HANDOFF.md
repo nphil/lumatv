@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Game mode installed, 2026-11-21 (main f03c5fdb, installed 00:11 EST with the TV on, at the owner's request)
+
+Helper `a4a6bf5bbdda649ab553bf4333b193ae9da9d8317754b177706f5cd5aeb5c6be` (replaces 6789b3eb; pids 21220/21221) and ui `eb4deeb4aa6565a35acc7c1244405ffeba2ef81bc27630fc4d35e23afcaad61c` (replaces 7b4530fb). The compositor (cb605100) and sm (65f6ca69) are unchanged. Marquee was in front during the install; the cutover's recovery brought Home to the front. `video-check` found a picture after 1 s, and the compositor is live and persistent with 0 failures. `GET /v1/gamemode` answers `switch:true, on:false`. Untested on the TV: entry with LumaGame in front and apps in the background, MB freed per step, feeds paused and resumed, and the time back to Home. Rollback: `/tmp/cs/18172b987bff/app-snapshot/backup/lumatv-helper-6789b3eb` and `lumatv-ui-7b4530fb`.
+
 ## Foreground priority installed, 2026-11-20 (main d34aef82, installed 23:31 EST with the TV on, at the owner's request)
 
 Helper `6789b3eb280914008d40f1d542a208e783625f16bcd6a4c59340c626ccaec0b4` (replaces 2507abda; pids 3491/3492, healthy), built from the committed tree. With Home in front and Netflix in the background, topic `app_priority` reported Netflix `cached`, and the process read `oom_score_adj` 900 in `cpu,cpuacct:/lumatv-background` (`cpu.shares` 52) with a memory soft limit of 0. It stayed `THAWED`: Netflix is on memchute's kept list, which the policy leaves unfrozen. Memory PSI was 0 and MemAvailable 950 MB. Freeze, thaw on relaunch, a pressure close and the restore on `lumatv helper stop` are untested on the TV. Rollback: `/tmp/cs/18172b987bff/app-snapshot/backup/lumatv-helper-2507abda`.
