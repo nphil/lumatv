@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Wallpaper ceiling removed, 2026-11-21 (main 67220627, 19:5x EST)
+
+Installed compositor `33af43c8` (replaces f9decb18) and ui `b99c360c` (replaces 96dd76a5); helper `e6dc3ace` and sm `65f6ca69` unchanged. Video check: picture after 1 s. Idle Home, 20 s windows: still wallpaper 11.5 flips/s, GPU 2.0 %, compositor 3.2 %; 60 fps 59.9 flips/s, GPU 36.6 %, compositor 15.5 %, the same as the ceiling-off run before it.
+
 ## UI engine on the panel's real refresh installed, 2026-11-21 (main 1dc20856, 19:2x EST)
 
 Installed compositor `f9decb18` (replaces 5254e676) and ui `96dd76a5` (replaces 3ef55429); helper `e6dc3ace` and sm `65f6ca69` unchanged. Video check: picture after 1 s. The engine had counted in 60 Hz refreshes while Home drives the panel at 120 Hz, so a 60 fps wallpaper step asked for every refresh. Idle Home, owner's theme, 20 s windows, `ctl status` `ui.refreshMs` 8.33:
