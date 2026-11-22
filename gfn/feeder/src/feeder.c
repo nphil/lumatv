@@ -37,6 +37,7 @@
 #include "gf_capture.h"
 #include "gf_pipe.h"
 #include "gf_proto.h"
+#include "gf_vclock.h"
 #include "gf_identity.h"
 #include "gf_sam.h"
 #include "gf_opus.h"
@@ -142,6 +143,9 @@ struct feeder {
     struct second sec;
     struct frames frames;
     gf_cap cap;                 /* the diagnostics-only timing capture (gf_capture.h): idle unless the UI armed it */
+    gf_vclock vclock;           /* the sender's picture times as player stamps (gf_vclock.h): idle unless the engine sends GF_VIDEO_CLOCK */
+    gf_video_clock stamp;       /* the stamp it sent for the VIDEO message that follows: used by the unit whose wire key it names, then dropped */
+    int stamp_valid;
     uint64_t total_fed, total_dropped, total_afed, total_adropped, total_retries;
     int64_t first_loaded_ns, first_playing_ns, t0_ns;
     unsigned ev_count[64];
@@ -183,13 +187,31 @@ static void fail_player(struct feeder *f, const char *message) {
     snprintf(f->player_error, sizeof f->player_error, "%s", message);
 }
 
+static int64_t load_ms(const struct feeder *f, int64_t absolute_ns) {
+    int64_t ns = absolute_ns > f->load_ns ? absolute_ns - f->load_ns : 0;
+    return ns / GF_PTS_MS + (ns % GF_PTS_MS != 0);
+}
+
 /* A ceiling, not a rising counter: a burst or a clock correction must not accumulate audio lead. */
 static int64_t player_stamp(struct feeder *f, int64_t absolute_ns, int audio) {
-    int64_t ns = absolute_ns > f->load_ns ? absolute_ns - f->load_ns : 0;
-    int64_t ms = ns / GF_PTS_MS + (ns % GF_PTS_MS != 0);
+    int64_t ms = load_ms(f, absolute_ns);
     int64_t *last = audio ? &f->audio_ms : &f->video_ms;
     if (ms < *last) ms = *last;
     *last = ms;
+    return ms * GF_PTS_MS;
+}
+
+/* The video plane's stamp: the handover time as always or, for a unit the engine sent a GF_VIDEO_CLOCK for, the sender's timeline (gf_vclock.h) held
+ * beside that handover time. Never below the last stamp either way. */
+static int64_t video_stamp(struct feeder *f, int64_t absolute_ns, const gf_video_clock *clock) {
+    if (!clock) return player_stamp(f, absolute_ns, 0);
+    if (clock->flags & GF_VCLOCK_GAP) gf_vclock_break(&f->vclock);
+    int64_t ms = gf_vclock_map(&f->vclock, clock->rtp, clock->clock_hz, load_ms(f, absolute_ns), f->video_ms);
+    if (f->vclock.why != GF_VCLOCK_WHY_NONE && (f->vclock.epochs <= 4 || (f->vclock.epochs & (f->vclock.epochs - 1)) == 0)) {
+        static const char *const why[] = {"", "first picture", "rtp stepped back", "clock rate changed", "offset bound"};
+        gf_say("sender clock: epoch %u starts at %lld ms (%s)", f->vclock.epochs, (long long)ms, why[f->vclock.why]);
+    }
+    f->video_ms = ms;
     return ms * GF_PTS_MS;
 }
 
@@ -207,6 +229,7 @@ static void apply_hdr(struct feeder *f) {
 static void hold_video(struct feeder *f) {
     if (f->hold_video || f->error) return;
     f->hold_video = f->request_key = 1;
+    gf_vclock_break(&f->vclock);                /* the recovery anchor opens a new epoch */
     if (f->cap.on) f->cap.resets++;
 }
 
@@ -370,6 +393,8 @@ enum { GF_FEED_REFUSED = 2 };
 static int feed_video(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_ns, int key, int *queue, int *wait_us) {
     *queue = -1;
     *wait_us = 0;
+    const gf_video_clock *clock = f->stamp_valid && f->stamp.pts_ns == pts_ns ? &f->stamp : NULL;
+    f->stamp_valid = 0;                         /* a stamp serves the unit after it and no other, whatever becomes of that unit */
     if (f->error || (f->hold_video && !key)) {
         f->sec.dropped++;
         f->total_dropped++;
@@ -386,7 +411,7 @@ static int feed_video(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_
     int64_t t0 = gf_ns();
     *queue = f->ops->queued(f->pipe);
     sample_q(&f->sec, *queue);
-    long long pts = player_stamp(f, pts_ns, 0);
+    long long pts = video_stamp(f, pts_ns, clock);
     int rc, waited = 0, tries = 0;
     gf_cap_rec *rec = f->cap.cur;
     if (rec) rec->first_call_ns = gf_ns();
@@ -714,6 +739,8 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
     f->player_error[0] = 0;
     f->load_ns = gf_ns();
     f->video_ms = f->audio_ms = 0;
+    gf_vclock_reset(&f->vclock);
+    f->stamp_valid = 0;
     f->prime_at_ns = 0;
     f->audio_enabled = l->audio != GF_AUDIO_NONE;
     f->prime_opus = 0;
@@ -1510,6 +1537,11 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
         }
         return;
     }
+    case GF_VIDEO_CLOCK:
+        if (n < sizeof f->stamp) return;
+        memcpy(&f->stamp, p, sizeof f->stamp);
+        f->stamp_valid = 1;
+        return;
     case GF_AUDIO: {
         if (n < sizeof(gf_media_head)) return;
         gf_media_head h;

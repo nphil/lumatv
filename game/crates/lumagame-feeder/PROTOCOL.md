@@ -20,6 +20,7 @@ The authoritative layouts are [`gf_proto.h`](../../../../gfn/feeder/src/gf_proto
 | PIPE 11 | `ndl`, `es`, or `smp`, for the next load |
 | SINK 12 | Empty for the main video window; `sub_video` for Starfish's secondary window |
 | LOAD_OPUS51 13 | 108 bytes: the 100-byte LOAD, then `u8 streams,coupled,mapping[6]` in Vorbis channel order |
+| VIDEO_CLOCK 14 | Optional, immediately before the VIDEO it describes: `i64 pts_ns` (that VIDEO's key), `u32 rtp,clock_hz,flags,zero`; flags bit 0: pictures were lost before it. Feeders that predate it ignore it |
 
 Codec: H.264=1, H.265=2, AV1=4. H.264/H.265 units use Annex B start codes; AV1 uses a low-overhead temporal unit beginning with its temporal delimiter. Audio: none=0, Opus=1, interleaved signed 16-bit little-endian PCM=2. Ordinary LOAD uses mono or stereo Opus. LOAD_OPUS51 requires six-channel Opus at 48000 Hz, 1–6 streams, coupled no greater than streams, streams plus coupled equal to six, and a mapping that is a permutation of 0–5. It requires NDL and compressed audio; it never falls back to PCM. `key=1` marks a decoder-safe keyframe or recovery anchor. `drop_threshold=-1` leaves LG's default. `pts_unit` is a legacy field; send 1000000. Every NDL load uses milliseconds regardless of that field.
 
@@ -49,6 +50,7 @@ DROP reasons: buffer full=1, no pipeline=2, refused unit=3, held for an anchor=4
 4. Loss or buffer rejection holds dependent video and sends one KEYFRAME per hold. FLUSH never calls NDL's flush: that destroys session audio. Submit the next safe anchor with `key=1`; subsequent video resumes. A real software-decode error may flush the texture decoder.
 5. HDR is applied after the first accepted video unit, then only when changed. It is never sent to LG for SDR.
 6. Eight seconds without LOADCOMPLETED, or a fatal player event, latches failure. Exactly one ERROR 2 is emitted; subsequent video gets DROP 5 and audio is refused. The engine must end the session as failed (`video`), then disconnect or UNLOAD. Only a new LOAD clears the latch.
+7. Sender time is optional. A VIDEO_CLOCK naming a unit's key replaces that unit's handover-time timestamp with the sender's: the first unit of an epoch keeps its handover-time stamp as the anchor, later units add the sender's RTP time since it (wrap-safe, rounded up to milliseconds). The result stays within 50 ms behind and 30 ms ahead of the handover-time stamp and never decreases. A load, a hold for loss, the gap flag, an RTP timestamp stepping back or a changed rate starts a new epoch at the larger of the handover-time stamp and the last stamp. Audio is unchanged and ACCEPT/DROP still echo the key. No clock relates the sender's audio and video, so the handover-time anchor is the only A/V reference ([`gf_vclock.h`](../../../../gfn/feeder/src/gf_vclock.h)).
 
 ## App lifecycle channel
 

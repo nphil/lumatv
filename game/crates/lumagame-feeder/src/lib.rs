@@ -23,6 +23,7 @@ pub mod msg {
     pub const PIPE: u8 = 11;
     pub const SINK: u8 = 12;
     pub const LOAD_OPUS51: u8 = 13;
+    pub const VIDEO_CLOCK: u8 = 14;
     pub const LOADED: u8 = 16;
     pub const EVENT: u8 = 17;
     pub const ACCEPT: u8 = 18;
@@ -32,6 +33,12 @@ pub mod msg {
     pub const PONG: u8 = 22;
     pub const HELLO: u8 = 23;
     pub const KEYFRAME: u8 = 24;
+}
+
+/// Flags of a [`VideoClock`].
+pub mod video_clock {
+    /// Pictures were lost before this one: the sender's timeline carries on, but the feeder starts a new epoch at it.
+    pub const GAP: u32 = 1;
 }
 
 pub mod codec {
@@ -149,6 +156,22 @@ pub struct MediaHead {
     pub pad: [u8; 7],
 }
 
+/// The sender's own time for the VIDEO message that follows it. The feeder stamps the player with the sender's timeline for a unit that has one and with
+/// the handover time for any other; the key stays the acknowledgement identity either way.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct VideoClock {
+    /// The key of the VIDEO that follows (`MediaHead::pts_ns`); a stamp for another key is ignored.
+    pub pts_ns: i64,
+    /// The picture's 32-bit RTP timestamp.
+    pub rtp: u32,
+    /// Its tick rate (90000 for GFN video).
+    pub clock_hz: u32,
+    /// [`video_clock`] flags.
+    pub flags: u32,
+    pub pad: u32,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Event {
@@ -204,6 +227,7 @@ const _: () = assert!(std::mem::size_of::<Hdr>() == 60);
 const _: () = assert!(std::mem::size_of::<Load>() == 100);
 const _: () = assert!(std::mem::size_of::<LoadOpus51>() == 108);
 const _: () = assert!(std::mem::size_of::<MediaHead>() == 16);
+const _: () = assert!(std::mem::size_of::<VideoClock>() == 24);
 const _: () = assert!(std::mem::size_of::<Event>() == 16);
 const _: () = assert!(std::mem::size_of::<Accept>() == 16);
 const _: () = assert!(std::mem::size_of::<Drop>() == 16);
@@ -383,6 +407,11 @@ impl FeederClient {
         write_all_vectored(&mut self.stream, &[as_bytes(&f), as_bytes(&h), data])
     }
 
+    /// The sender's time for the VIDEO sent next, which must carry the same key. An old feeder ignores the message.
+    pub fn send_video_clock(&mut self, clock: &VideoClock) -> io::Result<()> {
+        self.send(msg::VIDEO_CLOCK, as_bytes(clock))
+    }
+
     pub fn send_load(&mut self, load: &Load) -> io::Result<()> {
         self.send(msg::LOAD, as_bytes(load))
     }
@@ -511,6 +540,22 @@ mod transport_tests {
         assert_eq!(&bytes[108..], &[4, 2, 0, 1, 4, 2, 3, 5]);
         assert!(client.send_media(msg::HDR, 0, false, b"").is_err());
         assert!(client.send(msg::LOAD, &vec![0; MAX_PAYLOAD as usize + 1]).is_err());
+    }
+
+    #[test]
+    fn a_video_clock_is_one_fixed_message_naming_the_units_key() {
+        let (stream, mut peer) = UnixStream::pair().unwrap();
+        let mut client = FeederClient { stream, reader: None };
+        let clock = VideoClock { pts_ns: 123456789012, rtp: 0xFFFF_FF00, clock_hz: 90_000, flags: video_clock::GAP, pad: 0 };
+        client.send_video_clock(&clock).unwrap();
+        let mut bytes = [0u8; 8 + 24];
+        peer.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes[..8], &[14, 0, 0, 0, 24, 0, 0, 0]);
+        assert_eq!(&bytes[8..16], &123456789012i64.to_le_bytes());
+        assert_eq!(&bytes[16..20], &0xFFFF_FF00u32.to_le_bytes());
+        assert_eq!(&bytes[20..24], &90_000u32.to_le_bytes());
+        assert_eq!(&bytes[24..28], &1u32.to_le_bytes());
+        assert_eq!(&bytes[28..], &[0; 4]);
     }
 
     #[test]

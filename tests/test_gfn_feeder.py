@@ -59,7 +59,7 @@ NDL_LOAD_ON_THE_SET = ('{"args":[{"mediaTransportType":"DIRECTMEDIA-ES-PLAYER","
 
 
 def build():
-    binaries = [BIN, NDL, SMP, ARM, GAME_BIN, GAME_ARM] + [os.path.join(FEEDER, "build", "host", name) for name in ("policy_test", "game_policy_test", "sam_test")]
+    binaries = [BIN, NDL, SMP, ARM, GAME_BIN, GAME_ARM] + [os.path.join(FEEDER, "build", "host", name) for name in ("policy_test", "game_policy_test", "sam_test", "vclock_test")]
     if all(os.path.exists(p) for p in binaries):
         newest = max([os.path.getmtime(os.path.join(FEEDER, "build.sh"))] +
                      [os.path.getmtime(os.path.join(FEEDER, d, f)) for d in ("src", "tests") for f in os.listdir(os.path.join(FEEDER, d))])
@@ -1041,7 +1041,12 @@ class PlayerRules(unittest.TestCase):
             with self.subTest(binary=binary):
                 result = subprocess.run([os.path.join(FEEDER, "build", "host", binary), NDL], capture_output=True, text=True, timeout=1)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertIn("11 rules passed", result.stdout)
+                self.assertIn("15 rules passed", result.stdout)
+
+    def test_sender_time_mapping_rules(self):
+        result = subprocess.run([os.path.join(FEEDER, "build", "host", "vclock_test")], capture_output=True, text=True, timeout=1)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("8 rules passed", result.stdout)
 
     def test_lifecycle_launch_apps_foreground_and_failures(self):
         result = subprocess.run([os.path.join(FEEDER, "build", "host", "sam_test")], capture_output=True, text=True, timeout=1)

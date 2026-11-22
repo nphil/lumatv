@@ -29,6 +29,7 @@ zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=und
 zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -DGF_TEST_CLOCK $inc -I"$out/ffmpeg/host/include" -o "$out/host/policy_test" "$here/tests/policy_test.c" $common "$out/opus/host/libopus-dec.a" -ldl -lpthread
 zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -DGF_TEST_CLOCK $game $inc -I"$out/ffmpeg/host/include" -o "$out/host/game_policy_test" "$here/tests/policy_test.c" $common "$out/opus/host/libopus-dec.a" -ldl -lpthread
 zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -DGF_TEST_CLOCK -I"$here/src" -o "$out/host/sam_test" "$here/tests/sam_test.c" "$here/src/gf_log.c" -ldl -lpthread
+zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -I"$here/src" -o "$out/host/vclock_test" "$here/tests/vclock_test.c"
 for t in arm host; do
   rm -rf "$out/$t/lib"
   mkdir -p "$out/$t/lib"

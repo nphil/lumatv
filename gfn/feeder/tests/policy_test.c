@@ -194,13 +194,23 @@ static void frame_records_are_opt_in_bounded_and_measured(void) {
     close(sv[1]);
 }
 
-static void send_video(int64_t pts, int key) {
+/* One VIDEO message as the engine sends it. Returns the key the feeder acknowledged, -1 if it dropped the unit. */
+static int64_t send_video(int64_t pts, int key) {
     uint8_t m[sizeof(gf_media_head) + sizeof picture];
     gf_media_head h = {.pts_ns = pts, .key = (uint8_t)key};
     memcpy(m, &h, sizeof h);
     memcpy(m + sizeof h, picture, sizeof picture);
     handle_message(&f, &client, GF_VIDEO, m, sizeof m);
+    int64_t acked = -1;
+    gf_frame answer;
+    gf_accept a;
+    if (client.out_len >= sizeof answer + sizeof a) {
+        memcpy(&answer, client.out, sizeof answer);
+        memcpy(&a, client.out + sizeof answer, sizeof a);
+        if (answer.type == GF_ACCEPT) acked = a.pts_ns;
+    }
     client.out_len = 0;
+    return acked;
 }
 
 static char *capture_file(const char *dir, unsigned nonce) {
@@ -470,6 +480,65 @@ static void a_released_load_is_not_queried(void) {
     f.pipe_ready = 0;
 }
 
+/* The sender's own time for the VIDEO that follows (the engine sends it only when its sender-time switch is on). */
+static void sender_clock(int64_t key, uint32_t rtp, uint32_t flags) {
+    gf_video_clock c = {.pts_ns = key, .rtp = rtp, .clock_hz = 90000, .flags = flags};
+    handle_message(&f, &client, GF_VIDEO_CLOCK, (const void *)&c, sizeof c);
+}
+
+static void a_sender_stamp_is_the_players_timestamp_for_its_unit_only_and_the_key_stays_the_acknowledgement(void) {
+    start(GF_AUDIO_OPUS, 0);
+    /* without a stamp: the handover time, as always */
+    assert(send_video(now + 3000000, 1) == now + 3000000 && state().video_pts == 3);
+    /* the first stamped picture sits where its handover time puts it; the next follows the sender's 750 ticks (8.33 ms), not its 3 ms of handover time */
+    sender_clock(now + 9000000, 5000, 0);
+    assert(send_video(now + 9000000, 0) == now + 9000000 && state().video_pts == 9);
+    sender_clock(now + 12000000, 5750, 0);
+    assert(send_video(now + 12000000, 0) == now + 12000000 && state().video_pts == 18);
+    /* a stamp is for the unit that follows it: one naming another key is ignored, and the unit after that has none */
+    sender_clock(now + 1, 6500, 0);
+    assert(send_video(now + 20000000, 0) == now + 20000000 && state().video_pts == 20);
+    assert(send_video(now + 21000000, 0) == now + 21000000 && state().video_pts == 21);
+    assert(f.vclock.epochs == 1 && !f.stamp_valid);
+    handle_message(&f, &client, GF_VIDEO_CLOCK, (const void *)&f.stamp, sizeof f.stamp - 1);
+    assert(!f.stamp_valid);                     /* a short message is no stamp */
+    /* audio stays on the player's clock whatever the video is stamped with */
+    complete();
+    now += 40000001;
+    assert(feed_audio(&f, packet, sizeof packet, 0) == 0 && state().audio_pts == 41);
+    assert(state().violations == 0);
+}
+
+static void a_hold_a_reported_gap_and_a_load_each_end_the_sender_epoch_and_the_stamps_never_go_back(void) {
+    start(GF_AUDIO_OPUS, 0);
+    sender_clock(now + 1000000, 100000, 0);
+    send_video(now + 1000000, 1);
+    sender_clock(now + 5000000, 100750, 0);
+    send_video(now + 5000000, 0);
+    assert(state().video_pts == 10 && f.vclock.epochs == 1);
+    /* a flush holds for an anchor: the unit that is not one is dropped (its stamp used up), and the recovery keyframe opens the next epoch, no earlier
+     * than the last stamp */
+    handle_message(&f, &client, GF_FLUSH, NULL, 0);
+    sender_clock(now + 6000000, 101500, 0);
+    assert(send_video(now + 6000000, 0) == -1 && state().video_pts == 10 && !f.stamp_valid);
+    sender_clock(now + 7000000, 900000, 0);
+    assert(send_video(now + 7000000, 1) == now + 7000000 && state().video_pts == 10 && f.vclock.epochs == 2);
+    sender_clock(now + 8000000, 900750, 0);
+    send_video(now + 8000000, 0);
+    assert(state().video_pts == 19 && f.vclock.epochs == 2);
+    /* a gap the engine reported, with no flush: the epoch restarts at that picture */
+    sender_clock(now + 30000000, 5000000, GF_VCLOCK_GAP);
+    send_video(now + 30000000, 0);
+    assert(state().video_pts == 30 && f.vclock.epochs == 3);
+    /* a load is a new timeline, and a stamp still waiting is dropped with the old one */
+    sender_clock(now + 1, 1, 0);
+    start(GF_AUDIO_OPUS, 0);
+    assert(f.vclock.epochs == 0 && !f.vclock.open && !f.stamp_valid);
+    sender_clock(now + 2000000, 77, 0);
+    send_video(now + 2000000, 1);
+    assert(state().video_pts == 2 && f.vclock.epochs == 1 && state().violations == 0);
+}
+
 int main(int argc, char **argv) {
     assert(argc == 2);
     setenv("FAKE_NDL_MANUAL_EVENTS", "1", 1);
@@ -501,8 +570,10 @@ int main(int argc, char **argv) {
     surround_header_and_load_validation();
     picture_only_starfish_skips_audio_queries(argv[1]);
     surround_packets_preserve_speaker_identity();
+    a_sender_stamp_is_the_players_timestamp_for_its_unit_only_and_the_key_stays_the_acknowledgement();
+    a_hold_a_reported_gap_and_a_load_each_end_the_sender_epoch_and_the_stamps_never_go_back();
     close_all(&f);
     free(client.out);
-    puts("policy_test: 11 rules passed (injected clock, fake NDL)");
+    puts("policy_test: 15 rules passed (injected clock, fake NDL)");
     return 0;
 }

@@ -32,6 +32,7 @@ enum gf_msg {
     GF_SINK = 12,       /* text: the video sink the next LOAD asks for: "" the main window every pipeline gets, "sub_video" the sub window beside an app's video (the
                          * starfish pipeline only; the compositor lists the pipeline's app beside the front card while the claim holds that window) */
     GF_LOAD_OPUS51 = 13, /* gf_load followed by gf_opus51 */
+    GF_VIDEO_CLOCK = 14, /* gf_video_clock: opt-in sender time for the VIDEO message that follows it (gf_vclock.h); an engine that does not send it changes nothing */
     /* feeder -> engine */
     GF_LOADED = 16,     /* int32 ok (1), then text: LOAD accepted, not LOADCOMPLETED (EVENT 22); video must flow during loading */
     GF_EVENT = 17,      /* gf_event then text */
@@ -96,6 +97,16 @@ typedef struct {
     uint8_t key;            /* video: 1 for a decoder-safe keyframe or recovery anchor */
     uint8_t pad[7];
 } gf_media_head;            /* 16 bytes */
+
+/* The sender's own time for one picture, sent immediately before the VIDEO whose wire key it names; the key stays the ACCEPT/DROP identity. */
+enum { GF_VCLOCK_GAP = 1 };     /* frames were lost before this picture: the sender's timeline is kept, but its epoch restarts here */
+typedef struct {
+    int64_t pts_ns;         /* the wire key (gf_media_head.pts_ns) of the VIDEO this belongs to; a stamp whose VIDEO carries another key is ignored */
+    uint32_t rtp;           /* the picture's 32-bit RTP timestamp */
+    uint32_t clock_hz;      /* its tick rate (90000 for GFN video) */
+    uint32_t flags;         /* GF_VCLOCK_* */
+    uint32_t pad;
+} gf_video_clock;           /* 24 bytes */
 
 typedef struct { int32_t type; int32_t pad; int64_t num; } gf_event;           /* NDL's load callback (type, numValue), text follows */
 

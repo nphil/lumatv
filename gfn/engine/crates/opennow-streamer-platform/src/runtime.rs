@@ -4,6 +4,8 @@
 //!
 //! VIDEO carries absolute CLOCK_MONOTONIC nanoseconds. The shared feeder owns load-relative millisecond
 //! conversion, audio timing, loss recovery, and fatal-player latching for every engine.
+//! `LUMATV_GFN_SENDER_TIME=1` (off by default) also sends each VIDEO's own sender timestamp ahead of it, so the feeder can stamp the player on the
+//! sender's timeline (gfn/feeder/src/gf_vclock.h); the hand-over time stays the key by which ACCEPT and DROP name the unit.
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -47,6 +49,8 @@ pub struct FeederConfig {
     pub pts_unit: i32,
     pub max_nits: u32,
     pub max_average_nits: u32,
+    /// Send each video unit's sender timestamp ahead of it (`LUMATV_GFN_SENDER_TIME=1`). Off by default: the player is stamped with the hand-over time.
+    pub sender_time: bool,
 }
 
 impl FeederConfig {
@@ -61,6 +65,7 @@ impl FeederConfig {
             pts_unit: feeder::pts_unit::MS,
             max_nits: env("LUMATV_GFN_HDR_MAX_NITS").and_then(|v| v.parse().ok()).unwrap_or(1000),
             max_average_nits: env("LUMATV_GFN_HDR_MAX_AVERAGE_NITS").and_then(|v| v.parse().ok()).unwrap_or(400),
+            sender_time: env("LUMATV_GFN_SENDER_TIME").as_deref() == Some("1"),
         }
     }
 }
@@ -592,7 +597,8 @@ fn pace_loop(shared: &Shared, client: &Mutex<Option<FeederClient>>) {
     }
 }
 
-/// Writes one unit to the feeder. A video unit's pts is its hand-over time, by which the feeder's ACCEPT and DROP name it.
+/// Writes one unit to the feeder. A video unit's pts is its hand-over time, by which the feeder's ACCEPT and DROP name it. With `sender_time` on, a
+/// VIDEO_CLOCK naming that pts and carrying the sender's own timestamp is written right before the VIDEO, under the same lock.
 fn send(shared: &Shared, client: &Mutex<Option<FeederClient>>, frame: &EncodedFrame, is_video: bool, slot: u32) -> PushOutcome {
     let mut guard = client.lock().unwrap_or_else(|e| e.into_inner());
     let Some(client) = guard.as_mut() else { return PushOutcome::Closed };
@@ -624,6 +630,16 @@ fn send(shared: &Shared, client: &Mutex<Option<FeederClient>>, frame: &EncodedFr
     let flush = is_video && !frame.contiguous && !frame.keyframe;
     let sent = (|| {
         if flush { client.send_flush()?; }
+        if is_video && shared.runtime.feeder.sender_time {
+            // the 32-bit RTP timestamp: the feeder unwraps it, so only its low bits matter
+            client.send_video_clock(&feeder::VideoClock {
+                pts_ns: pts,
+                rtp: frame.timestamp as u32,
+                clock_hz: frame.clock_rate_hz,
+                flags: if frame.contiguous { 0 } else { feeder::video_clock::GAP },
+                pad: 0,
+            })?;
+        }
         client.send_media(kind, pts, frame.keyframe, &frame.data)
     })();
     if slot != NO_SLOT {
@@ -748,9 +764,13 @@ mod feeder_feedback_tests {
     use crate::types::{MediaColorQuality, StreamShortcutBindings};
 
     fn shared() -> (Shared, Receiver<MediaFeedback>, Sender<Result<(), String>>) {
+        shared_with(false)
+    }
+
+    fn shared_with(sender_time: bool) -> (Shared, Receiver<MediaFeedback>, Sender<Result<(), String>>) {
         let captured_input = Arc::new(CapturedInputQueue::default());
         let runtime = Arc::new(RuntimeInner {
-            feeder: FeederConfig::from_env(),
+            feeder: FeederConfig { sender_time, ..FeederConfig::from_env() },
             pads: PadBridge::new(Arc::clone(&captured_input)),
             captured_input,
             muted: AtomicBool::new(false),
@@ -808,5 +828,92 @@ mod feeder_feedback_tests {
         assert_eq!(feedback.len(), 3);
         assert_eq!(feedback.iter().filter(|m| matches!(m, MediaFeedback::RequestKeyframe { .. })).count(), 1);
         assert!(matches!(&feedback[1], MediaFeedback::RequestKeyframe { mid, .. } if mid == "video-0"));
+    }
+
+    /// A feeder stand-in on a socket of its own: greets with protocol 2, then keeps what the engine writes until the engine hangs up.
+    fn fake_feeder() -> (FeederClient, std::thread::JoinHandle<Vec<u8>>) {
+        use std::io::{Read, Write};
+        static SOCKETS: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!("opennow-feeder-{}-{}.sock", std::process::id(), SOCKETS.fetch_add(1, Ordering::Relaxed)));
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            let mut hello = vec![23, 0, 0, 0, 112, 0, 0, 0];
+            hello.extend_from_slice(&feeder::PROTO_VERSION.to_le_bytes());
+            hello.resize(8 + 112, 0);
+            peer.write_all(&hello).unwrap();
+            let mut written = Vec::new();
+            peer.read_to_end(&mut written).unwrap();
+            written
+        });
+        let (client, _) = FeederClient::connect(&path, Duration::from_secs(5)).unwrap();
+        let _ = std::fs::remove_file(&path);
+        (client, server)
+    }
+
+    /// Every (type, payload) message in what the engine wrote.
+    fn frames(bytes: &[u8]) -> Vec<(u8, Vec<u8>)> {
+        let mut out = Vec::new();
+        let mut at = 0;
+        while at < bytes.len() {
+            let len = u32::from_le_bytes(bytes[at + 4..at + 8].try_into().unwrap()) as usize;
+            out.push((bytes[at], bytes[at + 8..at + 8 + len].to_vec()));
+            at += 8 + len;
+        }
+        out
+    }
+
+    fn unit(timestamp: u64, keyframe: bool, contiguous: bool) -> EncodedFrame {
+        EncodedFrame {
+            mid: "video-0".into(), codec: MediaCodec::H265, data: Arc::from(vec![9u8; 5]), frame_index: Some(1), timestamp,
+            clock_rate_hz: 90_000, keyframe, contiguous, ssrc: None,
+        }
+    }
+
+    /// What the engine writes for a keyframe, a unit after a gap (which flushes first) and an audio packet. The timestamps are past the 32-bit wrap.
+    fn written_for(sender_time: bool) -> Vec<(u8, Vec<u8>)> {
+        let (shared, _rx, _loaded) = shared_with(sender_time);
+        let (client, server) = fake_feeder();
+        let client = Mutex::new(Some(client));
+        let audio = EncodedFrame { codec: MediaCodec::Opus { channels: 2 }, ..unit(1, false, true) };
+        for (frame, video) in [(unit(0x1_0000_0000 + 5000, true, true), true), (unit(0x1_0000_0000 + 5750, false, false), true), (audio, false)] {
+            assert!(matches!(send(&shared, &client, &frame, video, NO_SLOT), PushOutcome::Queued));
+        }
+        drop(client);
+        frames(&server.join().unwrap())
+    }
+
+    /// A VIDEO or AUDIO message without its key, which is a hand-over time and differs from run to run.
+    fn without_key(message: &(u8, Vec<u8>)) -> (u8, Vec<u8>) {
+        let keyed = message.0 == feeder::msg::VIDEO || message.0 == feeder::msg::AUDIO;
+        (message.0, message.1[if keyed { 8 } else { 0 }..].to_vec())
+    }
+
+    #[test]
+    fn with_sender_time_off_the_wire_carries_only_the_messages_it_always_did() {
+        let types: Vec<u8> = written_for(false).iter().map(|m| m.0).collect();
+        assert_eq!(types, [feeder::msg::VIDEO, feeder::msg::FLUSH, feeder::msg::VIDEO, feeder::msg::AUDIO]);
+    }
+
+    #[test]
+    fn with_sender_time_on_each_video_follows_a_clock_naming_its_key_and_nothing_else_changes() {
+        let key = |p: &[u8]| i64::from_le_bytes(p[..8].try_into().unwrap());
+        let word = |p: &[u8], at: usize| u32::from_le_bytes(p[at..at + 4].try_into().unwrap());
+        let on = written_for(true);
+        let mut clocks = Vec::new();
+        let mut rest = Vec::new();
+        for (i, message) in on.iter().enumerate() {
+            if message.0 == feeder::msg::VIDEO_CLOCK {
+                assert_eq!(on[i + 1].0, feeder::msg::VIDEO);
+                assert_eq!(key(&message.1), key(&on[i + 1].1));
+                clocks.push((message.1.len(), word(&message.1, 8), word(&message.1, 12), word(&message.1, 16)));
+            } else {
+                rest.push(without_key(message));
+            }
+        }
+        // the low 32 bits of the timestamps, the rate, and the gap flag on the unit that was not contiguous
+        assert_eq!(clocks, [(24, 5000, 90_000, 0), (24, 5750, 90_000, feeder::video_clock::GAP)]);
+        // everything else is what the switch-off run wrote, the keys apart
+        assert_eq!(rest, written_for(false).iter().map(without_key).collect::<Vec<_>>());
     }
 }
