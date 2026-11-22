@@ -104,7 +104,7 @@ impl Form {
                 out
             }
             Form::Round { radius, .. } => {
-                let r = radius as f32;
+                let r = (radius as f32).min(w.min(h) as f32 * 0.5);
                 let mut out = Vec::with_capacity(w * h);
                 for y in 0..h {
                     for x in 0..w {

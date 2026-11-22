@@ -1379,12 +1379,13 @@ static void extras_serve(struct feeder *f, const struct pollfd *fds, int n) {
 }
 
 /* 1 when the UI process has ended (the app is over: SAM sees this process end with it). */
-static int ui_gone(struct feeder *f) {
+static int ui_gone(struct feeder *f, int *exit_code) {
     if (f->ui_pid <= 0) return 0;
     int status;
     pid_t r = waitpid(f->ui_pid, &status, WNOHANG);
     if (r == f->ui_pid) {
         gf_say("the UI ended (%s %d)", WIFSIGNALED(status) ? "signal" : "status", WIFSIGNALED(status) ? WTERMSIG(status) : WEXITSTATUS(status));
+        *exit_code = WIFSIGNALED(status) ? 128 + WTERMSIG(status) : WEXITSTATUS(status);
         f->ui_pid = 0;
         return 1;
     }
@@ -1713,7 +1714,7 @@ static int run_serve(struct feeder *f) {
                 rc = 3;
                 goto out;
             }
-            if (ui_gone(f)) goto out;
+            if (ui_gone(f, &rc)) goto out;
             if (f->wl && nf > 1 && (fds[1].revents & (POLLIN | POLLHUP | POLLERR)) && dispatch_window(f) != 0) {
                 rc = 5;
                 goto out;
@@ -1751,7 +1752,7 @@ static int run_serve(struct feeder *f) {
             if (r > 0) extras_serve(f, fds + nf, nx);
             else if (f->close_at) extras_serve(f, fds + nf, 0);
             if (r < 0 && errno != EINTR) break;
-            if (ui_gone(f)) {
+            if (ui_gone(f, &rc)) {
                 g_term = 1;
                 break;
             }

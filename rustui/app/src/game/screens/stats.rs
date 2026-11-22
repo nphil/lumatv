@@ -359,3 +359,19 @@ pub fn show(p: &mut Paint<'_>) {
     #[cfg(test)]
     super::paint::assert_readable(&h.p.plan, h.p.fonts, true);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Form;
+
+    #[test]
+    fn short_latency_segments_keep_a_solid_middle_and_rounded_ends() {
+        for (w, h) in [(3, 14), (6, 14), (14, 3)] {
+            let pixels = Form::Round { w, h, radius: 4 }.coverage();
+            let at = |x: u32, y: u32| pixels[(y * w + x) as usize];
+            assert_eq!(at(w / 2, h / 2), 255);
+            assert!(at(0, 0) < 255);
+            assert_eq!(at(0, 0), at(w - 1, h - 1));
+        }
+    }
+}

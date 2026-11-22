@@ -802,7 +802,7 @@ class Serve(unittest.TestCase):
             with open(os.path.join(home, "gfx64", "launch.sh"), "w") as f:
                 f.write("#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n")
             with open(os.path.join(home, "bin64", "lumatv-gfn-app"), "w") as f:
-                f.write("#!/bin/sh\necho \"ui: $*\" >&2\nsleep 0.3\necho _Window_Id_31 > %s\nwhile [ ! -e %s ]; do sleep 0.05; done\nexit 0\n" % (idfile, done))
+                f.write("#!/bin/sh\necho \"ui: $*\" >&2\nsleep 0.3\necho _Window_Id_31 > %s\nwhile [ ! -e %s ]; do sleep 0.05; done\nexit 42\n" % (idfile, done))
             os.chmod(os.path.join(home, "bin64", "lumatv-gfn-app"), 0o755)
             env = dict(os.environ, LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=os.path.join(tmp, "ndl.log"), LUMATV_GFN_DATA_BASE=tmp)
             proc = subprocess.Popen([exe, "--serve", sock, "--ui-home", home, "--window-id-file", idfile, "-L", NDL], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
@@ -822,7 +822,7 @@ class Serve(unittest.TestCase):
             self.assertIn("SetWindowId _Window_Id_31", open(os.path.join(tmp, "ndl.log")).read())
             open(done, "w").close()
             proc.wait(timeout=10)
-            self.assertEqual(proc.returncode, 0)
+            self.assertEqual(proc.returncode, 42)
             err = proc.stderr.read()
             self.assertIn("ui: --app-id org.test.gfn", err)
             self.assertIn("the UI ended", err)
