@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use super::helper::{ControllerChange, GameSir, GameSirState, Leadjoy, LeadjoyState, LeadjoyView};
 use super::stats::{Mode as StatsMode, Overlay, Telemetry};
 use super::diagnostics::{Config as DiagnosticsConfig, Level as DiagnosticsLevel, Status as DiagnosticsStatus};
-use super::input::{Source, Sources};
+use super::input::{Labels, PadKind, Source, Sources};
 use super::uplink::{self, Uplink};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,13 +66,14 @@ pub enum Input {
         key: Key,
         down: bool,
     },
-    /// A press on a controller, as the pad reader makes it (the remote's keys are [`Input::Key`]).
+    /// A press on the controller in `slot`, as the pad reader makes it (the remote's keys are [`Input::Key`]).
     PadKey {
+        slot: u8,
         key: Key,
         down: bool,
     },
-    /// The number of controllers connected, whenever it changes.
-    Controllers(usize),
+    /// The connected controllers' names by slot, whenever they change.
+    Controllers([Option<String>; MAX_PADS]),
     Engine {
         engine: EngineId,
         message: FromEngine,
@@ -180,6 +181,8 @@ pub struct Preferences {
     pub hero: Density,
     pub covers: Density,
     pub text_percent: u16,
+    /// Whose markings hints draw on a face button; automatic follows the pad in use.
+    pub button_labels: Labels,
     pub reduce_motion: bool,
     pub width: u32,
     pub height: u32,
@@ -203,6 +206,7 @@ impl Default for Preferences {
             hero: Density::Standard,
             covers: Density::Standard,
             text_percent: 100,
+            button_labels: Labels::Automatic,
             reduce_motion: false,
             width: 3840,
             height: 2160,
@@ -232,6 +236,7 @@ impl Preferences {
             Some(200) => 200,
             _ => 100,
         };
+        p.button_labels = Labels::from_key(v["button_labels"].as_str().unwrap_or_default());
         p.reduce_motion = v["reduce_motion"].as_bool().unwrap_or(false);
         let resolution = v["height"].as_u64().unwrap_or(2160);
         (p.width, p.height) = match resolution {
@@ -257,7 +262,7 @@ impl Preferences {
         p
     }
     fn json(&self) -> serde_json::Value {
-        serde_json::json!({"family":self.family,"light":self.light,"hero":self.hero.index(),"covers":self.covers.index(),"text_percent":self.text_percent,"reduce_motion":self.reduce_motion,"width":self.width,"height":self.height,"fps":self.fps,"hdr":self.hdr,"codec":self.codec.map_or("auto",Codec::as_str),"frame_pacing":self.frame_pacing(),"bitrate_mbps":self.bitrate_mbps,"stats":self.stats,"deadzone":self.deadzone,"anti_deadzone":self.anti_deadzone,"stick_curve":self.stick_curve.name()})
+        serde_json::json!({"family":self.family,"light":self.light,"hero":self.hero.index(),"covers":self.covers.index(),"text_percent":self.text_percent,"button_labels":self.button_labels.key(),"reduce_motion":self.reduce_motion,"width":self.width,"height":self.height,"fps":self.fps,"hdr":self.hdr,"codec":self.codec.map_or("auto",Codec::as_str),"frame_pacing":self.frame_pacing(),"bitrate_mbps":self.bitrate_mbps,"stats":self.stats,"deadzone":self.deadzone,"anti_deadzone":self.anti_deadzone,"stick_curve":self.stick_curve.name()})
     }
     fn frame_pacing(&self) -> &'static str {
         if self.smooth_pacing { "smooth" } else { "latency" }
@@ -717,6 +722,10 @@ impl Model {
     pub fn input_source(&self) -> Source {
         self.sources.glyphs()
     }
+    /// Whose markings hints draw on a face button: the Controllers setting's, or the pad in use.
+    pub fn pad_kind(&self) -> PadKind {
+        self.prefs.button_labels.kind(self.sources.pad())
+    }
     pub fn foreground(&self) -> bool {
         self.foreground
     }
@@ -902,11 +911,11 @@ impl Model {
                 let switched = down && self.sources.used(Source::Remote);
                 changed = self.key(key, down, &mut out) | switched;
             }
-            Input::PadKey { key, down } => {
-                let switched = down && self.sources.used(Source::Controller);
+            Input::PadKey { slot, key, down } => {
+                let switched = down && self.sources.used_pad(usize::from(slot));
                 changed = self.key(key, down, &mut out) | switched;
             }
-            Input::Controllers(count) => changed = self.sources.connected(count),
+            Input::Controllers(names) => changed = self.sources.connected(&names),
             Input::Click { focus, down } => {
                 if self.navigation.iter().any(|n| n.id == focus) {
                     let switched = down && self.sources.used(Source::Remote);
@@ -1003,7 +1012,8 @@ impl Model {
                 }
             },
             Input::Lab { now_ns, reports, names, frame } => {
-                let switched = reports.iter().any(|(_, report)| report.buttons != 0) && self.sources.used(Source::Controller);
+                let pressed = reports.iter().find(|(_, report)| report.buttons != 0).map(|(slot, _)| usize::from(*slot));
+                let switched = pressed.is_some_and(|slot| self.sources.used_pad(slot));
                 changed = self.lab_input(now_ns, reports, names, frame) | switched;
             }
             Input::Frames(frames) => { self.telemetry.frames(frames, self.now_ms); changed = false; }
@@ -1508,6 +1518,9 @@ impl Model {
                     } else if i == 2 {
                         self.show_page(Page::GameSir, Focus::Setting(0));
                         self.read_gamesir(out);
+                    } else if i == 4 {
+                        self.prefs.button_labels = Labels::ALL[(self.prefs.button_labels.index() + 1) % Labels::ALL.len()];
+                        self.save_prefs(out);
                     } else {
                         self.show_page(Page::Leadjoy, Focus::Setting(0));
                         self.read_leadjoy(out);
@@ -1845,6 +1858,10 @@ impl Model {
                     self.set_stats(StatsMode::ALL[step(self.prefs.stats.mode.index(), 3)], out);
                     return true;
                 }
+                _ => return false,
+            },
+            Section::Controllers => match row {
+                4 => self.prefs.button_labels = Labels::ALL[step(self.prefs.button_labels.index(), Labels::ALL.len())],
                 _ => return false,
             },
             Section::Diagnostics => match row {
@@ -2673,7 +2690,7 @@ impl Model {
                         Section::Appearance => 6,
                         Section::Streaming => 8,
                         Section::Integrations => self.integrations.len(),
-                        Section::Controllers => 4,
+                        Section::Controllers => 5,
                         Section::Diagnostics => 7,
                         Section::About => 3,
                     };

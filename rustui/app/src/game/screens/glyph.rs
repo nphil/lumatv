@@ -1,7 +1,7 @@
 //! What a hint's key looks like: the remote's icon, or the controller's face button when a controller is the last thing used.
-use super::paint::{Paint, Word};
+use super::{paint::{Paint, Word}, symbols::Symbol};
 use crate::game::{
-    input::{Face, Source},
+    input::{Face, PadKind, Source},
     model::Key,
 };
 use lumatv_tokens::{TypeRole, themes::{composite, contrast}};
@@ -59,6 +59,22 @@ pub fn face_ink(roles: &Roles, mode: Mode, face: Face) -> FaceInk {
     }
 }
 
+/// How a pad with black buttons and uncoloured markings (the GameSir Cyclone 2, the Leadjoy Xeno Plus) draws a face button: white on
+/// black, which a theme maps to its ink and canvas roles. On a dark sheet the button would vanish, so it gets an ink rim.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MarkInk {
+    pub disc: Straight,
+    pub mark: Straight,
+    pub rim: bool,
+}
+
+pub fn mark_ink(roles: &Roles, mode: Mode) -> MarkInk {
+    match mode {
+        Mode::Light => MarkInk { disc: roles[Role::Ink], mark: roles[Role::Canvas], rim: false },
+        Mode::Dark => MarkInk { disc: roles[Role::Canvas], mark: roles[Role::Ink], rim: true },
+    }
+}
+
 impl Paint<'_> {
     /// The face button `key` is when the controller is what the person last used and the key has one.
     pub fn pad_face(&self, key: Key) -> Option<Face> {
@@ -68,10 +84,26 @@ impl Paint<'_> {
     pub fn lead(&self, key: Key, icon: Icon) -> Lead {
         self.pad_face(key).map_or(Lead::Icon(icon), Lead::Pad)
     }
-    /// A face button: a disc with its letter filling the square `at`, in nodes `id` and `id + 1`. On a primary button the disc
-    /// takes the button's ink and its letter the button's fill, which the primary pair already holds at 7:1.
+    /// A face button: a disc with its marking filling the square `at`, in nodes `id` and `id + 1`. The marking is the pad in use's
+    /// (see `Model::pad_kind`). On a primary button the disc takes the button's ink and the marking its fill, which the primary pair
+    /// already holds at 7:1.
     pub fn pad_glyph(&mut self, id: u64, face: Face, at: Frame, primary: bool, stage: bool, z: i32) {
         let mode = self.mode_at(stage);
+        let kind = self.model.pad_kind();
+        let side = at.w;
+        if kind != PadKind::Xbox {
+            let (disc, mark, rim) = if primary {
+                let (fill, ink) = self.primary(stage);
+                (ink, fill, false)
+            } else {
+                let ink = mark_ink(self.tokens.roles(mode), mode);
+                (ink.disc.premultiply(0.0), ink.mark.premultiply(0.0), ink.rim)
+            };
+            self.solid(id, at, disc, side / 2.0, z);
+            // The rim and the marking are one layer, so one colour: the ink.
+            self.symbol(id + 1, Symbol::Face { kind, face, ring: rim }, at, mark, z + 1);
+            return;
+        }
         let (disc, letter) = if primary {
             let (fill, ink) = self.primary(stage);
             (ink, fill)
@@ -79,7 +111,6 @@ impl Paint<'_> {
             let ink = face_ink(self.tokens.roles(mode), mode, face);
             (ink.disc.premultiply(0.0), ink.letter.premultiply(0.0))
         };
-        let side = at.w;
         self.solid(id, at, disc, side / 2.0, z);
         let ty = Type { px: (side * 0.56).round().max(1.0) as u32, ..self.bold(TypeRole::Label) };
         let letter = Word { text: face.letter().into(), ty, colour: letter, x: 0.0, y: (side - line_height(ty)) / 2.0, w: side, align: Align::Centre };
@@ -91,16 +122,21 @@ impl Paint<'_> {
 mod tests {
     use super::*;
     use crate::game::{
+        input::Labels,
         model::{Input, Model},
         screens::paint::Body,
     };
     use lumagame_core::{catalog::Listing, state::State};
     use lumatv_tokens::{Tokens, themes};
 
+    fn pads(names: &[&str]) -> [Option<String>; lumatv_gfn_pad::MAX_PADS] {
+        std::array::from_fn(|i| names.get(i).map(|n| (*n).to_owned()))
+    }
+
     fn model(controller: bool) -> Model {
         let mut m = Model::new(State::default(), Listing::default(), Vec::new());
         if controller {
-            m.step(Input::Controllers(1));
+            m.step(Input::Controllers(pads(&["Pad"])));
         }
         m
     }
@@ -157,6 +193,57 @@ mod tests {
     }
 
     #[test]
+    fn the_markings_follow_the_pad_in_use_or_the_setting() {
+        let cyclone = "Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller";
+        let mut m = model(false);
+        m.step(Input::Controllers(pads(&["Microsoft X-Box pad", cyclone])));
+        assert_eq!(m.pad_kind(), PadKind::Xbox);
+        m.step(Input::PadKey { slot: 1, key: Key::Ok, down: true });
+        assert_eq!(m.pad_kind(), PadKind::GameSir);
+        m.prefs.button_labels = Labels::Fixed(PadKind::Leadjoy);
+        assert_eq!(m.pad_kind(), PadKind::Leadjoy, "the setting wins");
+    }
+
+    #[test]
+    fn a_hint_is_the_same_size_for_every_marking_and_draws_it_as_one_symbol() {
+        let tokens = themes::game_tokens("rose-pine", Mode::Dark, &Tokens::shipped()).unwrap();
+        let mut fonts = ui::Fonts::new();
+        let mut widths = Vec::new();
+        for labels in Labels::ALL {
+            for percent in [100, 200] {
+                let mut m = model(true);
+                m.prefs.text_percent = percent;
+                m.prefs.button_labels = labels;
+                let mut p = Paint::new(&tokens, &m, &mut fonts);
+                let w = p.hint(10, "Choose", Lead::Pad(Face::A), 0.0, 0.0, false, 1);
+                let symbols = p.plan.nodes.iter().filter(|n| matches!(n.body, Body::Symbol(Symbol::Face { .. }, _))).count();
+                assert_eq!(symbols, usize::from(labels != Labels::Automatic && labels != Labels::Fixed(PadKind::Xbox)), "{labels:?}");
+                widths.push((percent, w));
+            }
+        }
+        for percent in [100, 200] {
+            let of_percent: Vec<_> = widths.iter().filter(|(p, _)| *p == percent).map(|(_, w)| *w).collect();
+            assert!(of_percent.windows(2).all(|w| w[0] == w[1]), "{percent}%: {of_percent:?}");
+        }
+    }
+
+    #[test]
+    fn black_buttons_hold_their_marking_and_their_edge_on_every_theme() {
+        for family in themes::game_catalog() {
+            for mode in [Mode::Dark, Mode::Light] {
+                let roles = family.roles(mode);
+                let ink = mark_ink(roles, mode);
+                let sheet = composite(roles[Role::Sheet], roles[Role::Canvas]);
+                let what = format!("{} {mode:?}", family.id);
+                assert!(contrast(ink.mark, ink.disc) >= 4.5, "{what}: marking");
+                // The edge is the disc itself, or the rim in the marking's ink when the disc is the canvas.
+                let edge = if ink.rim { ink.mark } else { ink.disc };
+                assert!(contrast(edge, sheet) >= 3.0, "{what}: edge");
+            }
+        }
+    }
+
+    #[test]
     fn keys_without_a_face_button_keep_the_remote_icon() {
         let tokens = themes::game_tokens("rose-pine", Mode::Dark, &Tokens::shipped()).unwrap();
         let mut fonts = ui::Fonts::new();
@@ -175,11 +262,11 @@ mod tests {
             m.step(input);
             m.input_source()
         };
-        assert_eq!(step(&mut m, Input::Controllers(1)), Source::Controller);
+        assert_eq!(step(&mut m, Input::Controllers(pads(&["Pad"]))), Source::Controller);
         assert_eq!(step(&mut m, Input::Key { key: Key::Left, down: true }), Source::Remote);
         assert_eq!(step(&mut m, Input::Key { key: Key::Left, down: false }), Source::Remote);
-        assert_eq!(step(&mut m, Input::PadKey { key: Key::Back, down: false }), Source::Remote, "a release never switches");
-        assert_eq!(step(&mut m, Input::PadKey { key: Key::Down, down: true }), Source::Controller);
-        assert_eq!(step(&mut m, Input::Controllers(0)), Source::Remote);
+        assert_eq!(step(&mut m, Input::PadKey { slot: 0, key: Key::Back, down: false }), Source::Remote, "a release never switches");
+        assert_eq!(step(&mut m, Input::PadKey { slot: 0, key: Key::Down, down: true }), Source::Controller);
+        assert_eq!(step(&mut m, Input::Controllers(pads(&[]))), Source::Remote);
     }
 }

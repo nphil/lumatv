@@ -319,7 +319,10 @@ knob.
   with no key pressed yet counts as the last input; the first press of the other kind switches. A
   face glyph is a disc of the same size as the icon, in the button's colour if it holds 3:1 on the
   canvas and sheet (letter 4.5:1), otherwise the theme's ink. X, the bumpers, View and Menu do
-  nothing in menus, so they get no glyph.
+  nothing in menus, so they get no glyph. A GameSir Cyclone 2 or Leadjoy Xeno Plus in use (told by
+  the pad's name) draws its own black buttons with white letters, as ink on canvas in light mode and
+  canvas with an ink rim and letters in dark; Settings › Controllers › Button labels overrides the
+  pick (`docs/research/controller-glyphs.md`).
 - **Hub**: top bar with back, title, Favourite and more; then logo, meta, description, capability
   chips, `[Play · target]` and `[Choose where to play]`, and the target summary (engine,
   host/store/account, readiness). After a failed launch or for an unreachable target a notice

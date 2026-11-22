@@ -743,6 +743,29 @@ fn screens() -> Vec<(String, Model)> {
         })
         .collect::<Vec<_>>();
     out.extend(pads);
+    // Each owned pad's markings, found from the name its kernel node carries; PlayStation only through the Button labels setting.
+    let marked = out
+        .iter()
+        .filter(|(name, _)| ["09-chooser-pad", "32-chooser-text200-pad", "15-overlay-pad", "15-overlay-text200-pad"].iter().any(|s| name.starts_with(s)))
+        .flat_map(|(name, m)| {
+            [
+                ("playstation", None),
+                ("gamesir", Some("Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller")),
+                ("leadjoy", Some("Leadjoy Xeno Plus")),
+            ]
+            .map(|(id, detected)| {
+                let mut m = m.clone();
+                match detected {
+                    Some(pad) => {
+                        m.step(Input::Controllers([Some(pad.to_owned()), None, None, None]));
+                    }
+                    None => m.prefs.button_labels = super::input::Labels::Fixed(super::input::PadKind::PlayStation),
+                }
+                (format!("{name}-{id}"), m)
+            })
+        })
+        .collect::<Vec<_>>();
+    out.extend(marked);
     out
 }
 fn png(path: &Path, w: u32, h: u32, bytes: &[u8]) -> io::Result<()> {

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+LumaGame's controller hints draw the face buttons as printed on the GameSir Cyclone 2 (thin white letters on black) and the Leadjoy Xeno Plus (dot-matrix letters), in the theme's ink and canvas, picked from the pad's kernel name; Settings › Controllers › Button labels overrides it, including a PlayStation set. The names the TV reports are not yet read, so detection is not yet checked on the TV.
+
 GeForce NOW starts a new game right after the game was ended from inside it. LumaGame never released the finished seat in OpenNOW's core, which refuses every new launch while it holds one (`session_update_busy`), so each play failed after 0.6 s until LumaGame was restarted (2026-11-22, Doom). The seat is now released when the far side ends the game, and a failed launch ends with the engine's error code in its message, which the screen shows and `session_end` logs as `code`. Not yet checked on the TV.
 
 Multi Link is an off-by-default plugin under Network › Wired. Supported apps can receive parallel downloads over Ethernet, USB Ethernet and saved Wi-Fi while controls retain the wired route. Connection preparation is journalled and restored on disable, standby and helper exit; its page reports observed traffic rather than promised link speeds. Marquee integration is specified separately. The plugin and its page are not yet accepted on the TV.

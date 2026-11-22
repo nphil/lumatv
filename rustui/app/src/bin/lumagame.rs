@@ -124,13 +124,14 @@ struct PadKeys { menu: MenuKeys, buttons: u16 }
 #[derive(Default)]
 struct LabBuffer { reports: VecDeque<(u8, RawReport)>, names: [Option<String>; MAX_PADS] }
 struct MenuSink { active: AtomicBool, mode: AtomicU8, connected: AtomicU32, keys: Mutex<[PadKeys; MAX_PADS]>, lab: Mutex<LabBuffer>, send: UnixDatagram }
-struct MenuPads { runtime: PadRuntime, sink: Arc<MenuSink>, receive: UnixDatagram, announced: AtomicU32 }
+struct MenuPads { runtime: PadRuntime, sink: Arc<MenuSink>, receive: UnixDatagram, announced: Mutex<[Option<String>; MAX_PADS]> }
 
 const KEYS: [Key; 8] = [Key::Up, Key::Down, Key::Left, Key::Right, Key::Ok, Key::Back, Key::Guide, Key::Menu];
 
 impl MenuSink {
-    fn send(&self, key: Key, down: bool) {
-        if let Some(index) = KEYS.iter().position(|k| *k == key) { let _ = self.send.send(&[index as u8, u8::from(down)]); }
+    /// One key datagram: the key's index, whether it went down, and the slot of the pad that pressed it.
+    fn send(&self, slot: u8, key: Key, down: bool) {
+        if let Some(index) = KEYS.iter().position(|k| *k == key) { let _ = self.send.send(&[index as u8, u8::from(down), slot]); }
     }
 }
 impl PadSink for MenuSink {
@@ -144,11 +145,11 @@ impl PadSink for MenuSink {
                 if let Some(keys) = keys.get_mut(usize::from(slot)) {
                     // Stick movement belongs to the lab; held buttons still track their real release across mode changes.
                     if mode != PadMode::Menu as u8 { state.left_x = 0; state.left_y = 0; state.right_x = 0; state.right_y = 0; }
-                    keys.menu.feed(&state, |key| if navigating { self.send(Key::from_menu(key), true); });
+                    keys.menu.feed(&state, |key| if navigating { self.send(slot, Key::from_menu(key), true); });
                     if navigating {
                         // The menus act on release, so every face button that sends a key on press owes one on release.
                         for face in Face::ALL {
-                            if keys.buttons & face.button() != 0 && state.buttons & face.button() == 0 { self.send(face.key(), false); }
+                            if keys.buttons & face.button() != 0 && state.buttons & face.button() == 0 { self.send(slot, face.key(), false); }
                         }
                     }
                     keys.buttons = state.buttons;
@@ -168,7 +169,7 @@ impl PadSink for MenuSink {
                 if let Some(known) = lab.names.get_mut(usize::from(slot)) { *known = None; }
                 lab.reports.retain(|(i, _)| *i != slot);
             }
-            PadEvent::Guide { pressed, .. } if navigating => self.send(Key::Guide, pressed),
+            PadEvent::Guide { slot, pressed } if navigating => self.send(slot, Key::Guide, pressed),
             _ => {}
         }
     }
@@ -187,7 +188,7 @@ impl MenuPads {
         send.set_nonblocking(true)?; receive.set_nonblocking(true)?;
         let sink = Arc::new(MenuSink { active: AtomicBool::new(false), mode: AtomicU8::new(PadMode::Menu as u8), connected: AtomicU32::new(0), keys: Mutex::new(std::array::from_fn(|_| PadKeys::default())), lab: Mutex::new(LabBuffer::default()), send });
         let runtime = PadRuntime::start(PadConfig { boost: None, latency_dir: None, raw: true, ..PadConfig::from_env() }, sink.clone());
-        Ok(Self { runtime, sink, receive, announced: AtomicU32::new(0) })
+        Ok(Self { runtime, sink, receive, announced: Mutex::new(Default::default()) })
     }
     fn sync(&self, wanted: bool) {
         if self.sink.active.swap(wanted, Ordering::AcqRel) != wanted { self.runtime.set_grab(wanted); }
@@ -198,12 +199,12 @@ impl MenuPads {
         }
     }
     fn poll(&self, inputs: &mut Vec<Input>, frame: u64) {
-        let mut bytes = [0; 2];
-        let count = self.sink.connected.load(Ordering::Acquire).count_ones();
-        if self.announced.swap(count, Ordering::AcqRel) != count { inputs.push(Input::Controllers(count as usize)); }
+        let mut bytes = [0; 3];
+        let names = self.sink.lab.lock().unwrap_or_else(|e| e.into_inner()).names.clone();
+        if std::mem::replace(&mut *self.announced.lock().unwrap_or_else(|e| e.into_inner()), names.clone()) != names { inputs.push(Input::Controllers(names)); }
         while let Ok(n) = self.receive.recv(&mut bytes) {
-            if n == 2 && self.sink.active.load(Ordering::Acquire) {
-                if let Some(key) = KEYS.get(usize::from(bytes[0])) { inputs.push(Input::PadKey { key: *key, down: bytes[1] != 0 }); }
+            if n == 3 && self.sink.active.load(Ordering::Acquire) {
+                if let Some(key) = KEYS.get(usize::from(bytes[0])) { inputs.push(Input::PadKey { slot: bytes[2], key: *key, down: bytes[1] != 0 }); }
             }
         }
         if self.sink.active.load(Ordering::Acquire) && self.sink.mode.load(Ordering::Acquire) != PadMode::Menu as u8 {
@@ -700,16 +701,16 @@ mod tests {
         let (send, receive) = UnixDatagram::pair().unwrap();
         receive.set_nonblocking(true).unwrap();
         let sink = MenuSink { active: AtomicBool::new(true), mode: AtomicU8::new(PadMode::Menu as u8), connected: AtomicU32::new(0), keys: Mutex::new(std::array::from_fn(|_| PadKeys::default())), lab: Mutex::new(LabBuffer::default()), send };
-        let report = |buttons| PadEvent::Report { slot: 0, state: PadState { buttons, ..PadState::default() }, press: None };
-        let mut bytes = [0; 2];
+        let report = |buttons| PadEvent::Report { slot: 2, state: PadState { buttons, ..PadState::default() }, press: None };
+        let mut bytes = [0; 3];
         sink.pad_event(1, report(button::A));
-        assert_eq!(receive.recv(&mut bytes).unwrap(), 2);
-        assert_eq!(bytes, [4, 1]);
+        assert_eq!(receive.recv(&mut bytes).unwrap(), 3);
+        assert_eq!(bytes, [4, 1, 2], "key, down, and the pad's slot");
         sink.pad_event(1, report(button::A));
         assert!(receive.recv(&mut bytes).is_err());
         sink.pad_event(1, report(0));
         receive.recv(&mut bytes).unwrap();
-        assert_eq!(bytes, [4, 0]);
+        assert_eq!(bytes, [4, 0, 2]);
         sink.active.store(false, Ordering::Release);
         sink.pad_event(1, report(button::B));
         sink.pad_event(1, report(0));
@@ -722,14 +723,14 @@ mod tests {
         receive.set_nonblocking(true).unwrap();
         let sink = MenuSink { active: AtomicBool::new(true), mode: AtomicU8::new(PadMode::Menu as u8), connected: AtomicU32::new(0), keys: Mutex::new(std::array::from_fn(|_| PadKeys::default())), lab: Mutex::new(LabBuffer::default()), send };
         let report = |buttons| PadEvent::Report { slot: 0, state: PadState { buttons, ..PadState::default() }, press: None };
-        let mut bytes = [0; 2];
+        let mut bytes = [0; 3];
         let menu = KEYS.iter().position(|k| *k == Key::Menu).unwrap() as u8;
         sink.pad_event(1, report(button::Y));
         receive.recv(&mut bytes).unwrap();
-        assert_eq!(bytes, [menu, 1]);
+        assert_eq!(bytes, [menu, 1, 0]);
         sink.pad_event(1, report(0));
         receive.recv(&mut bytes).unwrap();
-        assert_eq!(bytes, [menu, 0]);
+        assert_eq!(bytes, [menu, 0, 0]);
     }
 
     #[test]
@@ -738,7 +739,7 @@ mod tests {
         receive.set_nonblocking(true).unwrap();
         let sink = MenuSink { active: AtomicBool::new(true), mode: AtomicU8::new(PadMode::Lab as u8), connected: AtomicU32::new(0), keys: Mutex::new(std::array::from_fn(|_| PadKeys::default())), lab: Mutex::new(LabBuffer::default()), send };
         let report = |buttons| PadEvent::Report { slot: 0, state: PadState { left_x: i16::MAX, left_y: i16::MAX, buttons, ..PadState::default() }, press: None };
-        let mut bytes = [0; 2];
+        let mut bytes = [0; 3];
         sink.pad_event(1, report(0));
         assert!(receive.recv(&mut bytes).is_err());
         sink.mode.store(PadMode::Captured as u8, Ordering::Release);

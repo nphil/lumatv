@@ -383,6 +383,16 @@ fn controllers(p: &mut Paint<'_>, x: f32, w: f32) {
     ] {
         y += row(p, 500 + i as u64 * 30, Focus::Setting(i), label, Some(description), Control::Value("Open"), Frame::new(x, y, w, 0.0));
     }
+    let labels = crate::game::input::Labels::ALL.map(|l| l.name());
+    y += row(
+        p,
+        620,
+        Focus::Setting(4),
+        "Button labels",
+        Some("The markings hints show on face buttons"),
+        Control::Segments(&labels, p.model.prefs.button_labels.index()),
+        Frame::new(x, y, w, 0.0),
+    );
     y += 32.0;
     let pairs = [("D-pad", "Move focus"), ("A / Cross", "Select on release"), ("B / Circle", "Back"), ("Guide", "Open the playing controls")];
     for (i, (label, value)) in pairs.into_iter().enumerate() {

@@ -1,6 +1,6 @@
 //! Which kind of input the person is using, so hints draw the controller's buttons for a pad and the remote's keys for a remote.
 use super::model::Key;
-use lumatv_gfn_pad::button;
+use lumatv_gfn_pad::{MAX_PADS, button};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Source {
@@ -9,15 +9,75 @@ pub enum Source {
     Controller,
 }
 
-/// The last kind of input used and how many controllers are connected.
+/// Whose markings a hint draws on a face button. Xbox is what every pad that is not recognised shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PadKind {
+    #[default]
+    Xbox,
+    PlayStation,
+    GameSir,
+    Leadjoy,
+}
+impl PadKind {
+    /// The kind a pad's name says. The Cyclone 2 in DS4 mode is `054c:09cc` on the wire, the same id as a real DualShock 4 v2, but the
+    /// kernel names an HID pad after its USB manufacturer string and the receiver's is GameSir's own ("Guangzhou Chicken Run Network
+    /// Technology Co., Ltd."), so the name tells them apart where the id cannot. A Xeno Plus names itself Leadjoy or Xeno. Anything else
+    /// keeps the Xbox glyphs.
+    pub fn from_name(name: &str) -> Self {
+        let name = name.to_ascii_lowercase();
+        if name.contains("chicken run") || name.contains("gamesir") {
+            Self::GameSir
+        } else if name.contains("leadjoy") || name.contains("xeno") || name.contains("liteemf") {
+            Self::Leadjoy
+        } else {
+            Self::Xbox
+        }
+    }
+}
+
+/// The Controllers setting "Button labels": follow the pad in use, or always draw one kind's markings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Labels {
+    #[default]
+    Automatic,
+    Fixed(PadKind),
+}
+impl Labels {
+    pub const ALL: [Self; 5] =
+        [Self::Automatic, Self::Fixed(PadKind::Xbox), Self::Fixed(PadKind::PlayStation), Self::Fixed(PadKind::GameSir), Self::Fixed(PadKind::Leadjoy)];
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|l| *l == self).unwrap_or(0)
+    }
+    pub fn name(self) -> &'static str {
+        ["Automatic", "Xbox", "PlayStation", "GameSir Cyclone 2", "Leadjoy Xeno Plus"][self.index()]
+    }
+    pub fn key(self) -> &'static str {
+        ["automatic", "xbox", "playstation", "gamesir", "leadjoy"][self.index()]
+    }
+    pub fn from_key(key: &str) -> Self {
+        Self::ALL.into_iter().find(|l| l.key() == key).unwrap_or_default()
+    }
+    /// The kind to draw: the setting's own, or `detected` when it is automatic.
+    pub fn kind(self, detected: Option<PadKind>) -> PadKind {
+        match self {
+            Self::Automatic => detected.unwrap_or_default(),
+            Self::Fixed(kind) => kind,
+        }
+    }
+}
+
+/// The last kind of input used, which controllers are connected and which of them was pressed last.
 ///
 /// Hints follow the last press: the first one of the other kind switches them, and nothing else does, so a pad lying idle beside the
 /// remote changes nothing. Before any press a connected controller is the default. With none connected the remote's glyphs show
-/// whatever was pressed last, since a hint for a button that is not there helps nobody.
+/// whatever was pressed last, since a hint for a button that is not there helps nobody. With several pads the markings are those of
+/// the one pressed last, or of the first connected before any press.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Sources {
     last: Option<Source>,
     controllers: usize,
+    kinds: [Option<PadKind>; MAX_PADS],
+    slot: Option<usize>,
 }
 impl Sources {
     pub fn glyphs(&self) -> Source {
@@ -27,23 +87,43 @@ impl Sources {
             (None, _) => Source::Controller,
         }
     }
+    /// The kind of the pad whose markings hints draw, when its name is known.
+    pub fn pad(&self) -> Option<PadKind> {
+        self.slot.and_then(|slot| self.kinds[slot]).or_else(|| self.kinds.iter().flatten().next().copied())
+    }
+    /// What the hints show: the remote's icons, or a pad's markings.
+    fn look(&self) -> (Source, Option<PadKind>) {
+        let source = self.glyphs();
+        (source, self.pad().filter(|_| source == Source::Controller))
+    }
     /// A press of `source`. True when the glyphs change.
     pub fn used(&mut self, source: Source) -> bool {
-        let before = self.glyphs();
+        let before = self.look();
         self.last = Some(source);
         // Engines send a pad's keys while the shell has released it, before the shell has counted the pad.
         self.controllers = self.controllers.max(usize::from(source == Source::Controller));
-        before != self.glyphs()
+        before != self.look()
     }
-    /// The number of connected controllers. True when the glyphs change.
-    pub fn connected(&mut self, count: usize) -> bool {
-        let before = self.glyphs();
-        self.controllers = count;
-        if count == 0 && self.last == Some(Source::Controller) {
+    /// A press on the pad in `slot`. True when the glyphs change.
+    pub fn used_pad(&mut self, slot: usize) -> bool {
+        let before = self.look();
+        self.slot = Some(slot).filter(|slot| *slot < MAX_PADS);
+        self.used(Source::Controller);
+        before != self.look()
+    }
+    /// The connected controllers' names by slot. True when the glyphs change.
+    pub fn connected(&mut self, names: &[Option<String>; MAX_PADS]) -> bool {
+        let before = self.look();
+        self.controllers = names.iter().flatten().count();
+        self.kinds = std::array::from_fn(|i| names[i].as_deref().map(PadKind::from_name));
+        if self.slot.is_some_and(|slot| names[slot].is_none()) {
+            self.slot = None;
+        }
+        if self.controllers == 0 && self.last == Some(Source::Controller) {
             // The pad left: a controller that comes back is a fresh start, not a continuation.
             self.last = None;
         }
-        before != self.glyphs()
+        before != self.look()
     }
 }
 
@@ -105,11 +185,19 @@ mod tests {
     use super::*;
     use lumatv_gfn_pad::{PadState, menu::MenuKeys};
 
+    /// `names` in the first slots, as the shell reports them.
+    pub(crate) fn pads(names: &[&str]) -> [Option<String>; MAX_PADS] {
+        std::array::from_fn(|i| names.get(i).map(|n| (*n).to_owned()))
+    }
+    fn n(count: usize) -> [Option<String>; MAX_PADS] {
+        pads(&["Pad"; MAX_PADS][..count])
+    }
+
     #[test]
     fn a_connected_controller_is_the_start_default_and_a_remote_key_takes_over() {
         let mut s = Sources::default();
         assert_eq!(s.glyphs(), Source::Remote);
-        assert!(s.connected(1), "a pad present before any press shows its buttons");
+        assert!(s.connected(&n(1)), "a pad present before any press shows its buttons");
         assert_eq!(s.glyphs(), Source::Controller);
         assert!(s.used(Source::Remote));
         assert_eq!(s.glyphs(), Source::Remote);
@@ -120,28 +208,28 @@ mod tests {
     #[test]
     fn only_the_first_input_of_the_other_kind_switches() {
         let mut s = Sources::default();
-        s.connected(1);
+        s.connected(&n(1));
         assert!(!s.used(Source::Controller), "the default already shows the pad");
         assert!(s.used(Source::Remote));
         for _ in 0..3 {
             assert!(!s.used(Source::Remote), "more of the same changes nothing");
         }
-        assert!(!s.connected(2), "another pad joining does not take the remote's glyphs away");
-        assert!(!s.connected(1));
+        assert!(!s.connected(&n(2)), "another pad joining does not take the remote's glyphs away");
+        assert!(!s.connected(&n(1)));
         assert_eq!(s.glyphs(), Source::Remote);
     }
 
     #[test]
     fn without_a_controller_the_remote_shows_and_a_returning_pad_is_a_fresh_start() {
         let mut s = Sources::default();
-        s.connected(1);
-        assert!(s.connected(0), "the pad left");
+        s.connected(&n(1));
+        assert!(s.connected(&n(0)), "the pad left");
         assert_eq!(s.glyphs(), Source::Remote);
-        assert!(s.connected(1), "back, with no press since: the default again");
+        assert!(s.connected(&n(1)), "back, with no press since: the default again");
         assert_eq!(s.glyphs(), Source::Controller);
         s.used(Source::Remote);
-        s.connected(0);
-        assert!(!s.connected(1), "the remote was the last press, and stays");
+        s.connected(&n(0));
+        assert!(!s.connected(&n(1)), "the remote was the last press, and stays");
         assert_eq!(s.glyphs(), Source::Remote);
     }
 
@@ -150,6 +238,33 @@ mod tests {
         let mut s = Sources::default();
         assert!(s.used(Source::Controller));
         assert_eq!(s.glyphs(), Source::Controller);
+    }
+
+    #[test]
+    fn a_pad_is_told_by_its_name_and_the_last_pressed_one_decides() {
+        let cyclone = "Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller";
+        assert_eq!(PadKind::from_name(cyclone), PadKind::GameSir);
+        assert_eq!(PadKind::from_name("GameSir-G7 SE"), PadKind::GameSir);
+        assert_eq!(PadKind::from_name("Leadjoy Xeno Plus"), PadKind::Leadjoy);
+        assert_eq!(PadKind::from_name("Sony Interactive Entertainment Wireless Controller"), PadKind::Xbox);
+        let mut s = Sources::default();
+        s.connected(&pads(&["Microsoft X-Box pad", cyclone]));
+        assert_eq!(s.pad(), Some(PadKind::Xbox), "before any press, the first pad");
+        assert!(s.used_pad(1));
+        assert_eq!(s.pad(), Some(PadKind::GameSir));
+        assert!(!s.used_pad(1), "the same pad again changes nothing");
+        s.connected(&pads(&["Microsoft X-Box pad"]));
+        assert_eq!(s.pad(), Some(PadKind::Xbox), "the pad that was pressed left");
+    }
+
+    #[test]
+    fn the_setting_overrides_the_detected_pad() {
+        assert_eq!(Labels::Automatic.kind(Some(PadKind::GameSir)), PadKind::GameSir);
+        assert_eq!(Labels::Automatic.kind(None), PadKind::Xbox);
+        assert_eq!(Labels::Fixed(PadKind::Leadjoy).kind(Some(PadKind::GameSir)), PadKind::Leadjoy);
+        for l in Labels::ALL {
+            assert_eq!(Labels::from_key(l.key()), l);
+        }
     }
 
     /// Every face button a hint can name sends the very key the hint stands for: feeding the button to the menu's pad reader yields it.
