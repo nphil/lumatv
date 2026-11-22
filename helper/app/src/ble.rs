@@ -1496,6 +1496,20 @@ mod tests {
             panic!("never: {what}; topic {:?}", self.ctx.hub.get(TOPIC));
         }
 
+        /// Turns until the runner listens, the clock moving on by the bind retry each time. A port the runner has just closed can stay
+        /// busy for a few milliseconds (6-25 ms seen): a child another test forked meanwhile holds a copy of the listener until its exec
+        /// completes.
+        fn until_listening(&mut self) {
+            let retry = self.runner.deps.timing.bind_retry;
+            for _ in 0..400 {
+                if self.runner.active.as_ref().is_some_and(|a| a.bound.is_some()) {
+                    return;
+                }
+                self.step(retry);
+            }
+            panic!("never listening; topic {:?}", self.ctx.hub.get(TOPIC));
+        }
+
         fn topic(&mut self) -> Value {
             self.runner.publish();
             self.ctx.hub.get(TOPIC).expect("the topic")
@@ -1810,6 +1824,7 @@ mod tests {
         link.friendly_name = "LumaTV Bluetooth 2".into();
         rig.save(&link);
         rig.step(Duration::from_secs(11));
+        rig.until_listening();
         let mut ha = Ha::connect(rig.port, KEY);
         ha.send(m::HelloRequest {
             client_info: "Home Assistant".into(),
@@ -1903,6 +1918,7 @@ mod tests {
         link.key = [0x99; 32];
         rig.save(&link);
         rig.step(Duration::from_secs(11));
+        rig.until_listening();
         let mut old = Ha::connect(rig.port, KEY);
         old.send(m::HelloRequest {
             client_info: "x".into(),
@@ -1929,6 +1945,7 @@ mod tests {
         );
         drop(squatter);
         rig.step(Duration::from_secs(16));
+        rig.until_listening();
         assert!(TcpStream::connect(("127.0.0.1", rig.port)).is_ok());
     }
 
