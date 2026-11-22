@@ -27,6 +27,9 @@ Two static binaries:
 - `SSGW_BROKER_FD`: an inherited `SOCK_SEQPACKET` descriptor to the broker (below).
 
 `ssgw-accept` reads `SSGW_RUN_DIR` and `SSGW_NSL` (default `/usr/bin/nsl`).
+Each fall back to `nsl` for port 3001 is recorded first in `SSGW_FALLBACK_DIR` (default `/var/lib/lumatv/ssgw/fallback`, created
+0700 and used only if owned by the caller and not writable by others); see `src/fallback.rs`. Nothing is printed. Records for one
+reason within 5 min are one file with first and last time and a count; the newest 16 are kept.
 
 ## Accept handshake
 

@@ -110,7 +110,7 @@ With `denon-receiver` on and the receiver as the TV's sound output, the helper k
 
 ## Home Assistant gateway
 
-`ssgw` (docs in `plugins/ssgw.md`, engine crate `helper/ssgw`) runs the Rust gateway for port 3001 as uid 19998 while on, behind xinetd's entry as `tools/ssgw.sh` binds it; `ssgw-accept` hands every connection the gateway does not take to LG's `nsl`. Crash records are in `/var/lib/lumatv/ssgw/crash/` (`latest` names the newest). `lumatv ssgw off` is the escape: it switches the plugin off and gives the port back to LG's entry without the helper.
+`ssgw` (docs in `plugins/ssgw.md`, engine crate `helper/ssgw`) runs the Rust gateway for port 3001 as uid 19998 while on, behind xinetd's entry as `tools/ssgw.sh` binds it; `ssgw-accept` hands every connection the gateway does not take to LG's `nsl`. Crash records are in `/var/lib/lumatv/ssgw/crash/` (`latest` names the newest). Connections that fell back to LG's gateway are in `/var/lib/lumatv/ssgw/fallback/` (one file per run of the same reason, with first/last time and count). `lumatv ssgw off` is the escape: it switches the plugin off and gives the port back to LG's entry without the helper.
 
 ## Foreground priority
 

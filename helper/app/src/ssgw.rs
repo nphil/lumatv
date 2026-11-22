@@ -14,6 +14,11 @@
 //! the page until it is marked read, and told once to the notify service named on the page through the TV's Home Assistant link. The
 //! gateway starts again after 2 s, doubling to 60 s. After three crashes within 10 min, or at once when it exits saying it cannot serve
 //! this TV ([`UNUSABLE`]), the plugin stops trying until the next boot or Try again, and says so once.
+//!
+//! **A fall back** (a connection `ssgw-accept` gave to LG's gateway) is kept by `ssgw-accept` itself in `fallback/`, one file per run of
+//! the same reason with its first and last time and count, so it survives this helper's restarts. The helper reads the newest every
+//! [`SIDE_EVERY`], logs it when its count changes and shows it on the page; nothing is told to the phone, as a down gateway may see a
+//! connection every few seconds.
 
 use crate::config::Config;
 use crate::ctx::Ctx;
@@ -110,6 +115,8 @@ struct Files {
     run: PathBuf,
     /// The crash records, with `latest`, `pending` and `gave-up`.
     crash: PathBuf,
+    /// The records `ssgw-accept` keeps of connections it gave to LG's gateway.
+    fallback: PathBuf,
     /// The app's `ssgw.sh`, `sysbus.sh` and `declutter.sh`.
     tools: PathBuf,
     luna_send: PathBuf,
@@ -131,6 +138,7 @@ impl Files {
             state: dir.join("state"),
             run: PathBuf::from("/tmp/lumatv-ssgw"),
             crash: dir.join("crash"),
+            fallback: dir.join("fallback"),
             tools: PathBuf::from(format!("/media/developer/apps/usr/palm/applications/{app}/tools")),
             luna_send: PathBuf::from(&ctx.config.luna.send),
             boot_id: PathBuf::from("/proc/sys/kernel/random/boot_id"),
@@ -174,6 +182,7 @@ fn schema_json() -> Json {
             with(fact("crash-where", "Its record"), "crash"),
             with(action(ACK, "Mark the crash as read", "Mark as read", "The record stays on the TV."), "crash"),
             with(action(RETRY, "Try again", "Try again", "Starts LumaTV's gateway again now. LG's serves until it answers."), "gaveup"),
+            with(fact("fallback", "Last fall back to LG's gateway"), "fallback"),
             with(fact("notified", "Phone"), "notified"),
             {"key": NOTIFY, "label": "Tell crashes to",
              "help": "The Home Assistant notify service told of each crash, such as notify.mobile_app_phone. Empty: nobody is told.",
@@ -600,6 +609,9 @@ struct Gateway {
     waiting: bool,
     sysbus: String,
     lgextras: String,
+    /// The newest fall back's summary, and the record and count it was logged at.
+    fallback: String,
+    fallback_logged: Option<(String, u64)>,
     next_side: Instant,
 }
 
@@ -623,6 +635,8 @@ impl Gateway {
             waiting: false,
             sysbus: String::new(),
             lgextras: String::new(),
+            fallback: String::new(),
+            fallback_logged: None,
             next_side: now,
         }
     }
@@ -1039,6 +1053,7 @@ impl Gateway {
     /// The page's other lines: whether port 3001 is still handed over (it is handed over again when it is not), LG's service host's
     /// repair, which decides what the fallback costs, and LG's extras.
     fn side(&mut self) {
+        self.read_fallback();
         match self.tool("ssgw.sh", &["status"]) {
             Ok(said) if said["entry"] != "ours" => self.bind(),
             Ok(_) => self.unbound = None,
@@ -1057,6 +1072,23 @@ impl Gateway {
             },
             Err(e) => format!("Unknown: {e}"),
         };
+    }
+
+    /// The newest record `ssgw-accept` kept of connections it gave to LG's gateway, put in the log each time its count changes.
+    fn read_fallback(&mut self) {
+        let newest = std::fs::read_dir(&self.files.fallback)
+            .ok()
+            .and_then(|d| d.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "txt")).max());
+        let Some(path) = newest else { return };
+        let Ok(text) = std::fs::read_to_string(&path) else { return };
+        let field = |key: &str| text.lines().find_map(|l| l.strip_prefix(key)?.strip_prefix(": "));
+        let (Some(summary), Some(count)) = (field("summary"), field("count").and_then(|c| c.parse::<u64>().ok())) else { return };
+        let key = (path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), count);
+        if self.fallback_logged.as_ref() != Some(&key) {
+            crate::log_warn!("ssgw: {summary} ({})", path.display());
+            self.fallback_logged = Some(key);
+        }
+        self.fallback = summary.to_owned();
     }
 
     fn status(&self) -> String {
@@ -1104,6 +1136,7 @@ impl Gateway {
         if let Some(why) = &self.untold {
             put("notified", &format!("Not told of the last crash: {why}"));
         }
+        put("fallback", &self.fallback);
         put("sysbus", &self.sysbus);
         put("lgextras", &self.lgextras);
         facts
@@ -1369,6 +1402,7 @@ mod tests {
             state: dir.join("ssgw/state"),
             run: dir.join("run"),
             crash: dir.join("ssgw/crash"),
+            fallback: dir.join("ssgw/fallback"),
             tools,
             luna_send: PathBuf::from("/bin/false"),
             boot_id: dir.join("boot_id"),
@@ -1476,6 +1510,33 @@ mod tests {
         assert!(!gw.facts().contains_key("crash"));
         assert!(!dir.path().join("ssgw/crash/pending").exists(), "the record stays, the notice goes");
         assert!(kept.join("reason.txt").exists());
+        gw.halt();
+    }
+
+    #[test]
+    fn the_newest_fall_back_record_is_on_the_page_and_logged_once_per_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut gw, _) = gateway(dir.path(), SLEEPS);
+        let t0 = Instant::now();
+        gw.on(t0);
+        gw.step(t0);
+        assert!(!gw.facts().contains_key("fallback"), "no record, no line");
+
+        let kept = dir.path().join("ssgw/fallback");
+        std::fs::create_dir_all(&kept).unwrap();
+        let record = |name: &str, count: u32| {
+            std::fs::write(kept.join(name), format!("code: not-running\ncount: {count}\nsummary: the {name} one, {count} connections\n")).unwrap();
+        };
+        record("20261118-110640-001.txt", 3);
+        gw.step(t0 + SIDE_EVERY);
+        assert_eq!(gw.facts()["fallback"], "the 20261118-110640-001.txt one, 3 connections");
+        assert_eq!(gw.fallback_logged, Some(("20261118-110640-001.txt".into(), 3)));
+
+        record("20261118-110640-001.txt", 4);
+        record("20261119-020000-001.txt", 1);
+        gw.step(t0 + 2 * SIDE_EVERY);
+        assert_eq!(gw.facts()["fallback"], "the 20261119-020000-001.txt one, 1 connections");
+        assert_eq!(gw.fallback_logged, Some(("20261119-020000-001.txt".into(), 1)));
         gw.halt();
     }
 

@@ -26,6 +26,7 @@ fn accept(dir: &Path, args: &[&str]) -> (Child, UnixStream) {
         .args(args)
         .env("SSGW_RUN_DIR", dir.join("run"))
         .env("SSGW_NSL", fake_nsl(dir))
+        .env("SSGW_FALLBACK_DIR", dir.join("fallback"))
         .stdin(Stdio::from(OwnedFd::from(conn)))
         .stdout(Stdio::piped())
         .spawn()
@@ -124,4 +125,91 @@ fn a_gateway_that_never_confirms_gets_the_connection_closed() {
     let mut rest = Vec::new();
     (&client).read_to_end(&mut rest).unwrap();
     assert!(rest.is_empty());
+}
+
+/// The fall-back records `ssgw-accept` kept under `dir`, newest last.
+fn records(dir: &Path) -> Vec<String> {
+    let mut names: Vec<_> = std::fs::read_dir(dir.join("fallback"))
+        .map(|d| d.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "txt")).collect())
+        .unwrap_or_default();
+    names.sort();
+    names.iter().map(|p| std::fs::read_to_string(p).unwrap()).collect()
+}
+
+fn field<'a>(record: &'a str, key: &str) -> &'a str {
+    record.lines().find_map(|l| l.strip_prefix(key)?.strip_prefix(": ")).unwrap_or_else(|| panic!("no {key} in {record}"))
+}
+
+#[test]
+fn a_fall_back_is_recorded_with_why_and_the_gateways_state_and_repeats_are_counted() {
+    let dir = tempfile::tempdir().unwrap();
+    // the gateway's socket exists but nothing listens on it
+    drop(run_dir(dir.path(), 0o755));
+    for n in 1..=2 {
+        let (child, mut client) = accept(dir.path(), &["3001", "--flag"]);
+        client.write_all(b"bytes").unwrap();
+        assert_eq!(output(child), (0, "nsl 3001 --flag\nbytes".into()), "LG serves it all the same");
+        let kept = records(dir.path());
+        assert_eq!(kept.len(), 1, "a run of the same reason is one episode");
+        let r = &kept[0];
+        assert_eq!(field(r, "code"), "not-running");
+        assert!(field(r, "detail").contains("accept.sock"), "{r}");
+        assert_eq!(field(r, "count"), n.to_string());
+        assert_eq!(field(r, "connection"), "3001 --flag");
+        let gateway = field(r, "gateway");
+        assert!(gateway.contains("mode 0755") && gateway.contains("accept.sock present") && gateway.contains("control.sock missing"), "{gateway}");
+        assert!(field(r, "first").ends_with('Z') && field(r, "last").ends_with('Z') && field(r, "first-unix") <= field(r, "last-unix"));
+        assert!(!field(r, "boot").is_empty());
+        assert!(field(r, "summary").contains("to LG's gateway"), "{r}");
+    }
+}
+
+#[test]
+fn each_reason_for_falling_back_is_told_apart() {
+    let dir = tempfile::tempdir().unwrap();
+    let (child, mut client) = accept(dir.path(), &["3001"]);
+    client.write_all(b"12345").unwrap();
+    output(child);
+    assert_eq!(field(&records(dir.path())[0], "code"), "no-run-dir");
+
+    let gateway = run_dir(dir.path(), 0o755);
+    let (child, mut client) = accept(dir.path(), &["3001"]);
+    drop(gateway.accept().unwrap());
+    client.write_all(b"12345").unwrap();
+    output(child);
+    assert_eq!(field(&records(dir.path())[1], "code"), "refused");
+
+    let open = tempfile::tempdir().unwrap();
+    let _gateway = run_dir(open.path(), 0o777);
+    let (child, mut client) = accept(open.path(), &["3001"]);
+    client.write_all(b"12345").unwrap();
+    output(child);
+    assert_eq!(field(&records(open.path())[0], "code"), "untrusted-run-dir");
+}
+
+#[test]
+fn no_fall_back_is_recorded_when_the_gateway_takes_the_connection_or_for_another_port() {
+    let dir = tempfile::tempdir().unwrap();
+    let gateway = run_dir(dir.path(), 0o755);
+    let (child, _client) = accept(dir.path(), &["3001"]);
+    let (mut s, _) = gateway.accept().unwrap();
+    s.write_all(b"R").unwrap();
+    recv_fd(s.as_raw_fd());
+    s.write_all(b"T").unwrap();
+    assert_eq!(output(child), (0, String::new()));
+    assert!(records(dir.path()).is_empty(), "taken by the gateway");
+
+    // a gateway that never confirms drops the connection: LG does not serve it, so it is no fall back
+    let (child, _client) = accept(dir.path(), &["3001"]);
+    let (mut s, _) = gateway.accept().unwrap();
+    s.write_all(b"R").unwrap();
+    recv_fd(s.as_raw_fd());
+    drop(s);
+    assert_eq!(output(child).0, 1);
+    assert!(records(dir.path()).is_empty());
+
+    let (child, mut client) = accept(dir.path(), &["3000"]);
+    client.write_all(b"plain").unwrap();
+    output(child);
+    assert!(records(dir.path()).is_empty(), "port 3000 is LG's alone");
 }

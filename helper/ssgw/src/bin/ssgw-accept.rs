@@ -1,7 +1,8 @@
 //! xinetd's server for port 3001. It hands the connection on its standard input to the gateway through
 //! `$SSGW_RUN_DIR/accept.sock`, or runs LG's `nsl` on it whenever the gateway is not there to take it.
 //!
-//! xinetd puts the connection on descriptors 0, 1 and 2, so nothing here may print.
+//! xinetd puts the connection on descriptors 0, 1 and 2, so nothing here may print: each fall back is kept as a file instead
+//! (`ssgw::fallback`), which the helper reads.
 
 use std::ffi::OsString;
 use std::io::{self, Read};
@@ -11,7 +12,9 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+use ssgw::fallback::{self, Why};
 
 const RUN_DIR: &str = "/tmp/lumatv-ssgw";
 const NSL: &str = "/usr/bin/nsl";
@@ -23,17 +26,29 @@ enum Outcome {
     Taken,
     /// The gateway said it was ready but never confirmed: it may hold the connection, so LG must not answer it too.
     Lost,
-    Fallback,
+    Fallback(Why),
+}
+
+fn why(code: &'static str, detail: impl Into<String>) -> Outcome {
+    Outcome::Fallback(Why { code, detail: detail.into() })
 }
 
 fn main() {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     if args.first().map(|a| a.as_bytes()) == Some(b"3001") {
         let dir = std::env::var_os("SSGW_RUN_DIR").unwrap_or_else(|| RUN_DIR.into());
+        let started = Instant::now();
         match hand_over(Path::new(&dir)) {
             Outcome::Taken => return,
             Outcome::Lost => std::process::exit(1),
-            Outcome::Fallback => {}
+            Outcome::Fallback(why) => {
+                let records = std::env::var_os("SSGW_FALLBACK_DIR").unwrap_or_else(|| fallback::DIR.into());
+                let boot = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").unwrap_or_default();
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+                let args: Vec<_> = args.iter().map(|a| a.to_string_lossy()).collect();
+                let state = fallback::gateway_state(Path::new(&dir));
+                fallback::record(Path::new(&records), &why, &args.join(" "), &state, started.elapsed(), boot.trim(), now);
+            }
         }
     }
     let nsl = std::env::var_os("SSGW_NSL").unwrap_or_else(|| NSL.into());
@@ -43,22 +58,35 @@ fn main() {
 
 fn hand_over(dir: &Path) -> Outcome {
     // only a directory others cannot write into is trusted to hold the gateway's socket
-    let Ok(meta) = std::fs::symlink_metadata(dir) else { return Outcome::Fallback };
+    let meta = match std::fs::symlink_metadata(dir) {
+        Ok(meta) => meta,
+        Err(e) => return why("no-run-dir", format!("the gateway's run directory {}: {e}", dir.display())),
+    };
     if !meta.is_dir() || meta.mode() & 0o022 != 0 {
-        return Outcome::Fallback;
+        return why("untrusted-run-dir", format!("{} is not a directory others cannot write into", dir.display()));
     }
-    let Ok(sock) = UnixStream::connect(dir.join("accept.sock")) else { return Outcome::Fallback };
+    let sock = match UnixStream::connect(dir.join("accept.sock")) {
+        Ok(sock) => sock,
+        Err(e) => return why("not-running", format!("the gateway does not take connections on accept.sock: {e}")),
+    };
     match peer_uid(sock.as_raw_fd()) {
         Some(uid) if uid == 0 || uid == meta.uid() => {}
-        _ => return Outcome::Fallback,
+        Some(uid) => return why("untrusted-peer", format!("accept.sock is held by uid {uid}, not root or the run directory's owner")),
+        None => return why("untrusted-peer", "accept.sock's owner could not be read"),
     }
     let mut byte = [0u8; 1];
     let _ = sock.set_read_timeout(Some(READY_WAIT));
-    if !matches!((&sock).read(&mut byte), Ok(1)) || byte[0] != b'R' {
-        return Outcome::Fallback;
+    match (&sock).read(&mut byte) {
+        Ok(1) if byte[0] == b'R' => {}
+        Ok(1) => return why("bad-ready-byte", format!("the gateway sent {:#04x}, not R", byte[0])),
+        Ok(_) => return why("refused", "the gateway closed accept.sock without a ready byte (stopping, in standby or at 16 sessions)"),
+        Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {
+            return why("not-ready", format!("the gateway sent no ready byte within {} ms (busy or hung)", READY_WAIT.as_millis()));
+        }
+        Err(e) => return why("not-ready", format!("reading the gateway's ready byte: {e}")),
     }
-    if send_fd(sock.as_raw_fd(), b'T', 0).is_err() {
-        return Outcome::Fallback;
+    if let Err(e) = send_fd(sock.as_raw_fd(), b'T', 0) {
+        return why("handoff-failed", format!("sending the connection to the gateway: {e}"));
     }
     let _ = sock.set_read_timeout(Some(TAKEN_WAIT));
     match (&sock).read(&mut byte) {

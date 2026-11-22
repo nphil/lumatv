@@ -8,7 +8,8 @@ integration, the second-screen (SSAP) websocket on port 3001, with `ssgw` (`help
 - **Port 3001:** xinetd keeps the port. Switched on, `ssgw.sh on` binds LumaTV's copy of `/etc/xinetd.d/ssg_https` over LG's, with
   `ssgw-accept` as its server, and has xinetd read it. `ssgw-accept` hands each connection to the gateway over
   `/tmp/lumatv-ssgw/accept.sock`, or runs LG's `/usr/bin/nsl` with LG's arguments on it when the gateway is not running, refuses or
-  does not answer within 200 ms. Falling back needs nothing from the helper. The copy is bound only over the webOS 10.2.1 entry and
+  does not answer within 200 ms. Falling back needs nothing from the helper. Each fall back is kept by `ssgw-accept` itself in
+  `/var/lib/lumatv/ssgw/fallback/` (below). The copy is bound only over the webOS 10.2.1 entry and
   `nsl` (sha256 pinned in `ssgw.sh`). A boot puts LG's entry back; the boot hook (`ssgw.sh early`) binds the copy again while
   `/var/lib/lumatv/ssgw/enabled` is there.
 - **Gateway:** the helper runs `/var/lib/lumatv/ssgw/bin/ssgw` (staged by `lumatv` from `payload/ssgw/`) as uid/gid 19998, confined as
@@ -23,6 +24,16 @@ integration, the second-screen (SSAP) websocket on port 3001, with `ssgw` (`help
   TV's Home Assistant link. The gateway starts again after 2 s, doubling to 60 s. After 3 crashes within 10 min, or an exit with 78 as
   root (the TV's files or key are not the ones it was made for), the plugin stops trying until the next boot or Try again, and says
   so once; LG's gateway serves meanwhile.
+- **Fall backs:** `ssgw-accept` cannot log (its standard streams are the client's socket), so each port 3001 connection it gives to
+  LG's gateway is written to `fallback/<first time>-<n>.txt` (root's, 0700) before LG's gateway is run: the reason code and words
+  (`no-run-dir`, `untrusted-run-dir`, `not-running`, `untrusted-peer`, `not-ready` for no ready byte in 200 ms, `refused` for a close
+  without one, `bad-ready-byte`, `handoff-failed`), the run directory's mode and owner, whether `accept.sock` and `control.sock` exist,
+  how long the hand-over was tried, the boot id and xinetd's arguments. Connections falling back for the same reason within 5 min of
+  the last one (Home Assistant retrying against a stopped gateway) share one file with the first and last time and a count; the
+  state lines are those of the last. The newest 16 files are kept, so records survive helper restarts and gateway crashes, and are
+  gone with `/var/lib/lumatv`. A connection the gateway took, or dropped after taking it (LG's gateway does not answer that one),
+  leaves none. The helper reads the newest every 10 min, logs it as `ssgw: <summary>` when its count changes and shows it on the page
+  as "Last fall back to LG's gateway"; it tells the phone nothing about fall backs.
 - **Forget clients:** deletes the gateway's client store; each Home Assistant key is checked with LG's gateway again on its next
   connection.
 - **Off:** stops the gateway and has `ssgw.sh off` give the port back to LG's entry. `lumatv ssgw off` does the same without the

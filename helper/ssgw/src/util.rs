@@ -181,6 +181,13 @@ fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
+/// `2026-11-22T10:00:00Z`.
+pub fn utc_stamp(secs: i64) -> String {
+    let (y, m, d) = civil_from_days(secs.div_euclid(86_400));
+    let rem = secs.rem_euclid(86_400);
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem % 3600 / 60, rem % 60)
+}
+
 /// `Date.prototype.toUTCString`: `Thu, 01 Jan 1970 00:00:00 GMT`.
 pub fn http_date(secs: i64) -> String {
     let days = secs.div_euclid(86_400);

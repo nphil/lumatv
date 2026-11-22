@@ -1,6 +1,7 @@
 //! A second-screen (SSAP) gateway for LG webOS TVs, wire-compatible with LG's own on port 3001: one thread around `poll`,
 //! the TV's bus reached through `luna-send`, and LG's gateway on port 3000 for what it does not do itself.
 
+pub mod fallback;
 pub mod log;
 
 mod adapter;
