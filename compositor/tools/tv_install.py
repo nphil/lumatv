@@ -9,8 +9,9 @@ lane already holds, and only takes one itself, which can wake the set, when ther
 
 Parts and how each goes in:
 
-  tool        tools/lumatv, tools/compositor.sh: replaced atomically in the app's tools/. Nothing restarts. Always first: the staged install's
-              boot hook lives in tools/lumatv.
+  tool        tools/lumatv, tools/compositor.sh: backed up, then replaced atomically in the app's tools/. Nothing restarts. Always first: the staged
+              install's boot hook lives in tools/lumatv. The result is checked on the set (hashes, both files parse, `helper status`
+              answers); a failed check puts the previous files back and stops.
   helper      the helper binary (payload and /var/lib/lumatv/bin): both copies backed up, replaced atomically, then `tools/lumatv helper
               start`. Only the helper restarts; the compositor, the app in front and the video are not touched. A start that does not
               give a new running pid puts the previous copies back and starts them.
@@ -317,6 +318,66 @@ def wait_helper(tv, before):
 def start_helper(tv):
     rc, out = tv.run("cd %s && ./tools/lumatv helper start" % APP)
     return rc == 0 and '"ok":true' in out, out.strip()[-300:]
+
+
+def tool_problem(tv, changes):
+    """Why the replaced tool files cannot be trusted, or None: each has the hash that was sent, both parse, and `tools/lumatv` (which sources
+    compositor.sh) still answers `helper status`."""
+    rc, out = tv.run("nice -n 19 sha256sum " + " ".join(c.remote for c in changes) + " 2>/dev/null")
+    have = parse_hashes(out) if rc == 0 else {}
+    for c in changes:
+        if have.get(c.remote) != c.new:
+            return "%s on the set is not the file that was sent" % c.remote
+    rc, out = tv.run("cd %s && sh -n tools/lumatv && sh -n tools/compositor.sh" % APP)
+    if rc != 0:
+        return "the new tool files do not parse: %s" % out.strip()[-200:]
+    if not helper_state(tv):
+        return "the new tools/lumatv does not answer `helper status`"
+    return None
+
+
+def rollback_tool(tv, attempted, saved):
+    """Puts the previous tool files back for every file a swap was attempted on, then reads the set's hashes to prove it: a file that was not
+    there before must be gone. Says what came of it; every file is tried even when one fails."""
+    errors = []
+    for c in attempted:
+        try:
+            if saved.get(c.remote):
+                swap_file(tv, saved[c.remote], c.remote)
+            else:
+                rc, out = tv.run("rm -f %s %s.new" % (c.remote, c.remote))
+                if rc != 0:
+                    errors.append("could not remove %s: %s" % (c.remote, out.strip()))
+        except (RuntimeError, subprocess.SubprocessError, OSError) as e:
+            errors.append(str(e))
+    try:
+        rc, out = tv.run("nice -n 19 sha256sum " + " ".join(c.remote for c in attempted) + " 2>/dev/null")
+        if rc not in (0, 1):
+            errors.append("the set's files could not be read back (ssh exit %s)" % rc)
+        else:
+            have = parse_hashes(out)
+            errors += ["%s holds %s, not %s" % (c.remote, short(have.get(c.remote)), short(c.old)) for c in attempted if have.get(c.remote) != c.old]
+    except (subprocess.SubprocessError, OSError) as e:
+        errors.append("the set's files could not be read back (%s)" % e)
+    if errors:
+        return "THE PREVIOUS TOOL FILES COULD NOT BE PUT BACK (%s): check tools/lumatv and tools/compositor.sh on the set" % "; ".join(errors)
+    return "the previous tool files were put back and read back from the set"
+
+
+def do_tool(tv, changes, backup_dir, say):
+    saved = {c.remote: backup(tv, c.remote, c.old, backup_dir, say) for c in changes if c.old}
+    attempted = []
+    try:
+        for c in changes:
+            # Listed before the swap: an ssh that dies after the rename took effect cannot be told from one that never ran it.
+            attempted.append(c)
+            swap_file(tv, c.local, c.remote)
+        problem = tool_problem(tv, changes)
+    except (RuntimeError, subprocess.SubprocessError, OSError) as e:
+        problem = str(e)
+    if problem:
+        raise RuntimeError("%s; %s" % (problem, rollback_tool(tv, attempted, saved)))
+    return "replaced %s; nothing restarted" % ", ".join(os.path.basename(c.remote) for c in changes)
 
 
 def do_helper(tv, changes, backup_dir, say):

@@ -3326,9 +3326,29 @@ class TvInstallRun(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def fake_tv(self, apply_rc=10, inventory_rc=0, sentinel=True, marks=(), discard_rc=0, helper_runs=()):
+    def fake_tv(self, apply_rc=10, inventory_rc=0, sentinel=True, marks=(), discard_rc=0, helper_runs=(), parse_rc=0, status_rc=0, corrupt=(),
+                corrupt_once=(), lost_ack=(), mv_rc=0):
         installed, ran, old_files = self.installed, [], self.old_files
         helper = {"starts": 0, "running": True, "pid": 1000, "healthy": True}
+        uploaded = {}  # remote path -> hash of what was put there
+        once, lost, mv_failed = set(corrupt_once), set(lost_ack), []
+
+        def swap(cmd):
+            """`chmod 755 X.new && mv -f X.new X`: the installed hash becomes that of the upload. A path in `corrupt` always ends as garbage, one in
+            `corrupt_once` only the first time, and one in `lost_ack` takes the rename the first time but answers with ssh's exit 255."""
+            m = re.match(r"chmod 755 (\S+)\.new && mv -f \S+\.new (\S+)$", cmd)
+            if not m:
+                return None
+            if mv_rc and not mv_failed:
+                mv_failed.append(1)
+                return mv_rc, "mv: no space left on device"
+            path = m.group(2)
+            installed[path] = "9" * 64 if path in corrupt or path in once else uploaded.pop(m.group(1) + ".new")
+            once.discard(path)
+            if path in lost:
+                lost.discard(path)
+                return 255, "client_loop: send disconnect: Broken pipe"
+            return 0, ""
 
         class Tv:
             def run(tv, cmd, timeout=0):
@@ -3337,7 +3357,7 @@ class TvInstallRun(unittest.TestCase):
                     out = "".join("%s  %s\n" % (h, p) for p, h in installed.items()) + "".join(m + "\n" for m in marks)
                     return inventory_rc, out + (self.ti.SENTINEL + "\n" if sentinel else "")
                 if cmd.endswith("helper status"):
-                    return 0, json.dumps({"ok": True, "helper": {k: v for k, v in helper.items() if k != "starts" and v is not None}})
+                    return status_rc, json.dumps({"ok": True, "helper": {k: v for k, v in helper.items() if k != "starts" and v is not None}})
                 if cmd.endswith("helper stop"):
                     helper["running"] = False
                     return 0, '{"ok":true}'
@@ -3353,10 +3373,19 @@ class TvInstallRun(unittest.TestCase):
                     return discard_rc, ""
                 if "staged apply --now" in cmd:
                     return apply_rc, "wait: video is playing in netflix\n"
+                if cmd.startswith("cd ") and " sh -n " in cmd:
+                    return parse_rc, "tools/lumatv: line 9: syntax error\n" if parse_rc else ""
+                if cmd.startswith("rm -f "):
+                    installed.pop(cmd[len("rm -f "):], None)
+                    return 0, ""
+                swapped = swap(cmd)
+                if swapped:
+                    return swapped
                 return 0, ""
 
             def put(tv, local, remote):
                 ran.append("put " + remote)
+                uploaded[remote] = self.ti.sha256_file(local)
 
             def put_tree(tv, local, remote):
                 ran.append("put_tree " + remote)
@@ -3367,6 +3396,75 @@ class TvInstallRun(unittest.TestCase):
                 ran.append("get " + remote)
 
         return Tv(), ran
+
+    def tool_set(self):
+        """A set that holds older tools/lumatv and tools/compositor.sh, as files the backup can fetch and check."""
+        self.tool_paths = [self.ti.APP + "/tools/lumatv", self.ti.APP + "/tools/compositor.sh"]
+        old = {p: "old " + os.path.basename(p) + "\n" for p in self.tool_paths}
+        self.old_files.update(old)
+        self.installed.update({p: sha256_text(t) for p, t in old.items()})
+
+    def test_changed_tool_files_are_backed_up_replaced_whole_and_checked_before_the_helper_moves(self):
+        self.helper_set()
+        self.tool_set()
+        tv, ran = self.fake_tv()
+        self.assertEqual(self.run_install(tv), 0, self.said)
+        for p in self.tool_paths:
+            self.assertEqual(self.installed[p], self.ti.sha256_file(os.path.join(ROOT, "tools", os.path.basename(p))))
+            backup = os.path.join(self.tmp.name, "backup", "%s-%s" % (os.path.basename(p), sha256_text(self.old_files[p])[:8]))
+            self.assertEqual(read(backup), self.old_files[p])
+            self.assertIn("put " + p + ".new", ran)
+        joined = "\n".join(ran)
+        self.assertLess(joined.index("sh -n tools/lumatv"), joined.index("helper start"))
+        self.assertNotIn("staged commit", joined)
+        self.assertTrue(any(line.startswith("tool: replaced lumatv, compositor.sh") for line in self.said), self.said)
+        old_lumatv = sha256_text(self.old_files[self.tool_paths[0]])[:8]
+        self.assertTrue(any(line.startswith("- tool: tools/lumatv " + old_lumatv + " -> ") for line in self.said), self.said)
+
+    def test_tool_files_that_fail_their_check_are_put_back_and_nothing_after_them_runs(self):
+        broken = self.ti.APP + "/tools/compositor.sh"
+        for kw, why in (({"parse_rc": 1}, "do not parse"), ({"status_rc": 1}, "does not answer"), ({"corrupt_once": (broken,)}, "not the file that was sent")):
+            self.said.clear()
+            self.helper_set()
+            self.tool_set()
+            tv, ran = self.fake_tv(**kw)
+            self.assertEqual(self.run_install(tv), 1, (kw, self.said))
+            self.assertTrue(any(why in line and "previous tool files were put back and read back" in line for line in self.said), (kw, self.said))
+            for p in self.tool_paths:
+                self.assertEqual(self.installed[p], sha256_text(self.old_files[p]), (kw, p))
+            self.assertNotIn("helper start", "\n".join(ran))
+
+    def test_a_tool_file_that_stays_corrupt_after_the_rollback_is_reported_loudly(self):
+        broken = self.ti.APP + "/tools/compositor.sh"
+        self.helper_set()
+        self.tool_set()
+        tv, ran = self.fake_tv(corrupt=(broken,))
+        self.assertEqual(self.run_install(tv), 1, self.said)
+        self.assertTrue(any("COULD NOT BE PUT BACK" in line and broken + " holds 99999999" in line for line in self.said), self.said)
+        self.assertFalse(any("were put back" in line for line in self.said), self.said)
+        self.assertEqual(self.installed[self.tool_paths[0]], sha256_text(self.old_files[self.tool_paths[0]]))
+        self.assertNotIn("helper start", "\n".join(ran))
+
+    def test_a_swap_whose_answer_was_lost_is_restored_too(self):
+        # The rename took effect but ssh reported failure: the file is in no list of finished swaps, yet it has to go back.
+        self.helper_set()
+        self.tool_set()
+        tv, ran = self.fake_tv(lost_ack=(self.tool_paths[0],))
+        self.assertEqual(self.run_install(tv), 1, self.said)
+        self.assertTrue(any("previous tool files were put back and read back" in line for line in self.said), self.said)
+        for p in self.tool_paths:
+            self.assertEqual(self.installed[p], sha256_text(self.old_files[p]), p)
+        self.assertNotIn("helper start", "\n".join(ran))
+
+    def test_a_tool_file_the_set_cannot_take_leaves_the_old_one_and_stops(self):
+        self.helper_set()
+        self.tool_set()
+        tv, ran = self.fake_tv(mv_rc=1)
+        self.assertEqual(self.run_install(tv), 1, self.said)
+        self.assertTrue(any("could not put" in line and "previous tool files were put back" in line for line in self.said), self.said)
+        for p in self.tool_paths:
+            self.assertEqual(self.installed[p], sha256_text(self.old_files[p]))
+        self.assertNotIn("helper start", "\n".join(ran))
 
     def run_install(self, tv, **kw):
         return self.ti.install(tv, ROOT, self.deploy, self.helper, os.path.join(self.tmp.name, "backup"), say=self.said.append, **kw)
