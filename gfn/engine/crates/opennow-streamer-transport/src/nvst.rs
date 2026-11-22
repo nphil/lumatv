@@ -38,7 +38,7 @@ use super::nvst_sender_report::{
 };
 use super::nvst_server_control::{
     ControlKeepaliveHealth, FramePacingFeedbackMode, NvstServerTermination, NvstSessionTimer,
-    ServerControlDiagnostics, ServerControlMessage, server_control_messages,
+    ServerControlDiagnostics, ServerControlMessage, json_idle_warning, server_control_messages,
 };
 use str0m::channel::ChannelId;
 use str0m::config::Fingerprint;
@@ -726,9 +726,7 @@ impl NvstFeedbackState {
         for message in server_control_messages(bytes) {
             match message {
                 Ok(ServerControlMessage::Timer(timer)) => {
-                    self.idle_warning_active
-                        .store(timer.active, Ordering::Release);
-                    let _ = events.send(NvstReceiveEvent::SessionTimer(timer));
+                    self.announce_timer(timer, events);
                 }
                 Ok(ServerControlMessage::Termination { wire_code, extra }) => {
                     self.idle_warning_active.store(false, Ordering::Release);
@@ -745,7 +743,10 @@ impl NvstFeedbackState {
                         diagnostics.invalid_stream = diagnostics.invalid_stream.saturating_add(1);
                     }
                 }
-                Ok(ServerControlMessage::Unhandled) => {}
+                Ok(ServerControlMessage::Unhandled(code)) => {
+                    diagnostics.unhandled = diagnostics.unhandled.saturating_add(1);
+                    diagnostics.last_unhandled = Some(code);
+                }
                 Ok(ServerControlMessage::Unknown(code)) => {
                     diagnostics.unknown = diagnostics.unknown.saturating_add(1);
                     diagnostics.last_unknown = Some(code);
@@ -754,6 +755,47 @@ impl NvstFeedbackState {
             }
         }
         false
+    }
+
+    /// A server timer from the stream's control commands or from JSON on a custom-message channel. Logged, since the first idle
+    /// disconnects on the TV (2026-11-22, 600 s with no warning shown) left no line saying whether a countdown ever arrived.
+    fn announce_timer(&self, timer: NvstSessionTimer, events: &Sender<NvstReceiveEvent>) {
+        opennow_streamer_protocol::log::log_async(
+            "INFO",
+            "nvst-control",
+            &format!(
+                "session-timer type={} secondsLeft={} active={}",
+                timer.timer_type, timer.seconds_left, timer.active
+            ),
+        );
+        self.idle_warning_active
+            .store(timer.active, Ordering::Release);
+        let _ = events.send(NvstReceiveEvent::SessionTimer(timer));
+    }
+
+    /// Data on the custom-message channels: the first few payloads are logged (nothing has recorded what the service puts there),
+    /// and the official client's JSON idle warning is taken from them.
+    fn receive_custom_message(
+        &self,
+        bytes: &[u8],
+        diagnostics: &mut ServerControlDiagnostics,
+        events: &Sender<NvstReceiveEvent>,
+    ) {
+        diagnostics.custom = diagnostics.custom.saturating_add(1);
+        if diagnostics.custom <= 8 {
+            opennow_streamer_protocol::log::log_async(
+                "INFO",
+                "nvst-control",
+                &format!(
+                    "custom-message rx bytes={} raw={}",
+                    bytes.len(),
+                    diagnostic_hex(bytes, 96)
+                ),
+            );
+        }
+        if let Some(timer) = json_idle_warning(bytes) {
+            self.announce_timer(timer, events);
+        }
     }
 
     pub fn authenticated_transport_ready(&self) -> bool {
@@ -8357,7 +8399,7 @@ fn run_nvst_webrtc_bundle(
                 "INFO",
                 "nvst-control",
                 &format!(
-                    "keepaliveFailures={} keepaliveConsecutiveFailures={} keepaliveRecoveries={} unknownCommands={} lastUnknownCommand={:?} malformedCommands={} invalidStreamCommands={}",
+                    "keepaliveFailures={} keepaliveConsecutiveFailures={} keepaliveRecoveries={} unknownCommands={} lastUnknownCommand={:?} malformedCommands={} invalidStreamCommands={} unhandledCommands={} lastUnhandledCommand={:?} customMessages={}",
                     control_keepalive_health.failures,
                     control_keepalive_health.consecutive_failures,
                     control_keepalive_health.recoveries,
@@ -8365,6 +8407,9 @@ fn run_nvst_webrtc_bundle(
                     server_control_diagnostics.last_unknown,
                     server_control_diagnostics.malformed,
                     server_control_diagnostics.invalid_stream,
+                    server_control_diagnostics.unhandled,
+                    server_control_diagnostics.last_unhandled,
+                    server_control_diagnostics.custom,
                 ),
             );
             opennow_streamer_protocol::log::log_async(
@@ -8658,6 +8703,15 @@ fn run_nvst_webrtc_bundle(
                                     break 'bundle;
                                 }
                                 feedback.haptics.receive(&data.data);
+                            }
+                            if data.id == channels.custom_reliable
+                                || data.id == channels.custom_partial
+                            {
+                                feedback.receive_custom_message(
+                                    &data.data,
+                                    &mut server_control_diagnostics,
+                                    &event_sender,
+                                );
                             }
                             if data.id == channels.control_reliable
                                 && let (Some(hid_session), Some(hid_runtime)) =

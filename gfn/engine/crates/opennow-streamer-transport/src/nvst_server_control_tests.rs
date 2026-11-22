@@ -44,6 +44,23 @@ fn inbound_idle_warning_and_expiry_update_state_without_ending_media() {
 }
 
 #[test]
+fn a_json_idle_warning_on_a_custom_message_channel_counts_down_like_the_control_command_and_other_messages_do_not() {
+    let feedback = NvstFeedbackState::default();
+    let mut diagnostics = ServerControlDiagnostics::default();
+    let (events, received) = mpsc::channel();
+    feedback.receive_custom_message(br#"{"customMessage":"{}"}"#, &mut diagnostics, &events);
+    assert!(received.try_recv().is_err());
+    assert!(!feedback.idle_warning_active.load(Ordering::Acquire));
+    feedback.receive_custom_message(br#"{"timerNotification":{"code":4,"secondsLeft":58}}"#, &mut diagnostics, &events);
+    assert!(feedback.idle_warning_active.load(Ordering::Acquire));
+    assert_eq!(
+        received.try_recv().unwrap(),
+        NvstReceiveEvent::SessionTimer(NvstSessionTimer { timer_type: 4, seconds_left: 58, active: true })
+    );
+    assert_eq!(diagnostics.custom, 2);
+}
+
+#[test]
 fn zero_second_warning_remains_active_until_clear_or_expiry() {
     let feedback = NvstFeedbackState::default();
     let (events, received) = mpsc::channel();

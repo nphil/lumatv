@@ -94,7 +94,7 @@ pub(crate) enum ServerControlMessage<'a> {
         stream_index: u32,
         mode: FramePacingFeedbackMode,
     },
-    Unhandled,
+    Unhandled(u16),
     Unknown(u16),
 }
 
@@ -153,6 +153,9 @@ pub(crate) struct ServerControlDiagnostics {
     pub(crate) last_unknown: Option<u16>,
     pub(crate) malformed: u64,
     pub(crate) invalid_stream: u64,
+    pub(crate) unhandled: u64,
+    pub(crate) last_unhandled: Option<u16>,
+    pub(crate) custom: u64,
 }
 
 fn decode_control_message(
@@ -195,9 +198,30 @@ fn decode_control_message(
             }
         }
         0x101..=0x103 | 0x106 | 0x10a..=0x111 | 0x113 | 0x206 | 0x325 | 0x408 => {
-            ServerControlMessage::Unhandled
+            ServerControlMessage::Unhandled(code)
         }
         _ => ServerControlMessage::Unknown(code),
+    })
+}
+
+/// The official client is told its timers as JSON, `{"timerNotification":{"code":4,"secondsLeft":60}}` on the channel the service
+/// opens for it (`control_channel`; vendor.js `onmessage`, code 4 is its idle warning, 1 and 2 the entitlement, 6 the session limit),
+/// where this stack's NVST control channel carries them as command `0x100 + code`. A JSON object met on any NVST channel is read
+/// the same way, so a service that sends the idle warning that way is heard too. Only the idle warning is taken.
+pub(crate) fn json_idle_warning(bytes: &[u8]) -> Option<NvstSessionTimer> {
+    let start = bytes.iter().position(|byte| *byte == b'{')?;
+    let value = serde_json::Deserializer::from_slice(&bytes[start..])
+        .into_iter::<serde_json::Value>()
+        .next()?
+        .ok()?;
+    let timer = value.get("timerNotification")?;
+    if timer.get("code")?.as_u64()? != 4 {
+        return None;
+    }
+    Some(NvstSessionTimer {
+        timer_type: 4,
+        seconds_left: u32::try_from(timer.get("secondsLeft")?.as_u64()?).ok()?,
+        active: true,
     })
 }
 
@@ -381,5 +405,26 @@ mod tests {
         assert_eq!(session_resumable(None, Some(0x8004_0010)), None);
         assert_eq!(session_resumable(Some(0x37), None), None);
         assert_eq!(session_resumable(Some(0x3b), None), None);
+    }
+
+    #[test]
+    fn the_official_clients_json_idle_warning_is_read_from_any_framing_and_nothing_else_is() {
+        let json = br#"{"timerNotification":{"code":4,"secondsLeft":60}}"#;
+        let framed = [&[0x20, 0x00, json.len() as u8, 0][..], &json[..]].concat();
+        for bytes in [&json[..], &framed[..]] {
+            assert_eq!(
+                json_idle_warning(bytes),
+                Some(NvstSessionTimer { timer_type: 4, seconds_left: 60, active: true })
+            );
+        }
+        for bytes in [
+            &br#"{"timerNotification":{"code":1,"secondsLeft":60}}"#[..],
+            br#"{"timerNotification":{"code":4}}"#,
+            br#"{"customMessage":"{}"}"#,
+            br#"{"timerNotification":"#,
+            &[0x0e, 0x02, 0x03, 0x00],
+        ] {
+            assert_eq!(json_idle_warning(bytes), None);
+        }
     }
 }
