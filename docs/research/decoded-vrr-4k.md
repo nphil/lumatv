@@ -88,6 +88,10 @@ The remaining test is whether a fresh next PTS **and its matching retained pictu
 
 [`irq_edges.c`](../../game/vrr-probe/irq_edges.c) opens only `/sys/kernel/irq/<number>/per_cpu_count`, samples for two seconds and writes its CSV after sampling. `irq-edges 104` brackets each observed change in `CLOCK_MONOTONIC` nanoseconds from the previous read's start to the current read's end. An increment greater than one has no individual timestamps. For two unit increments bracketed by `[a,b]` and `[c,d]`, the interval lies in `[c-b,d-a]`. These bounds apply to **interrupt accounting**, not hardware-to-CPU delay. Correlation against held picture IDs at shuffled and fixed intervals can establish per-picture mixer pacing if it excludes the fixed-refresh explanation and variable interrupt latency. Panel-link pacing requires an independently identified downstream counter or a verified one-to-one path; an IRQ sequence alone cannot establish it.
 
+The two-second Home control (`vrr-irq-edges/idle-0414.csv`, SHA-256 `2d7bb1fa435c4307fdbf2fb9eae69b6413e3ecf7e333d7b2783b2f303f262aca`) captured 240 unit increments. **One constant clock and phase fits all 240**, at 119.89156–119.89215 Hz. For edge brackets `[aᵢ,bᵢ]`, the feasible period is the intersection of `[(aⱼ−bᵢ)/(j−i), (bⱼ−aᵢ)/(j−i)]` over all `i<j`. Median bracket width was 0.158 ms; the apparent 10.792 ms interval allowed 8.061–10.949 ms. A userspace read-end timestamp alone would falsely suggest variable pacing.
+
+Two named getters cannot supply downstream scan evidence. `FBDEV_O22_CMN_DetectVSyncClk` reduces a pixel-clock selector to a 60/120 class, not a measured interval (`fbdev_hw_o22_cmn.c:491–515`). `BE_PWM_HW_O22_GetPwmInfo` can **write** the PWM3 control on a changed frequency request and returns mean duty, not a pulse period (`be_pwm_hw_o22.c:695–744`). Neither belongs in a passive panel test.
+
 ## Routes ranked for the 4K target
 
 | Route | Evidence and decision |
