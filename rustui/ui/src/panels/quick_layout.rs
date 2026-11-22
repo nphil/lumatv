@@ -1,6 +1,6 @@
 //! Where everything of the quick panel goes (`QuickPanel.qml`, `QuickTile.qml`, `QuickEdit.qml`, `QuickPopup.qml` of the QML shell, the
 //! same equations): the sheet, its head, the profiles' strip, the rows with their words broken into lines by the measure of the type, the
-//! foot, the PIN pad, the edit list and the card beside the sheet. Pure: a function of the view and the kit (the type roles at the person's
+//! foot (with the time at its right), the PIN pad, the edit list and the card beside the sheet. Pure: a function of the view and the kit (the type roles at the person's
 //! text size, the tokens), so what is drawn is what the tests measure and the lint reads.
 //!
 //! Sizes are the theme's: `space` steps, the `target` and `row`, the radii. The row's rule is the QML's: an icon tile, the name and, only
@@ -67,36 +67,56 @@ pub fn flush_right(w: f32, inset: f32) -> Frame {
 /// The Lucide icon of the display's sync chip.
 pub const SYNC_ICON: &str = "refresh-cw";
 
-/// What one chip of the signal line under the head shows.
+/// What one chip of the header's signal row shows.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChipFace {
-    Text(String),
+    /// The picture's size ("4K").
+    Size(String),
+    /// The picture's frame rate ("23.976 fps").
+    Rate(String),
     /// The display's refresh, after the sync glyph.
     Sync(String),
+    /// An input's variable refresh.
+    Vrr,
     /// One of the format badge's marks (`kit::logo::VIDEO_MARKS`): the dynamic range.
     Mark(&'static str),
 }
 
+impl ChipFace {
+    /// How soon the chip is given up when the row is too narrow for all of them: the larger, the sooner. The range (Dolby Vision, HDR10,
+    /// HLG) and the size say what the signal is and stay longest; the content's frame rate goes before them, the display's refresh
+    /// before the frame rate (the panel's own state, which the system menus also show), and VRR first.
+    fn drop_rank(&self) -> u8 {
+        match self {
+            ChipFace::Mark(_) => 0,
+            ChipFace::Size(_) => 1,
+            ChipFace::Rate(_) => 2,
+            ChipFace::Sync(_) => 3,
+            ChipFace::Vrr => 4,
+        }
+    }
+}
+
 /// The signal's chips in the order they read: the picture's size, its frame rate, the display's refresh (and VRR on an input), its range.
+/// A refresh that is not known is no chip: nothing stands in for it.
 pub fn signal_faces(video: Option<VideoInfo>, display: DisplayInfo) -> Vec<ChipFace> {
     let mut faces = Vec::new();
     if let Some(v) = video {
         if let (Some(w), Some(h)) = (v.width, v.height) {
-            faces.push(ChipFace::Text(size_words(w, h)));
+            faces.push(ChipFace::Size(size_words(w, h)));
         }
         if let Some(fps) = v.fps {
             let number = format!("{fps:.3}");
-            faces.push(ChipFace::Text(format!("{} fps", number.trim_end_matches('0').trim_end_matches('.'))));
+            faces.push(ChipFace::Rate(format!("{} fps", number.trim_end_matches('0').trim_end_matches('.'))));
         }
     }
     match display {
         DisplayInfo::Hz(hz) => faces.push(ChipFace::Sync(format!("{hz} Hz"))),
-        DisplayInfo::Measuring => faces.push(ChipFace::Sync("Measuring".into())),
         DisplayInfo::Unavailable => {}
     }
     if let Some(v) = video {
         if v.vrr {
-            faces.push(ChipFace::Text("VRR".into()));
+            faces.push(ChipFace::Vrr);
         }
         if let Some(range) = v.range.filter(|r| *r != "sdr") {
             faces.push(ChipFace::Mark(range));
@@ -137,13 +157,14 @@ pub struct SignalChip {
     pub frame: Frame,
 }
 
-/// The signal line: small chips side by side, on as many lines as `inner` needs, at least one (the room is kept while the readings come).
+/// The signal row: small chips side by side on the header's one line, from the content edge. It never wraps and never overlaps: what
+/// does not fit at the roomy spacing is set at the compact one (`space(2)` in the chip, `space(1)` between), and what does not fit
+/// then is given up in [`ChipFace::drop_rank`] order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SignalLayout {
     pub chips: Vec<SignalChip>,
-    pub lines: usize,
-    pub h: f32,
-    /// The chip's height, its side pad, a mark's height and the sync glyph's side.
+    /// The chip's height (the header's height, with or without a reading, so the rows under it stand still), its side pad, a mark's
+    /// height and the sync glyph's side.
     pub chip_h: f32,
     pub pad_x: f32,
     pub mark_h: u32,
@@ -152,36 +173,55 @@ pub struct SignalLayout {
 
 pub fn signal_layout(kit: &mut Kit, faces: &[ChipFace], inner: f32) -> SignalLayout {
     let style = role_style(kit, TypeRole::Caption, None, kit.ui.look.ink(), Align::Left);
-    let (s1, gap, pad_x) = (kit.space(1), kit.space(2), kit.space(3));
+    let s1 = kit.space(1);
     let chip_h = kit.line(TypeRole::Caption) + 2.0 * s1;
     // every glyph in a chip (the sync mark and the format badge) stands as tall as the caption's glyph
     let glyph = crate::kit::hint::glyph_side(kit, TypeRole::Caption);
     let mark_h = glyph;
-    let (mut x, mut line, mut chips) = (0.0_f32, 0usize, Vec::new());
-    for face in faces {
-        let face = match face {
-            ChipFace::Mark(m) if !kit.marks.iter().any(|a| a.name == *m) => ChipFace::Text(mark_words(m).into()),
-            f => f.clone(),
-        };
-        let body = match &face {
-            ChipFace::Text(t) => width_of(kit, style, t),
-            ChipFace::Sync(t) => {
-                let icon = if kit.icons.has(SYNC_ICON) { glyph as f32 + s1 } else { 0.0 };
-                icon + width_of(kit, style, t)
-            }
-            ChipFace::Mark(m) => kit.marks.iter().find(|a| a.name == *m).map_or(0, |a| a.width_at(mark_h)) as f32,
-        };
-        let w = (body + 2.0 * pad_x).ceil().min(inner);
-        if x > 0.0 && x + w > inner {
-            (x, line) = (0.0, line + 1);
+    let body = |kit: &mut Kit, face: &ChipFace| match face {
+        ChipFace::Size(t) | ChipFace::Rate(t) => width_of(kit, style, t),
+        ChipFace::Vrr => width_of(kit, style, "VRR"),
+        ChipFace::Sync(t) => {
+            let icon = if kit.icons.has(SYNC_ICON) { glyph as f32 + s1 } else { 0.0 };
+            icon + width_of(kit, style, t)
         }
-        chips.push(SignalChip { face, frame: Frame::new(x, line as f32 * (chip_h + gap), w, chip_h) });
-        x += w + gap;
+        ChipFace::Mark(m) => kit.marks.iter().find(|a| a.name == *m).map_or(0, |a| a.width_at(mark_h)) as f32,
+    };
+    // a mark without its art is its words (a kit without the module), and keeps the mark's rank
+    let bodies: Vec<(u8, ChipFace, f32)> = faces
+        .iter()
+        .map(|f| {
+            let shown = match f {
+                ChipFace::Mark(m) if !kit.marks.iter().any(|a| a.name == *m) => ChipFace::Size(mark_words(m).into()),
+                f => f.clone(),
+            };
+            let w = body(kit, &shown);
+            (f.drop_rank(), shown, w)
+        })
+        .collect();
+    let spacings = [(kit.space(3), kit.space(2)), (kit.space(2), s1)];
+    let row_w = |chips: &[&(u8, ChipFace, f32)], (pad, gap): (f32, f32)| chips.iter().map(|(_, _, b)| (b + 2.0 * pad).ceil()).sum::<f32>() + gap * chips.len().saturating_sub(1) as f32;
+    let mut kept: Vec<&(u8, ChipFace, f32)> = bodies.iter().collect();
+    let mut spacing = spacings[0];
+    if row_w(&kept, spacing) > inner {
+        spacing = spacings[1];
+        while kept.len() > 1 && row_w(&kept, spacing) > inner {
+            let last = kept.iter().enumerate().max_by_key(|(i, (rank, _, _))| (*rank, *i)).map_or(0, |(i, _)| i);
+            kept.remove(last);
+        }
     }
-    // no reading, no row: the header is the clock alone
-    let lines = if chips.is_empty() { 0 } else { line + 1 };
-    let h = if lines == 0 { 0.0 } else { lines as f32 * chip_h + (lines - 1) as f32 * gap };
-    SignalLayout { chips, lines, h, chip_h, pad_x, mark_h, glyph }
+    let (pad_x, gap) = spacing;
+    let mut x = 0.0_f32;
+    let chips = kept
+        .iter()
+        .map(|(_, face, b)| {
+            let w = (b + 2.0 * pad_x).ceil().min(inner);
+            let chip = SignalChip { face: face.clone(), frame: Frame::new(x, 0.0, w, chip_h) };
+            x += w + gap;
+            chip
+        })
+        .collect();
+    SignalLayout { chips, chip_h, pad_x, mark_h, glyph }
 }
 
 /// What sits at a row's right.
@@ -317,29 +357,39 @@ pub fn foot_h(kit: &Kit, hints: bool) -> f32 {
     crate::kit::button::Button::height(kit) + if hints { kit.line(TypeRole::Caption) + kit.space(2) } else { 0.0 }
 }
 
-/// The header of the list: the signal chips from the content edge and the clock at the right, on one row (the chips wrap under their own first line
-/// where a large text size leaves no room). The offsets are from the top of the header; a row without a reading is the clock alone, as tall as it
-/// would be with the chips.
+/// The foot: "All settings" and the time at its right, on the foot's first row, the time ending at the sheet's inner right edge. The
+/// frames are from the foot's top left.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Header {
-    pub h: f32,
-    pub clock_y: f32,
-    pub chips_y: f32,
+pub struct FootLayout {
+    pub button: Frame,
+    pub clock: Option<Frame>,
 }
 
-pub fn header(kit: &Kit, signal: &SignalLayout) -> Header {
-    let clock_h = kit.line(TypeRole::Label);
-    // the row is as tall with no reading as with one, so the rows under it do not move when a reading comes or goes
-    let line = clock_h.max(signal.chip_h);
-    let extra = (signal.h - signal.chip_h).max(0.0);
-    Header { h: line + extra, clock_y: ((line - clock_h) / 2.0).round(), chips_y: ((line - signal.chip_h) / 2.0).round() }
+/// The widest time, so a minute that changes moves nothing.
+pub fn clock_width(kit: &mut Kit) -> f32 {
+    width_of(kit, role_style(kit, TypeRole::Caption, None, kit.ui.look.ink2(), Align::Right), "12:59 AM") + 2.0
 }
 
-/// What the header leaves of the sheet's width for the chips: the widest clock (so a minute that changes moves nothing) and a gap are the clock's.
-pub fn chips_width(kit: &mut Kit, inner: f32) -> f32 {
-    let style = role_style(kit, TypeRole::Label, None, kit.ui.look.ink2(), Align::Right);
-    (inner - width_of(kit, style, "12:59 AM") - 2.0 - kit.space(4)).max(0.0)
+/// The time is the foot's own words (the caption's type, as the hints under the button), centred on the button's height. The button is
+/// as wide as the row leaves it, never narrower than its own label and icon: where the time would not leave it that, the time is left
+/// out (a large text size) rather than overlap.
+pub fn foot_layout(kit: &mut Kit, inner: f32, clock: &str) -> FootLayout {
+    let h = crate::kit::button::Button::height(kit);
+    let full = Frame::new(0.0, 0.0, inner, h);
+    if clock.is_empty() {
+        return FootLayout { button: full, clock: None };
+    }
+    let (w, gap) = (clock_width(kit), kit.space(4));
+    let least = crate::kit::button::Button::width_for(kit, ALL_SETTINGS, true);
+    if inner - w - gap < least {
+        return FootLayout { button: full, clock: None };
+    }
+    let line = kit.line(TypeRole::Caption);
+    FootLayout { button: Frame::new(0.0, 0.0, inner - w - gap, h), clock: Some(Frame::new(inner - w, ((h - line) / 2.0).round(), w, line)) }
 }
+
+/// The foot button's words.
+pub const ALL_SETTINGS: &str = "All settings";
 
 /// The sheet's height that the header, the strip, the list and the foot take together, the list at `content`.
 pub fn stack_h(kit: &Kit, d: Density, head_h: f32, strip_h: f32, content: f32, foot: f32) -> f32 {
@@ -436,13 +486,12 @@ pub fn row_layout(kit: &mut Kit, r: &Row, width: f32, d: Density) -> RowLayout {
     }
 }
 
-/// The head: the title in lines, the clock beside it while both fit on a line, else under it (a large text size); in edit mode and on the PIN pad the hints
-/// of what the keys do take the clock's place.
+/// The head of the edit list and the PIN pad: the title in lines, the hints of what the keys do beside it while both fit on a line, else
+/// under it (a large text size). The list's own header is the signal row.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HeadLayout {
     pub title: Vec<String>,
     pub title_w: f32,
-    pub clock: Option<(String, f32, f32)>,
     pub hints: Vec<Hint>,
     pub hints_at: (f32, f32),
     pub below: bool,
@@ -452,19 +501,13 @@ pub struct HeadLayout {
 pub fn head_layout(kit: &mut Kit, v: &View, inner: f32) -> HeadLayout {
     let title_style = role_style(kit, TypeRole::Title, Some(ui::text::Weight::SemiBold), kit.ui.look.ink(), Align::Left);
     let title_line = kit.line(TypeRole::Title);
-    let label_line = kit.line(TypeRole::Label);
     let one_line = width_of(kit, title_style, &v.title);
     let gap = kit.space(4);
     let hinted = v.editing || !v.hints_head.is_empty();
     let (side_w, side_h) = if hinted {
-        (
-            super::ui::hints_width(kit, &v.hints_head, TypeRole::Label, kit.space(5)),
-            super::ui::hint_width(kit, &Hint::key(crate::kit::hint::Key::Ok, crate::kit::hint::Action::Move), TypeRole::Label) * 0.0
-                + crate::kit::hint::glyph_side(kit, TypeRole::Label) as f32,
-        )
+        (super::ui::hints_width(kit, &v.hints_head, TypeRole::Label, kit.space(5)), crate::kit::hint::glyph_side(kit, TypeRole::Label) as f32)
     } else {
-        let w = if v.clock.is_empty() { 0.0 } else { width_of(kit, role_style(kit, TypeRole::Label, None, kit.ui.look.ink2(), Align::Left), &v.clock) };
-        (w, label_line)
+        (0.0, 0.0)
     };
     let below = side_w > 0.0 && !v.title.is_empty() && one_line + side_w + gap > inner;
     let title_w = if below || side_w == 0.0 || v.title.is_empty() { inner } else { inner - side_w - gap };
@@ -477,16 +520,14 @@ pub fn head_layout(kit: &mut Kit, v: &View, inner: f32) -> HeadLayout {
     } else {
         title_h.max(side_h)
     };
-    let (clock, hints_at) = if hinted {
-        (None, if below { (0.0, title_h) } else { (inner - side_w, ((title_h.min(title_line) - side_h) / 2.0).round().max(0.0)) })
-    } else if v.clock.is_empty() {
-        (None, (0.0, 0.0))
+    let hints_at = if !hinted {
+        (0.0, 0.0)
     } else if below {
-        (Some((v.clock.clone(), 0.0, title_h)), (0.0, 0.0))
+        (0.0, title_h)
     } else {
-        (Some((v.clock.clone(), inner - side_w, ((title_h.min(title_line) - label_line) / 2.0).round().max(0.0))), (0.0, 0.0))
+        (inner - side_w, ((title_h.min(title_line) - side_h) / 2.0).round().max(0.0))
     };
-    HeadLayout { title, title_w, clock, hints: if hinted { v.hints_head.clone() } else { Vec::new() }, hints_at, below, h }
+    HeadLayout { title, title_w, hints: if hinted { v.hints_head.clone() } else { Vec::new() }, hints_at, below, h }
 }
 
 /// Where the parts of an edit row go (relative to the row), and how tall every row is.
@@ -787,6 +828,7 @@ fn popup_layout_with(kit: &mut Kit, p: &PopupView, text_max: usize) -> PopupLayo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::panels::quick::{DisplayInfo, VideoInfo};
 
     fn roomy_row(kit: &mut Kit, r: &Row, width: f32) -> RowLayout {
         let d = Density::roomy(kit);
@@ -826,9 +868,8 @@ mod tests {
         let (_h, mut kit) = testkit::kit(1.0);
         let rows = owner_rows();
         let inner = SHEET_W - 2.0 * kit.space(6);
-        let room = chips_width(&mut kit, inner);
-        let signal = signal_layout(&mut kit, &[ChipFace::Text("4K".into()), ChipFace::Text("24 fps".into()), ChipFace::Sync("120 Hz".into())], room);
-        let head_h = header(&kit, &signal).h;
+        let signal = signal_layout(&mut kit, &[ChipFace::Size("4K".into()), ChipFace::Rate("24 fps".into()), ChipFace::Sync("120 Hz".into())], inner);
+        let head_h = signal.chip_h;
         let d = Density::compact(&kit);
         let layouts: Vec<RowLayout> = rows.iter().map(|r| row_layout(&mut kit, r, inner, d)).collect();
         let h = stack_h(&kit, d, head_h, strip_layout(&kit, 4, inner, d).h, content_h(&layouts, d.gap), foot_h(&kit, false));
@@ -916,8 +957,21 @@ mod tests {
         assert!(b.words.w >= 100.0);
     }
 
+    /// The owner's signal: Dolby Vision, 4K, 23.976 fps, 120 Hz and an input's VRR, as the panel's view says it.
+    fn full_signal() -> Vec<ChipFace> {
+        let video = VideoInfo { width: Some(3840), height: Some(2160), fps: Some(23.976), range: Some("dolby-vision"), vrr: true };
+        signal_faces(Some(video), DisplayInfo::Hz(120))
+    }
+
+    fn marked(scale: f32) -> Kit {
+        let (h, mut kit) = testkit::kit(scale);
+        std::mem::forget(h);
+        kit.marks = crate::kit::logo::load_all(&testkit::module_dir().join("icons/video"), &crate::kit::logo::VIDEO_MARKS);
+        kit
+    }
+
     #[test]
-    fn the_list_has_no_title_and_its_header_is_the_chips_from_the_left_and_the_clock_at_the_right() {
+    fn the_list_has_no_title_and_its_header_is_the_chips_alone_from_the_left() {
         for scale in [1.0, 2.0] {
             let (_h, mut kit) = testkit::kit(scale);
             let env = crate::panels::env::Env::new(serde_json::json!({}));
@@ -925,21 +979,88 @@ mod tests {
             let mut v = q.view(&env, 1_761_000_000_000);
             v.clock = "9:52 PM".into();
             let head = head_layout(&mut kit, &v, 512.0);
-            assert!(head.title.is_empty() && !head.below);
-            let (_, x, y) = head.clock.clone().unwrap();
-            assert!(x > 256.0 && y == 0.0, "{scale}: the clock stands at the right of the first row: {x}");
-            let room = chips_width(&mut kit, 512.0);
-            assert!(room > 150.0 && room < 512.0, "{scale}: {room}");
-            let faces = vec![ChipFace::Text("4K".into()), ChipFace::Text("24 fps".into()), ChipFace::Sync("120 Hz".into()), ChipFace::Text("VRR".into())];
-            let s = signal_layout(&mut kit, &faces, room);
-            assert!(s.chips.iter().all(|c| c.frame.h == s.chip_h && c.frame.x + c.frame.w <= room + 0.5), "{scale}: one height, inside the room");
-            let empty = signal_layout(&mut kit, &[], room);
-            let (none, some) = (header(&kit, &empty), header(&kit, &s));
-            assert_eq!(none.h, some.h.min(none.h.max(s.chip_h)), "{scale}: a reading does not make the header taller than its first line unless it wraps");
-            if s.lines == 1 {
-                assert_eq!(none.h, some.h, "{scale}: with or without a reading the rows under it stand where they stood");
-            }
+            assert!(head.title.is_empty() && !head.below && head.h == 0.0 && head.hints.is_empty(), "the time is not in the head: {head:?}");
+            let s = signal_layout(&mut kit, &full_signal(), 512.0);
+            assert!(s.chips.iter().all(|c| c.frame.h == s.chip_h && c.frame.y == 0.0 && c.frame.x + c.frame.w <= 512.0), "{scale}: one row, inside the sheet");
+            assert_eq!(s.chips[0].frame.x, 0.0, "from the content edge");
+            let empty = signal_layout(&mut kit, &[], 512.0);
+            assert_eq!(empty.chip_h, s.chip_h, "{scale}: with or without a reading the rows under the header stand where they stood");
         }
+    }
+
+    #[test]
+    fn the_dolby_vision_4k_frame_rate_and_refresh_badges_all_fit_the_header_row_at_the_sheets_width() {
+        let mut kit = marked(1.0);
+        let inner = SHEET_W - 2.0 * kit.space(6);
+        let video = VideoInfo { width: Some(3840), height: Some(2160), fps: Some(23.976), range: Some("dolby-vision"), vrr: false };
+        let faces = signal_faces(Some(video), DisplayInfo::Hz(120));
+        assert_eq!(faces.len(), 4, "{faces:?}");
+        let s = signal_layout(&mut kit, &faces, inner);
+        assert_eq!(s.chips.iter().map(|c| c.face.clone()).collect::<Vec<_>>(), faces, "nothing is given up when everything fits");
+        assert!(s.chips.iter().all(|c| c.frame.y == 0.0), "one line");
+        for pair in s.chips.windows(2) {
+            assert!(pair[1].frame.x >= pair[0].frame.right(), "no overlap: {pair:?}");
+        }
+        assert!(s.chips.last().unwrap().frame.right() <= inner, "inside the row");
+    }
+
+    #[test]
+    fn a_row_too_narrow_gives_up_vrr_then_the_refresh_then_the_frame_rate_and_keeps_the_range_and_size_to_the_last() {
+        let mut kit = marked(1.0);
+        let faces = full_signal();
+        let wide = signal_layout(&mut kit, &faces, 4000.0);
+        let full = wide.chips.last().unwrap().frame.right();
+        let (mut last_len, mut seen) = (faces.len(), Vec::new());
+        let mut inner = full;
+        while inner > 60.0 {
+            let s = signal_layout(&mut kit, &faces, inner);
+            let mut kept: Vec<u8> = s.chips.iter().map(|c| c.face.drop_rank()).collect();
+            kept.sort_unstable();
+            assert_eq!(kept, (0..kept.len() as u8).collect::<Vec<_>>(), "only the least important go, at {inner}: {kept:?}");
+            assert!(s.chips.len() <= last_len, "a narrower row never brings one back");
+            assert!(s.chips.iter().all(|c| c.frame.y == 0.0), "never a second line");
+            assert!(s.chips.last().is_none_or(|c| c.frame.right() <= inner), "inside the row at {inner}");
+            for pair in s.chips.windows(2) {
+                assert!(pair[1].frame.x >= pair[0].frame.right(), "no overlap at {inner}");
+            }
+            if seen.last() != Some(&kept.len()) {
+                seen.push(kept.len());
+            }
+            last_len = s.chips.len();
+            inner -= 4.0;
+        }
+        assert_eq!(seen, vec![5, 4, 3, 2, 1], "every step down was a single chip, in the order of the ranks");
+        let narrow = signal_layout(&mut kit, &faces, 60.0);
+        assert!(matches!(narrow.chips[0].face, ChipFace::Mark("dolby-vision")), "the range is the last to go: {:?}", narrow.chips);
+    }
+
+    #[test]
+    fn a_refresh_that_is_not_known_has_no_chip_and_a_known_one_is_all_there_is_to_say() {
+        let video = VideoInfo { width: Some(1920), height: Some(1080), fps: Some(24.0), range: None, vrr: false };
+        assert_eq!(signal_faces(Some(video), DisplayInfo::Unavailable), [ChipFace::Size("1080p".into()), ChipFace::Rate("24 fps".into())]);
+        assert_eq!(signal_faces(None, DisplayInfo::Hz(120)), [ChipFace::Sync("120 Hz".into())]);
+        assert!(signal_faces(None, DisplayInfo::Unavailable).is_empty());
+    }
+
+    #[test]
+    fn the_time_stands_at_the_foots_right_edge_on_the_buttons_row_and_never_over_the_button() {
+        for scale in [1.0, 1.5, 2.0] {
+            let (_h, mut kit) = testkit::kit(scale);
+            let inner = SHEET_W - 2.0 * kit.space(6);
+            let f = foot_layout(&mut kit, inner, "2:38 PM");
+            let Some(clock) = f.clock else {
+                assert!(scale > 1.0, "at the shipped size the time always fits");
+                assert_eq!(f.button.w, inner, "no room for the time: the button keeps the row");
+                continue;
+            };
+            assert_eq!(clock.right(), inner, "{scale}: aligned to the inner right edge");
+            assert!(f.button.right() <= clock.x, "{scale}: the button ends before the time starts");
+            assert!(f.button.w >= crate::kit::button::Button::width_for(&mut kit, ALL_SETTINGS, true), "{scale}: the button keeps its label");
+            assert!(clock.y >= 0.0 && clock.y + clock.h <= f.button.h, "{scale}: on the button's row");
+            assert_eq!(foot_layout(&mut kit, inner, "").button, Frame::new(0.0, 0.0, inner, f.button.h), "no time: the whole row is the button's");
+        }
+        let (_h, mut kit) = testkit::kit(1.0);
+        assert!(foot_layout(&mut kit, SHEET_W - 48.0, "9:52 PM").clock.is_some());
     }
 
     #[test]

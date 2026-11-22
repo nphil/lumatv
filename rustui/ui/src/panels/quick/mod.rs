@@ -417,7 +417,6 @@ impl Quick {
                 self.info_tag = self.info_tag.wrapping_add(1);
                 self.info_answered = None;
                 (self.video, self.vrr) = (None, None);
-                self.monitor.reset();
             }
             self.monitor.set_active(env.screen_on);
         }
@@ -1024,7 +1023,6 @@ impl Quick {
         if self.info_answered.is_some_and(|at| now.saturating_sub(at) > 3_000) {
             self.info_answered = None;
             (self.video, self.vrr) = (None, None);
-            self.monitor.reset();
         }
         if self.info_due.is_some_and(|d| now >= d) {
             self.info_due = Some(now + 1_000);
@@ -1093,9 +1091,6 @@ impl Quick {
                     _ => info::video(payload),
                 };
                 let next = read.filter(|v| env.screen_on && self.info_authority.as_ref().is_some_and(|(context, app)| v.context == *context && v.app == *app) && self.info_authority == env.fg.video);
-                if self.video.as_ref().map(|v| (&v.context, &v.app)) != next.as_ref().map(|v| (&v.context, &v.app)) {
-                    self.monitor.reset();
-                }
                 self.video = next;
                 self.info_answered = Some(now);
                 return Out::effects(vec![Effect::Redraw]);

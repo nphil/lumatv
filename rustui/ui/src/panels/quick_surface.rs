@@ -160,12 +160,13 @@ struct PadParts {
 
 struct Foot {
     button: Button,
+    /// The time, at the foot's right on the button's row.
+    clock: Option<Words>,
     _hints: Vec<HintRow>,
 }
 
 struct Head {
     title: Words,
-    clock: Option<Words>,
     _hints: Vec<HintRow>,
 }
 
@@ -195,7 +196,7 @@ struct SignalParts {
     _art: Option<ImageLayer>,
 }
 
-/// The kit's generation, the text size, the width left for the chips and their faces.
+/// The kit's generation, the text size, the width the row has and the chips' faces.
 type SignalKey = (u64, u32, u32, Vec<ChipFace>);
 
 struct PickRow {
@@ -238,8 +239,6 @@ struct RowCache {
     sheet_h: u32,
     has_strip: bool,
     hints_foot: bool,
-    /// The header's height: chips wrapped onto a second line change the room the rows have.
-    header_h: u32,
     density: lay::Density,
     layouts: Vec<RowLayout>,
     /// The layouts' part of the panel's signature.
@@ -282,7 +281,7 @@ impl QuickSurface {
 
     // ---- building
 
-    fn signature(kit: &mut Kit, v: &View, rows: &str, signal_lines: usize) -> String {
+    fn signature(kit: &mut Kit, v: &View, rows: &str) -> String {
         let strip: Vec<String> = v.strip.iter().flatten().map(|p| format!("{}/{}/{}/{}/{:?}", p.id, p.name, p.active, p.locked, p.avatar_file)).collect();
         let edit: Vec<String> = v.edit.iter().flat_map(|e| e.rows.iter().map(|r| format!("{}/{}/{}/{}", r.id, r.label, r.detail, r.icon))).collect();
         let head = lay::head_layout(kit, v, lay::SHEET_W - 2.0 * kit.space(6));
@@ -299,7 +298,7 @@ impl QuickSurface {
             head.title,
             head.below,
             v.pad.as_ref().map(|p| p.pin.name.clone()),
-            signal_lines
+            v.clock.is_empty()
         )
     }
 
@@ -646,21 +645,11 @@ impl QuickSurface {
             let pane = if view.over_video { Pane::reading(kit, sheet, z + 1, PaneKind::Sheet) } else { Pane::new(kit, sheet, z + 1, PaneKind::Sheet, false) };
             // ---- the head
             let hl = lay::head_layout(kit, view, inner);
-            // the list's header is the chips and the clock on one row; edit and the PIN pad keep their own head
+            // the list's header is the signal chips on one row; edit and the PIN pad keep their own head
             let listed = view.pad.is_none() && !(view.editing && view.edit.is_some());
-            let header = if listed { lay::header(kit, signal) } else { lay::Header { h: hl.h, clock_y: 0.0, chips_y: 0.0 } };
+            let head_h = if listed { signal.chip_h } else { hl.h };
             let title_lines: Vec<WordLine> = hl.title.iter().map(|t| WordLine::new(t, TypeRole::Title, ink).weight(Weight::SemiBold)).collect();
             let title = Words::new(kit, sheet.x + pad, sheet.y + pad, hl.title_w, z + 3, &title_lines)?;
-            let clock = match &hl.clock {
-                Some((text, x, y)) => {
-                    // a box as wide as the widest time, the words at its right: the minute that changes moves nothing
-                    let style = role_style(kit, TypeRole::Label, None, ink2, Align::Right);
-                    let w = width_of(kit, style, "12:59 AM") + 2.0;
-                    let right = sheet.x + pad + x + width_of(kit, style, text) + 2.0;
-                    Some(Words::new(kit, right - w, sheet.y + pad + header.clock_y + y, w, z + 3, &[WordLine::new(text, TypeRole::Label, ink2).aligned(Align::Right)])?)
-                }
-                None => None,
-            };
             let mut hint_rows = Vec::new();
             let mut hx = sheet.x + pad + hl.hints_at.0;
             let side = glyph_side(kit, TypeRole::Label) as f32;
@@ -669,8 +658,7 @@ impl QuickSurface {
                 hx += row.width() + kit.space(5);
                 hint_rows.push(row);
             }
-            let head_h = header.h;
-            let head = Head { title, clock, _hints: hint_rows };
+            let head = Head { title, _hints: hint_rows };
             let mut cursor = sheet.y + pad + head_h + density.section;
             let sheet_bottom = sheet.y + sheet.h - pad;
             let (mut strip, mut list, mut edit, mut pad_parts, mut foot) = (Vec::new(), None, None, None, None);
@@ -682,17 +670,25 @@ impl QuickSurface {
                 edit = Some(Self::build_edit(kit, engine, root_group, e, Frame::new(sheet.x + pad, cursor, inner, sheet_bottom - cursor), z)?);
             } else {
                 // the chips on the header's row from the content edge: they are made by `apply_signal`
-                let at = (sheet.x + pad, sheet.y + pad + header.chips_y);
+                let at = (sheet.x + pad, sheet.y + pad);
                 signal_parts = Some(Signal { at, faces: Vec::new(), chips: Vec::new() });
                 let btn_h = Button::height(kit);
                 let hints_h = if view.hints_foot.is_empty() { 0.0 } else { kit.line(TypeRole::Caption) };
                 let foot_h = lay::foot_h(kit, hints_h > 0.0);
                 let foot_y = sheet_bottom - foot_h;
-                // the foot: "All settings" and what the keys do
-                let place =
-                    Place { id: Target::Foot.id(), frame: Frame::new(sheet.x + pad, foot_y, inner, btn_h), region: REGION_FOOT, scope: SCOPE, z: z + 3 };
-                let mut button = Button::new(kit, engine, place, Spec::new("All settings", Tone::Plain).with_icon("settings"))?;
+                // the foot: "All settings" with the time at its right, and what the keys do
+                let fl = lay::foot_layout(kit, inner, &view.clock);
+                let at = |f: Frame| Frame::new(sheet.x + pad + f.x, foot_y + f.y, f.w, f.h);
+                let place = Place { id: Target::Foot.id(), frame: at(fl.button), region: REGION_FOOT, scope: SCOPE, z: z + 3 };
+                let mut button = Button::new(kit, engine, place, Spec::new(lay::ALL_SETTINGS, Tone::Plain).with_icon("settings"))?;
                 button.show(kit, true);
+                let clock = match fl.clock {
+                    Some(f) => {
+                        let f = at(f);
+                        Some(Words::new(kit, f.x, f.y, f.w, z + 3, &[WordLine::new(&view.clock, TypeRole::Caption, ink2).aligned(Align::Right)])?)
+                    }
+                    None => None,
+                };
                 let mut hint_rows = Vec::new();
                 if hints_h > 0.0 {
                     let gap = kit.space(7);
@@ -705,7 +701,7 @@ impl QuickSurface {
                         hint_rows.push(row);
                     }
                 }
-                foot = Some(Foot { button, _hints: hint_rows });
+                foot = Some(Foot { button, clock, _hints: hint_rows });
                 if let Some(people) = &view.strip {
                     let (cells, h) = Self::build_strip(kit, engine, root_group, people, Frame::new(sheet.x + pad, cursor, inner, 0.0), density, z)?;
                     strip = cells;
@@ -1006,23 +1002,21 @@ impl QuickSurface {
         }
         let width = lay::SHEET_W - 2.0 * kit.space(6);
         let faces = lay::signal_faces(view.video_info, view.info);
-        let chips_w = lay::chips_width(kit, width);
-        let key = (kit.generation(), kit.text_scale.to_bits(), chips_w.to_bits(), faces);
+        let key = (kit.generation(), kit.text_scale.to_bits(), width.to_bits(), faces);
         if self.signal_layout.as_ref().is_none_or(|(cached, _)| *cached != key) {
-            let layout = lay::signal_layout(kit, &key.3, chips_w);
+            let layout = lay::signal_layout(kit, &key.3, width);
             self.signal_layout = Some((key, layout));
         }
         let signal = self.signal_layout.as_ref().expect("signal layout").1.clone();
         let rows: &[Row] = if view.editing || view.pad.is_some() { &[] } else { &view.rows };
         let (generation, text_scale, width_bits) = (kit.generation(), kit.text_scale.to_bits(), width.to_bits());
         let (sheet_h, has_strip, hints_foot) = (sheet.h.to_bits(), view.strip.as_ref().is_some_and(|s| !s.is_empty()), !view.hints_foot.is_empty());
-        let header = lay::header(kit, &signal);
         let current = |c: &RowCache| {
-            (c.generation, c.text_scale, c.width, c.sheet_h, c.has_strip, c.hints_foot, c.header_h) == (generation, text_scale, width_bits, sheet_h, has_strip, hints_foot, header.h.to_bits()) && c.rows == rows
+            (c.generation, c.text_scale, c.width, c.sheet_h, c.has_strip, c.hints_foot) == (generation, text_scale, width_bits, sheet_h, has_strip, hints_foot) && c.rows == rows
         };
         if !self.row_cache.as_ref().is_some_and(current) {
             // The panel never scrolls: rows at the roomy spacing when they fit the sheet with everything else, else compact
-            let head_h = header.h;
+            let head_h = signal.chip_h;
             let strip_n = view.strip.as_ref().map_or(0, Vec::len);
             let foot = lay::foot_h(kit, hints_foot);
             let fits = |kit: &Kit, layouts: &[RowLayout], d: lay::Density| {
@@ -1037,9 +1031,9 @@ impl QuickSurface {
                 layouts = rows.iter().map(|r| lay::row_layout(kit, r, width, density)).collect();
             }
             let sig = layouts.iter().map(RowLayout::signature).collect::<Vec<_>>().join("\n");
-            self.row_cache = Some(RowCache { generation, text_scale, width: width_bits, sheet_h, has_strip, hints_foot, header_h: header.h.to_bits(), density, rows: rows.to_vec(), layouts, sig });
+            self.row_cache = Some(RowCache { generation, text_scale, width: width_bits, sheet_h, has_strip, hints_foot, density, rows: rows.to_vec(), layouts, sig });
         }
-        let sig = format!("{}|{:?}", Self::signature(kit, view, &self.row_cache.as_ref().expect("row cache").sig, signal.lines.max(1)), lay::sheet());
+        let sig = format!("{}|{:?}", Self::signature(kit, view, &self.row_cache.as_ref().expect("row cache").sig), lay::sheet());
         if self.built.as_ref().is_none_or(|b| b.sig != sig) {
             self.drop_built(engine);
             // a click on nothing is Back: the whole screen is a focusable under everything else, absent from the keys
@@ -1131,7 +1125,8 @@ impl QuickSurface {
                     Ok((words, Frame::new(x - pad, frame.y, frame.right() - x + pad, frame.h)))
                 };
                 let (words, art) = match &c.face {
-                    ChipFace::Text(t) => (Some(caption(kit, frame.x + pad, t)?), None),
+                    ChipFace::Size(t) | ChipFace::Rate(t) => (Some(caption(kit, frame.x + pad, t)?), None),
+                    ChipFace::Vrr => (Some(caption(kit, frame.x + pad, "VRR")?), None),
                     ChipFace::Sync(t) => {
                         let g = layout.glyph;
                         let icon = icon::layer(kit, lay::SYNC_ICON, g, ink, z + 3, Props::at(frame.x + pad, frame.y + ((frame.h - g as f32) / 2.0).round()))?;
@@ -1181,7 +1176,7 @@ impl QuickSurface {
         let mut shake = None;
         if let Some(i) = focus_row { self.reveal_row(engine, i, now_ms); }
         if let Some(b) = self.built.as_mut() {
-            if let Some(c) = b.head.clock.as_mut()
+            if let Some(c) = b.foot.as_mut().and_then(|f| f.clock.as_mut())
                 && !view.clock.is_empty()
             {
                 c.set(kit, 0, &view.clock);
@@ -1453,9 +1448,8 @@ impl QuickSurface {
         let edit = b.edit.as_ref().map_or(0, |e| e.rows.len() * 5 + 5);
         let strip = b.strip.len() * 3;
         let pad = b.pad.as_ref().map_or(0, |p| 5 + p.cells.len() * 3);
-        let foot = b.foot.as_ref().map_or(0, |f| f.button.layers() + f._hints.len() * 3);
+        let foot = b.foot.as_ref().map_or(0, |f| f.button.layers() + usize::from(f.clock.is_some()) + f._hints.len() * 3);
         1 + b.head.title.layers()
-            + usize::from(b.head.clock.is_some())
             + b.head._hints.len() * 3
             + rows
             + edit
@@ -1510,7 +1504,7 @@ impl QuickSurface {
         let paint = kit.ui.look.colour(PaletteRole::Sheet);
         let sheet = lint.panel("quick sheet", lay::sheet(), paint, false);
         b.head.title.feed_lint(kit, lint, "quick title", Some(sheet), (0.0, 0.0));
-        if let Some(c) = &b.head.clock {
+        if let Some(c) = b.foot.as_ref().and_then(|f| f.clock.as_ref()) {
             c.feed_lint(kit, lint, "quick clock", Some(sheet), (0.0, 0.0));
         }
         for c in b.signal.iter().flat_map(|s| &s.chips) {
@@ -1766,8 +1760,13 @@ mod tests {
                 u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t, u.t * 1_000_000).unwrap();
                 let b = u.s.built.as_ref().unwrap();
                 let s = b.signal.as_ref().unwrap();
-                assert_eq!(&s.faces[..3], &[ChipFace::Text("4K".into()), ChipFace::Text("59.94 fps".into()), ChipFace::Sync("120 Hz".into())]);
-                assert!(matches!(&s.faces[3], ChipFace::Mark("hdr10") | ChipFace::Text(_)), "{:?}", s.faces);
+                if scale == 1.0 {
+                    assert_eq!(&s.faces[..3], &[ChipFace::Size("4K".into()), ChipFace::Rate("59.94 fps".into()), ChipFace::Sync("120 Hz".into())]);
+                    assert!(matches!(&s.faces[3], ChipFace::Mark("hdr10") | ChipFace::Size(_)), "{:?}", s.faces);
+                } else {
+                    // at 200 % text the row gives up its least important chips and keeps the range and the size
+                    assert!(s.faces.len() < 4 && matches!(&s.faces[..], [ChipFace::Size(_), ..]), "{:?}", s.faces);
+                }
                 let (sheet, list) = (lay::sheet(), b.list.as_ref().unwrap().scroll.window());
                 for c in &u.s.signal_layout.as_ref().unwrap().1.chips {
                     let f = Frame::new(s.at.0 + c.frame.x, s.at.1 + c.frame.y, c.frame.w, c.frame.h);
@@ -1778,6 +1777,37 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn the_header_is_the_badges_on_one_row_and_the_time_is_in_the_foot_at_the_inner_right_edge() {
+        for scale in [1.0, 2.0] {
+            let mut u = Up::new(Mode::Dark, scale, true);
+            u.kit.marks = crate::kit::logo::load_all(&testkit::module_dir().join("icons/video"), &crate::kit::logo::VIDEO_MARKS);
+            let mut view = u.q.view(&u.env, u.t);
+            view.clock = "2:38 PM".into();
+            view.info = DisplayInfo::Hz(120);
+            view.video_info = Some(VideoInfo { width: Some(3840), height: Some(2160), fps: Some(23.976), range: Some("dolby-vision"), vrr: false });
+            u.s.apply(&mut u.kit, &mut u.engine, &view, u.q.life.phase(), u.t, u.t * 1_000_000).unwrap();
+            let b = u.s.built.as_ref().unwrap();
+            let (sheet, window) = (lay::sheet(), b.list.as_ref().unwrap().scroll.window());
+            let inner_right = sheet.right() - u.kit.space(6);
+            let (s, chips) = (b.signal.as_ref().unwrap(), &u.s.signal_layout.as_ref().unwrap().1.chips);
+            assert!(chips.iter().all(|c| c.frame.y == 0.0 && s.at.0 + c.frame.right() <= inner_right && s.at.1 + c.frame.h <= window.y), "{scale}: one row inside the sheet");
+            assert!(chips.iter().any(|c| matches!(c.face, ChipFace::Mark("dolby-vision"))), "{scale}: the range is on the row, not under it: {chips:?}");
+            let foot = b.foot.as_ref().unwrap();
+            match &foot.clock {
+                Some(c) => {
+                    let f = c.frame();
+                    assert_eq!(c.text(0), "2:38 PM");
+                    assert_eq!(f.right(), inner_right, "{scale}: the inner right edge");
+                    assert!(f.y >= window.y + window.h && f.y + f.h <= sheet.y + sheet.h, "{scale}: in the foot, under the list: {f:?}");
+                    assert!(foot.button.frame().right() <= f.x, "{scale}: beside the button");
+                }
+                None => assert!(scale > 1.0, "the time fits the foot at the shipped size"),
+            }
+            assert!(u.lint().is_empty(), "{scale}: {:?}", u.lint());
+        }
+    }
 
     #[test]
     fn a_new_reading_redraws_the_chips_and_not_the_sheet() {
@@ -1793,7 +1823,7 @@ mod tests {
         assert_eq!(b.sig, sig, "the sheet is kept");
         assert_eq!(
             b.signal.as_ref().unwrap().faces,
-            [ChipFace::Text("1080p".into()), ChipFace::Text("23.976 fps".into()), ChipFace::Sync("60 Hz".into())]
+            [ChipFace::Size("1080p".into()), ChipFace::Rate("23.976 fps".into()), ChipFace::Sync("60 Hz".into())]
         );
     }
 

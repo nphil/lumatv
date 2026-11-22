@@ -6,10 +6,11 @@ use serde_json::Value;
 use std::hash::{Hash, Hasher};
 
 const PERIOD: Duration = Duration::from_secs(1);
-const MAX_AGE: Duration = Duration::from_secs(3);
 
+/// The display's refresh as last read. There is no "measuring" state: the last reading stays until the next one replaces it, and
+/// `Unavailable` (nothing is shown) is only what the kernel's counter says when it has no rate to give.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Display { Measuring, Unavailable, Hz(u64) }
+pub enum Display { Unavailable, Hz(u64) }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Video {
@@ -63,38 +64,32 @@ pub fn input_vrr(doc: &Value) -> Option<Vrr> {
     Some(Vrr { fps, on })
 }
 
-#[derive(Clone, Copy)]
-struct Published { epoch: u64, at: Instant, value: Display }
-enum Command { Active(u64), Inactive }
+enum Command { Active, Inactive }
+/// The reader's thread and what it last read. A reading outlives the panel being closed and opened again, so the first frame of a new
+/// opening already shows the refresh until the new interval has a reading of its own.
 #[derive(Default)]
 pub struct Monitor {
-    started: bool, active: bool, epoch: u64,
-    tx: Option<mpsc::Sender<Command>>, published: Option<Arc<Mutex<Published>>>,
+    started: bool, active: bool,
+    tx: Option<mpsc::Sender<Command>>, published: Option<Arc<Mutex<Display>>>,
 }
 impl Monitor {
     pub fn set_active(&mut self, active: bool) {
         if self.active == active { return; }
         self.active = active;
-        self.epoch = self.epoch.wrapping_add(1);
         if active && !self.started {
             self.started = true;
             let (tx, rx) = mpsc::channel();
-            let published = Arc::new(Mutex::new(Published { epoch: self.epoch, at: Instant::now(), value: Display::Measuring }));
+            let published = Arc::new(Mutex::new(Display::Unavailable));
             let output = Arc::clone(&published);
             if std::thread::Builder::new().name("display-sync".into()).spawn(move || worker(rx, output)).is_ok() {
                 self.tx = Some(tx); self.published = Some(published);
             }
         }
-        if let Some(tx) = &self.tx { let _ = tx.send(if active { Command::Active(self.epoch) } else { Command::Inactive }); }
+        if let Some(tx) = &self.tx { let _ = tx.send(if active { Command::Active } else { Command::Inactive }); }
     }
-    pub fn reset(&mut self) { if self.active { self.set_active(false); self.set_active(true); } }
     pub fn snapshot(&self) -> Display {
-        if !self.active { return Display::Unavailable; }
-        let Some(p) = &self.published else { return Display::Unavailable; };
-        let Ok(p) = p.try_lock() else { return Display::Measuring; };
-        if p.epoch != self.epoch { return Display::Measuring; }
-        if Instant::now().saturating_duration_since(p.at) > MAX_AGE { return Display::Unavailable; }
-        p.value
+        // the reader holds the lock only to store a number, so waiting for it is not waiting for the reader's work
+        self.published.as_ref().map_or(Display::Unavailable, |p| *p.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
     }
 }
 
@@ -127,18 +122,22 @@ fn parse_count(text: &str) -> Option<Counter> {
     }
     found
 }
+/// The rate of the display's interrupt between one reading and the next. The interval is whatever really passed between the two reads
+/// (a reader that was slow to be scheduled gives a longer interval, not a lost reading), and a counter that went backwards starts the
+/// interval again.
 #[derive(Default)]
 struct Rate { previous: Option<(Instant, Counter)> }
 impl Rate {
-    fn sample(&mut self, now: Instant, count: Option<Counter>) -> Display {
-        let Some(count) = count else { self.previous = None; return Display::Unavailable; };
-        let Some((at, before)) = self.previous.replace((now, count)) else { return Display::Measuring; };
+    /// `None` while there is no interval yet (the reading just taken is its start): what is shown is left as it is.
+    fn sample(&mut self, now: Instant, count: Option<Counter>) -> Option<Display> {
+        let Some(count) = count else { self.previous = None; return Some(Display::Unavailable); };
+        let (at, before) = self.previous.replace((now, count))?;
         let elapsed = now.saturating_duration_since(at);
-        if elapsed.is_zero() || elapsed > MAX_AGE || count.cpus != before.cpus || count.len != before.len || count.counts[..count.len].iter().zip(&before.counts[..before.len]).any(|(a, b)| a < b) { return Display::Measuring; }
+        if elapsed.is_zero() || count.cpus != before.cpus || count.len != before.len || count.counts[..count.len].iter().zip(&before.counts[..before.len]).any(|(a, b)| a < b) { return None; }
         let delta = count.total - before.total;
-        if delta == 0 { return Display::Unavailable; }
+        if delta == 0 { return Some(Display::Unavailable); }
         let hz = (delta as f64 / elapsed.as_secs_f64()).round();
-        if hz < 1.0 || hz >= u64::MAX as f64 { Display::Unavailable } else { Display::Hz(hz as u64) }
+        Some(if hz < 1.0 || hz >= u64::MAX as f64 { Display::Unavailable } else { Display::Hz(hz as u64) })
     }
 }
 fn read_interrupts(mut reader: impl std::io::Read, buffer: &mut [u8]) -> Option<Counter> {
@@ -153,25 +152,26 @@ fn read_interrupts(mut reader: impl std::io::Read, buffer: &mut [u8]) -> Option<
         }
     }
 }
-fn worker(rx: mpsc::Receiver<Command>, output: Arc<Mutex<Published>>) {
+fn worker(rx: mpsc::Receiver<Command>, output: Arc<Mutex<Display>>) {
     crate::host::priority::background();
-    let mut active = None;
+    let mut active = false;
     let mut rate = Rate::default();
     let mut buffer = vec![0u8; 256 * 1024];
     loop {
-        let command = if active.is_some() {
+        let command = if active {
             match rx.recv_timeout(PERIOD) { Ok(c) => Some(c), Err(mpsc::RecvTimeoutError::Timeout) => None, Err(_) => return }
         } else { match rx.recv() { Ok(c) => Some(c), Err(_) => return } };
         match command {
-            Some(Command::Active(epoch)) => { active = Some(epoch); rate = Rate::default(); }
-            Some(Command::Inactive) => { active = None; continue; }
+            // a new opening starts a new interval: the closed time between two readings is not an interval of the display
+            Some(Command::Active) => { active = true; rate = Rate::default(); }
+            Some(Command::Inactive) => { active = false; continue; }
             None => {}
         }
-        if let Some(epoch) = active {
+        if active {
             let count = std::fs::File::open("/proc/interrupts").ok().and_then(|f| read_interrupts(f, &mut buffer));
-            let now = Instant::now();
-            let value = rate.sample(now, count);
-            if let Ok(mut p) = output.lock() { *p = Published { epoch, at: now, value }; }
+            if let Some(value) = rate.sample(Instant::now(), count) {
+                *output.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = value;
+            }
         }
     }
 }
@@ -189,24 +189,33 @@ mod tests {
         let mut b = [0; 12]; assert_eq!(read_interrupts(&b" CPU0\n 42: 2 GIC osd_irq\n"[..], &mut b), None);
     }
     #[test]
-    fn actual_interval_reset_stale_and_disabled_fail_closed() {
+    fn a_reading_is_the_real_interval_and_never_goes_back_to_measuring() {
         let t = Instant::now(); let mut r = Rate::default();
         let count = |total, cpus| { let mut counts = [0; 64]; counts[0] = total; Some(Counter { total, cpus, counts, len: 1 }) };
-        assert_eq!(r.sample(t, count(10, 1)), Display::Measuring);
-        assert_eq!(r.sample(t + Duration::from_millis(1500), count(190, 1)), Display::Hz(120));
-        assert_eq!(r.sample(t + Duration::from_millis(2500), count(1, 1)), Display::Measuring);
-        assert_eq!(r.sample(t + Duration::from_millis(3500), count(121, 2)), Display::Measuring);
-        assert_eq!(r.sample(t + Duration::from_millis(7500), count(601, 2)), Display::Measuring);
-        assert_eq!(r.sample(t + Duration::from_millis(8500), None), Display::Unavailable);
+        assert_eq!(r.sample(t, count(10, 1)), None, "the first read only starts the interval");
+        assert_eq!(r.sample(t + Duration::from_millis(1500), count(190, 1)), Some(Display::Hz(120)));
+        // a reader that ran late measures the longer interval it really had: 120 Hz over 6 s, not a lost reading
+        assert_eq!(r.sample(t + Duration::from_millis(7500), count(910, 1)), Some(Display::Hz(120)));
+        // a counter that went backwards or changed shape starts again and leaves the last reading alone
+        assert_eq!(r.sample(t + Duration::from_millis(8500), count(1, 1)), None);
+        assert_eq!(r.sample(t + Duration::from_millis(9500), count(121, 2)), None);
+        assert_eq!(r.sample(t + Duration::from_millis(10500), count(241, 2)), Some(Display::Hz(120)));
+        assert_eq!(r.sample(t + Duration::from_millis(11500), count(241, 2)), Some(Display::Unavailable), "a counter that does not move has no rate");
+        assert_eq!(r.sample(t + Duration::from_millis(12500), None), Some(Display::Unavailable), "no counter, nothing to show");
         let a = parse_count(" CPU0 CPU1\n 42: 100 50 GIC osd_irq\n");
         let b = parse_count(" CPU0 CPU1\n 42: 1 200 GIC osd_irq\n");
         let mut per_cpu = Rate::default();
-        assert_eq!(per_cpu.sample(t, a), Display::Measuring);
-        assert_eq!(per_cpu.sample(t + PERIOD, b), Display::Measuring);
-        let p = Arc::new(Mutex::new(Published { epoch: 1, at: Instant::now() - MAX_AGE - PERIOD, value: Display::Hz(120) }));
-        let mut m = Monitor { started: true, active: true, epoch: 1, tx: None, published: Some(p) };
-        assert_eq!(m.snapshot(), Display::Unavailable); m.set_active(false); assert_eq!(m.snapshot(), Display::Unavailable);
-        m.set_active(true); assert_eq!(m.snapshot(), Display::Measuring);
+        assert_eq!(per_cpu.sample(t, a), None);
+        assert_eq!(per_cpu.sample(t + PERIOD, b), None, "one CPU's counter going back is a different counter");
+    }
+    #[test]
+    fn a_known_refresh_survives_the_panel_closing_and_opening_and_nothing_is_shown_before_one() {
+        let shown = Arc::new(Mutex::new(Display::Hz(120)));
+        let mut m = Monitor { started: true, active: true, tx: None, published: Some(shown) };
+        assert_eq!(m.snapshot(), Display::Hz(120));
+        m.set_active(false); assert_eq!(m.snapshot(), Display::Hz(120));
+        m.set_active(true); assert_eq!(m.snapshot(), Display::Hz(120), "the last reading until the new interval has one");
+        assert_eq!(Monitor::default().snapshot(), Display::Unavailable, "no reading yet: no placeholder");
     }
     #[test]
     fn unique_connected_main_only_and_hdr_is_not_assumed() {
