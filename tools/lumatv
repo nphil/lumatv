@@ -2661,6 +2661,48 @@ verb_compositor() {
   return 0
 }
 
+staged_dir() {
+  # The set's scripts: the staged set's own, or the copies a boot apply kept (judge/) while it awaits confirmation.
+  if [ -f "$COMP/staged/dep/cutover.sh" ]; then echo "$COMP/staged/dep"
+  elif [ -f "$COMP/staged/judge/cutover.sh" ]; then echo "$COMP/staged/judge"
+  else return 1; fi
+}
+
+staged_sh() {
+  # The staged install's own cutover.sh (compositor/tools/tv-cutover.sh), run with its own files; it takes no mutation lock itself, since it
+  # calls `compositor off` and `on`, which do.
+  sg_dir=$(staged_dir) || return 1
+  LUMATV_CLIP="$APPDIR/payload/feeder/check.h264" LUMATV_D="$sg_dir" LUMATV_TOOL="$APPDIR/tools/$SHORT_ID" sh "$sg_dir/cutover.sh" staged "$@"
+}
+
+staged_boot_apply() {
+  # A set staged by compositor/tools/tv_install.py that nothing has applied yet goes in here, before the compositor starts: nothing is on the
+  # screen to blink. An earlier boot apply that is still unconfirmed is judged first (the previous files go back on the supervisor's failure
+  # records), and the boot goes on either way. The mutation lock is held (the caller's); the apply does not call `compositor on` or `off` in
+  # this mode. No pty: nothing here asks luna-send, and a bounded run keeps a stuck copy from holding the boot.
+  { [ -s "$COMP/staged/manifest" ] || [ -f "$COMP/staged/boot-pending" ]; } && sg_dir=$(staged_dir) || return 0
+  log_line "compositor-boot: staged install: checking and applying"
+  staged_out=$(LUMATV_CUTOVER_PTY=1 LUMATV_D="$sg_dir" LUMATV_TOOL="$APPDIR/tools/$SHORT_ID" timeout 300 sh "$sg_dir/cutover.sh" staged boot 2>&1 < /dev/null)
+  log_line "compositor-boot: staged boot exit $?: $(printf '%s' "$staged_out" | tail -n 2 | tr '\n' ' ' | cut -c1-200)"
+  return 0
+}
+
+verb_staged() {
+  # staged [status | accept | apply [--now | --standby | --boot] | discard]: the set compositor/tools/tv_install.py put on the set (see
+  # compositor/tools/tv-cutover.sh `staged`). `apply` defaults to --now, which waits unless the panel is on with Home in front. Nothing
+  # calls it by itself except the boot. `accept` confirms a boot apply on proof: panel on, Home in front, no failure on record and a video check
+  # that shows a picture on the package's clip.
+  if ! staged_dir > /dev/null; then
+    if [ "$1" = status ]; then echo "staged: nothing"; return 0; fi
+    emit_error "nothing is staged"; return 1
+  fi
+  case "$1" in
+    status|discard|accept) staged_sh "$1" ;;
+    apply) staged_sh apply "${2:---now}" ;;
+    *) emit_error "staged: status, accept, apply [--now|--standby|--boot] or discard"; return 1 ;;
+  esac
+}
+
 verb_compositor_boot() {
   # Place the mount when everything allows it
   # (the flag, a firmware build the gate passed on, an intact bundle, a supervisor that answers, Home not held).
@@ -2676,6 +2718,7 @@ verb_compositor_boot() {
     emit_error "$STORAGE_WHY"
     return 1
   fi
+  staged_boot_apply
   boot_comp_result=$(comp_boot_mount)
   case "$boot_comp_result" in
     mounted|already)
@@ -3579,6 +3622,7 @@ case "$VERB:${2:-}" in
   wake:status|wake:) MAINTENANCE_ACCESS=read ;;
   wake:off) MAINTENANCE_ACCESS=emergency ;;
   boot-direct:status|boot-direct:) MAINTENANCE_ACCESS=read ;;
+  staged:status|staged:) MAINTENANCE_ACCESS=read ;;
   homestub-kind:status|homestub-kind:) MAINTENANCE_ACCESS=read ;;
   homestub-kind:web) MAINTENANCE_ACCESS=emergency ;;
   boot-direct:off|boot-direct:watch|boot-direct:wake) MAINTENANCE_ACCESS=emergency ;;
@@ -3740,6 +3784,7 @@ case "$VERB" in
   surfaces) verb_surfaces; exit $? ;;
   compositor) verb_compositor "${2:-status}" "${3:-}"; exit $? ;;
   compositor-boot) if [ "${2:-}" = activate ]; then verb_compositor_boot_activate "${3:-}"; else verb_compositor_boot; fi; exit $? ;;
+  staged) verb_staged "${2:-status}" "${3:-}"; exit $? ;;
   boot-direct) verb_boot_direct "${2:-status}"; exit $? ;;
   homestub-kind) verb_stub_kind "${2:-status}"; exit $? ;;
   standby) verb_standby "${2:-}"; exit $? ;;

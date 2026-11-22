@@ -68,7 +68,7 @@ STAT = '''#!/bin/sh
 case "$*" in
   "-Lc %d:%i /proc/77/exe")
     if [ -e "$FAKE/compositor.up" ]; then echo fake-supervisor; else echo fake-stock; fi; exit 0 ;;
-  "-Lc %d:%i $FAKE/data/compositor/bin/lumatv-sm")
+  "-Lc %d:%i $FAKE/data/compositor/bin/lumatv-sm"|"-Lc %d:%i $LUMATV_STATE/bin/lumatv-sm")
     echo fake-supervisor; exit 0 ;;
 esac
 exec /usr/bin/stat "$@"
@@ -2748,6 +2748,770 @@ class SamIsNeverTouched(unittest.TestCase):
                     found.append("%s:%d: %s" % (os.path.relpath(path, ROOT), n, code))
         self.assertEqual(found, [])
 
+
+# The staged set's new supervisor answers the cutover's probe; FAKE_SM (the installed one) does not, which is what a failed probe looks like.
+NEW_SM_OK = FAKE_SM.replace("  *--home-held*)", "  *--probe*) exit 0 ;;\n  *--home-held*)") + "# a newer build\n"
+NEW_SM_BAD = FAKE_SM + "# a newer build that fails the probe\n"
+# The private loader as `ctl shell` and `--list` see it: the shell client's pid moves with each restart, and a lumatv-ui that says "broken" never gets ready.
+FAKE_LOADER = '''#!/bin/sh
+case "$*" in
+  *--list*) [ -e "$FAKE/ui-bad" ] && exit 1; exit 0 ;;
+  *"shell restart"*)
+    n=$(cat "$FAKE/uipid" 2>/dev/null || echo 100); echo $((n + 1)) > "$FAKE/uipid"
+    echo "ctl shell restart" >> "$FAKE/calls"; echo '{"ok":true}'; exit 0 ;;
+  *" shell"*)
+    ready=true; grep -q broken "$LUMATV_STATE/bin/lumatv-ui" && ready=false
+    printf '{"ready":%s,"gaveUp":false,"pid":%s,"homeDrawn":true}\\n' "$ready" "$(cat "$FAKE/uipid" 2>/dev/null || echo 100)"; exit 0 ;;
+esac
+exit 0
+'''
+FAKE_LUNA = '''#!/bin/sh
+case "$*" in
+  *getPowerState*) echo "{\\"returnValue\\":true,\\"state\\":\\"$(cat "$FAKE/power")\\"}" ;;
+  *getForegroundAppInfo*) echo "{\\"returnValue\\":true,\\"appId\\":\\"$(cat "$FAKE/fg")\\"}" ;;
+  *executeOneShot*)
+    n=$(cat "$FAKE/oneshots" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$FAKE/oneshots"
+    if [ -e "$FAKE/decoder-dead" ] || grep -q "no picture" "$LUMATV_STATE/bin/lumatv-compositor" 2>/dev/null ||
+       { [ -e "$FAKE/dead-from" ] && [ "$n" -ge "$(cat "$FAKE/dead-from")" ]; }; then
+      echo '{"errorCode":12,"returnValue":false,"errorText":"REFUSED_NO_SIGNAL"}'
+    else echo '{"returnValue":true,"capturedWidth":320}'; fi ;;
+  *) echo '{"returnValue":true}' ;;
+esac
+'''
+
+
+def sha256_text(text):
+    import hashlib
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+class StagedInstall(FakeSet):
+    """The staged install and the ui swap, on a set whose LumaTV compositor is live."""
+
+    def setUp(self):
+        super().setUp()
+        write(os.path.join(self.fakebin, "luna-send"), FAKE_LUNA, 0o755)
+        self.power("Active Standby")
+        self.front("com.webos.app.home")
+        write(os.path.join(self.dep, "lib", "ld-linux-aarch64.so.1"), FAKE_LOADER, 0o755)
+        write(os.path.join(self.dep, "bin", "lumatv-ui"), "ui one\n", 0o755)
+        # The probe runs the supervisor at LG's path (the real one is bind-mounted there; the fake mount does not): LG's file runs it from where it was installed.
+        write(self.lg, '#!/bin/sh\nexec "$LUMATV_STATE/bin/lumatv-sm" "$@"\n', 0o755)
+        self.cutover("install")
+        self.list_this_build()
+        self.cutover("install")
+        rc, out = self.cutover("enable")
+        self.assertEqual(rc, 0, out)
+        self.staged = os.path.join(self.state, "staged")
+
+    def power(self, state):
+        self.fake("power", state)
+
+    def front(self, app):
+        self.fake("fg", app)
+
+    def stage(self, files):
+        """The staged set as tools/tv_install.py leaves it: the changed files, the cutover's own scripts and a manifest, committed."""
+        new = os.path.join(self.staged, "dep.new")
+        shutil.rmtree(new, ignore_errors=True)
+        for rel, text in files.items():
+            write(os.path.join(new, rel), text, 0o755)
+        shutil.copy(CUTOVER, os.path.join(new, "cutover.sh"))
+        shutil.copy(LIB, os.path.join(new, "compositor.sh"))
+        shutil.copy(os.path.join(ROOT, "tools", "logrelay.py"), os.path.join(new, "logrelay.py"))
+        os.makedirs(os.path.join(new, "feeder"), exist_ok=True)
+        shutil.copy(os.path.join(ROOT, "payload", "feeder", "feeder.sh"), os.path.join(new, "feeder", "feeder.sh"))
+        rows = []
+        for dirpath, _, names in os.walk(new):
+            for n in names:
+                p = os.path.join(dirpath, n)
+                rows.append("%s  %s\n" % (sha256_text(read(p)), os.path.relpath(p, new)))
+        write(os.path.join(self.staged, "manifest.new"), "".join(rows))
+        rc, out = self.cutover("staged", "commit")
+        self.assertEqual(rc, 0, out)
+
+    def journal(self):
+        return read(os.path.join(self.staged, "journal"))
+
+    def staged_is_gone(self):
+        return not os.path.exists(os.path.join(self.staged, "manifest")) and not os.path.exists(os.path.join(self.staged, "dep"))
+
+    def test_with_the_panel_on_and_a_video_app_in_front_the_apply_waits(self):
+        scaler = os.path.join(self.tmp.name, "scaler")
+        write(scaler, "connect_src=VDEC\nmute=0\n")
+        self.power("Active")
+        self.front("netflix")
+        self.stage({"bin/lumatv-compositor": "new compositor\n", "bin/lumatv-sm": NEW_SM_OK})
+        restarts = self.calls().count("systemctl restart surface-manager-daemon")
+        rc, out = self.cutover("staged", "apply", "--now", env={"COMP_VC_SCALER": scaler})
+        self.assertEqual(rc, 10, out)
+        self.assertIn("video is playing in netflix", out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "the compositor\n")
+        self.assertFalse(os.path.exists(os.path.join(self.staged, "applying")))
+        self.assertFalse(self.staged_is_gone())
+        self.assertEqual(self.calls().count("systemctl restart surface-manager-daemon"), restarts)
+
+    def test_with_the_panel_on_the_standby_apply_waits_even_for_home(self):
+        self.power("Active")
+        self.stage({"bin/lumatv-compositor": "new compositor\n", "bin/lumatv-sm": NEW_SM_OK})
+        rc, out = self.cutover("staged", "apply", "--standby")
+        self.assertEqual(rc, 10, out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "the compositor\n")
+
+    def test_an_unreadable_power_state_waits(self):
+        self.power("")
+        self.stage({"bin/lumatv-compositor": "new compositor\n"})
+        rc, out = self.cutover("staged", "apply", "--now")
+        self.assertEqual(rc, 10, out)
+        self.assertIn("power state is unknown", out)
+
+    def test_in_active_standby_the_set_is_applied_and_brought_back_up(self):
+        self.stage({"bin/lumatv-compositor": "new compositor\n", "bin/lumatv-sm": NEW_SM_OK})
+        rc, out = self.cutover("staged", "apply", "--standby")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "new compositor\n")
+        self.assertEqual(read(self.st("bin/lumatv-sm")), NEW_SM_OK)
+        self.assertTrue(self.mounted())
+        self.assertEqual(read(self.st("enabled")).strip(), "persistent")
+        self.assertTrue(self.staged_is_gone())
+        self.assertRegex(self.journal(), r"applied \(standby\): .*bin/lumatv-compositor [0-9a-f]{8} -> [0-9a-f]{8}")
+
+    def test_a_failed_probe_puts_the_previous_binaries_back(self):
+        self.stage({"bin/lumatv-compositor": "new compositor\n", "bin/lumatv-sm": NEW_SM_BAD})
+        rc, out = self.cutover("staged", "apply", "--standby")
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "the compositor\n")
+        self.assertEqual(read(self.st("bin/lumatv-sm")), FAKE_SM)
+        self.assertTrue(self.mounted())
+        self.assertEqual(read(self.st("enabled")).strip(), "persistent")
+        self.assertTrue(self.staged_is_gone())
+        self.assertIn("ROLLED BACK (standby): probe exit", self.journal())
+
+    def test_a_set_that_does_not_match_its_manifest_is_dropped_untouched(self):
+        self.stage({"bin/lumatv-compositor": "new compositor\n"})
+        write(os.path.join(self.staged, "dep", "bin", "lumatv-compositor"), "damaged\n")
+        rc, out = self.cutover("staged", "apply", "--standby")
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "the compositor\n")
+        self.assertTrue(self.staged_is_gone())
+
+    def test_the_boot_applies_it_before_anything_is_mounted(self):
+        # What a reboot leaves: the flag stays, nothing is mounted, the compositor is not running.
+        self.fake("mountinfo")
+        os.remove(os.path.join(self.tmp.name, "compositor.up"))
+        self.stage({"bin/lumatv-compositor": "new compositor\n", "bin/lumatv-sm": NEW_SM_OK})
+        rc, out = self.cutover("staged", "apply", "--boot")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "new compositor\n")
+        self.assertEqual(read(self.st("enabled")).strip(), "persistent")
+        self.assertFalse(self.mounted())
+        self.assertTrue(self.staged_is_gone())
+
+    def test_an_apply_that_was_cut_short_is_undone_first(self):
+        self.stage({"bin/lumatv-compositor": "new compositor\n"})
+        write(os.path.join(self.staged, "prev", "bin", "lumatv-compositor"), "the compositor\n")
+        write(os.path.join(self.staged, "applying"), "standby no\n")
+        write(self.st("bin/lumatv-compositor"), "half copied")
+        self.fake("mountinfo")
+        rc, out = self.cutover("staged", "apply", "--standby")
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "the compositor\n")
+        self.assertTrue(self.staged_is_gone())
+        self.assertIn("did not finish", self.journal())
+
+    def video_env(self):
+        """The video check's inputs: a feeder that logs, a clip in the set, the decoder connected and the panel on; the capture answers from FAKE_LUNA."""
+        d = self.tmp.name
+        write(os.path.join(self.fakebin, "lumatv-gfn-feeder"), VC_FEEDER, 0o755)
+        write(os.path.join(d, "scaler"), VC_SCALER_PLAYING)
+        write(os.path.join(d, "win0"), VC_WIN0_PLAYING)
+        write(os.path.join(self.dep, "feeder", "check.h264"), "clip")
+        self.power("Active")
+        return {"COMP_VC_FEEDER": os.path.join(self.fakebin, "lumatv-gfn-feeder"), "COMP_VC_SCALER": os.path.join(d, "scaler"),
+                "COMP_VC_WIN0": os.path.join(d, "win0"), "COMP_VC_OUT": os.path.join(d, "vc")}
+
+    def stage_with_clip(self, files):
+        files = dict(files)
+        files["feeder/check.h264"] = "clip"
+        self.stage(files)
+
+    def test_nothing_watches_for_standby_and_no_verb_does(self):
+        self.stage({"bin/lumatv-compositor": "new compositor\n"})
+        self.assertFalse(os.path.exists(os.path.join(self.staged, "watcher")))
+        self.assertEqual(self.cutover("staged", "watch")[0], 1)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "the compositor\n")
+
+    def test_now_never_applies_in_active_standby(self):
+        self.stage({"bin/lumatv-compositor": "new compositor\n", "bin/lumatv-sm": NEW_SM_OK})
+        rc, out = self.cutover("staged", "apply", "--now")
+        self.assertEqual(rc, 10, out)
+        self.assertIn("Active Standby", out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "the compositor\n")
+
+    def test_now_with_home_in_front_applies_and_the_video_check_sees_a_picture(self):
+        env = self.video_env()
+        self.stage_with_clip({"bin/lumatv-compositor": "new compositor\n", "bin/lumatv-sm": NEW_SM_OK})
+        rc, out = self.cutover("staged", "apply", "--now", env=env)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "new compositor\n")
+        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, "feeder-args")))
+        self.assertTrue(self.mounted())
+        self.assertTrue(self.staged_is_gone())
+
+    def test_a_new_build_that_shows_no_picture_is_rolled_back_while_the_previous_one_does(self):
+        env = self.video_env()
+        self.stage_with_clip({"bin/lumatv-compositor": "new compositor, no picture\n", "bin/lumatv-sm": NEW_SM_OK})
+        rc, out = self.cutover("staged", "apply", "--now", env=env)
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "the compositor\n")
+        self.assertEqual(read(self.st("bin/lumatv-sm")), FAKE_SM)
+        self.assertTrue(self.mounted())
+        self.assertEqual(read(self.st("enabled")).strip(), "persistent")
+        self.assertTrue(self.staged_is_gone())
+        journal = self.journal()
+        self.assertIn("ROLLED BACK (now): the new build shows no picture", journal)
+        self.assertIn("the new build is at fault", journal)
+        self.assertNotIn("NO PICTURE", journal)
+
+    def test_a_fault_the_previous_build_shares_is_exit_12_with_the_previous_files_back_and_no_reboot(self):
+        env = self.video_env()
+        self.fake("decoder-dead")
+        self.stage_with_clip({"bin/lumatv-compositor": "new compositor\n", "bin/lumatv-sm": NEW_SM_OK})
+        rc, out = self.cutover("staged", "apply", "--now", env=env)
+        self.assertEqual(rc, 12, out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "the compositor\n")
+        self.assertEqual(read(self.st("bin/lumatv-sm")), FAKE_SM)
+        self.assertTrue(self.mounted())
+        self.assertTrue(self.staged_is_gone())
+        self.assertIn("NO PICTURE (now)", self.journal())
+        self.assertIn("reboot (not done here)", self.journal())
+        self.assertEqual([c for c in self.calls() if "reboot" in c or "wol" in c.lower()], [])
+
+    def test_a_decoder_that_dies_with_the_new_build_is_not_blamed_on_it_when_the_previous_one_shows_no_picture_either(self):
+        env = self.video_env()
+        self.fake("dead-from", "2")  # the first check (LG's compositor, before the switch) sees a picture; every later one does not
+        self.stage_with_clip({"bin/lumatv-compositor": "new compositor\n", "bin/lumatv-sm": NEW_SM_OK})
+        rc, out = self.cutover("staged", "apply", "--now", env=env)
+        self.assertEqual(rc, 12, out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "the compositor\n")
+        journal = self.journal()
+        self.assertIn("previous files are back and still show no picture; the new build is not shown to be at fault", journal)
+        self.assertNotIn("the new build is at fault", journal)
+        self.assertTrue(self.staged_is_gone())
+
+    def test_a_picture_that_never_failed_before_any_file_changed_says_the_new_build_was_not_tried(self):
+        env = self.video_env()
+        self.fake("decoder-dead")
+        self.stage_with_clip({"bin/lumatv-compositor": "new compositor\n"})
+        rc, out = self.cutover("staged", "apply", "--now", env=env)
+        self.assertEqual(rc, 12, out)
+        self.assertIn("No file was changed and the new build was not tried", self.journal())
+
+    def pending_boot_apply(self):
+        """A boot apply of a new compositor, then the set as a running boot leaves it: mounted, the supervisor's marks not set yet."""
+        mountinfo = read(os.path.join(self.tmp.name, "mountinfo"))
+        self.fake("mountinfo")
+        os.remove(os.path.join(self.tmp.name, "compositor.up"))
+        self.stage({"bin/lumatv-compositor": "new compositor\n", "bin/lumatv-sm": NEW_SM_OK})
+        rc, out = self.cutover("staged", "apply", "--boot")
+        self.assertEqual(rc, 0, out)
+        self.mountinfo = mountinfo
+
+    def run_the_boot_up(self):
+        self.fake("mountinfo", self.mountinfo)
+        self.fake("compositor.up")
+
+    def pending(self, name):
+        return os.path.exists(os.path.join(self.staged, name))
+
+    def test_a_boot_apply_stays_pending_with_the_previous_files_kept(self):
+        self.pending_boot_apply()
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "new compositor\n")
+        self.assertTrue(self.pending("boot-pending"))
+        self.assertEqual(read(os.path.join(self.staged, "prev", "bin", "lumatv-compositor")), "the compositor\n")
+        self.assertTrue(self.pending("flag.save"))
+        self.assertTrue(self.pending("judge/cutover.sh"))
+        self.assertTrue(self.pending("judge/feeder/feeder.sh"))
+        self.assertFalse(self.pending("manifest"))
+        self.assertFalse(self.pending("dep"))
+        self.assertIn("boot apply stays pending", self.journal())
+        self.assertIn("boot apply awaiting confirmation: set", self.cutover("staged", "status")[1])
+        # A discard of nothing keeps what the rollback needs.
+        self.cutover("staged", "discard")
+        self.assertTrue(self.pending("prev"))
+
+    def test_the_next_boot_with_no_failure_on_record_leaves_it_pending_and_blocks_a_new_set(self):
+        self.pending_boot_apply()
+        self.stage({"bin/lumatv-compositor": "newer compositor\n"})
+        rc, out = self.cutover("staged", "boot")
+        self.assertEqual(rc, 10, out)
+        self.assertIn("not confirmed yet", out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "new compositor\n")
+        self.assertTrue(self.pending("boot-pending"))
+        self.assertTrue(self.pending("manifest"))
+        self.power("Active")
+        rc, out = self.cutover("staged", "apply", "--now")
+        self.assertEqual(rc, 10, out)
+        self.assertIn("staged accept", out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "new compositor\n")
+
+    def boot_after_a_bad_run(self, mark, content):
+        self.pending_boot_apply()
+        self.stage({"bin/lumatv-compositor": "newer compositor\n"})
+        write(self.st(mark), content)
+        rc, out = self.cutover("staged", "boot")
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "the compositor\n")
+        self.assertEqual(read(self.st("bin/lumatv-sm")), FAKE_SM)
+        self.assertEqual(read(self.st("enabled")).strip(), "persistent")
+        self.assertFalse(self.pending("boot-pending"))
+        self.assertFalse(self.pending("prev"))
+        self.assertFalse(self.pending("judge"))
+        # The set staged since is not applied in the boot that rolled back; it waits for the next one.
+        self.assertTrue(self.pending("manifest"))
+        self.assertIn("ROLLED BACK (boot)", self.journal())
+
+    def test_the_next_boot_rolls_a_pending_apply_back_when_failures_are_on_record(self):
+        self.boot_after_a_bad_run("failures", "1\n")
+
+    def test_the_next_boot_rolls_a_pending_apply_back_when_the_start_never_settled(self):
+        self.boot_after_a_bad_run("running", "123\n")
+
+    def test_the_next_boot_rolls_a_pending_apply_back_after_a_fallback(self):
+        self.boot_after_a_bad_run("last-fallback", "supervisor gave up\n")
+
+    def test_the_next_boot_rolls_a_pending_apply_back_when_the_stock_ui_is_held(self):
+        self.boot_after_a_bad_run("stock-ui-held", "")
+
+    def accept_env(self, **extra):
+        env = self.video_env()
+        clip = os.path.join(self.tmp.name, "check.h264")
+        write(clip, "clip")
+        return dict(env, LUMATV_CLIP=clip, **extra)
+
+    def kept(self):
+        self.assertTrue(self.pending("boot-pending"))
+        self.assertEqual(read(os.path.join(self.staged, "prev", "bin", "lumatv-compositor")), "the compositor\n")
+        self.assertTrue(self.pending("flag.save"))
+        self.assertTrue(self.pending("judge"))
+
+    def test_accept_drops_the_previous_files_only_on_a_picture(self):
+        self.pending_boot_apply()
+        self.run_the_boot_up()
+        rc, out = self.cutover("staged", "accept", env=self.accept_env())
+        self.assertEqual(rc, 0, out)
+        self.assertFalse(self.pending("boot-pending"))
+        self.assertFalse(self.pending("prev"))
+        self.assertFalse(self.pending("judge"))
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "new compositor\n")
+        self.assertIn("ACCEPTED (boot apply)", self.journal())
+        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, "feeder-args")))
+        self.assertEqual(self.cutover("staged", "accept")[0], 0)
+
+    def test_accept_refuses_without_a_failure_free_live_compositor(self):
+        self.pending_boot_apply()
+        env = self.accept_env()
+        self.power("Active")
+        rc, out = self.cutover("staged", "accept", env=env)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("not live", out)
+        self.run_the_boot_up()
+        write(self.st("failures"), "2\n")
+        rc, out = self.cutover("staged", "accept", env=env)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("failures on record: 2", out)
+        self.kept()
+
+    def test_accept_waits_unless_the_panel_is_on_with_home_in_front(self):
+        self.pending_boot_apply()
+        self.run_the_boot_up()
+        env = self.accept_env()
+        for power, app in (("Active Standby", "com.webos.app.home"), ("Active", "netflix"), ("", "com.webos.app.home")):
+            self.power(power)
+            self.front(app)
+            rc, out = self.cutover("staged", "accept", env=env)
+            self.assertEqual(rc, 10, (power, app, out))
+            self.assertIn("not confirmed", out)
+            self.kept()
+
+    def test_accept_refuses_when_the_clip_is_missing(self):
+        self.pending_boot_apply()
+        self.run_the_boot_up()
+        env = self.accept_env()
+        os.remove(env["LUMATV_CLIP"])
+        rc, out = self.cutover("staged", "accept", env=env)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("clip is missing", out)
+        self.kept()
+        # Without the package's path it looks beside the kept scripts, where no clip is.
+        rc, out = self.cutover("staged", "accept", env=dict(env, LUMATV_CLIP=None))
+        self.assertEqual(rc, 1, out)
+        self.kept()
+
+    def test_a_video_check_that_does_not_run_is_no_proof(self):
+        self.pending_boot_apply()
+        self.run_the_boot_up()
+        rc, out = self.cutover("staged", "accept", env=self.accept_env(COMP_VC_FEEDER=os.path.join(self.tmp.name, "no-feeder")))
+        self.assertEqual(rc, 1, out)
+        self.assertIn("did not run", out)
+        self.kept()
+
+    def test_a_video_check_that_shows_no_picture_keeps_the_previous_files(self):
+        self.pending_boot_apply()
+        self.run_the_boot_up()
+        env = self.accept_env()
+        self.fake("decoder-dead")
+        rc, out = self.cutover("staged", "accept", env=env)
+        self.assertEqual(rc, 12, out)
+        self.assertIn("no picture", out)
+        self.kept()
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "new compositor\n")
+
+    def test_an_apply_that_was_cut_short_waits_for_the_same_moment_as_any_other(self):
+        self.stage({"bin/lumatv-compositor": "new compositor\n"})
+        write(os.path.join(self.staged, "prev", "bin", "lumatv-compositor"), "the compositor\n")
+        write(os.path.join(self.staged, "applying"), "now yes\n")
+        self.power("Active")
+        self.front("netflix")
+        restarts = self.calls().count("systemctl restart surface-manager-daemon")
+        rc, out = self.cutover("staged", "apply", "--now")
+        self.assertEqual(rc, 10, out)
+        self.assertTrue(os.path.exists(os.path.join(self.staged, "applying")))
+        self.assertEqual(self.calls().count("systemctl restart surface-manager-daemon"), restarts)
+
+    def test_a_delta_install_keeps_the_parts_the_set_does_not_carry(self):
+        for rel in ("bin/lumatv-ui", "assets"):
+            p = os.path.join(self.dep, rel)
+            shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
+        write(os.path.join(self.dep, "bin", "lumatv-compositor"), "newer compositor\n", 0o755)
+        self.cutover("disable")
+        rc, out = self.cutover("install", "--delta")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "newer compositor\n")
+        self.assertEqual(read(self.st("bin/lumatv-ui")), "ui one\n")
+        self.assertTrue(os.path.isdir(self.st("assets/ui")))
+
+    def quiet_ui(self, text):
+        quiet = os.path.join(self.tmp.name, "quiet")
+        write(os.path.join(quiet, "bin", "lumatv-ui"), text, 0o755)
+        write(os.path.join(quiet, "assets", "ui", "page.txt"), text)
+        shutil.copy(LIB, os.path.join(quiet, "compositor.sh"))
+        shutil.copy(os.path.join(ROOT, "tools", "logrelay.py"), os.path.join(quiet, "logrelay.py"))
+        return quiet
+
+    def test_a_ui_swap_restarts_only_the_shell_client_and_follows_it_in_the_manifest(self):
+        restarts = self.calls().count("systemctl restart surface-manager-daemon")
+        rc, out = self.cutover("ui-swap", env={"LUMATV_D": self.quiet_ui("ui two\n")})
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(read(self.st("bin/lumatv-ui")), "ui two\n")
+        self.assertEqual(read(self.st("assets/ui/page.txt")), "ui two\n")
+        self.assertIn(sha256_text("ui two\n"), read(self.st("bundle.manifest")))
+        self.assertEqual(self.calls().count("ctl shell restart"), 1)
+        self.assertEqual(self.calls().count("systemctl restart surface-manager-daemon"), restarts)
+        self.assertTrue(self.mounted())
+        self.assertIn("compositor untouched", self.journal())
+
+    def test_a_ui_that_does_not_load_is_refused_before_anything_changes(self):
+        self.fake("ui-bad")
+        rc, out = self.cutover("ui-swap", env={"LUMATV_D": self.quiet_ui("ui two\n")})
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(read(self.st("bin/lumatv-ui")), "ui one\n")
+        self.assertEqual(self.calls().count("ctl shell restart"), 0)
+
+    def test_a_shell_that_never_gets_ready_is_replaced_by_the_previous_one(self):
+        rc, out = self.cutover("ui-swap", env={"LUMATV_D": self.quiet_ui("broken ui\n"), "LUMATV_UI_WAIT": "3"})
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(read(self.st("bin/lumatv-ui")), "ui one\n")
+        self.assertIn(sha256_text("ui one\n"), read(self.st("bundle.manifest")))
+        self.assertEqual(self.calls().count("ctl shell restart"), 2)
+        self.assertIn("previous shell is back", self.journal())
+
+
+def load_tv_install():
+    spec = importlib.util.spec_from_file_location("tv_install", os.path.join(TOOLS, "tv_install.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TvInstallChoice(unittest.TestCase):
+    """tv_install.py: which parts differ from the installed hashes, and which route each takes."""
+
+    def setUp(self):
+        self.ti = load_tv_install()
+        self.tmp = tempfile.TemporaryDirectory()
+        d = self.tmp.name
+        self.repo, self.deploy, self.helper = os.path.join(d, "repo"), os.path.join(d, "deploy"), os.path.join(d, "helper")
+        for rel in ("tools/lumatv", "tools/compositor.sh"):
+            write(os.path.join(self.repo, rel), rel)
+        write(self.helper, "helper one")
+        for rel in ("bin/lumatv-ui", "bin/lumatv-compositor", "bin/lumatv-sm", "lib/libc.so.6", "recover-home.sh", "verified.list",
+                    "assets/ui/a.txt", "assets/ui/b/c.txt", "feeder/lumatv-gfn-feeder"):
+            write(os.path.join(self.deploy, rel), rel)
+        self.parts = self.ti.local_parts(self.repo, self.deploy, self.helper)
+        # The set as the build left it: every file installed.
+        self.remote = {i.remote: self.ti.sha256_file(i.local) for items in self.parts.values() for i in items}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def changed(self):
+        return self.ti.compare(self.parts, self.remote)
+
+    def test_a_set_that_holds_the_build_has_nothing_to_install(self):
+        self.assertEqual(self.changed(), {})
+
+    def test_the_changed_part_is_named_with_old_and_new_hashes(self):
+        old = self.remote[self.ti.COMP + "/bin/lumatv-compositor"] = "0" * 64
+        c = self.changed()["compositor"]
+        self.assertEqual([(x.remote, x.old[:8], x.new == self.ti.sha256_file(os.path.join(self.deploy, "bin", "lumatv-compositor"))) for x in c],
+                         [(self.ti.COMP + "/bin/lumatv-compositor", old[:8], True)])
+        self.assertEqual(set(self.changed()), {"compositor"})
+
+    def test_a_file_the_set_lacks_and_one_it_keeps_that_the_build_dropped_are_changes(self):
+        del self.remote[self.ti.COMP + "/lib/libc.so.6"]
+        self.remote[self.ti.ASSETS_UI + "gone.txt"] = "1" * 64
+        c = self.changed()
+        self.assertEqual([x.old for x in c["compositor"]], [None])
+        self.assertEqual([(x.remote, x.new) for x in c["ui"]], [(self.ti.ASSETS_UI + "gone.txt", None)])
+
+    def test_a_feeder_the_set_does_not_have_is_not_installed_by_this(self):
+        del self.remote[self.ti.DATA + "/bin/lumatv-gfn-feeder"]
+        self.assertNotIn("feeder", self.changed())
+
+    def test_installed_hashes_are_read_from_sha256sum_output_with_the_assets_as_relative_paths(self):
+        out = "%s  /var/lib/lumatv/compositor/bin/lumatv-ui\n%s  ./b/c.txt\nsha256sum: x: No such file\n" % ("a" * 64, "b" * 64)
+        self.assertEqual(self.ti.parse_hashes(out), {self.ti.COMP + "/bin/lumatv-ui": "a" * 64, self.ti.ASSETS_UI + "b/c.txt": "b" * 64})
+
+    def test_routes(self):
+        choose = self.ti.choose
+        self.assertEqual(choose({"helper"}), ["helper"])
+        self.assertEqual(choose({"tool", "helper", "ui"}), ["tool", "helper", "ui"])
+        self.assertEqual(choose({"ui"}), ["ui"])
+        self.assertEqual(choose({"compositor"}), ["staged"])
+        self.assertEqual(choose({"helper", "ui", "compositor"}), ["helper", "staged"])
+        self.assertEqual(choose({"feeder"}), ["staged"])
+        self.assertEqual(choose(set()), [])
+
+    def test_a_staged_set_carries_the_whole_ui_only_when_the_ui_changed(self):
+        self.remote[self.ti.COMP + "/bin/lumatv-sm"] = "0" * 64
+        self.assertEqual(self.ti.staged_rels(self.parts, self.changed()), ["bin/lumatv-sm"])
+        self.remote[self.ti.COMP + "/bin/lumatv-ui"] = "0" * 64
+        self.assertEqual(self.ti.staged_rels(self.parts, self.changed()),
+                         ["assets/ui/a.txt", "assets/ui/b/c.txt", "bin/lumatv-sm", "bin/lumatv-ui"])
+
+    def test_a_deploy_tree_that_is_not_the_repos_is_refused(self):
+        self.assertIn("cutover.sh", self.ti.stale_deploy(ROOT, self.deploy))
+
+
+class TvInstallRun(unittest.TestCase):
+    """tv_install.py against a fake set: the order of the steps and what is reported."""
+
+    def setUp(self):
+        self.ti = load_tv_install()
+        self.tmp = tempfile.TemporaryDirectory()
+        d = self.tmp.name
+        self.deploy, self.helper = os.path.join(d, "deploy"), os.path.join(d, "helper")
+        write(self.helper, "helper two")
+        for rel in ("bin/lumatv-ui", "bin/lumatv-compositor", "bin/lumatv-sm", "lib/libc.so.6", "recover-home.sh", "logrelay.py", "verified.list",
+                    "assets/ui/a.txt", "feeder/feeder.sh", "feeder/check.h264"):
+            write(os.path.join(self.deploy, rel), rel)
+        shutil.copy(CUTOVER, os.path.join(self.deploy, "cutover.sh"))
+        shutil.copy(LIB, os.path.join(self.deploy, "compositor.sh"))
+        self.ti_parts = self.ti.local_parts(ROOT, self.deploy, self.helper)
+        self.installed = {i.remote: self.ti.sha256_file(i.local) for items in self.ti_parts.values() for i in items}
+        self.said = []
+        self.old_files = {}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def fake_tv(self, apply_rc=10, inventory_rc=0, sentinel=True, marks=(), discard_rc=0, helper_runs=()):
+        installed, ran, old_files = self.installed, [], self.old_files
+        helper = {"starts": 0, "running": True, "pid": 1000, "healthy": True}
+
+        class Tv:
+            def run(tv, cmd, timeout=0):
+                ran.append(cmd)
+                if cmd.startswith("nice -n 19 sha256sum"):
+                    out = "".join("%s  %s\n" % (h, p) for p, h in installed.items()) + "".join(m + "\n" for m in marks)
+                    return inventory_rc, out + (self.ti.SENTINEL + "\n" if sentinel else "")
+                if cmd.endswith("helper status"):
+                    return 0, json.dumps({"ok": True, "helper": {k: v for k, v in helper.items() if k != "starts" and v is not None}})
+                if cmd.endswith("helper stop"):
+                    helper["running"] = False
+                    return 0, '{"ok":true}'
+                if "helper start" in cmd:
+                    mode = helper_runs[helper["starts"]] if helper["starts"] < len(helper_runs) else "good"
+                    helper["starts"] += 1
+                    if mode == "fail":
+                        helper["running"] = False
+                        return 1, '{"ok":false}'
+                    helper["running"], helper["pid"] = True, (None if mode == "nopid" else 1000 + helper["starts"])
+                    return 0, '{"ok":true}'
+                if cmd.endswith("staged discard"):
+                    return discard_rc, ""
+                if "staged apply --now" in cmd:
+                    return apply_rc, "wait: video is playing in netflix\n"
+                return 0, ""
+
+            def put(tv, local, remote):
+                ran.append("put " + remote)
+
+            def put_tree(tv, local, remote):
+                ran.append("put_tree " + remote)
+
+            def get(tv, remote, local):
+                with open(local, "w") as f:
+                    f.write(old_files[remote])
+                ran.append("get " + remote)
+
+        return Tv(), ran
+
+    def run_install(self, tv, **kw):
+        return self.ti.install(tv, ROOT, self.deploy, self.helper, os.path.join(self.tmp.name, "backup"), say=self.said.append, **kw)
+
+    def test_nothing_is_done_when_the_set_has_the_build(self):
+        tv, ran = self.fake_tv()
+        self.assertEqual(self.run_install(tv), 0)
+        self.assertEqual([c for c in ran if not c.startswith("nice")], [])
+        self.assertIn("nothing differs", self.said[0])
+
+    def test_helper_and_ui_changes_restart_only_the_helper_and_the_shell_client(self):
+        # What the set holds of the helper and the ui, as files the backup can fetch and check.
+        self.old_files = {self.ti.HELPER_PAYLOAD: "helper one", self.ti.HELPER_BIN: "helper one", self.ti.COMP + "/bin/lumatv-ui": "ui one"}
+        self.installed.update({p: sha256_text(t) for p, t in self.old_files.items()})
+        tv, ran = self.fake_tv()
+        self.assertEqual(self.run_install(tv), 0, self.said)
+        joined = "\n".join(ran)
+        self.assertIn("helper start", joined)
+        self.assertIn("lumatv-quiet/cutover.sh ui-swap", joined)
+        self.assertNotIn("staged commit", joined)
+        self.assertLess(joined.index("helper start"), joined.index("ui-swap"))
+        self.assertTrue(any(line.startswith("- helper:") and sha256_text("helper one")[:8] + " -> " in line for line in self.said), self.said)
+        self.assertTrue(any(line.startswith("- ui:") and "lumatv-ui " + sha256_text("ui one")[:8] + " -> " in line for line in self.said), self.said)
+
+    def test_a_compositor_change_is_staged_and_a_set_that_cannot_apply_now_stays_staged(self):
+        self.installed[self.ti.COMP + "/bin/lumatv-compositor"] = "3" * 64
+        tv, ran = self.fake_tv(apply_rc=10)
+        self.assertEqual(self.run_install(tv, now=True), 0, self.said)
+        joined = "\n".join(ran)
+        self.assertIn("staged commit", joined)
+        self.assertLess(joined.index("staged commit"), joined.index("staged apply --now"))
+        self.assertNotIn("helper start", joined)
+        self.assertNotIn("ui-swap", joined)
+        self.assertTrue(any("staged, not applied now: wait: video is playing in netflix" in line for line in self.said), self.said)
+
+    def test_a_no_picture_apply_is_reported_as_a_failure_that_leaves_the_reboot_to_the_owner(self):
+        self.installed[self.ti.COMP + "/bin/lumatv-compositor"] = "3" * 64
+        tv, ran = self.fake_tv(apply_rc=12)
+        self.assertNotEqual(self.run_install(tv, now=True), 0)
+        self.assertTrue(any("previous files are back" in line and "reboot it yourself" in line for line in self.said), self.said)
+        self.assertFalse(any(c.strip().startswith("reboot") for c in ran), ran)
+
+    def test_without_now_the_staged_set_is_only_committed(self):
+        self.installed[self.ti.COMP + "/bin/lumatv-sm"] = "3" * 64
+        tv, ran = self.fake_tv()
+        self.assertEqual(self.run_install(tv), 0, self.said)
+        self.assertNotIn("staged apply", "\n".join(ran))
+
+    def writes(self, ran):
+        return [c for c in ran if c.startswith(("put", "get")) or any(w in c for w in ("helper start", "helper stop", "staged ", "ui-swap", " mv "))]
+
+    def test_the_inventory_script_ends_in_the_sentinel_and_has_no_exit_before_the_markers(self):
+        script = self.ti.inventory_script(self.ti_parts)
+        self.assertNotIn("exit", script)
+        self.assertTrue(script.endswith("echo " + self.ti.SENTINEL))
+        self.assertLess(script.index("manifest"), script.index(self.ti.SENTINEL))
+
+    def test_an_inventory_that_failed_or_was_cut_short_makes_no_change(self):
+        self.old_files = {self.ti.HELPER_PAYLOAD: "helper one", self.ti.HELPER_BIN: "helper one"}
+        self.installed.update({p: sha256_text(t) for p, t in self.old_files.items()})
+        for kw in ({"inventory_rc": 255}, {"sentinel": False}, {"inventory_rc": 1, "sentinel": True}):
+            self.said.clear()
+            tv, ran = self.fake_tv(**kw)
+            self.assertEqual(self.run_install(tv), 4, (kw, self.said))
+            self.assertEqual(self.writes(ran), [], (kw, ran))
+            self.assertIn("FAILED before any change", self.said[0])
+
+    def test_an_inventory_without_any_installed_file_is_not_trusted(self):
+        self.installed.clear()
+        tv, ran = self.fake_tv()
+        self.assertEqual(self.run_install(tv), 4, self.said)
+        self.assertEqual(self.writes(ran), [])
+
+    def test_a_waiting_set_is_seen_and_discarded_when_nothing_differs(self):
+        tv, ran = self.fake_tv(marks=(self.ti.PENDING,))
+        self.assertEqual(self.run_install(tv), 0, self.said)
+        self.assertTrue(any(c.endswith("staged discard") for c in ran), ran)
+
+    def test_a_discard_that_failed_stops_before_any_write(self):
+        self.old_files = {self.ti.HELPER_PAYLOAD: "helper one", self.ti.HELPER_BIN: "helper one"}
+        self.installed.update({p: sha256_text(t) for p, t in self.old_files.items()})
+        tv, ran = self.fake_tv(marks=(self.ti.PENDING,), discard_rc=1)
+        self.assertEqual(self.run_install(tv), 4, self.said)
+        self.assertEqual([c for c in self.writes(ran) if not c.endswith("staged discard")], [])
+
+    def test_an_install_needs_the_renewing_outer_lease(self):
+        self.assertIn("tv-lock.sh with", self.ti.outer_lease_problem({}))
+        self.assertIn("tv-lock.sh with", self.ti.outer_lease_problem({"PLX_TV_LOCK_INHERITED": "1"}))
+        self.assertIsNone(self.ti.outer_lease_problem({"PLX_TV_LOCK_INHERITED": "1", "PLX_TV_LOCK_TOKEN": "t"}))
+
+    def test_a_lease_lost_midway_stops_the_next_step(self):
+        self.old_files = {self.ti.HELPER_PAYLOAD: "helper one", self.ti.HELPER_BIN: "helper one"}
+        self.installed.update({p: sha256_text(t) for p, t in self.old_files.items()})
+        tv, ran = self.fake_tv()
+        self.assertEqual(self.run_install(tv, lease=lambda: "the TV lease is not ours"), 1, self.said)
+        self.assertEqual(self.writes(ran), [])
+
+    def helper_set(self):
+        self.old_files = {self.ti.HELPER_PAYLOAD: "helper one", self.ti.HELPER_BIN: "helper one"}
+        self.installed.update({p: sha256_text(t) for p, t in self.old_files.items()})
+
+    def test_a_helper_that_fails_to_start_is_rolled_back_and_checked(self):
+        self.helper_set()
+        self.old_files[self.ti.HELPER_BIN] = "helper zero"
+        self.installed[self.ti.HELPER_BIN] = sha256_text("helper zero")
+        tv, ran = self.fake_tv(helper_runs=["fail"])
+        with mock.patch.object(self.ti.time, "sleep"):
+            self.assertEqual(self.run_install(tv, only={"helper"}), 1, self.said)
+        # Both copies were kept under their own hash and both went back, after a stop, and the old one was started and found running.
+        self.assertEqual([c for c in ran if c.startswith("get ")], ["get " + self.ti.HELPER_PAYLOAD, "get " + self.ti.HELPER_BIN])
+        puts = [c for c in ran if c.startswith("put ")]
+        payload, binary = (self.ti.HELPER_PAYLOAD + ".new", self.ti.HELPER_BIN + ".new")
+        self.assertEqual(puts, ["put " + payload, "put " + payload, "put " + binary])
+        joined = "\n".join(ran)
+        self.assertLess(joined.rindex("helper stop"), joined.rindex("put " + self.ti.HELPER_BIN))
+        self.assertEqual(joined.count("helper start"), 2)
+        self.assertTrue(any("previous helper was put back and runs" in line for line in self.said), self.said)
+
+    def test_a_helper_that_starts_without_a_pid_is_a_failure_and_is_rolled_back(self):
+        self.helper_set()
+        tv, ran = self.fake_tv(helper_runs=["nopid"])
+        with mock.patch.object(self.ti.time, "sleep"):
+            self.assertEqual(self.run_install(tv, only={"helper"}), 1, self.said)
+        self.assertTrue(any("no pid" in line and "previous helper was put back" in line for line in self.said), self.said)
+
+    def test_a_helper_whose_rollback_also_fails_says_so(self):
+        self.helper_set()
+        tv, ran = self.fake_tv(helper_runs=["fail", "fail"])
+        with mock.patch.object(self.ti.time, "sleep"):
+            self.assertEqual(self.run_install(tv, only={"helper"}), 1, self.said)
+        self.assertTrue(any("DID NOT COME UP" in line for line in self.said), self.said)
+
+    def test_nothing_is_written_while_a_boot_apply_is_unconfirmed_and_nothing_accepts_it(self):
+        self.installed[self.ti.COMP + "/bin/lumatv-sm"] = "3" * 64
+        self.installed[self.ti.HELPER_PAYLOAD] = "4" * 64
+        for kw in ({}, {"now": True}, {"only": {"helper"}}):
+            self.said.clear()
+            tv, ran = self.fake_tv(marks=(self.ti.BOOT_PENDING,))
+            self.assertEqual(self.run_install(tv, **kw), 4, (kw, self.said))
+            self.assertEqual(self.writes(ran), [], (kw, ran))
+            self.assertFalse(any("accept" in c for c in ran), ran)
+            self.assertTrue(any("staged accept" in line for line in self.said), self.said)
+        # Reading is still allowed.
+        tv, ran = self.fake_tv(marks=(self.ti.BOOT_PENDING,))
+        self.assertEqual(self.run_install(tv, check=True), 0, self.said)
 
 
 if __name__ == "__main__":
