@@ -61,7 +61,8 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         };
         let token = match self.access_token() {
             Ok(token) => token,
-            Err(Refusal::Expired) => return self.error(seq, ErrorCode::SignIn, "The Steam sign-in has expired"),
+            Err(Refusal::Expired) => return self.error(seq, ErrorCode::SignIn, "Sign in again to renew Steam access"),
+            Err(Refusal::ReadDenied) => return self.error(seq, ErrorCode::BadRequest, "Steam did not allow access to these achievements"),
             Err(Refusal::Trouble(_)) => return self.error(seq, ErrorCode::Network, "Steam is not reachable"),
         };
         let query = http::form(&[("access_token", &token), ("steamid", &steamid), ("appid", &appid.to_string()), ("format", "json")]);
@@ -71,8 +72,7 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             Err(_) => return self.error(seq, ErrorCode::Network, "Steam is not reachable"),
         };
         if resp.status == 401 || (resp.status == 200 && resp.eresult == Some(15)) {
-            self.expire();
-            return self.error(seq, ErrorCode::SignIn, "The Steam sign-in has expired");
+            return self.error(seq, ErrorCode::BadRequest, "Steam did not allow access to these achievements");
         }
         let unlocked = match resp.status {
             200 => match parse(&resp.body) {
@@ -116,7 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn no_stats_is_an_empty_list_a_refused_token_is_a_sign_in_error_and_no_connection_is_a_network_one() {
+    fn unavailable_stats_network_failure_and_a_refused_read_are_distinct() {
         let mut rig = rig();
         rig.http.on("GetPlayerAchievements", [fake::status(400)]);
         assert!(matches!(&ask(&mut rig)[..], [FromEngine { event: Event::Achievements { unlocked, .. }, .. }] if unlocked.is_empty()));
@@ -124,6 +124,6 @@ mod tests {
         assert!(matches!(&ask(&mut rig)[..], [FromEngine { event: Event::Error { code: ErrorCode::Network, .. }, .. }]));
         rig.http.on("GetPlayerAchievements", [fake::status(401)]);
         let events = ask(&mut rig);
-        assert!(events.iter().any(|e| matches!(e.event, Event::Error { code: ErrorCode::SignIn, .. })), "{events:?}");
+        assert!(matches!(&events[..], [FromEngine { event: Event::Error { code: ErrorCode::BadRequest, .. }, .. }]));
     }
 }

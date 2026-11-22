@@ -189,7 +189,8 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             (Some(Some((entries, next))), _) => self.answer(seq, Event::Library { target, entries, next }),
             (Some(None), _) | (None, Some(_)) => self.error(seq, ErrorCode::BadRequest, STALE_CURSOR),
             (None, None) => match refusal {
-                Some(Refusal::Expired) => self.error(seq, ErrorCode::SignIn, "The Steam sign-in has expired and nothing is saved yet"),
+                Some(Refusal::Expired) => self.error(seq, ErrorCode::SignIn, "Sign in again to renew Steam library access"),
+                Some(Refusal::ReadDenied) => self.error(seq, ErrorCode::BadRequest, "Steam did not allow access to this library"),
                 _ => self.error(seq, ErrorCode::Network, "Steam is not reachable and nothing is saved yet"),
             },
         }
@@ -201,6 +202,7 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         match &outcome {
             Ok(()) => {}
             Err(Refusal::Expired) => self.note("library: not refreshed, Steam does not accept the sign-in"),
+            Err(Refusal::ReadDenied) => self.note("library: Steam refused the library read"),
             Err(Refusal::Trouble(trouble)) => self.note(&format!("library: not refreshed, {trouble}")),
         }
         outcome
@@ -212,10 +214,9 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             http::form(&[("access_token", &token), ("steamid", steamid), ("include_appinfo", "1"), ("include_played_free_games", "1"), ("format", "json")]);
         let reply = self.http.get(&http::api(&format!("/IPlayerService/GetOwnedGames/v1/?{query}")), http::LIBRARY_BODY);
         let resp = reply.map_err(|error| Refusal::Trouble(Trouble::Network(error)))?;
-        // Steam says a refused token with HTTP 401 or 403, or with 200 and result 15, whose body is empty and must not pass for an empty library.
+        // Refusal by a data endpoint does not establish that the account's refresh token expired.
         if matches!(resp.status, 401 | 403) || (resp.status == 200 && resp.eresult == Some(15)) {
-            self.expire();
-            return Err(Refusal::Expired);
+            return Err(Refusal::ReadDenied);
         }
         if !resp.succeeded() {
             return Err(Refusal::Trouble(Trouble::of(&resp)));
@@ -451,25 +452,23 @@ mod tests {
     }
 
     #[test]
-    fn a_library_steam_refuses_to_give_is_an_expired_sign_in_and_the_saved_copy_still_shows() {
+    fn a_refused_library_read_preserves_the_saved_library_and_the_account() {
         for refusal in [fake::status(401), fake::status(403), fake::eresult(15, r#"{"response":{}}"#)] {
             let mut rig = rig_with(&fake::owned(&[(10, "Ten", 1, 1_700_000_000)]));
             let first = page_of(&library(&mut rig));
             rig.clock.advance_s(301);
             rig.http.on("GetOwnedGames", [refusal]);
             let events = library(&mut rig);
-            let [served, FromEngine { re: None, event: Event::Targets { targets } }] = events.as_slice() else { panic!("{events:?}") };
-            assert_eq!(page_of(std::slice::from_ref(served)), first, "an empty body with result 15 does not empty the library");
-            assert_eq!(targets[0].link, Link::Expired);
-            assert!(rig.cache().join("library.json").exists());
-            rig.http.forget();
-            assert_eq!(page_of(&library(&mut rig)), first, "still served, and Steam is not asked again");
-            assert!(rig.http.sent().is_empty());
+            assert_eq!(page_of(&events), first);
+            let targets = rig.send(Request::Targets);
+            assert!(matches!(&targets[..], [FromEngine { event: Event::Targets { targets }, .. }] if targets[0].link == Link::Linked));
+            rig.http.on("GetOwnedGames", [fake::ok(&fake::owned(&[(11, "Eleven", 1, 0)]))]);
+            assert_eq!(ids(&page_of(&library(&mut rig)).0), ["11"]);
         }
         let mut rig = rig_with(&fake::owned(&[]));
         rig.http.on("GetOwnedGames", [fake::status(401)]);
         let events = library(&mut rig);
-        assert_eq!(message(&events[..1]), (ErrorCode::SignIn, "The Steam sign-in has expired and nothing is saved yet"));
+        assert_eq!(message(&events), (ErrorCode::BadRequest, "Steam did not allow access to this library"));
     }
 
     #[test]

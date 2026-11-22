@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Steam QR sign-in uses the access token returned with approval and checks once more before declaring a code expired. A replacement polling ID no longer depends on receiving a new QR image at the same time.
+
 Helper tests inspect the plugin environment and broker socket without forking under the 64-process limit. The Hue test bridge drains the stream before checking its final colour, and tuner tests create executable fixtures without launch retries.
 
 The offline VRR rehearsal tools distinguish stock playback recovery from firmware-load evidence and exact display-routing readback. The host can replay the retail reference and timer routines through interrupted handback without changing the TV.

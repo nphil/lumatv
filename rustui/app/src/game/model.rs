@@ -1072,8 +1072,8 @@ impl Model {
                     changed |= self.telemetry.tick(now_ms, &asked);
                     changed |= self.telemetry.rest.tick(now_ms);
                 }
-                if self.view.auth.as_ref().is_some_and(|a| a.expires_ms.is_some_and(|end| now_ms >= end) && !matches!(a.state, Some(AuthState::Failed { .. })))
-                {
+                // QR engines check once more at the deadline: the phone may already have approved.
+                if self.view.auth.as_ref().is_some_and(|a| a.expires_ms.is_some_and(|end| now_ms >= end) && matches!(a.state, Some(AuthState::DeviceCode { .. }))) {
                     if let Some(auth) = &mut self.view.auth {
                         auth.state = Some(AuthState::Failed { reason: ipc::AuthFail::Expired, message: "The code expired. Start sign-in again.".into() });
                     }
@@ -3830,7 +3830,10 @@ pub(crate) mod tests {
         m.step(Input::Tick { now_ms: 299_999, unix_s: 0 });
         assert!(matches!(m.view.auth.as_ref().and_then(|a| a.state.as_ref()), Some(AuthState::Qr { .. })));
         m.step(Input::Tick { now_ms: 300_000, unix_s: 0 });
-        assert!(matches!(m.view.auth.as_ref().and_then(|a| a.state.as_ref()), Some(AuthState::Failed { reason: ipc::AuthFail::Expired, .. })));
+        assert_eq!(m.auth_remaining(), Some(0));
+        assert!(matches!(m.view.auth.as_ref().and_then(|a| a.state.as_ref()), Some(AuthState::Qr { .. })));
+        engine_says(&mut m, "steam", ipc::Event::Auth { state: AuthState::Done { target: TargetId::new("main").unwrap() } });
+        assert!(m.view.auth.is_none(), "the final Steam reply closes the sheet without offering a replacement code");
     }
     fn sent(commands: &[Command]) -> Vec<&Request> {
         commands.iter().filter_map(|c| if let Command::Send { request, .. } = c { Some(request) } else { None }).collect()

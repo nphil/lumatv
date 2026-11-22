@@ -67,6 +67,8 @@ impl fmt::Display for Trouble {
 pub enum Refusal {
     /// Steam no longer accepts the saved sign-in: the owner has to sign in again.
     Expired,
+    /// A data endpoint refused this read, not the saved account sign-in.
+    ReadDenied,
     Trouble(Trouble),
 }
 
@@ -265,12 +267,13 @@ fn shown_url(url: &str) -> bool {
 }
 
 enum Poll {
-    /// Not yet approved. `rotation` is the new code Steam issued before the old one lapsed.
+    /// Steam can replace the poll id and the displayed challenge independently.
     Pending {
-        rotation: Option<(String, String)>,
+        client_id: Option<String>,
+        challenge_url: Option<String>,
         scanned: bool,
     },
-    Approved(String),
+    Approved { refresh: String, access: Option<String> },
     Denied,
     Trouble(Trouble),
 }
@@ -286,6 +289,7 @@ fn read_poll(result: Result<Resp, HttpError>) -> Poll {
         new_challenge_url: Option<String>,
         had_remote_interaction: Option<bool>,
         refresh_token: Option<String>,
+        access_token: Option<String>,
     }
     let resp = match result {
         Ok(resp) => resp,
@@ -302,15 +306,14 @@ fn read_poll(result: Result<Resp, HttpError>) -> Poll {
     let Ok(Body { response }) = serde_json::from_slice(&resp.body) else {
         return Poll::Trouble(Trouble::Unreadable);
     };
-    if let Some(token) = response.refresh_token.filter(|token| !token.is_empty()) {
-        return Poll::Approved(token);
+    if let Some(refresh) = response.refresh_token.filter(|token| !token.is_empty()) {
+        return Poll::Approved { refresh, access: response.access_token };
     }
-    // A new code is both of its parts or none: half of one is not something to show.
-    let rotation = match (response.new_client_id.as_ref().and_then(digits), response.new_challenge_url.filter(|url| shown_url(url))) {
-        (Some(client_id), Some(url)) => Some((client_id, url)),
-        _ => None,
-    };
-    Poll::Pending { rotation, scanned: response.had_remote_interaction == Some(true) }
+    Poll::Pending {
+        client_id: response.new_client_id.as_ref().and_then(digits),
+        challenge_url: response.new_challenge_url.filter(|url| shown_url(url)),
+        scanned: response.had_remote_interaction == Some(true),
+    }
 }
 
 impl<H: Http, C: Clock> Adapter<H, C> {
@@ -357,14 +360,11 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         Some(attempt.next_poll.min(attempt.deadline).saturating_sub(self.clock.mono_ms()))
     }
 
-    /// Ends the sign-in if its time is up, else asks Steam about it if that is due.
+    /// A final check at the deadline can collect an approval made since the last poll.
     pub(crate) fn poll_due(&mut self) {
         let Some(attempt) = &self.attempt else { return };
         let now = self.clock.mono_ms();
-        if now >= attempt.deadline {
-            let seq = attempt.seq;
-            self.fail_auth(seq, AuthFail::Expired, "The sign-in code expired");
-        } else if now >= attempt.next_poll {
+        if now >= attempt.next_poll.min(attempt.deadline) {
             self.poll_once();
         }
     }
@@ -374,11 +374,11 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         let body = http::form(&[("client_id", &attempt.client_id), ("request_id", &attempt.request_id)]);
         let reply = self.http.post_form(&http::api("/IAuthenticationService/PollAuthSessionStatus/v1/"), &body, http::SMALL_BODY);
         match read_poll(reply) {
-            Poll::Approved(refresh_token) => self.approved(attempt.seq, refresh_token),
+            Poll::Approved { refresh, access } => self.approved(attempt.seq, refresh, access),
             Poll::Denied => self.fail_auth(attempt.seq, AuthFail::Denied, "Sign-in was declined"),
             Poll::Trouble(trouble) => {
                 attempt.failures += 1;
-                if attempt.failures > POLL_RETRIES {
+                if attempt.failures > POLL_RETRIES || self.clock.mono_ms() >= attempt.deadline {
                     self.fail_auth(attempt.seq, AuthFail::Network, &trouble.to_string());
                 } else {
                     self.note(&format!("sign-in: a check failed ({trouble}), {} of {POLL_RETRIES} retries used", attempt.failures));
@@ -386,11 +386,16 @@ impl<H: Http, C: Clock> Adapter<H, C> {
                     self.attempt = Some(attempt);
                 }
             }
-            Poll::Pending { rotation, scanned } => {
+            Poll::Pending { client_id, challenge_url, scanned } => {
                 let now = self.clock.mono_ms();
+                if now >= attempt.deadline {
+                    return self.fail_auth(attempt.seq, AuthFail::Expired, "The sign-in code expired");
+                }
                 attempt.failures = 0;
-                if let Some((client_id, url)) = rotation {
+                if let Some(client_id) = client_id {
                     attempt.client_id = client_id;
+                }
+                if let Some(url) = challenge_url {
                     let expires_s = attempt.expires_s(now);
                     self.answer(attempt.seq, Event::Auth { state: AuthState::Qr { url, expires_s } });
                     self.note("sign-in: new code shown");
@@ -407,11 +412,18 @@ impl<H: Http, C: Clock> Adapter<H, C> {
     }
 
     /// The owner approved: keeps the refresh token, looks up the profile name, and tells the app.
-    fn approved(&mut self, seq: u64, refresh_token: String) {
+    fn approved(&mut self, seq: u64, refresh_token: String, access: Option<String>) {
         let Some(claims) = claims(&refresh_token) else {
             return self.fail_auth(seq, AuthFail::Network, &Trouble::Unreadable.to_string());
         };
-        let mut account = Account::new(refresh_token, claims, None, self.clock.unix_s());
+        let now = self.clock.unix_s();
+        let mut account = Account::new(refresh_token, claims, None, now);
+        // Desktop refresh tokens may be refused over HTTP even immediately after approval.
+        account.access = access.and_then(|token| {
+            let claims = self::claims(&token)?;
+            let exp = claims.exp?;
+            (claims.steamid == account.steamid && exp > now).then_some((token, exp))
+        });
         if let Err(error) = account.save(&self.data) {
             self.note(&format!("sign-in: the token could not be saved ({:?})", error.kind()));
             return self.fail_auth(seq, AuthFail::Network, "The Steam sign-in could not be saved on the TV");
@@ -634,9 +646,25 @@ mod tests {
         assert_eq!(rig.adapter.next_wake(), Some(5_000));
         rig.clock.advance_s(5);
         assert_eq!(rig.tick(), [failed(2, AuthFail::Expired, "The sign-in code expired")]);
-        assert_eq!(rig.http.count("PollAuthSessionStatus"), 1, "at the deadline the attempt ends instead of asking again");
+        assert_eq!(rig.http.count("PollAuthSessionStatus"), 2, "the final check found no approval");
         assert_eq!(rig.adapter.next_wake(), None);
         assert!(rig.tick().is_empty());
+    }
+
+    #[test]
+    fn final_poll_collects_approval_and_the_first_library_uses_its_access_token() {
+        let mut rig = with_begin();
+        let access = fake::jwt(STEAMID, Some(UNIX0 + 3_600));
+        rig.http.on("PollAuthSessionStatus", [fake::ok(&approved(&refresh()).replace("ACCESS", &access))]);
+        rig.http.on("GetOwnedGames", [fake::ok(&fake::owned(&[]))]);
+        rig.http.on("steamcommunity.com", [fake::down()]);
+        rig.http.on("IStoreService", [fake::down()]);
+        start(&mut rig);
+        rig.clock.advance_s(300);
+        assert!(matches!(rig.tick()[0].event, Event::Auth { state: AuthState::Done { .. } }));
+        assert!(matches!(library(&mut rig)[0].event, Event::Library { .. }));
+        assert_eq!(rig.http.count("GenerateAccessTokenForApp"), 0);
+        assert!(!fs::read_to_string(rig.data().join(TOKEN_FILE)).unwrap().contains(&access));
     }
 
     #[test]
@@ -749,14 +777,17 @@ mod tests {
     }
 
     #[test]
-    fn half_a_new_code_is_not_a_new_code() {
+    fn replacement_poll_id_and_display_code_can_arrive_separately() {
         let mut rig = with_begin();
         let only_id = r#"{"response":{"new_client_id":"9999"}}"#;
         let only_url = r#"{"response":{"new_challenge_url":"https://s.team/q/1/9999"}}"#;
         rig.http.on("PollAuthSessionStatus", [fake::ok(only_id), fake::ok(only_url), fake::ok(PENDING)]);
         start(&mut rig);
-        assert!(rig.wake().is_empty() && rig.wake().is_empty() && rig.wake().is_empty());
-        assert!(rig.http.to("PollAuthSessionStatus").iter().all(|poll| poll.body.starts_with("client_id=1111&")));
+        assert!(rig.wake().is_empty());
+        let events = rig.wake();
+        assert!(matches!(&events[..], [FromEngine { event: Event::Auth { state: AuthState::Qr { .. } }, .. }]));
+        assert!(rig.wake().is_empty());
+        assert!(rig.http.to("PollAuthSessionStatus")[1..].iter().all(|poll| poll.body.starts_with("client_id=9999&")));
     }
 
     #[test]

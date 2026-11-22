@@ -403,11 +403,10 @@ nothing.
 
 **Sign-in: a QR code scanned in the Steam phone app.** The engine opens a Steam sign-in session
 (`IAuthenticationService/BeginAuthSessionViaQR`), the TV shows its code, the owner scans it and approves in the app, and the engine
-polls the session until Steam hands over a refresh token (about 200 days). Short-lived access tokens
-(`GenerateAccessTokenForApp`) then read `IPlayerService/GetOwnedGames`. The password and Steam Guard code never reach the TV and
+polls the session until Steam hands over a refresh token. A matching short-lived access token from the approval is used directly for
+`IPlayerService/GetOwnedGames`; otherwise the engine requests one with `GenerateAccessTokenForApp`. The password and Steam Guard code never reach the TV and
 no key is typed on a remote. The token is stored like the GeForce NOW sign-in: `engines/steam/token.json`, 0600, read only by the
-engine and never logged. Steam rotates the code every 10 to 20 seconds; the sheet follows it and closes with the attempt, at
-300 seconds at most.
+engine and never logged. The sheet follows code rotations and waits for the final Steam check at the five-minute deadline.
 
 Rejected: a Web API key with the SteamID64 (a 32-character key typed with a remote, game details readable only on a public
 profile, and a long-lived secret that works from anywhere); Steam OpenID (proves who the owner is and returns no token, so private
