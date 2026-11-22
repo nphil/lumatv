@@ -9,6 +9,19 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## UI engine on the panel's real refresh installed, 2026-11-21 (main 1dc20856, 19:2x EST)
+
+Installed compositor `f9decb18` (replaces 5254e676) and ui `96dd76a5` (replaces 3ef55429); helper `e6dc3ace` and sm `65f6ca69` unchanged. Video check: picture after 1 s. The engine had counted in 60 Hz refreshes while Home drives the panel at 120 Hz, so a 60 fps wallpaper step asked for every refresh. Idle Home, owner's theme, 20 s windows, `ctl status` `ui.refreshMs` 8.33:
+
+| Wallpaper | Flips/s | GPU busy | Compositor CPU |
+|---|---|---|---|
+| still | 12.1 (was 60.2) | 2.2 % (was 6.8) | 3.5 % (was 13.3) |
+| 15 fps | 15.4 (was 73.2) | 9.3 % (was 27.5) | 5.2 % |
+| 30 fps | 30.2 (was 77.5) | 17.8 % (was 40.1) | 9.3 % |
+| 60 fps | 60.1 (was 119.9) | 35.0 % (was 61.9; 75.5 this morning) | 17.1 % |
+
+At 60 fps `ctl ceiling off` gave GPU 36.7 % and compositor CPU 15.4 %, so the ceiling (8.3 MB of GPU memory) is being removed; `ctl merge off` changed nothing measurable (35.2 %) with no rain on the weather card.
+
 ## Shared wallpaper clock and letterbox picture fix installed, 2026-11-21 (main 5d04d355, 18:4x EST)
 
 Installed: compositor `5254e676` (replaces a3acd46a), ui `3ef55429` (replaces 655ab295), both built at f86f12b5 (no compositor or rustui change since), and helper `e6dc3ace` (main 39dd2be2, replaces 76f0d68a); sm `65f6ca69` unchanged. Video check: picture after 1 s. A 2:1 film letterboxed by Marquee (3840x1920, `fullScreen` false) had kept the ui slot's Eco mode; it now counts as full-screen video. Idle Home, 20 s windows, GPU busy / flips a second at wallpaper fps 0/10/15/30/60: 6.8/60.2, 21.0/65.3, 27.5/73.2, 40.1/77.5, 61.9/119.9; the shared clock did not merge steps into existing frames at fps 60, and an idle Home flips 60 times a second with the wallpaper still. Untested on the set: the letterbox switch during a film.
