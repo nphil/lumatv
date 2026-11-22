@@ -3017,6 +3017,68 @@ class StagedInstall(FakeSet):
         self.assertEqual(rc, 0, out)
         self.mountinfo = mountinfo
 
+    def apply_deferred(self, helper):
+        self.helper_payload = os.path.join(self.tmp.name, "app", "payload", "helper", "lumatv-helper")
+        self.helper_bin = os.path.join(self.tmp.name, "data", "bin", "lumatv-helper")
+        write(self.helper_payload, "previous payload\n", 0o755)
+        write(self.helper_bin, "previous runtime\n", 0o755)
+        write(self.st("assets/ui/old"), "old asset\n")
+        self.mountinfo = read(os.path.join(self.tmp.name, "mountinfo"))
+        self.fake("mountinfo")
+        os.remove(os.path.join(self.tmp.name, "compositor.up"))
+        self.stage({"boot-only": "", "helper/lumatv-helper": helper,
+                    "bin/lumatv-ui": "new UI\n", "assets/ui/new": "new asset\n"})
+        self.assertEqual(read(self.helper_payload), "previous payload\n")
+        self.assertEqual(read(self.st("bin/lumatv-ui")), "ui one\n")
+        for option in ("--now", "--standby", "--boot"):
+            rc, out = self.cutover("staged", "apply", option)
+            self.assertEqual(rc, 10, out)
+            self.assertIn("only be applied by the early boot hook", out)
+        rc, out = self.cutover("staged", "boot", env={"LUMATV_STAGED_BOOT": "1"})
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(read(self.helper_payload), helper)
+        self.assertEqual(read(self.helper_bin), helper)
+        self.assertEqual(read(self.st("bin/lumatv-ui")), "new UI\n")
+        self.assertFalse(os.path.exists(self.st("assets/ui/old")))
+        self.assertTrue(self.pending("boot-pending"))
+
+    def test_deferred_helper_and_ui_roll_back_together_only_at_a_later_boot(self):
+        self.apply_deferred("new helper\n")
+        write(os.path.join(self.staged, "judge", "helper-failed"), "")
+        early_boot = {"LUMATV_STAGED_BOOT": "1"}
+        self.assertEqual(self.cutover("staged", "boot", env=early_boot)[0], 10)
+        self.assertEqual(read(self.helper_bin), "new helper\n")
+        self.fake("boot_id", "BOOT-B\n")
+        rc, out = self.cutover("staged", "boot", env=early_boot)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("staged helper failed to start", out)
+        self.assertEqual(read(self.helper_payload), "previous payload\n")
+        self.assertEqual(read(self.helper_bin), "previous runtime\n")
+        self.assertEqual(read(self.st("bin/lumatv-ui")), "ui one\n")
+        self.assertEqual(read(self.st("assets/ui/old")), "old asset\n")
+        self.assertFalse(os.path.exists(self.st("assets/ui/new")))
+        self.assertFalse(self.pending("boot-pending"))
+
+    def test_deferred_accept_requires_matching_helper_copies_and_a_ready_process(self):
+        version = '#!/bin/sh\ncat "$FAKE/helper-status"\n'
+        self.apply_deferred(version)
+        self.run_the_boot_up()
+        env = self.accept_env()
+        for status in ('{"running":false}', '{"running":true,"pid":104,"healthy":false}'):
+            self.fake("helper-status", status)
+            rc, out = self.cutover("staged", "accept", env=env)
+            self.assertEqual(rc, 1, out)
+            self.assertIn("helper is not ready", out)
+            self.assertTrue(self.pending("boot-pending"))
+        self.fake("helper-status", '{"running":true,"pid":104,"healthy":true}')
+        write(self.helper_payload, "damaged\n")
+        self.assertEqual(self.cutover("staged", "accept", env=env)[0], 1)
+        self.assertTrue(self.pending("boot-pending"))
+        write(self.helper_payload, version)
+        rc, out = self.cutover("staged", "accept", env=env)
+        self.assertEqual(rc, 0, out)
+        self.assertFalse(self.pending("boot-pending"))
+
     def run_the_boot_up(self):
         self.fake("mountinfo", self.mountinfo)
         self.fake("compositor.up")
@@ -3292,6 +3354,9 @@ class TvInstallChoice(unittest.TestCase):
         self.assertEqual(choose({"helper", "ui", "compositor"}), ["helper", "staged"])
         self.assertEqual(choose({"feeder"}), ["staged"])
         self.assertEqual(choose(set()), [])
+        self.assertEqual(choose({"helper"}, defer=True), ["staged"])
+        self.assertEqual(choose({"tool", "helper", "ui"}, defer=True), ["tool", "staged"])
+        self.assertEqual(choose({"ui"}, defer=True), ["staged"])
 
     def test_a_staged_set_carries_the_whole_ui_only_when_the_ui_changed(self):
         self.remote[self.ti.COMP + "/bin/lumatv-sm"] = "0" * 64
@@ -3331,6 +3396,7 @@ class TvInstallRun(unittest.TestCase):
         installed, ran, old_files = self.installed, [], self.old_files
         helper = {"starts": 0, "running": True, "pid": 1000, "healthy": True}
         uploaded = {}  # remote path -> hash of what was put there
+        self.uploaded = uploaded
         once, lost, mv_failed = set(corrupt_once), set(lost_ack), []
 
         def swap(cmd):
@@ -3389,6 +3455,11 @@ class TvInstallRun(unittest.TestCase):
 
             def put_tree(tv, local, remote):
                 ran.append("put_tree " + remote)
+                for rel in self.ti.tree(local):
+                    uploaded[remote + "/" + rel] = self.ti.sha256_file(os.path.join(local, rel))
+                manifest = os.path.join(os.path.dirname(local), "manifest.new")
+                if os.path.isfile(manifest):
+                    self.uploaded_manifest = read(manifest)
 
             def get(tv, remote, local):
                 with open(local, "w") as f:
@@ -3488,6 +3559,37 @@ class TvInstallRun(unittest.TestCase):
         self.assertLess(joined.index("helper start"), joined.index("ui-swap"))
         self.assertTrue(any(line.startswith("- helper:") and sha256_text("helper one")[:8] + " -> " in line for line in self.said), self.said)
         self.assertTrue(any(line.startswith("- ui:") and "lumatv-ui " + sha256_text("ui one")[:8] + " -> " in line for line in self.said), self.said)
+
+    def test_defer_only_uploads_a_manifest_for_helper_and_ui_without_restarting(self):
+        self.installed[self.ti.HELPER_PAYLOAD] = "5" * 64
+        self.installed[self.ti.COMP + "/bin/lumatv-ui"] = "6" * 64
+        tv, ran = self.fake_tv()
+        self.assertEqual(self.run_install(tv, defer=True, only={"helper", "ui"}), 0, self.said)
+        for rel in ("boot-only", "helper/lumatv-helper", "bin/lumatv-ui", "assets/ui/a.txt"):
+            digest = self.uploaded[self.ti.STAGED + "/dep.new/" + rel]
+            self.assertIn("%s  %s\n" % (digest, rel), self.uploaded_manifest)
+        self.assertEqual(self.uploaded[self.ti.STAGED + "/dep.new/helper/lumatv-helper"], self.ti.sha256_file(self.helper))
+        self.assertIn("staged commit", "\n".join(ran))
+        for action in ("helper start", "helper stop", "ui-swap", "staged apply", "staged discard"):
+            self.assertNotIn(action, "\n".join(ran))
+
+    def test_defer_never_overwrites_existing_staged_state(self):
+        self.installed[self.ti.HELPER_PAYLOAD] = "5" * 64
+        for marks in ((self.ti.PENDING,), (self.ti.APPLYING,), (self.ti.BOOT_PENDING,)):
+            tv, ran = self.fake_tv(marks=marks)
+            self.assertEqual(self.run_install(tv, defer=True), 4, (marks, self.said))
+            self.assertEqual(self.writes(ran), [], ran)
+        tv, ran = self.fake_tv(marks=(self.ti.PENDING, self.ti.DEFERRED))
+        self.assertEqual(self.run_install(tv, now=True), 4, self.said)
+        self.assertEqual(self.writes(ran), [], ran)
+
+    def test_defer_checks_the_lease_again_before_committing_the_upload(self):
+        self.installed[self.ti.HELPER_PAYLOAD] = "5" * 64
+        tv, ran = self.fake_tv()
+        lease = mock.Mock(side_effect=[None, "the TV lease is not ours"])
+        self.assertEqual(self.run_install(tv, defer=True, lease=lease), 1, self.said)
+        self.assertIn("put_tree " + self.ti.STAGED + "/dep.new", ran)
+        self.assertFalse(any("staged commit" in c for c in ran), ran)
 
     def test_a_compositor_change_is_staged_and_a_set_that_cannot_apply_now_stays_staged(self):
         self.installed[self.ti.COMP + "/bin/lumatv-compositor"] = "3" * 64

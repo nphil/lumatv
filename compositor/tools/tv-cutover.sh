@@ -233,8 +233,11 @@ install_bundle() {
 # (`ctl shell restart`), so the app in front and the video plane stay as they are. Whatever else the cutover installs is staged on the set and
 # applied at the next boot, before the compositor starts (nothing is on the screen and no video is playing), or by `staged apply --now` when the
 # panel is on with Home in front. There is no automatic trigger at standby: it is not proven not to wake the panel or cut into LG's panel care.
+# A manifest with boot-only may only be applied by the early boot hook, never by a manual apply.
 STAGED=$STATE/staged
 DATA=${LUMATV_DATA_DIR:-/var/lib/lumatv}
+HELPER_PAYLOAD="${LUMATV_TOOL%/*}/../payload/helper/lumatv-helper"
+HELPER_BIN="$DATA/bin/lumatv-helper"
 HOME_APP=com.webos.app.home
 # Processes of the apps a restart of the compositor would end (LumaGame and the GeForce NOW app).
 BUSY_PATTERNS=${LUMATV_BUSY_PATTERNS:-"org.nphil.lumagame/ org.nphil.lumatv.gfn/"}
@@ -294,6 +297,22 @@ staged_decide() {
     echo apply
 }
 
+staged_boot_only() { grep -q '  boot-only$' "$1/manifest${2:-}" 2>/dev/null; }
+
+staged_helper_put() {
+    mkdir -p "$(dirname "$2")" &&
+        cp "$1" "$2.staged" && chmod 755 "$2.staged" && cmp -s "$1" "$2.staged" &&
+        mv -f "$2.staged" "$2" && cmp -s "$1" "$2"
+}
+
+staged_helper_ready() {
+    sha256sum -c "$STAGED/judge/helper.sha256" >/dev/null 2>&1 || return 1
+    h_status=$(timeout 5 "$LUMATV_TOOL" helper status 2>/dev/null | tr -d ' \r\n')
+    printf '%s\n' "$h_status" | grep -q '"running":true' &&
+        printf '%s\n' "$h_status" | grep -Eq '"pid":[1-9][0-9]*[,}]' &&
+        ! printf '%s\n' "$h_status" | grep -q '"healthy":false'
+}
+
 # Where a file of a staged set lives on the set; nothing for a support file (the scripts, the video check's clip) that is not installed.
 staged_installed() {
     case "$1" in
@@ -313,6 +332,13 @@ staged_backup() {
     : > "$STAGED/changes"
     while read -r b_sum b_rel; do
         [ -n "$b_rel" ] || continue
+        if [ "$b_rel" = helper/lumatv-helper ]; then
+            mkdir -p "$STAGED/prev/helper" || return 1
+            [ ! -f "$HELPER_PAYLOAD" ] || cp -p "$HELPER_PAYLOAD" "$STAGED/prev/helper/payload" || return 1
+            [ ! -f "$HELPER_BIN" ] || cp -p "$HELPER_BIN" "$STAGED/prev/helper/bin" || return 1
+            echo "helper/lumatv-helper -> $(printf %s "$b_sum" | cut -c1-8)" >> "$STAGED/changes"
+            continue
+        fi
         b_inst=$(staged_installed "$b_rel") || continue
         case "$b_rel" in assets/*) continue ;; esac
         b_old=-
@@ -320,12 +346,18 @@ staged_backup() {
             mkdir -p "$STAGED/prev/$(dirname "$b_rel")"
             cp "$b_inst" "$STAGED/prev/$b_rel" || return 1
             b_old=$(comp_sha256 "$b_inst" | cut -c1-8)
+        elif [ "$b_rel" = bin/lumatv-ui ]; then
+            : > "$STAGED/prev/no-ui-bin" || return 1
         fi
         [ "$b_old" = "$(echo "$b_sum" | cut -c1-8)" ] || echo "$b_rel $b_old -> $(echo "$b_sum" | cut -c1-8)" >> "$STAGED/changes"
     done < "$STAGED/manifest"
     if [ -d "$STAGED/dep/assets/ui" ]; then
-        mkdir -p "$STAGED/prev/assets"
-        [ ! -d "$STATE/assets/ui" ] || cp -R "$STATE/assets/ui" "$STAGED/prev/assets/ui" || return 1
+        mkdir -p "$STAGED/prev/assets" || return 1
+        if [ -d "$STATE/assets/ui" ]; then
+            cp -R "$STATE/assets/ui" "$STAGED/prev/assets/ui" || return 1
+        else
+            : > "$STAGED/prev/no-ui-assets" || return 1
+        fi
         echo "assets/ui (tree)" >> "$STAGED/changes"
     fi
 }
@@ -360,6 +392,19 @@ staged_restore() {
         # 12: LG's compositor is back and shows no picture; the files still go back.
         if [ "$r_rc" -ne 0 ] && [ "$r_rc" -ne 12 ]; then return 1; fi
     fi
+    if [ -d "$STAGED/prev/helper" ]; then
+        for r_copy in payload bin; do
+            case "$r_copy" in payload) r_target=$HELPER_PAYLOAD ;; bin) r_target=$HELPER_BIN ;; esac
+            if [ -f "$STAGED/prev/helper/$r_copy" ]; then
+                staged_helper_put "$STAGED/prev/helper/$r_copy" "$r_target" || return 1
+            else
+                rm -f "$r_target" || return 1
+            fi
+            rm -f "$r_target.staged" || return 1
+        done
+    fi
+    [ ! -f "$STAGED/prev/no-ui-bin" ] || rm -f "$STATE/bin/lumatv-ui" || return 1
+    [ ! -f "$STAGED/prev/no-ui-assets" ] || rm -rf "$STATE/assets/ui" || return 1
     install_bundle "$STAGED/prev" --delta > "$STAGED/install.out" 2>&1 || { staged_log "ROLLBACK FAILED: $(tail -n 1 "$STAGED/install.out")"; return 1; }
     if [ "$r_mode" != boot ] && [ "$r_live" = yes ]; then
         staged_step "restore enable" enable; r_rc=$?
@@ -375,6 +420,7 @@ staged_restore() {
 # recovery, a fallback, a start that never settled (the running mark goes after two minutes healthy) and a count of failures (cleared after ten).
 # Prints why and returns 0 when there is some; 1 when there is none, which is not proof of health.
 staged_health_bad() {
+    if [ -f "$STAGED/judge/helper-failed" ]; then echo "the staged helper failed to start"; return 0; fi
     if [ -e "$STATE/stock-ui-held" ]; then echo "LG's UI is held after a recovery"; return 0; fi
     if [ -e "$STATE/last-fallback" ]; then echo "the supervisor fell back: $(head -n 1 "$STATE/last-fallback" 2>/dev/null)"; return 0; fi
     if [ -e "$STATE/running" ]; then echo "the last start has not settled or ended cleanly"; return 0; fi
@@ -389,6 +435,17 @@ staged_health_bad() {
 # 0 nothing pending, 20 pending and unconfirmed, 21 rolled back, 22 the rollback failed (retried at the next boot).
 staged_judge_boot() {
     [ -f "$STAGED/boot-pending" ] || return 0
+    exec 7> "$STAGED/lock"
+    flock -n 7 || { echo "wait: another staged operation is running"; return 20; }
+    [ -f "$STAGED/boot-pending" ] || { exec 7>&-; return 0; }
+    [ ! -f "$STAGED/applying" ] || staged_clear
+    if [ -f "$STAGED/judge/boot-only" ]; then
+        if [ "${LUMATV_STAGED_BOOT:-0}" != 1 ] || [ "$(cat "$STAGED/judge/boot-only")" = "$(comp_boot_id)" ] ||
+                pgrep -x lumatv-helper >/dev/null 2>&1; then
+            echo "wait: the boot-only set can roll back only at a later early boot"
+            return 20
+        fi
+    fi
     if comp_mounted; then echo "wait: LumaTV's compositor is already mounted; the boot apply is judged at a boot"; return 20; fi
     j_why=$(staged_health_bad); j_rc=$?
     if [ "$j_rc" -ne 0 ]; then echo "wait: the boot apply ($(cat "$STAGED/boot-pending")) is not confirmed yet; no failure on record (staged accept confirms it)"; return 20; fi
@@ -424,11 +481,16 @@ staged_accept() {
     [ -f "$STAGED/boot-pending" ] || { echo "nothing to confirm"; return 0; }
     exec 7> "$STAGED/lock"
     flock -n 7 || { echo "another staged apply is running"; return 11; }
+    [ -f "$STAGED/boot-pending" ] || { echo "nothing to confirm"; return 0; }
     if c_why=$(staged_health_bad); then echo "not confirmed: $c_why"; return 1; fi
     c_why=$(staged_decide now); c_rc=$?
     if [ "$c_rc" -ne 0 ]; then echo "not confirmed, $c_why"; return 10; fi
     if ! { comp_live && comp_ready > /dev/null 2>&1 && ui_ready "$(staged_foreground)"; }; then
         echo "not confirmed: LumaTV's compositor is not live with its shell ready"; return 1
+    fi
+    if [ -f "$STAGED/judge/helper.sha256" ] && ! staged_helper_ready; then
+        echo "not confirmed: the staged helper files do not match or the helper is not ready"
+        return 1
     fi
     c_clip=${LUMATV_CLIP:-$STAGED/judge/feeder/check.h264}
     if [ ! -f "$c_clip" ]; then echo "not confirmed: the video check's clip is missing ($c_clip)"; return 1; fi
@@ -440,6 +502,7 @@ staged_accept() {
     fi
     if [ "$COMP_VC" != picture ]; then echo "not confirmed: the video check did not run ($COMP_VC_WHY)"; return 1; fi
     D=$STAGED/judge
+    [ ! -f "$STAGED/applying" ] || staged_clear
     rm -rf "$STAGED/prev" "$STAGED/flag.save" "$STAGED/judge" "$STAGED/boot-pending"
     staged_log "ACCEPTED (boot apply): the compositor runs on the new files and the video check shows a picture; the previous ones are dropped"
 }
@@ -455,6 +518,17 @@ staged_apply() {
     exec 7> "$STAGED/lock"
     flock -n 7 || { echo "another staged apply is running"; return 11; }
     if [ -f "$STAGED/boot-pending" ]; then echo "wait: the boot apply of an earlier set is not confirmed yet (staged accept)"; return 10; fi
+    { [ -s "$STAGED/manifest" ] && [ -d "$STAGED/dep" ]; } || { echo "nothing is staged"; return 11; }
+    a_defer=no
+    if staged_boot_only "$STAGED"; then
+        a_defer=yes
+        if [ "$a_mode" != boot ] || [ "${LUMATV_STAGED_BOOT:-0}" != 1 ]; then
+            echo "wait: this set can only be applied by the early boot hook"; return 10
+        fi
+        if pgrep -x lumatv-helper >/dev/null 2>&1; then
+            echo "wait: the helper has already started"; return 10
+        fi
+    fi
     a_why=$(staged_decide "$a_mode"); a_rc=$?
     if [ "$a_rc" -ne 0 ]; then echo "$a_why"; return 10; fi
     # An apply that was cut short (power, a kill) left files half copied: the old ones go back first, and the set is dropped. That is a compositor
@@ -476,12 +550,32 @@ staged_apply() {
         staged_log "not applied: $STORAGE_WHY"
         staged_clear; return 1
     fi
+    a_helper=$(sed -n 's/  helper\/lumatv-helper$//p' "$STAGED/manifest")
+    if [ "$a_defer" = yes ]; then
+        a_boot_id=$(comp_boot_id)
+        comp_boot_decide
+        if [ -z "$a_boot_id" ] || [ "$COMP_WORD" != ok ]; then
+            staged_log "wait: boot-only apply needs an enabled, runnable LumaTV compositor and a boot identifier"
+            return 10
+        fi
+    fi
+    if [ -n "$a_helper" ]; then
+        if [ "$a_defer" != yes ]; then
+            staged_log "not applied: the helper needs a boot-only set"; staged_clear; return 1
+        fi
+        if ! storage_guard "$(dirname "$HELPER_PAYLOAD")" "$STAGED/dep/helper/lumatv-helper" ||
+           ! storage_guard "$DATA" "$STAGED/dep/helper/lumatv-helper"; then
+            staged_log "not applied: $STORAGE_WHY"; staged_clear; return 1
+        fi
+    fi
     a_flag=$(comp_flag); a_live=no
     if comp_mounted; then a_live=yes; fi
     staged_backup || { staged_log "not applied: the previous files could not be kept"; staged_clear; return 1; }
     rm -f "$STAGED/flag.save"
-    if [ "$a_flag" = persistent ]; then cp "$STATE/enabled" "$STAGED/flag.save"; fi
-    echo "$a_mode $a_live" > "$STAGED/applying"
+    if [ "$a_flag" = persistent ] && ! cp "$STATE/enabled" "$STAGED/flag.save"; then
+        staged_log "not applied: the enable flag could not be kept"; staged_clear; return 1
+    fi
+    echo "$a_mode $a_live" > "$STAGED/applying" || return 1
     staged_log "applying ($a_mode; flag $a_flag; live $a_live): $(tr '\n' ';' < "$STAGED/changes")"
     a_fail=""; a_video=0; a_changed=1
     if [ "$a_mode" = boot ]; then
@@ -495,11 +589,26 @@ staged_apply() {
                 [ "$a_after" = "$a_before" ] || a_fail="the boot check says $a_after, it said $a_before"
             fi
         else a_fail="install failed: $(tail -n 1 "$STAGED/install.out")"; fi
+        if [ -z "$a_fail" ] && [ "$a_defer" = yes ] && grep -Eq '  (bin/lumatv-ui$|assets/ui/)' "$STAGED/manifest"; then
+            if ! (cd "$STATE" && grep -E '  (bin/lumatv-ui$|assets/ui/)' "$STAGED/manifest" | sha256sum -c - >/dev/null 2>&1); then
+                a_fail="the installed UI does not match the staged files"
+            fi
+        fi
         # The boot check of a later boot runs from these copies once the staged set is gone.
         if [ -z "$a_fail" ]; then
             rm -rf "$STAGED/judge"; mkdir -p "$STAGED/judge/feeder"
             cp "$STAGED/dep/cutover.sh" "$STAGED/dep/compositor.sh" "$STAGED/dep/logrelay.py" "$STAGED/judge/" &&
                 cp "$STAGED/dep/feeder/feeder.sh" "$STAGED/judge/feeder/" || a_fail="the scripts for the boot check could not be kept"
+            if [ -z "$a_fail" ] && [ "$a_defer" = yes ]; then
+                printf '%s\n' "$a_boot_id" > "$STAGED/judge/boot-only" || a_fail="the boot identifier could not be kept"
+            fi
+            if [ -z "$a_fail" ] && [ -n "$a_helper" ]; then
+                a_src="$STAGED/dep/helper/lumatv-helper"
+                printf '%s  %s\n' "$a_helper" "$HELPER_PAYLOAD" "$a_helper" "$HELPER_BIN" > "$STAGED/judge/helper.sha256" &&
+                    staged_helper_put "$a_src" "$HELPER_PAYLOAD" &&
+                    staged_helper_put "$a_src" "$HELPER_BIN" &&
+                    sha256sum -c "$STAGED/judge/helper.sha256" >/dev/null 2>&1 || a_fail="the staged helper could not be installed and verified"
+            fi
         fi
     else
         if [ "$a_live" = yes ]; then
@@ -566,7 +675,11 @@ staged_apply() {
     if [ "$a_mode" = boot ]; then
         # Not accepted yet: the compositor has not run once with these files. The previous ones stay until a healthy run is on record (staged
         # accept), and the next boot puts them back when the supervisor's own records say the run failed.
-        echo "set $(sha256sum "$STAGED/manifest" | cut -c1-8), applied $(date '+%Y-%m-%d %H:%M:%S')" > "$STAGED/boot-pending"
+        if ! { echo "set $(sha256sum "$STAGED/manifest" | cut -c1-8), applied $(date '+%Y-%m-%d %H:%M:%S')" > "$STAGED/boot-pending.new" &&
+                mv "$STAGED/boot-pending.new" "$STAGED/boot-pending"; }; then
+            staged_log "boot pending marker could not be kept; the next early boot restores the previous files"
+            return 1
+        fi
         staged_log "the boot apply stays pending: the previous files are kept until a healthy run is confirmed (staged accept)"
         rm -rf "$STAGED/manifest" "$STAGED/dep" "$STAGED/dep.new" "$STAGED/applying"
     else
@@ -580,24 +693,31 @@ staged_apply() {
 # word under the TV lease. A standby apply (`staged apply --standby`) is a command, never a trigger, until it has been proven not to wake the panel.
 staged_commit() {
     [ -f "$STAGED/manifest.new" ] && [ -d "$STAGED/dep.new" ] || { echo "nothing was uploaded to $STAGED/dep.new"; return 1; }
+    exec 7> "$STAGED/lock"
+    flock -n 7 || { echo "an apply is running"; return 1; }
     if [ -f "$STAGED/applying" ]; then echo "an apply is in flight or was cut short: it must finish first"; return 1; fi
+    c_defer=no
+    if staged_boot_only "$STAGED" .new; then c_defer=yes; fi
+    if staged_boot_only "$STAGED" || { [ "$c_defer" = yes ] && { [ -e "$STAGED/manifest" ] || [ -e "$STAGED/boot-pending" ]; }; }; then
+        echo "an existing staged set is kept"; return 1
+    fi
     if ! (cd "$STAGED/dep.new" && sha256sum -c "$STAGED/manifest.new" > /dev/null 2>&1); then
         rm -rf "$STAGED/dep.new" "$STAGED/manifest.new"
         echo "the upload does not match its manifest; discarded"; return 1
     fi
-    exec 7> "$STAGED/lock"
-    flock -n 7 || { echo "an apply is running"; return 1; }
     rm -f "$STAGED/manifest"; rm -rf "$STAGED/dep"
     mv "$STAGED/dep.new" "$STAGED/dep" || return 1
     mv "$STAGED/manifest.new" "$STAGED/manifest" || return 1
     exec 7>&-
     D=$STAGED/dep
-    staged_log "staged $(wc -l < "$STAGED/manifest" | tr -d ' ') files, set $(sha256sum "$STAGED/manifest" | cut -c1-8); applies at the next boot, or by staged apply --now"
+    if [ "$c_defer" = yes ]; then c_when="only at early boot"; else c_when="at the next boot, or by staged apply --now"; fi
+    staged_log "staged $(wc -l < "$STAGED/manifest" | tr -d ' ') files, set $(sha256sum "$STAGED/manifest" | cut -c1-8); applies $c_when"
 }
 
 staged_status() {
     if [ -s "$STAGED/manifest" ]; then
         echo "staged: $(wc -l < "$STAGED/manifest" | tr -d ' ') files, set $(sha256sum "$STAGED/manifest" | cut -c1-8)"
+        if staged_boot_only "$STAGED"; then echo "activation: early boot only"; fi
     else
         echo "staged: nothing"
     fi
@@ -847,6 +967,8 @@ staged)
     status) staged_status ;;
     commit) staged_commit || exit $? ;;
     discard)
+        exec 7> "$STAGED/lock"
+        flock -n 7 || { echo "another staged operation is running"; exit 1; }
         if [ -f "$STAGED/applying" ]; then echo "an apply is in flight or was cut short: it puts the previous files back first"; exit 1; fi
         staged_clear; echo "staged: discarded" ;;
     apply)

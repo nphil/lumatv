@@ -5,7 +5,7 @@ lane already holds, and only takes one itself, which can wake the set, when ther
 
     tv-lock.sh with --why "<what>" -- python3 compositor/tools/tv_install.py [options]   (--check alone needs only `require`)
 
-    tv_install.py [--check] [--now] [--only tool,helper,ui,compositor,feeder] [--helper PATH] [--deploy DIR] [--backup-dir DIR] [--host IP]
+    tv_install.py [--check] [--now | --defer] [--only tool,helper,ui,compositor,feeder] [--helper PATH] [--deploy DIR] [--backup-dir DIR] [--host IP]
 
 Parts and how each goes in:
 
@@ -27,8 +27,11 @@ Parts and how each goes in:
               video check; any failure puts the previous files back, and a reboot is never done for the owner. A boot apply stays pending
               with the previous files kept until `tools/lumatv staged accept` is run by hand; while one is pending nothing is written. Never Wake-on-LAN.
 
-Each backed-up binary lands in the backup dir as <name>-<8 hex of the old hash>. The result lists, per part, old -> new (8 hex) for the
-HANDOFF entry."""
+  --defer     include the helper and UI in a boot-only staged set instead of restarting them. No running service is touched; an existing
+              waiting or unconfirmed set is kept. Include `tool` if the installed boot hook needs updating.
+
+Immediate installs back up binaries on the workstation as <name>-<8 hex of the old hash>. Staged installs retain their rollback on the set.
+The result lists old -> new hashes (8 hex) for the HANDOFF entry."""
 import argparse
 import hashlib
 import json
@@ -59,6 +62,9 @@ HELPER_WAIT = 20  # seconds the helper gets to show a new pid after `helper star
 SENTINEL = "LUMATV-INVENTORY-END"
 PENDING = "LUMATV-STAGED-PENDING"
 BOOT_PENDING = "LUMATV-BOOT-PENDING"
+APPLYING = "LUMATV-STAGED-APPLYING"
+DEFERRED = "LUMATV-STAGED-BOOT-ONLY"
+HELPER_REL = "helper/lumatv-helper"
 
 PARTS = ("tool", "helper", "ui", "compositor", "feeder")
 STAGED_PARTS = ("compositor", "feeder")
@@ -136,9 +142,10 @@ def hash_script(parts):
 
 
 def inventory_script(parts):
-    """The hashes, then a line for a waiting set and one for an unconfirmed boot apply, then the sentinel that proves the script ran to its end."""
-    return "%s; [ -f %s/manifest ] && echo %s; [ -f %s/boot-pending ] && echo %s; echo %s" % (
-        hash_script(parts), STAGED, PENDING, STAGED, BOOT_PENDING, SENTINEL)
+    """Installed hashes and staged state, followed by a sentinel that proves the script ran to its end."""
+    return ("%s; [ -f %s/manifest ] && echo %s; [ -f %s/boot-pending ] && echo %s; "
+            "[ -f %s/applying ] && echo %s; grep -q '  boot-only$' %s/manifest 2>/dev/null && echo %s; echo %s") % (
+        hash_script(parts), STAGED, PENDING, STAGED, BOOT_PENDING, STAGED, APPLYING, STAGED, DEFERRED, SENTINEL)
 
 
 def parse_hashes(out):
@@ -177,11 +184,10 @@ def compare(parts, remote):
     return changes
 
 
-def choose(changed):
-    """The actions for the changed parts, in order. Anything of the compositor class goes staged (the ui with it, so that one build reaches
-    the set whole); the ui alone is swapped under the running compositor."""
-    actions = [a for a in ("tool", "helper") if a in changed]
-    if any(p in changed for p in STAGED_PARTS):
+def choose(changed, defer=False):
+    """The actions for the changed parts, in order."""
+    actions = [p for p in ("tool", "helper") if p in changed and (p != "helper" or not defer)]
+    if changed.intersection(STAGED_PARTS) or (defer and changed.intersection(("helper", "ui"))):
         actions.append("staged")
     elif "ui" in changed:
         actions.append("ui")
@@ -439,30 +445,43 @@ def stage_to_quiet(tv, deploy):
     tv.put_tree(os.path.join(deploy, "assets"), QUIET + "/assets")
 
 
-def do_staged(tv, deploy, parts, changes, now, say):
+def do_staged(tv, deploy, parts, changes, now, say, defer, held):
     rels = staged_rels(parts, changes)
-    send = sorted(set(rels) | {s for s in SUPPORT if os.path.isfile(os.path.join(deploy, s))})
+    sources = {r: os.path.join(deploy, r) for r in rels + list(SUPPORT) if os.path.isfile(os.path.join(deploy, r))}
+    if defer and "helper" in changes:
+        sources[HELPER_REL] = changes["helper"][0].local
+        rels.append(HELPER_REL)
     with tempfile.TemporaryDirectory() as tmp:
-        for rel in send:
-            dest = os.path.join(tmp, "dep.new", rel)
+        dep = os.path.join(tmp, "dep.new")
+        os.makedirs(dep)
+        if defer:
+            with open(os.path.join(dep, "boot-only"), "w"):
+                pass
+        for rel, src in sources.items():
+            dest = os.path.join(dep, rel)
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             try:
-                os.link(os.path.join(deploy, rel), dest)
+                os.link(src, dest)
             except OSError:
-                shutil.copy2(os.path.join(deploy, rel), dest)
+                shutil.copy2(src, dest)
         man = os.path.join(tmp, "manifest.new")
         with open(man, "w") as f:
-            f.write(manifest_text(deploy, send))
-        tv.run("mkdir -p %s && rm -rf %s/dep.new %s/manifest.new" % (STAGED, STAGED, STAGED))
-        tv.run("mkdir -p %s/dep.new" % STAGED)
+            f.write(manifest_text(dep, tree(dep)))
+        rc, out = tv.run("mkdir -p %s && rm -rf %s/dep.new %s/manifest.new && mkdir -p %s/dep.new" % ((STAGED,) * 4))
+        if rc != 0:
+            raise RuntimeError("could not prepare the staging directory: %s" % out.strip()[-300:])
         tv.put_tree(os.path.join(tmp, "dep.new"), STAGED + "/dep.new")
         tv.put(man, STAGED + "/manifest.new")
+    held()
     rc, out = tv.run("LUMATV_D=%s/dep.new sh %s/dep.new/cutover.sh staged commit; rc=$?; exit $rc" % (STAGED, STAGED))
     if rc != 0:
         raise RuntimeError("staging failed: %s" % out.strip()[-300:])
     say("  staged %d file(s): %s" % (len(rels), ", ".join(rels[:6]) + (", ..." if len(rels) > 6 else "")))
+    if defer:
+        return "staged; only the early boot hook can apply it (nothing restarted)"
     if not now:
         return "staged; applies at the next boot, before the compositor starts (or run again with --now)"
+    held()
     rc, out = tv.run("LUMATV_D=%s/dep sh %s/dep/cutover.sh staged apply --now" % (STAGED, STAGED), timeout=900)
     last = out.strip().splitlines()[-1] if out.strip() else ""
     if rc == 0:
@@ -494,8 +513,7 @@ def report_lines(changes, notes):
 
 
 def inventory(tv, parts):
-    """(installed hashes, a staged set is waiting, a boot apply awaits confirmation). Raises when the answer cannot be trusted: a failed ssh,
-    or one that ended before the sentinel, would otherwise read as "everything differs" and start writing."""
+    """Installed hashes and staged-state markers. Fail closed if inventory was cut short."""
     rc, out = tv.run(inventory_script(parts))
     lines = out.splitlines()
     if rc != 0 or not lines or lines[-1].strip() != SENTINEL:
@@ -503,8 +521,7 @@ def inventory(tv, parts):
     remote = parse_hashes(out)
     if parts and not remote:
         raise RuntimeError("the set reported no installed file at the expected paths: this tool updates an installed set, it does not install one")
-    marks = {line.strip() for line in lines}
-    return remote, PENDING in marks, BOOT_PENDING in marks
+    return remote, {line.strip() for line in lines}
 
 
 def discard_staged(tv):
@@ -513,31 +530,58 @@ def discard_staged(tv):
         raise RuntimeError("the old staged set could not be discarded (exit %s): %s" % (rc, out.strip()[-200:]))
 
 
-def install(tv, repo, deploy, helper, backup_dir, check=False, now=False, only=None, say=print, lease=None):
+def install(tv, repo, deploy, helper, backup_dir, check=False, now=False, only=None, say=print, lease=None, defer=False):
+    if defer and now:
+        raise ValueError("--defer and --now cannot be used together")
     problem = stale_deploy(repo, deploy)
     if problem:
         say(problem)
         return 2
     parts = local_parts(repo, deploy, helper)
+    if defer and only and "helper" in only and "helper" not in parts:
+        say("FAILED before any change: the selected helper binary is missing")
+        return 4
+    if defer and only and "ui" in only and "ui" not in parts:
+        say("FAILED before any change: the selected UI build is missing")
+        return 4
     if only:
-        parts = {p: v for p, v in parts.items() if p in only}
+        parts = {p: v for p, v in parts.items() if p in only or (defer and p == "tool")}
     try:
-        remote, pending, boot_pending = inventory(tv, parts)
+        remote, marks = inventory(tv, parts)
     except (RuntimeError, subprocess.SubprocessError, OSError) as e:
         say("FAILED before any change: %s" % e)
         return 4
     changes = compare(parts, remote)
-    actions = choose(set(changes))
+    pending, boot_pending = PENDING in marks, BOOT_PENDING in marks
+    actions = choose(set(changes), defer)
     if boot_pending:
         say("a boot apply is awaiting confirmation, with the previous files kept for its rollback")
-        if not check:
-            say("FAILED before any change: nothing is written while it is pending. Confirm it by hand with `tools/lumatv staged accept` (panel on, Home in front, "
-                "a picture on the video check), then run this again")
+    if not check:
+        if boot_pending:
+            say("FAILED before any change: nothing is written while it is pending. Confirm it by hand with `tools/lumatv staged accept` "
+                "(panel on, Home in front, a picture on the video check), then run this again")
             return 4
+        if APPLYING in marks or (pending and (defer or DEFERRED in marks)):
+            say("FAILED before any change: an existing staged set is kept; check `tools/lumatv staged status`")
+            return 4
+    if defer and only and "tool" not in only and "tool" in changes:
+        say("FAILED before any change: the boot hook needs updating; include tool in --only")
+        return 4
+    if defer and "ui" in changes and not (os.path.isfile(os.path.join(deploy, "bin", "lumatv-ui")) and
+                                          any(i.remote.startswith(ASSETS_UI) for i in parts["ui"])):
+        say("FAILED before any change: deferring the UI requires its binary and asset tree")
+        return 4
+
+    def held():
+        problem = lease() if lease else None
+        if problem:
+            raise RuntimeError(problem)
+
     try:
         if not changes:
             say("nothing differs from what is installed")
             if pending and not check and not only:
+                held()
                 discard_staged(tv)
                 say("a staged set that no longer differs from the installed files was discarded")
             return 0
@@ -547,17 +591,13 @@ def install(tv, repo, deploy, helper, backup_dir, check=False, now=False, only=N
                 say(line)
             return 0
         if pending and "staged" not in actions and not only:
+            held()
             discard_staged(tv)
             say("an older staged set no longer matches the build and was discarded")
     except (RuntimeError, subprocess.SubprocessError, OSError) as e:
         say("FAILED before any change: %s" % e)
         return 4
     notes = {}
-
-    def held():
-        problem = lease() if lease else None
-        if problem:
-            raise RuntimeError(problem)
 
     try:
         if "tool" in actions:
@@ -574,8 +614,8 @@ def install(tv, repo, deploy, helper, backup_dir, check=False, now=False, only=N
             say("ui: " + notes["ui"])
         if "staged" in actions:
             held()
-            how = do_staged(tv, deploy, parts, changes, now, say)
-            for p in STAGED_PARTS + ("ui",):
+            how = do_staged(tv, deploy, parts, changes, now, say, defer, held)
+            for p in STAGED_PARTS + ("ui",) + (("helper",) if defer else ()):
                 if p in changes:
                     notes[p] = how
             say("staged: " + how)
@@ -594,7 +634,9 @@ def install(tv, repo, deploy, helper, backup_dir, check=False, now=False, only=N
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--check", action="store_true", help="only compare and print what would be done")
-    ap.add_argument("--now", action="store_true", help="apply the staged part now when the set allows it (panel off, or Home in front and no game)")
+    activation = ap.add_mutually_exclusive_group()
+    activation.add_argument("--now", action="store_true", help="apply the staged part now when Home is in front and no game is running")
+    activation.add_argument("--defer", action="store_true", help="stage helper/UI without restarting them; only the early boot hook applies the set")
     ap.add_argument("--only", help="comma-separated parts: " + ",".join(PARTS))
     ap.add_argument("--helper", default=os.path.join(REPO, "helper", "dist", "lumatv-helper"))
     ap.add_argument("--deploy", default=os.path.join(REPO, "compositor", "deploy"))
@@ -613,7 +655,7 @@ def main(argv=None):
     if problem:
         print(problem)
         return 3
-    return install(Tv(a.host), REPO, a.deploy, a.helper, a.backup_dir, a.check, a.now, only, lease=require_lease)
+    return install(Tv(a.host), REPO, a.deploy, a.helper, a.backup_dir, a.check, a.now, only, lease=require_lease, defer=a.defer)
 
 
 if __name__ == "__main__":

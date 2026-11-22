@@ -2682,7 +2682,7 @@ staged_boot_apply() {
   # this mode. No pty: nothing here asks luna-send, and a bounded run keeps a stuck copy from holding the boot.
   { [ -s "$COMP/staged/manifest" ] || [ -f "$COMP/staged/boot-pending" ]; } && sg_dir=$(staged_dir) || return 0
   log_line "compositor-boot: staged install: checking and applying"
-  staged_out=$(LUMATV_CUTOVER_PTY=1 LUMATV_D="$sg_dir" LUMATV_TOOL="$APPDIR/tools/$SHORT_ID" timeout 300 sh "$sg_dir/cutover.sh" staged boot 2>&1 < /dev/null)
+  staged_out=$(LUMATV_CUTOVER_PTY=1 LUMATV_STAGED_BOOT="${LUMA_BOOT:-0}" LUMATV_D="$sg_dir" LUMATV_TOOL="$APPDIR/tools/$SHORT_ID" timeout 300 sh "$sg_dir/cutover.sh" staged boot 2>&1 < /dev/null)
   log_line "compositor-boot: staged boot exit $?: $(printf '%s' "$staged_out" | tail -n 2 | tr '\n' ' ' | cut -c1-200)"
   return 0
 }
@@ -3724,7 +3724,11 @@ install_frame_app() {
 
 native_start() {
   stage_theme || log_line "native startup: theme staging failed"
-  helper_start || true
+  if ! helper_start && [ "${LUMA_BOOT:-0}" = 1 ] && [ -f "$COMP/staged/boot-pending" ] &&
+      [ -f "$COMP/staged/judge/helper.sha256" ]; then
+    # The next early boot can put back the helper without stopping a live one.
+    touch "$COMP/staged/judge/helper-failed" || log_line "native startup: could not record staged helper failure"
+  fi
   capture_start || true
   if vplane_installed; then vplane_start || true; fi
   [ ! -f "$PRELOAD_STATE" ] || log_stderr python3 "$PRELOAD_TOOL" on "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null >/dev/null
