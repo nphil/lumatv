@@ -1,6 +1,16 @@
 # Internal 4K120 VRR: attended qualification
 
-**Decision: no timing experiment yet.** The stock display controller has separate pixel and timing selections. There is no demonstrated path from a completed internal 4K picture to the next transmitted frame. That does not prove a display firmware change is necessary, or that one would suffice. The current LumaGame feeder submits compressed data; it cannot return a retained decoded picture or its release cookie. The [host presenter and paired test](decoded-vrr-4k.md) do not change the retail backend.
+### Decision: keep stock or investigate a RAM-only experiment
+
+**A — Keep stock.** Leave LumaGame and its installed timing recorder unchanged. The retail main-window path skips the tested timing source. Recording 4K120 pictures is not proof of variable panel refresh.
+
+**B — Continue toward an attended RAM-only experiment.** Nothing goes to flash. The first decision is only whether to rehearse a stock cold start with the owner present. No modified image is ready to run.
+
+If recovery and an independent software measurement become available, first record stock output while the same picture repeats; do not change timing. That could qualify the measurement, not VRR. Only then would one separately approved off-grid frame test whether the internal picture path can move a transmitted frame.
+
+**Risk:** the TV could still answer over the network while the screen stays black or frozen. No warm recovery is proven. A physical cold start is the only identified independent fallback, **not guaranteed**. A stuck bright picture could wear the OLED; power removal must not interrupt panel maintenance. Failure to recover may require service.
+
+**Recommendation:** stock recovery rehearsal only, or defer. Neither choice enables VRR or authorizes a timing change.
 
 ### 1. Rehearse recovery with stock software only
 
@@ -82,3 +92,11 @@ An SSH restart is not independent recovery: it requires the host kernel, network
 At stock 4K120 SDR, record the unmodified control. For one trial, keep the pixel source on the decoded picture path. Arm a single wait before the 8.33 ms boundary; release it only when the retained picture becomes eligible, at +11 ms from the previous transmitted frame. The timing producer must not know +11 in advance. Require a stock repeat by +16.67 ms if release fails, enforced independently of the experiment. Record actual eligibility, reference edge, tracker wait exit, every transmitted boundary and ID, and final retirement. A matching ID on an off-grid boundary with no intervening repeat is the first positive result. A fixed tick, an unmatched ID or absent boundary is not. Abort on the first unexpected boundary, lock loss, hang or abnormal handback; restore through the stock owner and verify state. No automatic reboot.
 
 One positive trial warrants the [paired discriminator](../../game/vrr-probe/paired_evidence.py), **not** a VRR switch: +11/+13 ms, unchanged-reference and held-picture controls, full timing uncertainty within the 0.25 ms tolerance. Product qualification additionally requires the usable range, repeats below it, audio sync and stock handback after exit, cancellation and process death. Neither 144 Hz nor a lower VRR limit follows from a 4K120 result.
+
+### RAM-only design: identity, observation and handback
+
+The first candidate is an **observer, not a timing patch**. Its only input would be an already identified hardware frame-start on the outgoing link. The minimum record is an event sequence, clock reading, clock identity and overrun count. Keep the selected-picture ID on a separate channel: a repeat is another transmitted frame with the same picture. Accept records only for the same boot and timing epoch, with a calibrated clock and no missing sequence. A tag emitted by the timing-setting routine itself cannot qualify its own effect. No suitable event or version-matched, allocated instrumentation region is established for image 0; zero-filled bytes in a copy are not a reservation for code or records.
+
+**Stock `VerifyFirmware` is not a passive readback.** The retail wrapper selects the embedded image-0 descriptor `0xffffffc011b26fb0` and calls the comparison once (`0xffffffc01096e170–e18c`). The comparator asserts the display MCU's run-stall bit **before** it maps and compares the RAM copy, then clears the bit on its normal exit (`0xffffffc01096a714–a74c`, `a7b4–a7d4`, `a80c–a84c`; `chip/o22/de/de_reg_o22.c:2898–2937`). A mapping failure can exit without reaching that clear. Success is a comparison against stock image 0, not an export, identification of all three running images, or evidence of a transmitted frame. Exclude it from the stock rehearsal and from any live sampler.
+
+**Closing the application does not unload MCU code.** Retail `DE_Close` decrements the device open count and calls `DE_IO_ReleaseVTM`; it contains no image restore (`0xffffffc01091c450–c4d4`; `core/de/de_drv.c:836–865`). A future supported instrumented build needs its own memory map, an independently verifiable running-image identity, a way to quiesce readers before removal, and verified restoration of the stock image and ordinary playback. A loader success code, process exit or SSH reboot does not substitute for any of these. Without them there is no qualified placement, hook or unload, even with approval to experiment.
