@@ -174,6 +174,23 @@ fn launch_ack_queue_start_running_stats_and_remote_end() {
 }
 
 #[test]
+fn the_sdr_reason_tells_a_request_without_hdr_from_a_service_answer_of_sdr() {
+    for (requested,downgrade,reason) in [
+        (json!(true),Value::Null,"SDR: GeForce NOW sent no HDR"),
+        (json!(false),Value::Null,"SDR: HDR was not requested"),
+        // A resumed session never carried the request, so only the answer is known.
+        (Value::Null,Value::Null,"SDR: GeForce NOW sent no HDR"),
+        (json!(false),json!("game-unsupported"),"SDR: no HDR for this game"),
+    ] {
+        let mut f=FakeCore::new(true);f.launch();
+        f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"],"requestedHdr":requested,
+            "hdrDowngrade":downgrade,"negotiatedStreamProfile":{"codec":"h265","enableHdr":false}}));
+        f.reply("streamer.start",json!({"status":"running"}));
+        assert!(f.session_states().iter().any(|s| matches!(s,SessionState::Running{stream:Some(p)} if !p.hdr && p.sdr_reason.as_deref()==Some(reason))),"{requested} {downgrade}");
+    }
+}
+
+#[test]
 fn the_hdr_setting_goes_to_the_core_before_the_session_is_created() {
     for hdr in [true,false] {
         let mut f=FakeCore::new(true);
@@ -528,14 +545,14 @@ fn running_streams(f:&mut FakeCore) -> Vec<StreamInfo> {
 }
 
 #[test]
-fn the_streams_colour_repeats_running_once_per_change_and_nothing_else_follows_it() {
+fn the_streams_colour_repeats_running_once_per_change() {
     let mut f=running();
     let first=running_streams(&mut f).remove(0);
     assert_eq!(first.vui,None);
     f.adapter.pad_line(&colour(16));
     let streams=running_streams(&mut f);
     assert_eq!(streams.len(),2,"one more Running, carrying the colour");
-    assert_eq!(streams[1],StreamInfo{vui:Some(Vui{primaries:9,transfer:16,matrix:9,full_range:false}),..first.clone()},"hdr and sdr_reason are the engine's own");
+    assert_eq!(streams[1],StreamInfo{vui:Some(Vui{primaries:9,transfer:16,matrix:9,full_range:false}),..first.clone()},"PQ keeps the HDR the stream was declared with");
     f.adapter.pad_line(&colour(16));
     assert_eq!(running_streams(&mut f).len(),2,"the same colour again says nothing new");
     f.adapter.pad_line(&colour(18));
@@ -546,6 +563,41 @@ fn the_streams_colour_repeats_running_once_per_change_and_nothing_else_follows_i
     f.adapter.pad_line(&json!({"stream":"colour","primaries":9,"transfer":16,"matrix":9,"full_range":"no"}).to_string());
     f.adapter.pad_line(&json!({"stream":"colour","primaries":9,"transfer":16}).to_string());
     assert_eq!(running_streams(&mut f).len(),3,"a malformed line changes nothing");
+}
+
+#[test]
+fn the_streams_own_colour_tags_decide_hdr_and_the_services_answer_only_the_reason() {
+    // The session answer, the colour tags' transfer characteristic, and the HDR and reason the stream is declared with.
+    for (answer,transfer,hdr,reason) in [
+        (json!({"requestedHdr":true,"negotiatedStreamProfile":{"enableHdr":false}}),16,true,None),
+        (json!({"requestedHdr":true,"negotiatedStreamProfile":{"enableHdr":false}}),18,true,None),
+        (json!({"requestedHdr":true,"negotiatedStreamProfile":{"enableHdr":true}}),16,true,None),
+        (json!({"requestedHdr":true,"negotiatedStreamProfile":{"enableHdr":true}}),1,false,Some("SDR: GeForce NOW sent no HDR")),
+        (json!({"requestedHdr":true,"negotiatedStreamProfile":{"enableHdr":true}}),2,false,Some("SDR: GeForce NOW sent no HDR")),
+        (json!({"requestedHdr":false,"negotiatedStreamProfile":{"enableHdr":false}}),1,false,Some("SDR: HDR was not requested")),
+        (json!({"requestedHdr":true,"hdrDowngrade":"game-unsupported","negotiatedStreamProfile":{"enableHdr":false}}),1,false,Some("SDR: no HDR for this game")),
+    ] {
+        let mut f=FakeCore::new(true);f.launch();
+        let mut create=json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]});
+        for (key,value) in answer.as_object().unwrap() { create[key]=value.clone(); }
+        f.reply("session.create",create);
+        f.reply("streamer.start",json!({"status":"running"}));
+        f.adapter.pad_line(&colour(transfer));
+        let stream=running_streams(&mut f).pop().unwrap();
+        assert_eq!((stream.hdr,stream.sdr_reason.as_deref()),(hdr,reason),"{answer} transfer {transfer}");
+    }
+}
+
+#[test]
+fn a_later_change_of_the_tags_changes_hdr_with_them() {
+    let mut f=running();
+    assert!(running_streams(&mut f)[0].hdr,"declared HDR until the tags are read");
+    f.adapter.pad_line(&colour(1));
+    let streams=running_streams(&mut f);
+    assert_eq!((streams[1].hdr,streams[1].sdr_reason.as_deref()),(false,Some("SDR: GeForce NOW sent no HDR")));
+    f.adapter.pad_line(&colour(16));
+    let streams=running_streams(&mut f);
+    assert_eq!((streams.len(),streams[2].hdr,streams[2].sdr_reason.as_deref()),(3,true,None));
 }
 
 #[test]

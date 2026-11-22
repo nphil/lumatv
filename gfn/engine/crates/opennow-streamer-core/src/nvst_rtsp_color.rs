@@ -1,4 +1,15 @@
 use opennow_streamer_platform::MediaStreamConfig;
+use opennow_streamer_protocol::SessionContext;
+
+/// The stream as the ANNOUNCE states it. `stream.hdr` is what the service accepted; the TV's picture mode follows the stream's own
+/// colour tags instead. The core's `announceHdr` (the session request asked for HDR) adds the ask when the service's answer was SDR,
+/// so the ANNOUNCE is the request that was made.
+pub(super) fn announced(stream: MediaStreamConfig, context: &SessionContext) -> MediaStreamConfig {
+    MediaStreamConfig {
+        hdr: stream.hdr || context.settings["announceHdr"] == true,
+        ..stream
+    }
+}
 
 /// NVST ANNOUNCE color encoding, matching the official wire format.
 ///

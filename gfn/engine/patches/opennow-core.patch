@@ -1,8 +1,21 @@
 diff --git a/native/opennow-core/src/cloudmatch.rs b/native/opennow-core/src/cloudmatch.rs
-index 74cc7946..87b10160 100644
+index 74cc7946..9a2e3fd3 100644
 --- a/native/opennow-core/src/cloudmatch.rs
 +++ b/native/opennow-core/src/cloudmatch.rs
-@@ -1703,7 +1703,8 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id:
+@@ -392,6 +392,12 @@ impl CloudMatchService {
+         } else {
+             "nvst"
+         });
++        // The request as sent, beside the service's answer in `negotiatedStreamProfile.enableHdr`. A refusal leaves the two
++        // different: the stream setup (`announceHdr`) and the diagnostics must tell "asked and refused" from "never asked".
++        info["requestedHdr"] = json!(
++            info["transportMode"] == "nvst"
++                && body["sessionRequestData"]["clientRequestMonitorSettings"][0]["sdrHdrMode"] == 1
++        );
+         select_webrtc_endpoint(&mut info);
+         info["keyboardLayout"] = json!(crate::language::session_keyboard_layout(settings));
+         if let Some(session_id) = network_test["sessionId"].as_str() {
+@@ -1703,7 +1709,8 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id:
      features["hidDevices"] = Value::Null;
      let mut body = json!({"sessionRequestData":{
          "appId":app_id.parse::<i64>().unwrap_or_default(),
@@ -12,7 +25,7 @@ index 74cc7946..87b10160 100644
          "availableSupportedControllers":[2],
          "preferredController":2,
          "networkTestSessionId":params["networkTestSessionId"].as_str(),
-@@ -2061,11 +2062,8 @@ fn session_info(
+@@ -2061,11 +2068,8 @@ fn session_info(
      });
      let hdr = accepted_hdr_mode(session);
      negotiated["enableHdr"] = json!(hdr.map(|mode| mode == 1));
@@ -26,7 +39,15 @@ index 74cc7946..87b10160 100644
      let ad_state = normalize_ad_state(session);
      let mut info = json!({
          "sessionId":session_id,
-@@ -2132,18 +2130,27 @@ fn normalize_ad_state(session: &Value) -> Value {
+@@ -2094,6 +2098,7 @@ fn session_info(
+         "mediaConnectionInfo":media,
+         "negotiatedStreamProfile":negotiated,
+         "hdrDowngrade":null,
++        "requestedHdr":null,
+         "catalogAppId":null,
+         "requestedStreamingFeatures":session["sessionRequestData"]["requestedStreamingFeatures"],
+         "finalizedStreamingFeatures":session["finalizedStreamingFeatures"],
+@@ -2132,18 +2137,27 @@ fn normalize_ad_state(session: &Value) -> Value {
  }
  
  fn accepted_hdr_mode(session: &Value) -> Option<i64> {
@@ -59,7 +80,60 @@ index 74cc7946..87b10160 100644
  }
  
  fn preserve_session_profile(info: &mut Value, previous: &Value) {
-@@ -5747,6 +5754,92 @@ mod tests {
+@@ -2154,7 +2168,7 @@ fn preserve_session_profile(info: &mut Value, previous: &Value) {
+     if previous["sessionId"].as_str() != Some(session_id) {
+         return;
+     }
+-    for key in ["hdrDowngrade", "catalogAppId"] {
++    for key in ["hdrDowngrade", "catalogAppId", "requestedHdr"] {
+         if info[key].is_null() {
+             info[key] = previous[key].clone();
+         }
+@@ -5301,17 +5315,41 @@ mod tests {
+         let base = trusted_cloudmatch_base(DEFAULT_STREAMING_BASE).unwrap();
+         let payload = |id: &str| json!({"session":{"sessionId":id,"status":2,"sdrHdrMode":0}});
+         let mut created = session_info(&payload("seat"), &base, "auto", "123", "device").unwrap();
+-        assert!(created["hdrDowngrade"].is_null() && created["catalogAppId"].is_null());
++        assert!(
++            created["hdrDowngrade"].is_null()
++                && created["catalogAppId"].is_null()
++                && created["requestedHdr"].is_null()
++        );
+         created["hdrDowngrade"] = json!("game-unsupported");
+         created["catalogAppId"] = json!("doom-eternal");
++        created["requestedHdr"] = json!(false);
+         let mut polled = session_info(&payload("seat"), &base, "auto", "123", "device").unwrap();
+         preserve_session_profile(&mut polled, &created);
+         assert_eq!(polled["hdrDowngrade"], "game-unsupported");
+         assert_eq!(polled["catalogAppId"], "doom-eternal");
++        assert_eq!(polled["requestedHdr"], false);
+         assert_eq!(polled["negotiatedStreamProfile"]["enableHdr"], false);
+         let mut other = session_info(&payload("other"), &base, "auto", "123", "device").unwrap();
+         preserve_session_profile(&mut other, &created);
+-        assert!(other["hdrDowngrade"].is_null() && other["catalogAppId"].is_null());
++        assert!(
++            other["hdrDowngrade"].is_null()
++                && other["catalogAppId"].is_null()
++                && other["requestedHdr"].is_null()
++        );
++    }
++
++    #[test]
++    fn a_refused_hdr_request_stays_requested_beside_the_service_answer() {
++        let base = trusted_cloudmatch_base(DEFAULT_STREAMING_BASE).unwrap();
++        let payload = json!({"session":{"sessionId":"seat","status":2,"monitorSettings":[{"sdrHdrMode":0}]}});
++        let mut created = session_info(&payload, &base, "auto", "123", "device").unwrap();
++        // `create_admitted` sets this from the request body.
++        created["requestedHdr"] = json!(true);
++        let mut polled = session_info(&payload, &base, "auto", "123", "device").unwrap();
++        preserve_session_profile(&mut polled, &created);
++        assert_eq!(polled["requestedHdr"], true);
++        assert_eq!(polled["negotiatedStreamProfile"]["enableHdr"], false);
++        assert_eq!(polled["negotiatedStreamProfile"]["enableHdrSource"], "server");
+     }
+ 
+     #[test]
+@@ -5747,6 +5785,92 @@ mod tests {
          assert_eq!(accepted_hdr_mode(&json!({"sdrHdrMode":2})), Some(0));
      }
  
@@ -152,7 +226,7 @@ index 74cc7946..87b10160 100644
      #[test]
      fn in_game_settings_persistence_defaults_on_and_requires_game_support() {
          for preference in [Value::Null, json!(false), json!(true)] {
-@@ -5875,7 +5968,7 @@ mod tests {
+@@ -5875,7 +5999,7 @@ mod tests {
          );
          assert!(request.get("externalAppId").is_none());
          assert_eq!(request["enablePersistingInGameSettings"], true);
@@ -161,7 +235,7 @@ index 74cc7946..87b10160 100644
          assert_eq!(request["accountLinked"], true);
          assert_eq!(request["appLaunchMode"], 2);
          assert_eq!(request["secureRTSPSupported"], true);
-@@ -6373,6 +6466,40 @@ mod tests {
+@@ -6373,6 +6497,40 @@ mod tests {
          })));
      }
  
@@ -305,10 +379,29 @@ index 5ff4c3f1..7cc32c7d 100644
  fn no_subscription_sentinel_is_normalized_without_bypassing_real_subscriptions() {
      for subscription in [
 diff --git a/native/opennow-core/src/gfn/routing_tests.rs b/native/opennow-core/src/gfn/routing_tests.rs
-index d3a3db54..7f00253c 100644
+index d3a3db54..9eeaca97 100644
 --- a/native/opennow-core/src/gfn/routing_tests.rs
 +++ b/native/opennow-core/src/gfn/routing_tests.rs
-@@ -802,7 +802,8 @@ fn reject_concurrent_create_during(discovery: bool) {
+@@ -546,6 +546,7 @@ fn create_uses_the_launched_variant_hdr_metadata_without_saving_settings() {
+             })
+             .unwrap();
+         assert_eq!(created["session"]["hdrDowngrade"], expected_downgrade);
++        assert_eq!(created["session"]["requestedHdr"], expected_mode == 1);
+         assert_eq!(created["session"]["catalogAppId"], "launch-fixture");
+         assert_eq!(created["session"]["appId"], "123");
+         assert_eq!(
+@@ -556,6 +557,10 @@ fn create_uses_the_launched_variant_hdr_metadata_without_saving_settings() {
+             service.cloudmatch.active()["session"]["hdrDowngrade"],
+             expected_downgrade
+         );
++        assert_eq!(
++            service.cloudmatch.active()["session"]["requestedHdr"],
++            expected_mode == 1
++        );
+         worker.join().unwrap();
+         std::fs::remove_dir_all(path).unwrap();
+     }
+@@ -802,7 +807,8 @@ fn reject_concurrent_create_during(discovery: bool) {
              assert!(request.starts_with("POST /v2/session?"));
              let body: Value =
                  serde_json::from_str(request.split("\r\n\r\n").nth(1).unwrap()).unwrap();
@@ -319,7 +412,7 @@ index d3a3db54..7f00253c 100644
          entered_tx.send(()).unwrap();
          release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
 diff --git a/native/opennow-core/src/streamer.rs b/native/opennow-core/src/streamer.rs
-index ae84bd82..59223b06 100644
+index ae84bd82..a24a37c9 100644
 --- a/native/opennow-core/src/streamer.rs
 +++ b/native/opennow-core/src/streamer.rs
 @@ -910,6 +910,7 @@ impl StreamerService {
@@ -330,3 +423,67 @@ index ae84bd82..59223b06 100644
              _ => return Err(invalid("Unknown native streamer control action")),
          };
          self.reap_finished();
+@@ -2011,6 +2012,7 @@ fn streamer_context(mut session: Value, settings: &Value) -> Value {
+             normalized[key] = session["negotiatedStreamProfile"][key].clone();
+         }
+     }
++    normalized["announceHdr"] = json!(announces_hdr(&session, &normalized));
+     if session["negotiatedStreamProfile"].is_null() {
+         session["negotiatedStreamProfile"] = json!({"codec":codec.to_ascii_uppercase()});
+     }
+@@ -2031,6 +2033,19 @@ fn streamer_context(mut session: Value, settings: &Value) -> Value {
+     })
+ }
+ 
++/// Whether the stream setup asks the service for HDR. It asks on the session request alone (`requestedHdr`, the value the core
++/// sent), not on `negotiatedStreamProfile.enableHdr`, the service's answer. Whether the stream is HDR is read from its own colour
++/// tags, from which the streamer sets the TV's picture mode. HDR still needs
++/// 10-bit HEVC or 10-bit 4:2:0 AV1, the pairs `prepare_embedded` accepts for an accepted HDR session.
++fn announces_hdr(session: &Value, settings: &Value) -> bool {
++    session["requestedHdr"] == true
++        && settings["transportMode"] == "nvst"
++        && matches!(
++            (settings["codec"].as_str(), settings["colorQuality"].as_str()),
++            (Some("H265" | "HEVC"), Some("10bit_420" | "10bit_444")) | (Some("AV1"), Some("10bit_420"))
++        )
++}
++
+ fn context_resolution(context: &Value) -> (u64, u64) {
+     context["settings"]["resolution"]
+         .as_str()
+@@ -4093,6 +4108,35 @@ mod tests {
+         assert_eq!(context_resolution(&context), (1920, 1080));
+     }
+ 
++    #[test]
++    fn announce_hdr_follows_the_request_while_enable_hdr_follows_the_service() {
++        let streamed = |requested: Value, accepted: Value, codec: &str, color: &str| {
++            streamer_context(
++                json!({"sessionId":"one","status":2,"transportMode":"nvst","requestedHdr":requested,
++                    "negotiatedStreamProfile":{"codec":codec,"colorQuality":color,"enableHdr":accepted}}),
++                &json!({"codec":"h265","resolution":"3840x2160"}),
++            )["settings"]
++                .clone()
++        };
++        for (requested, accepted, codec, color, announce, enable) in [
++            // A refusal leaves the stream SDR for the TV; the request is still announced.
++            (json!(true), json!(false), "H265", "10bit_420", true, false),
++            (json!(true), json!(true), "H265", "10bit_420", true, true),
++            (json!(true), json!(false), "AV1", "10bit_420", true, false),
++            (json!(false), json!(false), "H265", "10bit_420", false, false),
++            (Value::Null, json!(false), "H265", "10bit_420", false, false),
++            // HDR needs 10-bit HEVC or 10-bit 4:2:0 AV1.
++            (json!(true), json!(false), "H264", "8bit_420", false, false),
++            (json!(true), json!(false), "H265", "8bit_420", false, false),
++            (json!(true), json!(false), "AV1", "10bit_444", false, false),
++        ] {
++            let case = format!("{requested} {accepted} {codec} {color}");
++            let settings = streamed(requested, accepted, codec, color);
++            assert_eq!(settings["announceHdr"], announce, "{case}");
++            assert_eq!(settings["enableHdr"], enable, "{case}");
++        }
++    }
++
+     #[test]
+     fn embedded_prepare_returns_nvst_context_without_a_native_surface() {
+         let service = StreamerService::new();

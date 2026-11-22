@@ -781,17 +781,23 @@ impl Adapter {
         }
         if let Some(fps) = agreed["fps"].as_u64().and_then(|n| u32::try_from(n).ok()) { p.fps=fps; }
         if let Some(hdr) = agreed["enableHdr"].as_bool() { p.hdr=hdr; }
-        if settings::boolean(&l.values,"hdr") {
-            p.sdr_reason = if l.cloud["hdrDowngrade"] == "game-unsupported" {Some("SDR: no HDR for this game".into())}
-                else if agreed["enableHdr"] == false {Some("SDR: GeForce NOW sent no HDR".into())} else {None};
+        // Once the video's own colour tags are known they decide `hdr`, as they decide the TV's mode in the streamer: PQ and HLG are HDR,
+        // anything else is SDR. Until then it is the service's answer, which is only diagnostic after that.
+        if let Some(vui) = l.vui { p.hdr = matches!(vui.transfer,16|18); }
+        if settings::boolean(&l.values,"hdr") && !p.hdr {
+            // `requestedHdr` is what the core's session request carried; a session without it (resumed) knows only the answer.
+            let why = if l.cloud["hdrDowngrade"] == "game-unsupported" {"SDR: no HDR for this game"}
+                else if l.cloud["requestedHdr"] == false {"SDR: HDR was not requested"} else {"SDR: GeForce NOW sent no HDR"};
+            p.sdr_reason = Some(why.into());
         }
         p.vui = l.vui;
         self.session(SessionState::Running { stream:Some(p) });
     }
     /// The colour tags the streamer read from the video's first keyframe (`{"stream":"colour",...}`, H.273 code points), kept for the
-    /// launch and shown to the app as `StreamInfo.vui`. Observation only: nothing else in the stream info follows it. Lines count only
-    /// once the streamer was asked to start, so a stop-and-retry or the previous launch's streamer cannot leave its colour here.
-    /// Before Running the colour waits for it; after, a changed value repeats Running with the same stream and the new colour.
+    /// launch and shown to the app as `StreamInfo.vui`. The streamer sets the TV's HDR mode from the same tags, so their transfer also
+    /// decides `StreamInfo.hdr` and whether there is an SDR reason (see `running`). Lines count only once the streamer was asked to
+    /// start, so a stop-and-retry or the previous launch's streamer cannot leave its colour here. Before Running the colour waits for
+    /// it; after, a changed value repeats Running with the new colour and the HDR it implies.
     fn stream_colour(&mut self, v: &Value) {
         let code = |key: &str| v[key].as_u64().and_then(|n| u8::try_from(n).ok());
         let (Some(primaries),Some(transfer),Some(matrix),Some(full_range)) = (code("primaries"),code("transfer"),code("matrix"),v["full_range"].as_bool()) else { return };

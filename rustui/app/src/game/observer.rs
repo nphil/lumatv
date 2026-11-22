@@ -59,7 +59,9 @@ const TRANSFER_PQ: u8 = 16;
 const TRANSFER_HLG: u8 = 18;
 
 /// Why a stream is not HDR, from the stream and what was asked for. The engines' own wording never leaves the TV.
-/// A stream the engine declared HDR still reads `service_sent_sdr` when its own colour tags are neither PQ nor HLG: the tags are what the service really sent.
+/// A stream the engine declared HDR still reads `service_sent_sdr` when its own colour tags are neither PQ nor HLG: the tags are what the
+/// service really sent. `client_sent_sdr` is a session request that carried no HDR, `service_sent_sdr` a stream that carried none although
+/// the request did.
 pub fn sdr_kind(stream: &StreamInfo, wanted: bool) -> &'static str {
     if stream.hdr {
         let sdr_tags = stream.vui.is_some_and(|vui| !matches!(vui.transfer, TRANSFER_PQ | TRANSFER_HLG));
@@ -68,10 +70,19 @@ pub fn sdr_kind(stream: &StreamInfo, wanted: bool) -> &'static str {
     if !wanted { return "not_requested"; }
     match stream.sdr_reason.as_deref() {
         Some(reason) if reason.contains("no HDR for this game") => "game_unsupported",
+        Some(reason) if reason.contains("HDR was not requested") => "client_sent_sdr",
         Some(reason) if reason.contains("sent no HDR") => "service_sent_sdr",
         Some(_) => "other",
         None => "unreported",
     }
+}
+
+/// Whether an SDR stream is only the service's answer so far. A GeForce NOW stream's HDR is what its own colour tags say, and the
+/// streamer reads them from the first keyframe (H.265 and AV1 only), a moment after Running begins. Until then the declaration is the
+/// answer, which the tags may overturn, so "the service sent no HDR" is not warned about yet. A game without HDR or a request without it
+/// is already known to be SDR.
+fn awaiting_tags(engine: &str, stream: &StreamInfo, sdr: &str) -> bool {
+    sdr == "service_sent_sdr" && engine == "gfn" && stream.vui.is_none() && matches!(stream.codec.as_str(), "h265" | "av1")
 }
 
 /// What was asked for in Settings, to set beside what the stream turned out to be.
@@ -270,7 +281,7 @@ impl Observer {
                         audio: stream.audio_channels, want_fps: seen.want.fps, want_height: seen.want.height, vui: stream.vui,
                     });
                     let sdr = sdr_kind(stream, seen.want.hdr);
-                    if seen.want.hdr && sdr != "none" && !t.missing.contains(&sdr) {
+                    if seen.want.hdr && sdr != "none" && !awaiting_tags(seen.engine, stream, sdr) && !t.missing.contains(&sdr) {
                         t.missing.push(sdr);
                         out.push(Event::HdrMissing { ms: now, session: t.id, engine: t.engine, why: sdr });
                     }
@@ -645,6 +656,7 @@ mod tests {
         assert_eq!(sdr_kind(&negotiated(false, None), false), "not_requested");
         assert_eq!(sdr_kind(&negotiated(false, Some("SDR: no HDR for this game")), true), "game_unsupported");
         assert_eq!(sdr_kind(&negotiated(false, Some("SDR: GeForce NOW sent no HDR")), true), "service_sent_sdr");
+        assert_eq!(sdr_kind(&negotiated(false, Some("SDR: HDR was not requested")), true), "client_sent_sdr");
         assert_eq!(sdr_kind(&negotiated(false, Some("SDR: the TV refused")), true), "other");
         assert_eq!(sdr_kind(&negotiated(false, None), true), "unreported");
         assert_eq!([engine_word("gfn"), engine_word("punktfunk"), engine_word("Alice's Engine")], ["gfn", "punktfunk", "other"]);
@@ -695,7 +707,8 @@ mod tests {
 
     #[test]
     fn colour_tags_that_arrive_after_the_first_line_never_repeat_a_warning() {
-        // Declared SDR for a service that sent none: the tags change nothing, the reason was already given.
+        // Declared SDR for a service that sent none: the warning waits for the tags, then comes once.
+        assert!(why(&shown(true, std::slice::from_ref(&negotiated(false, Some("SDR: GeForce NOW sent no HDR"))))).is_empty());
         let sdr = negotiated(false, Some("SDR: GeForce NOW sent no HDR"));
         let out = shown(true, &[sdr.clone(), StreamInfo { vui: Some(ipc::Vui { primaries: 1, transfer: 1, matrix: 1, full_range: false }), ..sdr }]);
         assert_eq!((only(&out, "stream_format").len(), why(&out)), (2, vec!["service_sent_sdr".to_owned()]));
@@ -703,6 +716,20 @@ mod tests {
         let out = shown(true, &[negotiated(true, None), tagged(true, None, [1, 1, 1]), tagged(true, None, [1, 1, 1])]);
         assert_eq!((only(&out, "stream_format").len(), why(&out)), (2, vec!["service_sent_sdr".to_owned()]));
         assert_eq!(names(&out).iter().position(|n| n.starts_with("hdr_missing")), Some(names(&out).len() - 1));
+    }
+
+    #[test]
+    fn pq_tags_after_the_services_sdr_answer_leave_nothing_missing_and_only_that_answer_waits_for_them() {
+        let answered_sdr = negotiated(false, Some("SDR: GeForce NOW sent no HDR"));
+        let pq = StreamInfo { hdr: true, sdr_reason: None, vui: Some(ipc::Vui { primaries: 9, transfer: 16, matrix: 9, full_range: false }), ..answered_sdr.clone() };
+        let out = shown(true, &[answered_sdr.clone(), pq]);
+        assert_eq!((only(&out, "stream_format").len(), why(&out)), (2, vec![]));
+        // Another engine has no tags to wait for, and a game without HDR is known to be SDR from the start.
+        let mut o = observer(Level::Info);
+        let mut out = Vec::new();
+        o.session(1000, Some(Seen { engine: "native", ..seen(&Phase::Running, Some(&answered_sdr), None) }), &mut out);
+        assert_eq!(why(&out), ["service_sent_sdr"]);
+        assert_eq!(why(&shown(true, &[negotiated(false, Some("SDR: no HDR for this game"))])), ["game_unsupported"]);
     }
 
     #[test]

@@ -23,3 +23,9 @@ official client reads it (vendor.js `at()`, main.js `hdrStreamingMode`), before 
 `sessionRequestData`. The echo only shows what was asked, so a refused HDR request still read as accepted
 and the stream was declared HDR over SDR content. `enableHdrSource` is `server` for the response's own
 fields and `request` for the echo.
+
+The session also records `requestedHdr`: whether the create request carried `sdrHdrMode` 1 (false for WebRTC and for a game
+the catalog gate downgraded), kept through polls like `hdrDowngrade`. The service's answer stays in
+`negotiatedStreamProfile.enableHdr`; the two differ when the service refuses. `streamer_context` derives `settings.announceHdr` from
+`requestedHdr`, NVST transport and a 10-bit HEVC or 10-bit 4:2:0 AV1 profile, and the streamer's ANNOUNCE reads it (see its
+`VENDORED.md`), while `enableHdr` still carries the answer.

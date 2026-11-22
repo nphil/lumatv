@@ -55,7 +55,7 @@ Settings › Diagnostics also has a Log level, Info by default and for a `diagno
 |---|---|---|
 | Error | `error`: kind. `test`. `level`: level. `session_end`: session, engine, outcome, reason, by, seconds run, when the session failed, and the engine's error code (lowercase letters, digits and `_`, at most 24, read from the end of the failure message) when it gave one. | under 0.5 |
 | Warn | `hdr_missing`: session, engine, why. `frame_trouble`: drops by cause, stalls, longest gap, and the packets the TV's own network stack dropped since the last report where the engine counts them. `net_loss`: loss, RTT, jitter. `engine_error`: engine, code. `no_picture`: session, whether the video window is muted, its size, source rate and the engine's fps, when no sized, unmuted window shows five seconds after the stream ran. `controller`: slot, when a pad leaves. `session_end` when the engine, its exit or a timeout ended the session. | 2.0 |
-| Info | Unchanged: `lifecycle`, `draw`, `swap`, `render`, `stream`, `frames`. `session`: phase, milliseconds since the session began, queue position and estimate. `stream_format`: codec, size, fps, bit depth, HDR given and asked, why SDR (`service_sent_sdr` also when HDR was declared but the stream's own colour tags are not PQ or HLG), audio channels, fps and height asked, and `vui`, the colour tags the stream itself carries (primaries, transfer, matrix and full range as H.273 code points; absent until the first keyframe is read). `display`: size, HDR type, whether the video window is muted, refresh, source rate, VRR, low delay, at stream start, on change, at its end and three seconds after. `first_picture`: session, milliseconds from the stream running and from the feeder's first frame to the first sized, unmuted video window. `controller` when a pad joins. Other `session_end`. | 22.7 |
+| Info | Unchanged: `lifecycle`, `draw`, `swap`, `render`, `stream`, `frames`. `session`: phase, milliseconds since the session began, queue position and estimate. `stream_format`: codec, size, fps, bit depth, HDR given and asked, why SDR (`game_unsupported`; `client_sent_sdr`, the session request carried no HDR; `service_sent_sdr`, the stream carried none although the request did: the service answered SDR, or the stream's own colour tags are not PQ or HLG), audio channels, fps and height asked, and `vui`, the colour tags the stream itself carries (primaries, transfer, matrix and full range as H.273 code points; absent until the first keyframe is read, and until then HDR given is the service's answer, so a GeForce NOW stream's `hdr_missing` for `service_sent_sdr` waits for them). `display`: size, HDR type, whether the video window is muted, refresh, source rate, VRR, low delay, at stream start, on change, at its end and three seconds after. `first_picture`: session, milliseconds from the stream running and from the feeder's first frame to the first sized, unmuted video window. `controller` when a pad joins. Other `session_end`. | 22.7 |
 | Debug | `detail` every two seconds: arrival rate, frame gap and arrival-to-feed time (p50, p95, p99, max), queue depth, late frames, stalls, client and host time, pad bursts and gap, panel refresh counters. | 29.3 |
 | Trace | `hist` every six seconds: counts of frame gaps (7 bins), feed times (8) and queue depths (5). `trip` after the Lab's round-trip test: press, network, host, arrival and client times. | 30.5 |
 
@@ -100,10 +100,20 @@ Engine decisions:
   they are. The protocol rules now in `rustui/app/src/gfn/` move into the shim. Its settings schema takes its defaults from a
   migrated `prefs.json` when one is present (see Migration).
   `StreamInfo.vui` (primaries, transfer, matrix, full range as H.273 code points) is the colour the video stream itself carries,
-  absent until read; the engine declares `hdr`, and `vui` is what was observed, never fed back into it. The streamer sends it as the
-  pad-bridge line `{"stream":"colour","codec":"h265","primaries":9,"transfer":16,"matrix":9,"full_range":false}` once from the first
-  keyframe's parameter sets and again only on a change; the adapter repeats Running with the same stream plus `vui` (the app's
-  `stream_format` follows a changed stream), or attaches it to the first Running if it came earlier.
+  absent until read, and it decides the picture: the streamer sets the TV's HDR mode from it (PQ is HDR10, HLG is HLG, anything else
+  SDR) and the adapter declares `hdr` from it, so the service's answer (`negotiatedStreamProfile.enableHdr`) is the declaration only
+  until it arrives, and the SDR reason after. The streamer sends it as the pad-bridge line
+  `{"stream":"colour","codec":"h265","primaries":9,"transfer":16,"matrix":9,"full_range":false}` once from the first keyframe's
+  parameter sets and again only on a change; the adapter repeats Running with the new `vui` and the `hdr` it implies (the app's
+  `stream_format` follows a changed stream), or attaches it to the first Running if it came earlier. The feeder is loaded with HDR
+  armed and no metadata. The streamer sends the metadata ahead of the first keyframe, so it is applied once with the first unit (rule
+  5 below); a later change between HDR modes, or from SDR to one, is the feeder's re-apply, which risks the 60 Hz drop in
+  `docs/research/rea-firmware-result.md`. Tags that turn SDR after HDR load the feeder again, once per change and before their
+  keyframe is sent, since the feeder cannot leave an HDR mode otherwise and SDR frames must not be shown in one: a plain LOAD on the
+  open connection, with a short pause in video and audio, the held frames dropped and the feeder's counters restarted. Tags that
+  cannot be read (H.264, or an unreadable parameter set) leave the TV in SDR.
+  The core keeps what the session request asked for (`requestedHdr`) beside the service's answer; the stream's ANNOUNCE asks for HDR
+  whenever the request did and the stream is 10-bit HEVC or AV1.
 - **Punktfunk:** a 64-bit engine on `punktfunk-core` and `pf-client-core`, with the session logic of client-webos ported, feeding
   the shared feeder. Rejected: running Punktfunk's own 32-bit client as a child (it is not `main`, so it has no NDL role, and it
   would be a second NDL path). Risks: the `aws-lc-rs` cross-build for aarch64 glibc 2.36; parity with the stock client, to be

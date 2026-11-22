@@ -1093,14 +1093,16 @@ fn prepare_on_endpoint(
         &format!("describe-shape {}", describe_media_shape(&describe.body),),
     );
     let stream = super::media_stream_config(context);
+    let announced = color::announced(stream, context);
     opennow_streamer_protocol::log::log_line(
         "INFO",
         "nvst-color",
         &format!(
-            "color={} hdr={} announce={:?}",
+            "color={} hdr={} announce_hdr={} announce={:?}",
             stream.color_quality.protocol_name(),
             stream.hdr,
-            announce_color_lines(stream),
+            announced.hdr,
+            announce_color_lines(announced),
         ),
     );
 
@@ -1660,7 +1662,7 @@ fn build_announce(context: &SessionContext, params: AnnounceParams<'_>) -> Strin
         lines.push("a=x-nv-general.rtcMicOnNativeBundle:1".to_owned());
         lines.push("a=x-nv-mic.micSsrcConfig.senderSsrc:1".to_owned());
     }
-    lines.extend(announce_color_lines(params.stream));
+    lines.extend(announce_color_lines(color::announced(params.stream, context)));
     lines.extend(official_tv_lines(
         fps,
         dynamic_streaming_mode,
@@ -3385,6 +3387,46 @@ mod tests {
             assert!(!sdp.contains("a=x-nv-video[0].dynamicRangeMode:0"));
             assert!(sdp.contains("a=x-nv-video[0].bitDepth:10\r\n"));
             assert!(sdp.contains("a=x-nv-video[0].chromaFormat:0\r\n"));
+        }
+    }
+
+    #[test]
+    fn announce_asks_for_hdr_on_the_core_flag_while_the_stream_follows_the_answer() {
+        for (accepted, announce, asked, picture_hdr) in [
+            // The service refused HDR: the ANNOUNCE still asks, the stream the TV shows stays SDR.
+            (json!(false), true, true, false),
+            (json!(true), true, true, true),
+            (json!(true), false, true, true),
+            (json!(false), false, false, false),
+            (Value::Null, false, false, false),
+        ] {
+            let mut value = context();
+            value.session.extra["negotiatedStreamProfile"]["codec"] = json!("H265");
+            value.session.extra["negotiatedStreamProfile"]["colorQuality"] = json!("10bit_420");
+            value.session.extra["negotiatedStreamProfile"]["enableHdr"] = accepted;
+            value.settings["announceHdr"] = json!(announce);
+            let stream = stream_config(&value);
+            let sdp = build_announce(
+                &value,
+                AnnounceParams {
+                    stream,
+                    key: &"01".repeat(32),
+                    key_id: 7,
+                    port: 49006,
+                    address: "192.0.2.10",
+                    ufrag: "abcd",
+                    password: "abcdefghijklmnopqrstuv",
+                    fingerprint: "AA:BB",
+                    video_port: 5004,
+                    video_packet_size: 1280,
+                    rtcp_on_sctp: true,
+                    microphone_available: false,
+                    qos_timings_v5: false,
+                    unified_socket: false,
+                },
+            );
+            assert_eq!(sdp.contains("a=x-nv-video[0].dynamicRangeMode:1\r\n"), asked);
+            assert_eq!(stream.hdr, picture_hdr);
         }
     }
 

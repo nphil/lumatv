@@ -470,7 +470,9 @@ pub struct StreamInfo {
     /// Why a requested HDR picture was delivered as SDR, when the engine reports it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sdr_reason: Option<String>,
-    /// The colour tags the video stream itself carries, whatever the engine declared; absent until the first keyframe is read.
+    /// The colour tags the video stream itself carries; absent until the first keyframe is read. An engine that reads them declares `hdr`
+    /// from them (GeForce NOW does, and its streamer sets the TV's HDR mode from the same tags), so before they arrive `hdr` is only the
+    /// service's answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vui: Option<Vui>,
 }

@@ -4,7 +4,8 @@
 //! GFN states a stream's colour inside the codec's own headers, as H.273 code points (primaries, transfer characteristic, matrix)
 //! and the full-range flag: in the HEVC sequence parameter set's VUI and in the AV1 sequence header's `color_config`. A keyframe
 //! whose parameter set differs from the one read last is parsed as far as those fields, and a new result goes to the engine's side
-//! socket as one `colour` line. Frames are only looked at: what is decoded, forwarded, dropped and timed does not change. H.264 is
+//! socket as one `colour` line, and to the runtime, which sets the TV's HDR mode from the transfer characteristic (`HdrMode`). Frames
+//! are only looked at: what is decoded, forwarded, dropped and timed does not change. H.264 is
 //! not read (the capability report offers it as 8-bit only), and a frame that is not a keyframe costs the one branch that skips it.
 //!
 //! The parsers work in place on the frame's bytes, never allocate and never panic; a header they cannot follow is not reported.
@@ -16,7 +17,7 @@ use crate::types::{EncodedFrame, MediaCodec};
 
 /// What a stream says about its colour: the code points as the encoder wrote them, 2 ("unspecified") for each when it wrote none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Colour {
+pub struct Colour {
     primaries: u8,
     transfer: u8,
     matrix: u8,
@@ -26,6 +27,41 @@ struct Colour {
 impl Colour {
     const fn unspecified(full_range: bool) -> Self {
         Self { primaries: 2, transfer: 2, matrix: 2, full_range }
+    }
+
+    pub const fn transfer(self) -> u8 {
+        self.transfer
+    }
+
+    pub const fn hdr_mode(self) -> HdrMode {
+        HdrMode::of(self.transfer)
+    }
+}
+
+/// What a stream's transfer characteristic asks of the TV: PQ (SMPTE ST 2084, code point 16) is HDR10 and HLG (ARIB STD-B67, 18) is
+/// HLG. Every other value, BT.709 and "unspecified" included, is SDR: the primaries and matrix do not matter here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HdrMode {
+    Sdr,
+    Hdr10,
+    Hlg,
+}
+
+impl HdrMode {
+    pub const fn of(transfer: u8) -> Self {
+        match transfer {
+            16 => Self::Hdr10,
+            18 => Self::Hlg,
+            _ => Self::Sdr,
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Sdr => "SDR",
+            Self::Hdr10 => "HDR10",
+            Self::Hlg => "HLG",
+        }
     }
 }
 
@@ -45,20 +81,20 @@ struct Seen {
 }
 
 impl ColourWatch {
-    /// Hands `send` the `colour` line when `frame` is a keyframe whose colour tags are new or have changed. Any other frame
-    /// returns at the first test, and `send` runs after the lock is released.
-    pub fn observe(&self, frame: &EncodedFrame, send: impl FnOnce(String)) {
+    /// Hands `send` the `colour` line when `frame` is a keyframe whose colour tags are new or have changed, and returns that colour. Any
+    /// other frame returns at the first test, and `send` runs after the lock is released.
+    pub fn observe(&self, frame: &EncodedFrame, send: impl FnOnce(String)) -> Option<Colour> {
         if !frame.keyframe {
-            return;
+            return None;
         }
         let (codec, changed) = match frame.codec {
             MediaCodec::H265 => ("h265", self.changed(hevc_sps(&frame.data), hevc_colour)),
             MediaCodec::Av1 => ("av1", self.changed(av1_sequence_header(&frame.data), av1_colour)),
-            _ => return,
+            _ => return None,
         };
-        if let Some(colour) = changed {
-            send(colour_line(codec, colour));
-        }
+        let colour = changed?;
+        send(colour_line(codec, colour));
+        Some(colour)
     }
 
     /// The colour of `set` when it is a parameter set not read before and the colour is not the one already reported.
@@ -522,6 +558,10 @@ fn av1_colour(seq: &[u8]) -> Option<Colour> {
     Some(Colour { primaries, transfer, matrix, full_range })
 }
 
+/// Real keyframes for the tests of what the tags decide elsewhere in the crate.
+#[cfg(test)]
+pub(crate) use tests::{SPS_BT709, SPS_FULL_NO_DESCRIPTION, SPS_HLG, SPS_PQ, hevc_keyframe};
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -533,17 +573,17 @@ mod tests {
     // libaom 3.6.0, or SVT-AV1 1.4.1 where named.
     const VPS: &str = "40010c01ffff02200000030090000003000003003c959809";
     const PPS: &str = "4401c172b46240";
-    const SPS_PQ: &str = "42010102200000030090000003000003003ca00a080b9f6d96566924caf016a1\
+    pub(crate) const SPS_PQ: &str = "42010102200000030090000003000003003ca00a080b9f6d96566924caf016a1\
         22012080000003008000000f04";
-    const SPS_HLG: &str = "42010102200000030090000003000003003ca00a080b9f6d96566924caf016a1\
+    pub(crate) const SPS_HLG: &str = "42010102200000030090000003000003003ca00a080b9f6d96566924caf016a1\
         22412080000003008000000f04";
     const SPS_PQ_CTU16: &str = "42010102200000030090000003000003003ca00a080b9f6d96566abcaf016a12\
         201208000003000800000300f040";
-    const SPS_BT709: &str = "42010101600000030090000003000003003ca00a080b9f796566924caf016a02\
+    pub(crate) const SPS_BT709: &str = "42010101600000030090000003000003003ca00a080b9f796566924caf016a02\
         020208000003000800000300f040";
     const SPS_BT709_FULL: &str = "42010101600000030090000003000003003ca00a080b9f796566924caf016e02\
         020208000003000800000300f040";
-    const SPS_FULL_NO_DESCRIPTION: &str = "42010101600000030090000003000003003ca00a080b9f796566924caf016c08\
+    pub(crate) const SPS_FULL_NO_DESCRIPTION: &str = "42010101600000030090000003000003003ca00a080b9f796566924caf016c08\
         000003000800000300f040";
     const SPS_EXTENDED_SAR: &str = "42010102200000030090000003000003003ca00a080b9f6d96566924cafff001\
         b00116a122012080000003008000000f04";
@@ -734,7 +774,7 @@ mod tests {
     }
 
     /// A keyframe access unit as the transport hands it over: parameter sets, then an IDR slice whose payload is not read.
-    fn hevc_keyframe(sps: &str) -> Vec<u8> {
+    pub(crate) fn hevc_keyframe(sps: &str) -> Vec<u8> {
         annex_b(&[&hex(VPS), &hex(sps), &hex(PPS), &[0x26, 0x01, 0xaf, 0x08, 0x42, 0x00]])
     }
 
@@ -979,5 +1019,27 @@ mod tests {
         assert!(observed(&watch, &unreadable).is_empty());
         assert!(observed(&watch, &no_parameter_sets).is_empty());
         assert_eq!(observed(&watch, &frame(MediaCodec::H265, hevc_keyframe(SPS_PQ), true)).len(), 1);
+    }
+
+    #[test]
+    fn the_transfer_characteristic_alone_picks_the_hdr_mode() {
+        for (transfer, mode) in [(16, HdrMode::Hdr10), (18, HdrMode::Hlg), (1, HdrMode::Sdr), (2, HdrMode::Sdr), (13, HdrMode::Sdr), (14, HdrMode::Sdr), (15, HdrMode::Sdr), (0, HdrMode::Sdr), (255, HdrMode::Sdr)] {
+            assert_eq!(HdrMode::of(transfer), mode, "transfer {transfer}");
+        }
+    }
+
+    #[test]
+    fn observing_a_new_colour_returns_the_mode_its_tags_ask_for_and_nothing_for_a_repeat() {
+        let hevc = ColourWatch::default();
+        let hevc_mode = |sps| hevc.observe(&frame(MediaCodec::H265, hevc_keyframe(sps), true), |_| {}).map(Colour::hdr_mode);
+        assert_eq!(hevc_mode(SPS_PQ), Some(HdrMode::Hdr10));
+        assert_eq!(hevc_mode(SPS_PQ), None, "the same parameter set again");
+        assert_eq!(hevc_mode(SPS_HLG), Some(HdrMode::Hlg));
+        assert_eq!(hevc_mode(SPS_BT709), Some(HdrMode::Sdr));
+        assert_eq!(hevc_mode(SPS_FULL_NO_DESCRIPTION), Some(HdrMode::Sdr), "tags that say nothing are SDR");
+        let av1 = ColourWatch::default();
+        let av1_mode = |header| av1.observe(&frame(MediaCodec::Av1, av1_keyframe(header), true), |_| {}).map(Colour::hdr_mode);
+        assert_eq!([av1_mode(AV1_PQ), av1_mode(AV1_HLG), av1_mode(AV1_BT709)], [Some(HdrMode::Hdr10), Some(HdrMode::Hlg), Some(HdrMode::Sdr)]);
+        assert_eq!(hevc.observe(&frame(MediaCodec::H265, hevc_keyframe(SPS_PQ), false), |_| {}), None, "a delta frame");
     }
 }

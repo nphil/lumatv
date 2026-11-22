@@ -41,6 +41,12 @@ client (the 2026 play.geforcenow.com bundle LG's app wraps) sends from a TV, wit
   generation otherwise reaches the TV as bursts of two frames.
 - 10-bit HEVC gets `video[0].minQp:14`.
 
+One ANNOUNCE rule differs from the official client on purpose: `video[0].dynamicRangeMode:1` is also sent when the core's
+`settings.announceHdr` says the session request asked for HDR (`color::announced`), so an HDR request does not end at the stream
+setup because the service's answer read SDR. The platform still gets the accepted mode (`MediaStreamConfig.hdr`) but only logs it:
+the TV's HDR mode follows the stream's own colour tags. The `nvst-color` log line records both (`hdr`, `announce_hdr`). Its ANNOUNCE test
+(`announce_asks_for_hdr_on_the_core_flag_while_the_stream_follows_the_answer`) is not run here, as above.
+
 Local diagnostics wiring, in `lib.rs` where the stream's feedback state is joined to the platform's
 media control: the timing capture is given the transport's recorders (`sender_reports_from`,
 `frame_prefixes_from`), and the prefix recorder is armed only when a capture is. Observation only.

@@ -6,6 +6,8 @@
 //! conversion, audio timing, loss recovery, and fatal-player latching for every engine.
 //! `LUMATV_GFN_SENDER_TIME=1` (off by default) also sends each VIDEO's own sender timestamp ahead of it, so the feeder can stamp the player on the
 //! sender's timeline (gfn/feeder/src/gf_vclock.h); the hand-over time stays the key by which ACCEPT and DROP name the unit.
+//! The TV's HDR mode follows the stream's own colour tags (`set_hdr_mode`), and leaving HDR for SDR loads the feeder again (`reload_feeder`);
+//! what the session answered is only logged.
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -20,7 +22,7 @@ use opennow_streamer_protocol::{
 };
 
 use lumagame_feeder::{self as feeder, FeederClient, FeederMessage, Hdr, Load};
-use crate::colour::ColourWatch;
+use crate::colour::{Colour, ColourWatch, HdrMode};
 use crate::pacing::{self, Pacer, Report};
 use crate::pads::PadBridge;
 use crate::recording::{EncodedRecordingReceiver, ReplaySnapshot};
@@ -68,6 +70,42 @@ impl FeederConfig {
             max_average_nits: env("LUMATV_GFN_HDR_MAX_AVERAGE_NITS").and_then(|v| v.parse().ok()).unwrap_or(400),
             sender_time: env("LUMATV_GFN_SENDER_TIME").as_deref() == Some("1"),
         }
+    }
+}
+
+/// The load for `stream`. HDR is armed for the codecs that carry it and never announced: the feeder enters the panel's HDR mode only for
+/// metadata that names PQ or HLG, and which of them (or neither) a stream is comes from its own colour tags (`set_hdr_mode`), not from
+/// what the session answered. A load therefore carries no metadata, and a stream that is SDR cannot end up in HDR mode.
+fn load_for(stream: &MediaStreamConfig, cfg: &FeederConfig) -> Load {
+    Load {
+        codec: match stream.codec {
+            MediaVideoCodec::H264 => feeder::codec::H264,
+            MediaVideoCodec::H265 => feeder::codec::H265,
+            MediaVideoCodec::Av1 => feeder::codec::AV1,
+        },
+        width: stream.width,
+        height: stream.height,
+        fps: stream.fps,
+        audio: feeder::audio::OPUS,
+        channels: 2,
+        sample_rate: 48_000,
+        hdr: u32::from(stream.codec != MediaVideoCodec::H264),
+        hdr_info: Hdr::default(),
+        drop_threshold: cfg.drop_threshold,
+        pts_unit: cfg.pts_unit,
+    }
+}
+
+/// Loads the feeder for the session's stream and waits for its answer: the first load of a session, and the reload that leaves an HDR
+/// mode (`reload_feeder`), since a LOAD on a connection with a pipeline up stops that pipeline and starts the new one.
+fn load_feeder(shared: &Shared, client: &mut FeederClient) -> Result<(), String> {
+    let answers = shared.loaded.lock().unwrap_or_else(|e| e.into_inner());
+    while answers.try_recv().is_ok() {}   // a pipeline error since the last load, with nobody waiting for it
+    client.send_load(&load_for(&shared.stream, &shared.runtime.feeder)).map_err(|e| format!("feeder load: {e}"))?;
+    match answers.recv_timeout(LOAD_TIMEOUT) {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(text)) => Err(format!("the pipeline refused the stream: {text}")),
+        Err(_) => Err("the feeder did not answer the load in time".to_owned()),
     }
 }
 
@@ -224,27 +262,10 @@ impl MediaRuntime {
         opennow_streamer_protocol::log::log_line(
             "INFO",
             "ndl",
-            &format!("feeder connected: window {window_id}, library {library_name}, codec {:?} {}x{} at {} fps, hdr {}, pacing {}",
+            &format!("feeder connected: window {window_id}, library {library_name}, codec {:?} {}x{} at {} fps, the session answered hdr {}, pacing {}",
                 stream.codec, stream.width, stream.height, stream.fps, stream.hdr, if smooth { "smooth" } else { "latency" }),
         );
         let pacer = Pacer::new(stream.fps, smooth);
-        let load = Load {
-            codec: match stream.codec {
-                MediaVideoCodec::H264 => feeder::codec::H264,
-                MediaVideoCodec::H265 => feeder::codec::H265,
-                MediaVideoCodec::Av1 => feeder::codec::AV1,
-            },
-            width: stream.width,
-            height: stream.height,
-            fps: stream.fps,
-            audio: feeder::audio::OPUS,
-            channels: 2,
-            sample_rate: 48_000,
-            hdr: u32::from(stream.hdr),
-            hdr_info: if stream.hdr { Hdr::hdr10(cfg.max_nits, cfg.max_average_nits) } else { Hdr::default() },
-            drop_threshold: cfg.drop_threshold,
-            pts_unit: cfg.pts_unit,
-        };
         let epoch = self.inner.sessions.load(Ordering::Acquire) as u32 + 1;
         let capture = Capture::arm(
             std::env::var_os("LUMATV_GFN_PREFS").map(PathBuf::from).as_deref(),
@@ -259,6 +280,7 @@ impl MediaRuntime {
             },
         )
         .map(Arc::new);
+        let (loaded_tx, loaded_rx) = mpsc::channel::<Result<(), String>>();
         let shared = Arc::new(Shared {
             feedback,
             stream,
@@ -276,23 +298,16 @@ impl MediaRuntime {
             pace_wake: Condvar::new(),
             capture,
             colour: ColourWatch::default(),
+            hdr_mode: Mutex::new(HdrMode::Sdr),
+            loaded: Mutex::new(loaded_rx),
         });
-        let (loaded_tx, loaded_rx) = mpsc::channel::<Result<(), String>>();
         let reader_shared = Arc::clone(&shared);
         client
             .spawn_reader(move |m| reader_shared.on_message(m, &loaded_tx))
             .map_err(|e| format!("feeder reader: {e}"))?;
-        client.send_load(&load).map_err(|e| format!("feeder load: {e}"))?;
-        match loaded_rx.recv_timeout(LOAD_TIMEOUT) {
-            Ok(Ok(())) => {}
-            Ok(Err(text)) => {
-                client.close();
-                return Err(format!("the pipeline refused the stream: {text}"));
-            }
-            Err(_) => {
-                client.close();
-                return Err("the feeder did not answer the load in time".to_owned());
-            }
+        if let Err(e) = load_feeder(&shared, &mut client) {
+            client.close();
+            return Err(e);
         }
         self.inner.sessions.fetch_add(1, Ordering::Release);
         *self.inner.cadence.lock().unwrap_or_else(|e| e.into_inner()) = None;
@@ -402,8 +417,13 @@ struct Shared {
     pace_wake: Condvar,
     /// The armed diagnostics-only timing capture (vrr_capture.rs), `None` unless the UI armed one: the per-frame cost is this test.
     capture: Option<Arc<Capture>>,
-    /// What the stream's keyframes say about their colour (colour.rs). Observation only: nothing it reads changes what is forwarded.
+    /// What the stream's keyframes say about their colour (colour.rs). The engine is told, and the transfer characteristic sets the TV's HDR
+    /// mode (`set_hdr_mode`); what is forwarded never changes.
     colour: ColourWatch,
+    /// The HDR mode the TV is in: SDR until the tags first name PQ or HLG, and SDR again once `reload_feeder` has left it.
+    hdr_mode: Mutex<HdrMode>,
+    /// The feeder's answers to a LOAD, and its pipeline errors: `load_feeder` waits on it, for the first load and for each reload.
+    loaded: Mutex<Receiver<Result<(), String>>>,
 }
 
 /// Video frames waiting for their release time, oldest first. `sending` covers a write in progress outside the lock, so no later
@@ -542,8 +562,15 @@ impl MediaSink {
         }
         match frame.codec {
             MediaCodec::H264 | MediaCodec::H265 | MediaCodec::Av1 => {
-                // Ahead of pace(), which consumes the frame: the colour is read whether the feeder gets the frame now, later or not at all.
-                self.shared.colour.observe(&frame, |line| self.shared.runtime.pads.stream_colour(line));
+                // Ahead of pace(), which consumes the frame: the colour is read whether the feeder gets the frame now, later or not at all,
+                // and what the tags ask of the feeder (HDR metadata, or the reload that leaves HDR mode) is done before the keyframe that
+                // carries them is sent.
+                if let Some(colour) = self.shared.colour.observe(&frame, |line| self.shared.runtime.pads.stream_colour(line)) {
+                    set_hdr_mode(&self.shared, &self.client, colour);
+                    if self.shared.stopped.load(Ordering::Acquire) {
+                        return PushOutcome::Closed;
+                    }
+                }
                 self.pace(frame)
             }
             MediaCodec::Opus { .. } if self.shared.runtime.muted.load(Ordering::Acquire) => PushOutcome::Queued,
@@ -674,6 +701,80 @@ fn send(shared: &Shared, client: &Mutex<Option<FeederClient>>, frame: &EncodedFr
     }
 }
 
+/// The metadata the feeder is sent for `mode`: HDR10 as GFN streams it, and for HLG the same with HLG's transfer. SDR has none.
+fn hdr_metadata(mode: HdrMode, cfg: &FeederConfig) -> Option<Hdr> {
+    let transfer_characteristics = match mode {
+        HdrMode::Sdr => return None,
+        HdrMode::Hdr10 => 16,
+        HdrMode::Hlg => 18,
+    };
+    Some(Hdr { transfer_characteristics, ..Hdr::hdr10(cfg.max_nits, cfg.max_average_nits) })
+}
+
+/// Puts the TV's HDR mode where the stream's own colour tags say, the only place it is decided (`load_for` arms the feeder and the
+/// session's answer is only logged): PQ is HDR10, HLG is HLG, anything else is SDR. The metadata goes out before the keyframe that
+/// carries the tags, so the feeder applies it with the first unit it accepts, as for a load that announced HDR, and nothing is entered
+/// and left again. A later change from one HDR mode to the other, or from SDR to either, is the feeder's re-apply path, which re-enters
+/// the panel's HDR mode and has dropped a 60 Hz session to a lower rate before (docs/research/rea-firmware-result.md, "Mid-stream HDR
+/// update and the 60 Hz drop"). Tags that turn SDR after HDR load the feeder again before their keyframe is sent: the feeder cannot
+/// leave an HDR mode otherwise, and SDR frames shown in it would be brighter than the owner's SDR level.
+fn set_hdr_mode(shared: &Shared, client: &Mutex<Option<FeederClient>>, colour: Colour) {
+    let wanted = colour.hdr_mode();
+    let held = std::mem::replace(&mut *shared.hdr_mode.lock().unwrap_or_else(|e| e.into_inner()), wanted);
+    let answered = shared.stream.hdr;
+    let log = |note: String| {
+        let level = if answered == (wanted != HdrMode::Sdr) { "INFO" } else { "WARN" };
+        let said = format!("the stream's tags say {} (transfer {}) and the session answered hdr {answered}", wanted.label(), colour.transfer());
+        opennow_streamer_protocol::log::log_async(level, "ndl", &format!("hdr: {said}: {note}"));
+    };
+    match (wanted, held) {
+        (HdrMode::Sdr, HdrMode::Sdr) => log("the TV stays in SDR".to_owned()),
+        (HdrMode::Sdr, held) => {
+            log(format!("the feeder is loaded again to leave {}, which it cannot do otherwise", held.label()));
+            let started = Instant::now();
+            match reload_feeder(shared, client) {
+                Ok(()) => log(format!("the feeder is loaded again after {} ms and the TV is in SDR", started.elapsed().as_millis())),
+                Err(message) => {
+                    opennow_streamer_protocol::log::log_async("WARN", "ndl", &format!("hdr: {message}"));
+                    if !shared.stopped.swap(true, Ordering::AcqRel) {
+                        let _ = shared.feedback.send(MediaFeedback::OutputError { message });
+                    }
+                }
+            }
+        }
+        (wanted, held) if wanted == held => {}
+        (wanted, held) => {
+            let Some(hdr) = hdr_metadata(wanted, &shared.runtime.feeder) else { return };
+            let sent = client.lock().unwrap_or_else(|e| e.into_inner()).as_mut().map(|client| client.send_hdr(&hdr));
+            match sent {
+                Some(Err(e)) => log(format!("the metadata could not be sent to the feeder: {e}")),
+                _ if held == HdrMode::Sdr => log(format!("{} metadata sent ahead of the keyframe", wanted.label())),
+                _ => log(format!("{} metadata sent again, from {}", wanted.label(), held.label())),
+            }
+        }
+    }
+}
+
+/// Loads the feeder again on its open connection, the only way the TV leaves an HDR mode: the new pipeline is armed for HDR and carries
+/// no metadata (`load_for`), so the panel stays in SDR until the tags name HDR again. Frames still held for their release belong to the
+/// old picture and are dropped, which the engine is told; a frame the pacing thread has already taken is still written, after the load,
+/// ahead of the keyframe the caller sends next. Writers wait on the connection meanwhile, and the feeder counts frames from zero again.
+fn reload_feeder(shared: &Shared, client: &Mutex<Option<FeederClient>>) -> Result<(), String> {
+    let stale = {
+        let mut pace = shared.pace.lock().unwrap_or_else(|e| e.into_inner());
+        let stale = pace.held.len();
+        pace.held.clear();
+        stale
+    };
+    if stale > 0 {
+        let _ = shared.feedback.send(MediaFeedback::QueueDropped { media: "video", count: stale });
+    }
+    match client.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        Some(client) => load_feeder(shared, client).map_err(|e| format!("the feeder could not be loaded again to leave HDR: {e}")),
+        None => Ok(()), // the session is over
+    }
+}
+
 /// Writes the capture once its window and the grace after it are over, or when the stream ends first. Its own thread, so the file's
 /// I/O is never on the frame path. A stream that ended before any frame leaves the arm request in place for the next stream.
 fn capture_writer(shared: &Shared, capture: &Capture) {
@@ -793,6 +894,7 @@ impl Drop for MediaSession {
 mod feeder_feedback_tests {
     use super::*;
     use crate::types::{MediaColorQuality, StreamShortcutBindings};
+    use crate::colour::{SPS_BT709, SPS_FULL_NO_DESCRIPTION, SPS_HLG, SPS_PQ, hevc_keyframe};
 
     fn shared() -> (Shared, Receiver<MediaFeedback>, Sender<Result<(), String>>) {
         shared_with(false)
@@ -812,7 +914,7 @@ mod feeder_feedback_tests {
             cadence: Mutex::new(None),
         });
         let (feedback, rx) = mpsc::channel();
-        let (loaded, _) = mpsc::channel();
+        let (loaded, answers) = mpsc::channel();
         let shared = Shared {
             feedback,
             stream: MediaStreamConfig { codec: MediaVideoCodec::H265, color_quality: MediaColorQuality::TenBit420,
@@ -832,6 +934,8 @@ mod feeder_feedback_tests {
             pace: Mutex::new(Pace { pacer: Pacer::new(120, true), held: VecDeque::new(), sending: false }),
             pace_wake: Condvar::new(),
             colour: ColourWatch::default(),
+            hdr_mode: Mutex::new(HdrMode::Sdr),
+            loaded: Mutex::new(answers),
         };
         (shared, rx, loaded)
     }
@@ -862,8 +966,9 @@ mod feeder_feedback_tests {
         assert!(matches!(&feedback[1], MediaFeedback::RequestKeyframe { mid, .. } if mid == "video-0"));
     }
 
-    /// A feeder stand-in on a socket of its own: greets with protocol 2, then keeps what the engine writes until the engine hangs up.
-    fn fake_feeder() -> (FeederClient, std::thread::JoinHandle<Vec<u8>>) {
+    /// A feeder stand-in on a socket of its own: greets with protocol 2, answers each LOAD (`loaded`: the pipeline took it, or refused it),
+    /// and keeps what the engine writes until the engine hangs up.
+    fn fake_feeder(loaded: bool) -> (FeederClient, std::thread::JoinHandle<Vec<u8>>) {
         use std::io::{Read, Write};
         static SOCKETS: AtomicU64 = AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!("opennow-feeder-{}-{}.sock", std::process::id(), SOCKETS.fetch_add(1, Ordering::Relaxed)));
@@ -875,7 +980,21 @@ mod feeder_feedback_tests {
             hello.resize(8 + 112, 0);
             peer.write_all(&hello).unwrap();
             let mut written = Vec::new();
-            peer.read_to_end(&mut written).unwrap();
+            let mut head = [0u8; 8];
+            while peer.read_exact(&mut head).is_ok() {
+                let mut payload = vec![0u8; u32::from_le_bytes(head[4..].try_into().unwrap()) as usize];
+                peer.read_exact(&mut payload).unwrap();
+                written.extend_from_slice(&head);
+                written.extend_from_slice(&payload);
+                if head[0] == feeder::msg::LOAD {
+                    let text: &[u8] = if loaded { b"window" } else { b"no pipeline" };
+                    let mut answer = vec![feeder::msg::LOADED, 0, 0, 0];
+                    answer.extend_from_slice(&(4 + text.len() as u32).to_le_bytes());
+                    answer.extend_from_slice(&i32::from(loaded).to_le_bytes());
+                    answer.extend_from_slice(text);
+                    peer.write_all(&answer).unwrap();
+                }
+            }
             written
         });
         let (client, _) = FeederClient::connect(&path, Duration::from_secs(5)).unwrap();
@@ -905,7 +1024,7 @@ mod feeder_feedback_tests {
     /// What the engine writes for a keyframe, a unit after a gap (which flushes first) and an audio packet. The timestamps are past the 32-bit wrap.
     fn written_for(sender_time: bool) -> Vec<(u8, Vec<u8>)> {
         let (shared, _rx, _loaded) = shared_with(sender_time);
-        let (client, server) = fake_feeder();
+        let (client, server) = fake_feeder(true);
         let client = Mutex::new(Some(client));
         let audio = EncodedFrame { codec: MediaCodec::Opus { channels: 2 }, ..unit(1, false, true) };
         for (frame, video) in [(unit(0x1_0000_0000 + 5000, true, true), true), (unit(0x1_0000_0000 + 5750, false, false), true), (audio, false)] {
@@ -947,5 +1066,143 @@ mod feeder_feedback_tests {
         assert_eq!(clocks, [(24, 5000, 90_000, 0), (24, 5750, 90_000, feeder::video_clock::GAP)]);
         // everything else is what the switch-off run wrote, the keys apart
         assert_eq!(rest, written_for(false).iter().map(without_key).collect::<Vec<_>>());
+    }
+
+    /// A sink writing to a feeder stand-in whose answer to a LOAD is `loaded`, read as the runtime reads the feeder; the receiver is what the
+    /// engine would be told. No pacing thread runs here, so frames go out as they arrive.
+    fn sink_to_fake_feeder(answered_hdr: bool, loaded: bool) -> (MediaSink, std::thread::JoinHandle<Vec<u8>>, Receiver<MediaFeedback>) {
+        let (mut shared, rx, answers) = shared();
+        shared.stream.hdr = answered_hdr;
+        shared.pace = Mutex::new(Pace { pacer: Pacer::new(120, false), held: VecDeque::new(), sending: false });
+        let shared = Arc::new(shared);
+        let (mut client, server) = fake_feeder(loaded);
+        let reader = Arc::clone(&shared);
+        client.spawn_reader(move |m| reader.on_message(m, &answers)).unwrap();
+        (MediaSink { shared, client: Arc::new(Mutex::new(Some(client))) }, server, rx)
+    }
+
+    fn keyframe_with(sps: &str) -> EncodedFrame {
+        EncodedFrame { data: Arc::from(hevc_keyframe(sps)), ..unit(0, true, true) }
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum Wire {
+        Video,
+        Hdr(Hdr),
+        /// A LOAD: whether it arms HDR, and the metadata it carries.
+        Load { armed: u32, metadata: Hdr },
+    }
+
+    fn hdr_of(w: &[u32]) -> Hdr {
+        Hdr {
+            display_primaries_x0: w[0], display_primaries_y0: w[1], display_primaries_x1: w[2], display_primaries_y1: w[3],
+            display_primaries_x2: w[4], display_primaries_y2: w[5], white_point_x: w[6], white_point_y: w[7],
+            max_display_mastering_luminance: w[8], min_display_mastering_luminance: w[9], max_content_light_level: w[10],
+            max_pic_average_light_level: w[11], transfer_characteristics: w[12], color_primaries: w[13], matrix_coeffs: w[14],
+        }
+    }
+
+    /// What the feeder stand-in was sent once the sink is gone: the video units, the HDR metadata and the loads, in order.
+    fn wire(sink: MediaSink, server: std::thread::JoinHandle<Vec<u8>>) -> Vec<Wire> {
+        drop(sink);
+        let words = |payload: &[u8]| -> Vec<u32> { payload.chunks(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect() };
+        frames(&server.join().unwrap())
+            .into_iter()
+            .map(|(kind, payload)| match kind {
+                feeder::msg::VIDEO => Wire::Video,
+                feeder::msg::HDR => {
+                    assert_eq!(payload.len(), 60);
+                    Wire::Hdr(hdr_of(&words(&payload)))
+                }
+                feeder::msg::LOAD => {
+                    assert_eq!(payload.len(), 100);
+                    let w = words(&payload);
+                    Wire::Load { armed: w[7], metadata: hdr_of(&w[8..23]) }
+                }
+                other => panic!("message {other}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn pq_and_hlg_tags_put_their_metadata_on_the_wire_ahead_of_the_keyframe_whatever_the_session_answered() {
+        for answered in [true, false] {
+            for (what, sps, transfer) in [("PQ", SPS_PQ, 16), ("HLG", SPS_HLG, 18)] {
+                let (sink, server, _rx) = sink_to_fake_feeder(answered, true);
+                let cfg = sink.shared.runtime.feeder.clone();
+                assert_eq!(sink.push(keyframe_with(sps)), PushOutcome::Queued);
+                assert_eq!(sink.push(unit(1, false, true)), PushOutcome::Queued);
+                let hdr = Hdr { transfer_characteristics: transfer, ..Hdr::hdr10(cfg.max_nits, cfg.max_average_nits) };
+                assert_eq!(wire(sink, server), [Wire::Hdr(hdr), Wire::Video, Wire::Video], "{what}, the session answered hdr {answered}");
+            }
+        }
+    }
+
+    #[test]
+    fn sdr_unspecified_and_unreadable_tags_send_no_metadata_even_when_the_session_answered_hdr() {
+        for (what, keyframe) in [("BT.709", keyframe_with(SPS_BT709)), ("no colour description", keyframe_with(SPS_FULL_NO_DESCRIPTION)), ("no parameter set", unit(0, true, true))] {
+            let (sink, server, _rx) = sink_to_fake_feeder(true, true);
+            sink.push(keyframe);
+            assert_eq!(wire(sink, server), [Wire::Video], "{what}");
+        }
+    }
+
+    #[test]
+    fn a_change_of_tags_sends_its_metadata_once_and_tags_that_turn_sdr_load_the_feeder_again_once() {
+        let (sink, server, rx) = sink_to_fake_feeder(true, true);
+        let cfg = sink.shared.runtime.feeder.clone();
+        let hdr = |transfer| Wire::Hdr(Hdr { transfer_characteristics: transfer, ..Hdr::hdr10(cfg.max_nits, cfg.max_average_nits) });
+        let mode = |sink: &MediaSink| *sink.shared.hdr_mode.lock().unwrap();
+        for sps in [SPS_PQ, SPS_PQ, SPS_HLG] {
+            assert_eq!(sink.push(keyframe_with(sps)), PushOutcome::Queued);
+        }
+        assert_eq!(mode(&sink), HdrMode::Hlg);
+        // a unit still waiting for its release when the tags turn SDR belongs to the picture the reload ends
+        sink.shared.pace.lock().unwrap().held.push_back((unit(5, false, true), i64::MAX, NO_SLOT));
+        assert_eq!(sink.push(keyframe_with(SPS_BT709)), PushOutcome::Queued);
+        assert_eq!((mode(&sink), sink.shared.pace.lock().unwrap().held.len()), (HdrMode::Sdr, 0));
+        for sps in [SPS_BT709, SPS_PQ] {
+            assert_eq!(sink.push(keyframe_with(sps)), PushOutcome::Queued);
+        }
+        assert_eq!(rx.try_iter().collect::<Vec<_>>(), [MediaFeedback::QueueDropped { media: "video", count: 1 }]);
+        assert_eq!(wire(sink, server), [
+            hdr(16), Wire::Video, // PQ
+            Wire::Video,          // the same parameter set again: nothing new
+            hdr(18), Wire::Video, // HLG: the feeder re-applies
+            Wire::Load { armed: 1, metadata: Hdr::default() }, Wire::Video, // BT.709: loaded again, HDR armed and no metadata, the keyframe its first unit
+            Wire::Video,          // BT.709 again: nothing new
+            hdr(16), Wire::Video, // PQ again: the armed load takes metadata afresh
+        ]);
+    }
+
+    #[test]
+    fn a_refused_reload_ends_the_session_and_nothing_is_sent_after_it() {
+        let (sink, server, rx) = sink_to_fake_feeder(true, false);
+        assert_eq!(sink.push(keyframe_with(SPS_PQ)), PushOutcome::Queued);
+        assert_eq!(sink.push(keyframe_with(SPS_BT709)), PushOutcome::Closed);
+        assert_eq!(sink.push(unit(1, false, true)), PushOutcome::Closed);
+        let told: Vec<_> = rx.try_iter().collect();
+        assert!(matches!(&told[..], [MediaFeedback::OutputError { message }] if message.contains("leave HDR") && message.contains("no pipeline")), "{told:?}");
+        assert!(matches!(&wire(sink, server)[..], [Wire::Hdr(_), Wire::Video, Wire::Load { .. }]));
+    }
+
+    #[test]
+    fn the_load_arms_hdr_for_the_codecs_that_carry_it_and_carries_no_metadata() {
+        let cfg = FeederConfig::from_env();
+        for answered in [true, false] {
+            for (codec, armed) in [(MediaVideoCodec::H265, 1), (MediaVideoCodec::Av1, 1), (MediaVideoCodec::H264, 0)] {
+                let load = load_for(&MediaStreamConfig { codec, hdr: answered, ..MediaStreamConfig::default() }, &cfg);
+                assert_eq!((load.hdr, load.hdr_info), (armed, Hdr::default()), "{codec:?}, the session answered hdr {answered}");
+            }
+        }
+    }
+
+    #[test]
+    fn hdr10_metadata_is_gfns_and_hlg_differs_from_it_only_in_the_transfer() {
+        let cfg = FeederConfig::from_env();
+        assert_eq!(hdr_metadata(HdrMode::Sdr, &cfg), None);
+        let pq = hdr_metadata(HdrMode::Hdr10, &cfg).unwrap();
+        assert_eq!(pq, Hdr::hdr10(cfg.max_nits, cfg.max_average_nits));
+        assert_eq!(hdr_metadata(HdrMode::Hlg, &cfg), Some(Hdr { transfer_characteristics: 18, ..pq }));
     }
 }

@@ -235,6 +235,8 @@ pub struct MediaStreamConfig {
     pub codec: MediaVideoCodec,
     /// Color class accepted by CloudMatch and requested again during NVST setup.
     pub color_quality: MediaColorQuality,
+    /// HDR as the service answered. The TV's HDR mode does not follow it: the runtime sets that from the stream's own colour tags and
+    /// only logs this beside them.
     pub hdr: bool,
     pub width: u32,
     pub height: u32,
