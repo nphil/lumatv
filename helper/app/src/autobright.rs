@@ -41,6 +41,7 @@
 use crate::ctx::Ctx;
 use crate::paneldim::{self, Settings};
 use crate::refreshguard::LunaSource;
+use learn::Learner;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -120,6 +121,8 @@ pub struct Inputs<'a> {
     pub lux: f64,
     /// The picture mode in force, as the journal names it.
     pub mode: &'a str,
+    /// Minutes since local midnight, when the clock can say.
+    pub minute: Option<u32>,
     /// Unix seconds: what the learned points' age is counted from.
     pub epoch: u64,
     pub scene: &'a Scene,
@@ -989,6 +992,9 @@ fn run(ctx: &Ctx, remote: &Remote) {
             Ok(Msg::Level(value, reply)) => {
                 let _ = reply.send(engine.by_hand(Instant::now(), value, &env(&mut switch)));
             }
+            Ok(Msg::Reset(reply)) => {
+                let _ = reply.send(engine.reset_learning(Instant::now()));
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
     }
@@ -996,5 +1002,6 @@ fn run(ctx: &Ctx, remote: &Remote) {
     engine.release();
 }
 
+mod learn;
 #[cfg(test)]
 mod tests;

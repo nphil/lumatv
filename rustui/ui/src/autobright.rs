@@ -12,6 +12,7 @@ pub const TOPIC: &str = "autobright";
 pub const SWITCH: &str = "system.autoBrightness";
 pub const POINTER: &str = "/system/autoBrightness";
 pub const LEVEL: &str = "/v1/autobright/level";
+pub const RESET: &str = "/v1/autobright/reset";
 pub const LABEL: &str = "Auto brightness";
 pub const ICON: &str = "sun-medium";
 pub const HELP: &str = "Follows the room's light from the TV's own sensor, never brighter than the level you set. Moving OLED pixel brightness while it is on sets the level wanted in that light. LG's Energy saving is held off while it is on.";
@@ -26,6 +27,8 @@ pub struct State {
     pub level: Option<f64>,
     /// What a row says under its name.
     pub detail: &'static str,
+    /// The corrections the helper has learned from since the last reset; known only while it is on.
+    pub learned: Option<u64>,
     /// The apps among them.
     pub apps: u64,
 }
@@ -52,7 +55,15 @@ pub fn state(on: bool, topic: Option<&Value>) -> State {
             _ => "Starting",
         }
     };
-    State { on, active, level: active.then(|| t.get("level").and_then(Value::as_f64)).flatten(), detail }
+    let learned = if on { t.get("learned").and_then(Value::as_u64) } else { None };
+    let apps = if on { t.get("apps").and_then(Value::as_u64).unwrap_or(0) } else { 0 };
+    State { on, active, level: active.then(|| t.get("level").and_then(Value::as_f64)).flatten(), detail, learned, apps }
+}
+
+/// The line under Settings › Picture's auto brightness switch.
+pub fn learned_line(n: u64, apps: u64) -> String {
+    let adjustments = format!("Learned from {n} {}", if n == 1 { "adjustment" } else { "adjustments" });
+    if n == 0 { adjustments } else { format!("{adjustments} across {apps} {}", if apps == 1 { "app" } else { "apps" }) }
 }
 
 /// The theme patch of the switch.
@@ -76,6 +87,12 @@ mod tests {
         let s = state(true, Some(&json!({"active": false, "level": 100, "hold": "hdr"})));
         assert_eq!((s.active, s.level, s.detail), (false, None, "Paused for HDR"));
         assert!(!switched_on(None) && !switched_on(Some(&json!("on"))), "off unless the switch says true");
-        assert_eq!(state(false, Some(&json!({"active": true, "level": 42}))), State::default());
+        assert_eq!(state(false, Some(&json!({"active": true, "level": 42, "learned": 3}))), State::default());
+        assert_eq!(state(true, Some(&json!({"learned": 3}))).learned, Some(3));
+        assert_eq!(state(true, Some(&json!({"learned": 3, "apps": 2}))).apps, 2);
+        assert_eq!(
+            (learned_line(0, 0), learned_line(1, 1), learned_line(12, 3)),
+            ("Learned from 0 adjustments".to_owned(), "Learned from 1 adjustment across 1 app".to_owned(), "Learned from 12 adjustments across 3 apps".to_owned())
+        );
     }
 }
