@@ -6,8 +6,8 @@
 
 Host-only arithmetic over trial records somebody else recorded. It captures nothing, touches no TV and switches nothing, and it does not close either
 hardware gate (a qualified output observer, a bounded rollback): it only says what a set of records would show once those exist. The verdict is
-`supports`, `rejects-in-configuration` or `inconclusive`. Only complete, consistent evidence can leave `inconclusive`: a missing witness, an unresolved
-picture id or repeat scan, a bad control, an ambiguous phase, a mismatched mode or a lost lock never rejects.
+`supports`, `rejects-in-configuration` or `inconclusive`. Only complete, consistent evidence can leave `inconclusive`: a missing or unqualified witness,
+an unresolved picture id or repeat scan, a bad control, an ambiguous phase or tick order, a mismatched mode or a lost lock never rejects.
 
 A trial is one tagged, retained picture made eligible 11 or 13 ms after a previous link frame start. A pair is six trials that share one previous
 link phase and one next fixed tick: `split` (the candidate), `unsplit` (the same eligibility, reference unchanged) and `held` (the same picture kept
@@ -17,21 +17,29 @@ link frame start and subtracted with interval arithmetic (the widths add, as wor
 displacement. A displacement is judged against a band of +/-0.25 ms around its target, and counts only when the whole interval is inside or outside.
 Each displacement also reads `follows` (the +2 ms eligibility shift), `fixed`, `other` or `unresolved`. The verdict is for the split reference only: the
 paired release discriminator (no actuator, so `split` and `unsplit` coincide) shows as `control_explains_shift:unsplit` with those readings and has no verdict here.
+Two complete pairs (the default minimum) with this worst-case widening are enough to tell the mechanism apart; they do not qualify a product.
 
     {"format": "lumatv-vrr-paired-evidence", "version": 1,
      "clock": {"calibrated": true, "alignment_ms": {"app": 0.05}},
      "witness": {"resolves_repeats": true},
      "trials": [{"pair_id": "p1", "arm": "+11", "kind": "split", "epoch": 3,
                  "mode": {"name": "3840x2160@120 SDR", "lock": "locked"},
-                 "picture": {"previous": 100, "retained": 101, "selected": 101, "retired": 101, "retire_cookie": 7},
+                 "picture": {"previous": 100, "retained": 101, "selected": 101, "retired": 101, "retire_cookie": 7, "admitted": [101]},
                  "times": {"ready": T, "decoder_tick": T, "ref_edge": T, "trk2_exit": T},
-                 "link": [{"ms": [lo, hi], "id": 100, "src": "link-witness"}, ...]}]}      T = {"ms": [lo, hi], "src": "app"}
+                 "link": [{"ms": [lo, hi], "id": 100, "src": "link-witness:<name>"}, ...]}]}      T = {"ms": [lo, hi], "src": "app"}
 
 `link` lists every link frame start from the previous one to the next one, repeats included. The first carries the previous picture, the last the
-retained one (`split`, `unsplit`); for `held`, whose picture never changes, the last is the first frame start at or after the fixed tick. `ready` is
-not needed for `held`. Each `src` is `<kind>` or `<kind>:<name>`; the kind says what produced the time:
+retained one (`split`, `unsplit`). A `held` picture never changes: its list ends at the first frame start at or after the common fixed tick, so every
+start before the last must be provably before the tick (every edge and repeat included) and the last provably at or after it. A start whose order
+against the tick is not certain is `tick_order_ambiguous`; a start at or after the tick before the last is `held_end_not_first_after_tick`; a list that
+stops before the tick is `held_end_before_tick`. `ready` is not needed for `held`.
+`picture.admitted` lists the pictures made eligible during the trial: the retained one alone for `split` and `unsplit`, none for `held`. The arms admit
+one picture so that no selection policy (the newest by pts, not decoder callback order) decides what is shown; more, or no record, is not readable.
+Each `src` is `<kind>` or `<kind>:<name>`; the kind says what produced the time:
 
-    link-witness  an independent observer of the output link or panel scan: the only kind that counts as a link frame start
+    link-witness  an independent observer of the output link or panel scan: the only kind that counts as a link frame start, and only by a
+                  qualified name (QUALIFIED_LINK_WITNESSES, empty: no source is qualified yet). IRQ 104, the TOUT factory CRC and MCU requests
+                  are never link witnesses whatever the record calls them; a record that says so is inconclusive
     hw-trace      a hardware-stamped SoC event: decoder tick, selected reference edge, TRK2 wait exit (and ready, if decode completion is traced)
     app           an application timestamp, such as the presenter's `ready_ns` (ready only)
     irq           IRQ counts and software vsync events (IRQ 104 is osd_irq): mixer corroboration, never evidence of a link scan
@@ -44,6 +52,7 @@ import json
 import re
 import sys
 from fractions import Fraction
+from typing import NamedTuple
 
 FORMAT = "lumatv-vrr-paired-evidence"
 CAPTURE_FORMAT = "lumagame-vrr-pts-capture"
@@ -55,6 +64,11 @@ MIN_PAIRS = 2
 CHANNELS = ("ready", "decoder_tick", "ref_edge", "trk2_exit")
 LINK, HW, APP, IRQ, ACK, SYNTHETIC = "link-witness", "hw-trace", "app", "irq", "ack", "synthetic"
 ACCEPTED = {"link": (LINK,), "ready": (APP, HW), "decoder_tick": (HW,), "ref_edge": (HW,), "trk2_exit": (HW,)}
+# Link-witness names the hardware review has qualified as independent observers of the output link or panel scan. None is yet, and a record cannot qualify its
+# own source, so no real record can leave `inconclusive` until a reviewed change adds a name here.
+QUALIFIED_LINK_WITNESSES = frozenset()
+# IRQ 104 (osd_irq), the TOUT factory CRC and MCU requests are never a link witness, whatever a record calls them; no qualification overrides this.
+NEVER_LINK_WITNESS = re.compile(r"irq|osd|tout|crc|mcu", re.IGNORECASE)
 NOT_EVIDENCE = {
     IRQ: "IRQ counts and software vsync events corroborate the mixer only; they are not a panel-link witness",
     ACK: "submit, ACK/DROP and play() times show the compressed-input handshake; they are not picture ownership, readiness or a link scan",
@@ -68,7 +82,8 @@ UNAVAILABLE_CODES = {
 VERDICTS = ("supports", "rejects-in-configuration", "inconclusive")
 CANNOT_CLOSE = ("This does not close either hardware gate. Whether the records come from a qualified, independent output observer, and whether a "
                 "bounded rollback exists, stay open; this only applies interval arithmetic to records that exist. A `supports` verdict is one "
-                "controllable displacement in one configuration, not the panel's VRR range or safe product operation.")
+                "controllable displacement in one configuration, read from complete pairs with worst-case widening: it discriminates the mechanism "
+                "and does not qualify the product, the panel's VRR range or safe operation.")
 SYNTHETIC_NOTE = "SYNTHETIC input: the arithmetic was exercised on fixture times. This is not evidence about any panel."
 STEPS = ("ready", "tick", "ref", "wait", "link")
 
@@ -111,6 +126,13 @@ class Problems(list):
         self.append({"code": code, "where": where, "detail": detail, "pair": pair})
 
 
+class Rules(NamedTuple):
+    """What a read needs besides the record: the alignment widths, whether fixtures are accepted and the qualified link-witness names."""
+    align: dict
+    allow_synthetic: bool
+    qualified: frozenset
+
+
 def _num(x):
     if isinstance(x, bool) or not isinstance(x, (int, float)):
         raise ValueError(f"{x!r} is not a number")
@@ -132,13 +154,25 @@ def _interval(raw):
     return Interval(lo, hi)
 
 
-def _kind(src, channel, add, problems, allow_synthetic):
+def _qualified(name, add, rules):
+    """`link-witness` is a label, not a fact. IRQ 104, the TOUT factory CRC and MCU requests are never a link witness, whatever the source is called, and no
+    qualification overrides that. Any other name counts only once it is in the qualified set, and no source is yet: a record cannot qualify its own."""
+    if NEVER_LINK_WITNESS.search(name):
+        add("link_witness_forbidden_source:" + name, "IRQ 104, the TOUT factory CRC and MCU requests are never a link witness, whatever they are called")
+    elif name not in rules.qualified:
+        add("link_witness_unqualified:" + (name or "unnamed"), "no source has been qualified as an independent observer of the link under that name")
+    else:
+        return True
+    return False
+
+
+def _kind(src, channel, add, problems, rules):
     """The provenance kind of one time, or None (with the reason added) when it cannot stand for `channel`."""
-    kind = src.partition(":")[0] if isinstance(src, str) else ""
+    kind, _, name = src.partition(":") if isinstance(src, str) else ("", "", "")
     if not kind:
         add("provenance_missing:" + channel, "every time names where it came from")
     elif kind == SYNTHETIC:
-        if allow_synthetic:
+        if rules.allow_synthetic:
             problems.synthetic = True
             return kind
         add("provenance_synthetic", "fixture times are not evidence")
@@ -148,22 +182,36 @@ def _kind(src, channel, add, problems, allow_synthetic):
         add("provenance_unknown:" + kind, f"{src!r} is not a known provenance kind")
     elif kind not in ACCEPTED[channel]:
         add(f"provenance_wrong_kind:{channel}:{kind}", f"{channel} comes from {' or '.join(ACCEPTED[channel])}")
+    elif kind == LINK and not _qualified(name, add, rules):
+        pass
     else:
         return kind
     return None
 
 
-def _observed(raw, channel, add, problems, align, allow_synthetic):
+def _observed(raw, channel, add, problems, rules):
     try:
         interval = _interval(raw)
     except ValueError as error:
         add("bad_interval:" + channel, str(error))
         return None
-    kind = _kind(raw.get("src"), channel, add, problems, allow_synthetic)
-    return None if kind is None else interval.widen(align.get(kind, 0))
+    kind = _kind(raw.get("src"), channel, add, problems, rules)
+    return None if kind is None else interval.widen(rules.align.get(kind, 0))
 
 
-def _read_trial(raw, problems, align, allow_synthetic):
+def _held_end(link, tick, add):
+    """A held picture ends at the first link frame start at or after the fixed tick. So every start before the last, repeats and edges included, must be
+    provably before the tick and the last provably at or after it; a start whose order against the tick is not certain is not a verdict either way."""
+    order = ["before" if s["iv"].hi < tick.lo else "after" if s["iv"].lo >= tick.hi else "unclear" for s in link]
+    if "unclear" in order:
+        add("tick_order_ambiguous", "a link frame start overlaps the next fixed tick, so the first one at or after it is not certain")
+    if "after" in order[:-1]:
+        add("held_end_not_first_after_tick", "a link frame start at or after the fixed tick comes before the last one listed")
+    if order[-1] == "before":
+        add("held_end_before_tick", "the last link frame start listed is before the fixed tick: the list stops short of the held picture's end")
+
+
+def _read_trial(raw, problems, rules):
     """One trial, checked as far as it can be alone. Every defect of the evidence becomes a problem tagged with its pair."""
     if not isinstance(raw, dict):
         raise EvidenceError("a trial must be an object")
@@ -189,7 +237,7 @@ def _read_trial(raw, problems, align, allow_synthetic):
     for channel in CHANNELS:
         trial[channel] = None
         if times.get(channel) is not None:
-            trial[channel] = _observed(times[channel], channel, add, mine, align, allow_synthetic)
+            trial[channel] = _observed(times[channel], channel, add, mine, rules)
         elif channel != "ready" or kind != "held":
             add("witness_missing:" + channel)
 
@@ -197,7 +245,7 @@ def _read_trial(raw, problems, align, allow_synthetic):
     if not isinstance(scans, list) or len(scans) < 2:
         add("link_witness_missing", "the previous and the next link frame start are both needed")
     else:
-        read = [(_observed(s, "link", add, mine, align, allow_synthetic), _key(s.get("id") if isinstance(s, dict) else None)) for s in scans]
+        read = [(_observed(s, "link", add, mine, rules), _key(s.get("id") if isinstance(s, dict) else None)) for s in scans]
         if all(interval is not None for interval, _ in read):
             trial["link"] = [{"iv": interval, "id": id_} for interval, id_ in read]
             if any(not a["iv"].hi < b["iv"].lo for a, b in zip(trial["link"], trial["link"][1:])):
@@ -212,6 +260,10 @@ def _read_trial(raw, problems, align, allow_synthetic):
             add("id_mismatch", f"a held picture keeps one id, got {ids}")
     elif not ids["retained"] == ids["selected"] == ids["retired"] or ids["retained"] == ids["previous"]:
         add("id_mismatch", f"the retained picture is new, selected and retired as itself, got {ids}")
+    if not isinstance(pic.get("admitted"), list):
+        add("admitted_unresolved", "the pictures made eligible during the trial are not recorded")
+    elif ids["retained"] is not None and [_key(x) for x in pic["admitted"]] != ([] if kind == "held" else [ids["retained"]]):
+        add("selection_ambiguous", "the arm admits " + ("no new picture" if kind == "held" else "only the retained picture") + f", the record lists {pic['admitted']}")
     if cookie is None:
         add("retire_cookie_missing")
     if trial["epoch"] is None:
@@ -227,6 +279,8 @@ def _read_trial(raw, problems, align, allow_synthetic):
             end = ids["previous"] if kind == "held" else ids["selected"]
             if first["id"] != ids["previous"] or last["id"] != end or any(s["id"] not in (None, ids["previous"]) for s in between):
                 add("id_mismatch", f"the link shows {first['id']} .. {last['id']}, expected {ids['previous']} .. {end}")
+        if kind == "held" and trial["decoder_tick"] is not None:
+            _held_end(trial["link"], trial["decoder_tick"], add)
     return trial
 
 
@@ -378,8 +432,9 @@ def _inventory(inventory, problems):
         problems.add(UNAVAILABLE_CODES.get(what, "witness_missing:" + what), "inventory", f"the capture says it did not record: {what}")
 
 
-def analyse(doc, *, allow_synthetic=False, min_pairs=MIN_PAIRS, target_ms=TARGET_MS, tolerance_ms=TOLERANCE_MS):
-    """A paired-evidence document in, a report out. Raises EvidenceError only for a document that is not one."""
+def analyse(doc, *, allow_synthetic=False, min_pairs=MIN_PAIRS, target_ms=TARGET_MS, tolerance_ms=TOLERANCE_MS, qualified=None):
+    """A paired-evidence document in, a report out. Raises EvidenceError only for a document that is not one. `qualified` replaces the set of qualified
+    link-witness names (default QUALIFIED_LINK_WITNESSES, empty); the document cannot qualify its own source."""
     if not isinstance(doc, dict) or doc.get("format") != FORMAT or doc.get("version") != 1 or not isinstance(doc.get("trials"), list):
         raise EvidenceError(f"not a {FORMAT} version 1 document with a trials list")
     shared = Problems()
@@ -399,7 +454,8 @@ def analyse(doc, *, allow_synthetic=False, min_pairs=MIN_PAIRS, target_ms=TARGET
     if isinstance(doc.get("inventory"), dict):
         _inventory(doc["inventory"], shared)
 
-    trials = [_read_trial(raw, shared, align, allow_synthetic) for raw in doc["trials"]]
+    rules = Rules(align, allow_synthetic, frozenset(QUALIFIED_LINK_WITNESSES if qualified is None else qualified))
+    trials = [_read_trial(raw, shared, rules) for raw in doc["trials"]]
     if len({t["mode"] for t in trials} - {None}) > 1:
         shared.add("mode_mismatch", "file", "every trial runs in one established mode")
     by_pair = {}

@@ -59,6 +59,7 @@ typedef struct {
     int overflow;
     vrr_cookie on_screen;
     int64_t now;
+    uint64_t rng;
 } sim;
 
 static void schedule(sim *s, vrr_cookie c, int64_t due) {
@@ -67,6 +68,17 @@ static void schedule(sim *s, vrr_cookie c, int64_t due) {
         return;
     }
     s->pend[s->npend++] = (pending){due, s->seq++, c};
+}
+
+/* How long after the event that could end the reads of a surface the backend returns its cookie. Unknown on a real backend, so the
+ * caller chooses it; the jitter is drawn from a fixed seed, which makes cookies return out of order. */
+static int64_t lag(sim *s) {
+    int64_t extra = 0;
+    if (s->cfg->jitter_ns > 0) {
+        s->rng = s->rng * 6364136223846793005ULL + 1442695040888963407ULL;
+        extra = (int64_t)((s->rng >> 33) % (uint64_t)(s->cfg->jitter_ns + 1));
+    }
+    return s->cfg->lag_ns + extra;
 }
 
 static size_t earliest(const sim *s) {
@@ -87,14 +99,14 @@ static void model_show(void *user, const vrr_show *cmd) {
     sim *s = user;
     if (s->hooks->shown) s->hooks->shown(s->hooks->user, cmd);
     if (cmd->kind != VRR_SHOW_NEW) return;
-    if (cmd->supersedes.gen) schedule(s, cmd->supersedes, cmd->scan_ns + s->cfg->tail_ns);
+    if (cmd->supersedes.gen) schedule(s, cmd->supersedes, cmd->scan_ns + lag(s));
     s->on_screen = cmd->cookie;
 }
 
 static void model_drop(void *user, const vrr_drop *cmd) {
     sim *s = user;
     if (s->hooks->dropped) s->hooks->dropped(s->hooks->user, cmd);
-    schedule(s, cmd->cookie, s->now + s->cfg->drop_ns);
+    schedule(s, cmd->cookie, s->now + lag(s));
 }
 
 static void model_release(void *user, void *handle, const vrr_retirement *r) {
@@ -104,9 +116,9 @@ static void model_release(void *user, void *handle, const vrr_retirement *r) {
 }
 
 int vrr_sim_run(const vrr_sim_cfg *cfg, const vrr_trace *source, const vrr_trace *scans, const vrr_sim_hooks *hooks, vrr_sim_result *out) {
-    if (!cfg || !source || !scans || !hooks || !hooks->make || !hooks->release || !out) return -1;
+    if (!cfg || !source || !scans || !hooks || !hooks->make || !hooks->release || !out || cfg->capacity > VRR_TRACE_MAX) return -1;
     memset(out, 0, sizeof *out);
-    sim s = {.cfg = cfg, .hooks = hooks, .out = out};
+    sim s = {.cfg = cfg, .hooks = hooks, .out = out, .rng = 0x9E3779B97F4A7C15ULL};
     vrr_config pc = {cfg->capacity, model_release, &s, {&s, model_show, model_drop}};
     s.p = vrr_new(&pc);
     if (!s.p) return -1;
@@ -155,8 +167,11 @@ int vrr_sim_run(const vrr_sim_cfg *cfg, const vrr_trace *source, const vrr_trace
 
     s.now = end;
     out->outstanding_at_shutdown = vrr_shutdown(s.p, end);
-    while (s.npend) deliver(&s, earliest(&s), end);
-    if (s.on_screen.gen && vrr_cookie_state(s.p, s.on_screen) != VRR_ST_NONE && vrr_retire(s.p, s.on_screen, end) != VRR_OK) out->retire_errors++;
+    if (s.on_screen.gen && vrr_cookie_state(s.p, s.on_screen) != VRR_ST_NONE) schedule(&s, s.on_screen, end + lag(&s));    /* the handback: its reads end later */
+    while (s.npend) {
+        size_t i = earliest(&s);
+        deliver(&s, i, s.pend[i].due);
+    }
     out->stats = *vrr_get_stats(s.p);
     out->leaked = vrr_free(s.p);
     return rc == 0 && !s.overflow ? 0 : -1;

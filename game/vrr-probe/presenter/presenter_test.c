@@ -1,5 +1,5 @@
-/* The presenter against a real HEVC decoder. Each ownership and retirement edge case runs on decoded surfaces and is judged by the decoder's own buffer
- * counts (hevc_source.h); then three deadline traces are driven past three source cadences. Deadline traces only: nothing here shows what a panel does.
+/* The presenter against a real HEVC decoder. Each ownership, selection and retirement edge case runs on decoded surfaces and is judged by the decoder's own
+ * buffer counts (hevc_source.h); then three deadline traces are driven past three source cadences, with cookies returned at once and late. Deadline traces only: nothing here shows what a panel does.
  *   presenter_test STREAM.hevc STREAM.order            run everything
  *   presenter_test STREAM.hevc STREAM.order --report   also print the trace matrix
  *   presenter_test STREAM.hevc STREAM.order --print-shuffled
@@ -266,7 +266,10 @@ static void test_duplicates(void) {
     alias.id = pb.id;
     alias.pts = pb.pts;
     assert(vrr_submit(r.p, &alias, NULL) == VRR_E_DUPLICATE);
-    assert(vrr_owned(r.p) == 1 && vrr_get_stats(r.p)->rejected[-VRR_E_DUPLICATE] == 3 && vrr_get_stats(r.p)->submitted == 1);
+    vrr_picture twin = pb;                                              /* another surface and id at the presentation time of a queued picture */
+    twin.pts = pa.pts;
+    assert(vrr_submit(r.p, &twin, NULL) == VRR_E_DUPLICATE);
+    assert(vrr_owned(r.p) == 1 && vrr_get_stats(r.p)->rejected[-VRR_E_DUPLICATE] == 4 && vrr_get_stats(r.p)->submitted == 1);
     assert(hevc_surface_planes_freed(sa) == 0 && hevc_surface_read(r.src, sa) == 0);   /* the held surface is untouched */
     hevc_surface_retire(r.src, sb);                                     /* refused: B never left its caller */
 
@@ -307,8 +310,7 @@ static void test_stale_and_future_epoch(void) {
     hevc_surface_retire(r.src, sf);
     assert(vrr_owned(r.p) == 2);
 
-    assert(vrr_scan(r.p, 3 * MS) == VRR_SCANNED_REPEAT);                /* the old picture stays up until a new epoch replaces it */
-    assert(vrr_get_stats(r.p)->repeats_stale_epoch == 1 && st(&r, b) == VRR_ST_CURRENT);
+    assert(vrr_scan(r.p, 3 * MS) == VRR_SCANNED_STALE && st(&r, b) == VRR_ST_CURRENT);   /* the old picture stays held until a new epoch replaces it */
     vrr_cookie c = rig_submit(&r, 3 * MS);
     assert(vrr_scan(r.p, 4 * MS) == VRR_SCANNED_NEW && st(&r, b) == VRR_ST_SUPERSEDED);
     assert(vrr_retire(r.p, b, 5 * MS) == VRR_OK && r.rets[r.nrets - 1].epoch == 0);   /* retirement still works across the flush */
@@ -376,6 +378,112 @@ static void test_flush(void) {
     rig_finish(&r, 5 * MS, &c1, 1);
     rig_close(&r);
     printf("flush ok\n");
+}
+
+/* ---- a flush does not touch the surface being scanned ------------------------------------------------------------------------ */
+
+static void test_flush_holds_the_scanned_surface(void) {
+    rig r;
+    rig_open(&r, 8);
+    rig_submit(&r, 0);
+    vrr_cookie b = rig_submit(&r, 0);
+    assert(vrr_scan(r.p, 1 * MS) == VRR_SCANNED_NEW);                   /* B on screen, A dropped */
+    hevc_surface *sb = r.shows[0].handle;
+    vrr_cookie q1 = rig_submit(&r, 5 * MS), q2 = rig_submit(&r, 5 * MS);   /* old-epoch work, not ready yet */
+    size_t shows = r.nshows;
+    assert(vrr_flush(r.p, 1, 2 * MS) == VRR_OK);
+    assert(st(&r, q1) == VRR_ST_DROPPED && st(&r, q2) == VRR_ST_DROPPED && r.drops[r.ndrops - 1].reason == VRR_DROP_FLUSH);
+    assert(st(&r, b) == VRR_ST_CURRENT && vrr_owned(r.p) == 4);         /* the queued work is invalid; the picture being scanned is not queued work */
+
+    for (int i = 3; i <= 6; i++) assert(vrr_scan(r.p, i * MS) == VRR_SCANNED_STALE);   /* nothing new to show: B is neither repeated nor selected again */
+    assert(r.nshows == shows && vrr_get_stats(r.p)->scans_stale == 4 && vrr_get_stats(r.p)->scans_repeat == 0);
+    assert(vrr_retire(r.p, b, 7 * MS) == VRR_E_PREMATURE && r.nrets == 0);   /* and no cookie can free what may still be scanned */
+    rig_churn(&r, 20);
+    assert(hevc_surface_planes_freed(sb) == 0 && hevc_surface_read(r.src, sb) == 0);
+
+    vrr_cookie c = rig_submit(&r, 8 * MS);                              /* the new epoch's first picture is the verified replacement */
+    assert(vrr_scan(r.p, 9 * MS) == VRR_SCANNED_NEW && same(r.shows[r.nshows - 1].supersedes, b) && st(&r, b) == VRR_ST_SUPERSEDED);
+    assert(r.nrets == 0 && hevc_surface_planes_freed(sb) == 0);         /* replaced is not retired: its reads end when the backend says so */
+    assert(vrr_retire(r.p, b, 10 * MS) == VRR_OK);
+    assert(r.rets[0].outcome == VRR_DISPLAYED && r.rets[0].epoch == 0 && r.rets[0].scans == 1);
+    for (size_t i = shows; i < r.nshows; i++) assert(r.shows[i].epoch == 1);   /* no show after the flush names an old-epoch picture */
+
+    vrr_cookie left[4] = {r.drops[0].cookie, q1, q2, c};                /* A, dropped at the first scan, was never returned */
+    rig_finish(&r, 11 * MS, left, 4);
+    rig_close(&r);
+
+    rig h;                                                              /* the handback also ends the hold */
+    rig_open(&h, 4);
+    vrr_cookie x = rig_submit(&h, 0);
+    assert(vrr_scan(h.p, 1 * MS) == VRR_SCANNED_NEW && vrr_flush(h.p, 1, 2 * MS) == VRR_OK);
+    assert(vrr_scan(h.p, 3 * MS) == VRR_SCANNED_STALE && st(&h, x) == VRR_ST_CURRENT);
+    assert(vrr_shutdown(h.p, 4 * MS) == 1 && st(&h, x) == VRR_ST_SUPERSEDED);
+    assert(vrr_retire(h.p, x, 5 * MS) == VRR_OK);
+    assert(h.rets[0].outcome == VRR_DISPLAYED && h.rets[0].reason == VRR_DROP_SHUTDOWN && h.rets[0].epoch == 0 && h.rets[0].decided_ns == 4 * MS);
+    rig_close(&h);
+    printf("flush_holds_the_scanned_surface ok\n");
+}
+
+/* ---- selection follows presentation order ------------------------------------------------------------------------------------ */
+
+/* The decoder calls back in the order of a hierarchical GOP, 0 4 2 1 3 | 8 6 5 7 | 11 9 10, each picture ready at its own instant, with scans in
+ * between. The picture shown is the greatest pts that is ready, whatever came back last; one that arrives behind the picture on screen is dropped. */
+static void test_selection_follows_presentation_order(void) {
+    enum { N = 12, SUBMIT = 0, SCAN = 1 };
+    static const struct { int op, arg; int64_t ms; } script[] = {      /* submit: picture, ready time; scan: expected result, start */
+        {SUBMIT, 0, 0},  {SCAN, VRR_SCANNED_NEW, 1},
+        {SUBMIT, 4, 2},  {SUBMIT, 2, 3},  {SCAN, VRR_SCANNED_NEW, 5},            /* 4 is shown though 2 came back last; 2 never is */
+        {SUBMIT, 1, 6},  {SUBMIT, 3, 7},  {SCAN, VRR_SCANNED_REPEAT, 9},         /* both are behind the picture on screen: dropped on arrival */
+        {SUBMIT, 8, 30}, {SUBMIT, 6, 10}, {SCAN, VRR_SCANNED_NEW, 11},           /* 8 is not ready and waits; 6 is shown */
+        {SUBMIT, 5, 12}, {SUBMIT, 7, 13}, {SCAN, VRR_SCANNED_NEW, 14},           /* 5 is behind 6; 7 is shown */
+        {SUBMIT, 11, 15}, {SUBMIT, 9, 16}, {SUBMIT, 10, 17}, {SCAN, VRR_SCANNED_NEW, 20},   /* 11 is shown; 9, 10 and the unready 8 are behind it */
+        {SCAN, VRR_SCANNED_REPEAT, 40},                                           /* nothing ready: 11 repeats */
+    };
+    static const struct { vrr_outcome outcome; vrr_drop_reason reason; unsigned scans; } want[N] = {
+        {VRR_DISPLAYED, VRR_DROP_SUPERSEDED, 1}, {VRR_DROPPED, VRR_DROP_LATE, 0},         {VRR_DROPPED, VRR_DROP_SUPERSEDED, 0},
+        {VRR_DROPPED, VRR_DROP_LATE, 0},         {VRR_DISPLAYED, VRR_DROP_SUPERSEDED, 2}, {VRR_DROPPED, VRR_DROP_LATE, 0},
+        {VRR_DISPLAYED, VRR_DROP_SUPERSEDED, 1}, {VRR_DISPLAYED, VRR_DROP_SUPERSEDED, 1}, {VRR_DROPPED, VRR_DROP_SUPERSEDED, 0},
+        {VRR_DROPPED, VRR_DROP_SUPERSEDED, 0},   {VRR_DROPPED, VRR_DROP_SUPERSEDED, 0},   {VRR_DISPLAYED, VRR_DROP_SHUTDOWN, 2},
+    };
+    static const int shown_order[5] = {0, 4, 6, 7, 11};
+    rig r;
+    rig_open(&r, 16);
+    vrr_picture pic[N];
+    vrr_cookie ck[N];
+    for (int k = 0; k < N; k++) rig_pull(&r, &pic[k], 0);               /* display order: pts 750 k */
+    for (size_t i = 0; i < sizeof script / sizeof *script; i++) {
+        if (script[i].op == SUBMIT) {
+            pic[script[i].arg].ready_ns = script[i].ms * MS;
+            assert(vrr_submit(r.p, &pic[script[i].arg], &ck[script[i].arg]) == VRR_OK);
+        } else {
+            assert(vrr_scan(r.p, script[i].ms * MS) == script[i].arg);
+        }
+    }
+    const vrr_stats *s = vrr_get_stats(r.p);
+    assert(s->shown == 5 && s->scans_new == 5 && s->scans_repeat == 2 && s->scans_underrun == 0 && s->scans_stale == 0);
+    assert(s->dropped[VRR_DROP_SUPERSEDED] == 4 && s->dropped[VRR_DROP_LATE] == 3 && r.nshows == 7 && r.nrets == 0);
+    size_t news = 0;
+    int64_t last_pts = -1;
+    for (size_t i = 0; i < r.nshows; i++) {                             /* the pictures shown, in order, rise in pts */
+        if (r.shows[i].kind != VRR_SHOW_NEW) continue;
+        assert(news < 5 && r.shows[i].id == pic[shown_order[news++]].id && r.shows[i].pts > last_pts);
+        last_pts = r.shows[i].pts;
+    }
+    assert(news == 5);
+    assert(hevc_surface_planes_freed(pic[1].handle) == 0 && hevc_surface_read(r.src, pic[1].handle) == 0);   /* a dropped picture stays loaned until its cookie returns */
+
+    assert(vrr_shutdown(r.p, 41 * MS) == N);
+    for (int k = N - 1; k >= 0; k--) assert(vrr_retire(r.p, ck[k], 42 * MS) == VRR_OK);    /* the backend may return them in any order */
+    assert(r.nrets == N);
+    for (int k = 0; k < N; k++) {
+        const vrr_retirement *rt = NULL;
+        for (size_t i = 0; i < r.nrets; i++)
+            if (r.rets[i].id == pic[k].id) rt = &r.rets[i];
+        assert(rt && rt->outcome == want[k].outcome && rt->reason == want[k].reason && rt->scans == want[k].scans);
+        if (rt->reason == VRR_DROP_LATE) assert(rt->decided_ns == rt->ready_ns);       /* dropped the instant it arrived */
+    }
+    rig_close(&r);
+    printf("selection_follows_presentation_order ok\n");
 }
 
 /* ---- shutdown ---------------------------------------------------------------------------------------------------------------- */
@@ -512,7 +620,11 @@ static void test_ack_is_not_ownership(void) {
 
 /* ---- deadline traces --------------------------------------------------------------------------------------------------------- */
 
-static const vrr_sim_cfg CFG = {.decode_ns = 2 * MS, .delay_ns = 4 * MS, .tail_ns = 1 * MS, .drop_ns = 0, .capacity = 8};
+/* The backend's cookie lag is unknown, so the traces run with none and with a long, jittered one to show that no decision depends on it. Capacity is a
+ * backpressure bound and no reuse rule: 64 is more than the matrix can fill, and STARVED fills three on purpose. */
+static const vrr_sim_cfg PROMPT = {.decode_ns = 2 * MS, .delay_ns = 4 * MS, .lag_ns = 0, .jitter_ns = 0, .capacity = 64};
+static const vrr_sim_cfg LATE = {.decode_ns = 2 * MS, .delay_ns = 4 * MS, .lag_ns = 10 * MS, .jitter_ns = 40 * MS, .capacity = 64};
+static const vrr_sim_cfg STARVED = {.decode_ns = 2 * MS, .delay_ns = 4 * MS, .lag_ns = 10 * MS, .jitter_ns = 40 * MS, .capacity = 3};
 
 typedef struct { hevc_source *src; } cellctx;
 
@@ -533,10 +645,11 @@ static void cell_release(void *u, void *handle, const vrr_retirement *rt) {
 static void cell_shown(void *u, const vrr_show *cmd) { hevc_surface_read(((cellctx *)u)->src, cmd->handle); }
 
 typedef struct {
+    const vrr_sim_cfg *cfg;
     const vrr_trace *scans, *source;
     vrr_sim_result res;
     hevc_oracle o;
-    double hold_min, hold_p50, hold_p95, hold_max;      /* ms, ready to retirement */
+    double held_p50, held_max;                          /* ms, ready until a newer picture's scan or a drop decided its end (handback excluded) */
     double ierr_mean, ierr_max;                         /* ms, change between first scans against change between source times, consecutive displayed pictures */
     uint64_t dropped;
 } cell;
@@ -546,36 +659,48 @@ static int cmp_i64(const void *a, const void *b) {
     return (x > y) - (x < y);
 }
 
-static void summarise(cell *c) {
-    int64_t hold[VRR_TRACE_MAX];
-    size_t n = 0, pairs = 0;
-    double sum = 0, worst = 0;
-    const vrr_retirement *prev = NULL;
-    for (size_t i = 0; i < c->res.nlog; i++) {
-        const vrr_retirement *r = &c->res.log[i];
-        hold[n++] = r->retire_ns - r->ready_ns;
-        if (r->outcome != VRR_DISPLAYED) continue;
-        if (prev) {
-            double e = fabs((double)((r->first_scan_ns - prev->first_scan_ns) - (vrr_ticks_to_ns(r->pts) - vrr_ticks_to_ns(prev->pts)))) / 1e6;
-            sum += e;
-            if (e > worst) worst = e;
-            pairs++;
-        }
-        prev = r;
-    }
-    qsort(hold, n, sizeof *hold, cmp_i64);
-    c->hold_min = (double)hold[0] / 1e6;
-    c->hold_p50 = (double)hold[n / 2] / 1e6;
-    c->hold_p95 = (double)hold[(n * 95 + 99) / 100 - 1] / 1e6;
-    c->hold_max = (double)hold[n - 1] / 1e6;
-    c->ierr_mean = sum / (double)pairs;
-    c->ierr_max = worst;
-    const vrr_stats *s = &c->res.stats;
-    c->dropped = s->dropped[VRR_DROP_SUPERSEDED] + s->dropped[VRR_DROP_FLUSH] + s->dropped[VRR_DROP_SHUTDOWN];
+static int cmp_first_scan(const void *a, const void *b) {
+    int64_t x = (*(const vrr_retirement *const *)a)->first_scan_ns, y = (*(const vrr_retirement *const *)b)->first_scan_ns;
+    return (x > y) - (x < y);
 }
 
-static void run_cell(const vrr_trace *scans, const vrr_trace *source, cell *c) {
+/* The displayed pictures in the order they were first shown. The log is in the order cookies came back, which late cookies scramble. */
+static size_t displayed(const cell *c, const vrr_retirement **out) {
+    size_t n = 0;
+    for (size_t i = 0; i < c->res.nlog; i++)
+        if (c->res.log[i].outcome == VRR_DISPLAYED) out[n++] = &c->res.log[i];
+    qsort(out, n, sizeof *out, cmp_first_scan);
+    return n;
+}
+
+static void summarise(cell *c) {
+    int64_t held[VRR_TRACE_MAX];
+    size_t n = 0;
+    for (size_t i = 0; i < c->res.nlog; i++) {
+        const vrr_retirement *r = &c->res.log[i];
+        if (r->reason != VRR_DROP_SHUTDOWN) held[n++] = r->decided_ns - r->ready_ns;      /* the handback is not a deadline decision */
+    }
+    assert(n > 0);
+    qsort(held, n, sizeof *held, cmp_i64);
+    c->held_p50 = (double)held[n / 2] / 1e6;
+    c->held_max = (double)held[n - 1] / 1e6;
+
+    const vrr_retirement *shown[VRR_TRACE_MAX];
+    size_t m = displayed(c, shown);
+    double sum = 0, worst = 0;
+    for (size_t i = 1; i < m; i++) {
+        double e = fabs((double)((shown[i]->first_scan_ns - shown[i - 1]->first_scan_ns) - (vrr_ticks_to_ns(shown[i]->pts) - vrr_ticks_to_ns(shown[i - 1]->pts)))) / 1e6;
+        sum += e;
+        if (e > worst) worst = e;
+    }
+    c->ierr_mean = m > 1 ? sum / (double)(m - 1) : 0;
+    c->ierr_max = worst;
+    for (int k = 0; k < VRR_DROP_COUNT; k++) c->dropped += c->res.stats.dropped[k];
+}
+
+static void run_cell(const vrr_sim_cfg *cfg, const vrr_trace *scans, const vrr_trace *source, cell *c) {
     memset(c, 0, sizeof *c);
+    c->cfg = cfg;
     c->scans = scans;
     c->source = source;
     char err[256];
@@ -586,7 +711,7 @@ static void run_cell(const vrr_trace *scans, const vrr_trace *source, cell *c) {
         exit(1);
     }
     vrr_sim_hooks hooks = {&ctx, cell_make, cell_refused, cell_release, cell_shown, NULL};
-    int rc = vrr_sim_run(&CFG, source, scans, &hooks, &c->res);
+    int rc = vrr_sim_run(cfg, source, scans, &hooks, &c->res);
     assert(rc == 0);
     int64_t outstanding = hevc_source_close(ctx.src, &c->o);
     assert(outstanding == 0);
@@ -596,12 +721,12 @@ static void run_cell(const vrr_trace *scans, const vrr_trace *source, cell *c) {
 static void check_cell(const cell *c) {
     const vrr_sim_result *res = &c->res;
     const vrr_stats *s = &res->stats;
-    assert(res->retire_errors == 0 && res->leaked == 0 && res->refused == 0);
-    assert(res->pictures == c->source->n && s->submitted == res->pictures && res->nlog == res->pictures);
+    assert(res->retire_errors == 0 && res->leaked == 0);
+    assert(res->pictures == c->source->n && s->submitted + res->refused == res->pictures && res->nlog == s->submitted);
     assert(s->shown + c->dropped == s->submitted);                      /* every picture is shown or dropped, once */
     assert(s->retired_displayed == s->shown && s->retired_dropped == c->dropped);     /* and every one is retired, once */
-    assert(s->scans == c->scans->n && s->scans == s->scans_new + s->scans_repeat + s->scans_underrun && s->scans_new == s->shown);
-    assert(s->peak_owned >= 1 && s->peak_owned <= CFG.capacity);
+    assert(s->scans == c->scans->n && s->scans == s->scans_new + s->scans_repeat + s->scans_stale + s->scans_underrun && s->scans_new == s->shown);
+    assert(s->peak_owned >= 1 && s->peak_owned <= c->cfg->capacity);
     oracle_clean(&c->o);
     assert(c->o.outstanding == 0 && c->o.live == 0 && c->o.pictures == res->pictures && c->o.pictures == c->o.retired);
     assert(c->o.allocated == c->o.freed && c->o.handouts > c->o.distinct);
@@ -617,43 +742,52 @@ static void check_cell(const cell *c) {
 
 /* Intervals, in ns, between the first scans of consecutive displayed pictures. */
 static size_t visible_intervals(const cell *c, int64_t *out) {
-    size_t n = 0;
-    int64_t prev = -1;
-    for (size_t i = 0; i < c->res.nlog; i++) {
-        const vrr_retirement *r = &c->res.log[i];
-        if (r->outcome != VRR_DISPLAYED) continue;
-        if (prev >= 0) out[n++] = r->first_scan_ns - prev;
-        prev = r->first_scan_ns;
-    }
+    const vrr_retirement *shown[VRR_TRACE_MAX];
+    size_t m = displayed(c, shown), n = 0;
+    for (size_t i = 1; i < m; i++) out[n++] = shown[i]->first_scan_ns - shown[i - 1]->first_scan_ns;
     return n;
 }
 
-static void print_report(const cell cells[3][3]) {
-    printf("\ndeadline traces x source cadences (decode %lld ms, first scan +%lld ms, tail %lld ms, capacity %u)\n", (long long)(CFG.decode_ns / MS),
-           (long long)(CFG.delay_ns / MS), (long long)(CFG.tail_ns / MS), CFG.capacity);
-    printf("%-18s %-18s %4s %5s %8s %11s %9s %4s %-23s %s\n", "scans", "source", "pics", "shown", "dropped", "new/rep/und", "ret D/X", "peak", "hold ms min/p50/p95/max",
-           "interval err ms mean/max");
+static void print_report(const cell cells[3][3][2]) {
+    printf("\ndeadline traces x source cadences (decode %lld ms, first scan +%lld ms, capacity %u; cookies back at once, or %lld ms + 0-%lld ms later and out of order)\n",
+           (long long)(PROMPT.decode_ns / MS), (long long)(PROMPT.delay_ns / MS), PROMPT.capacity, (long long)(LATE.lag_ns / MS), (long long)(LATE.jitter_ns / MS));
+    printf("%-18s %-18s %4s %5s %8s %11s %-16s %-24s %s\n", "scans", "source", "pics", "shown", "dropped", "new/rep/und", "held ms p50/max", "interval err ms mean/max",
+           "peak owned none/late");
     for (int i = 0; i < 3; i++)
         for (int j = 0; j < 3; j++) {
-            const cell *c = &cells[i][j];
+            const cell *c = &cells[i][j][0], *late = &cells[i][j][1];
             const vrr_stats *s = &c->res.stats;
-            char drop[24], sr[24], ret[24];
-            snprintf(drop, sizeof drop, "%llu+%llu", (unsigned long long)s->dropped[VRR_DROP_SUPERSEDED],
-                     (unsigned long long)(s->dropped[VRR_DROP_FLUSH] + s->dropped[VRR_DROP_SHUTDOWN]));
+            char sr[24];
             snprintf(sr, sizeof sr, "%llu/%llu/%llu", (unsigned long long)s->scans_new, (unsigned long long)s->scans_repeat, (unsigned long long)s->scans_underrun);
-            snprintf(ret, sizeof ret, "%llu/%llu", (unsigned long long)s->retired_displayed, (unsigned long long)s->retired_dropped);
-            printf("%-18s %-18s %4zu %5llu %8s %11s %9s %4u %5.2f/%5.2f/%5.2f/%5.2f %6.2f/%5.2f\n", c->scans->name, c->source->name, c->res.pictures,
-                   (unsigned long long)s->shown, drop, sr, ret, s->peak_owned, c->hold_min, c->hold_p50, c->hold_p95, c->hold_max, c->ierr_mean, c->ierr_max);
+            printf("%-18s %-18s %4zu %5llu %8llu %11s %7.2f/%6.2f %15.2f/%5.2f %14u/%u\n", c->scans->name, c->source->name, c->res.pictures,
+                   (unsigned long long)s->shown, (unsigned long long)c->dropped, sr, c->held_p50, c->held_max, c->ierr_mean, c->ierr_max, s->peak_owned,
+                   late->res.stats.peak_owned);
         }
     uint64_t handouts = 0, distinct = 0, pictures = 0;
     for (int i = 0; i < 3; i++)
-        for (int j = 0; j < 3; j++) {
-            handouts += cells[i][j].o.handouts;
-            distinct += cells[i][j].o.distinct;
-            pictures += cells[i][j].o.pictures;
-        }
-    printf("decoder: %llu pictures decoded, %llu plane-0 buffers handed out over %llu distinct addresses; recycled while live 0, freed while live 0, bad reads 0, outstanding 0\n",
+        for (int j = 0; j < 3; j++)
+            for (int k = 0; k < 2; k++) {
+                handouts += cells[i][j][k].o.handouts;
+                distinct += cells[i][j][k].o.distinct;
+                pictures += cells[i][j][k].o.pictures;
+            }
+    printf("decoder: %llu pictures decoded over 18 runs, %llu plane-0 buffers handed out over %llu distinct addresses; recycled while live 0, freed while live 0, bad reads 0, outstanding 0\n",
            (unsigned long long)pictures, (unsigned long long)handouts, (unsigned long long)distinct);
+}
+
+/* Pictures arrive faster than late cookies come back: the presenter refuses at its bound and recycles nothing. */
+static void test_backpressure_never_recycles(void) {
+    static vrr_trace t;
+    static cell c;
+    vrr_trace_fixed_120(&t);
+    run_cell(&STARVED, &t, &t, &c);
+    check_cell(&c);                                                     /* includes the decoder's own counts: no live surface was recycled */
+    const vrr_sim_result *res = &c.res;
+    const vrr_stats *s = &res->stats;
+    assert(res->refused > 0 && s->peak_owned == STARVED.capacity);
+    assert(s->rejected[-VRR_E_FULL] == res->refused && s->submitted + res->refused == res->pictures);
+    printf("backpressure_never_recycles ok (capacity %u, cookies %lld-%lld ms late: %zu of %zu pictures refused, %llu shown)\n", STARVED.capacity,
+           (long long)(STARVED.lag_ns / MS), (long long)((STARVED.lag_ns + STARVED.jitter_ns) / MS), res->refused, res->pictures, (unsigned long long)s->shown);
 }
 
 static void test_trace_matrix(int report) {
@@ -666,37 +800,49 @@ static void test_trace_matrix(int report) {
     source[2] = scans[2];
     assert(scans[0].n == 76 && scans[1].n == 49 && scans[2].n == 49);
     assert(scans[1].ticks[48] == 624 * 90 && scans[2].ticks[48] == 624 * 90);
-    static cell cells[3][3];
+    const vrr_sim_cfg *const backend[2] = {&PROMPT, &LATE};
+    static cell cells[3][3][2];                                         /* scan trace, source, cookies at once or late */
     for (int i = 0; i < 3; i++)
-        for (int j = 0; j < 3; j++) {
-            run_cell(&scans[i], &source[j], &cells[i][j]);
-            check_cell(&cells[i][j]);
+        for (int j = 0; j < 3; j++)
+            for (int k = 0; k < 2; k++) {
+                run_cell(backend[k], &scans[i], &source[j], &cells[i][j][k]);
+                check_cell(&cells[i][j][k]);
+                assert(cells[i][j][k].res.refused == 0);
+            }
+
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++) {                                   /* a late, out-of-order cookie changes no decision, only how long surfaces stay owned */
+            const cell *none = &cells[i][j][0], *late = &cells[i][j][1];
+            assert(none->res.stats.shown == late->res.stats.shown && none->dropped == late->dropped);
+            assert(none->res.stats.scans_repeat == late->res.stats.scans_repeat && none->res.stats.scans_underrun == late->res.stats.scans_underrun);
+            assert(none->held_p50 == late->held_p50 && none->held_max == late->held_max && none->ierr_mean == late->ierr_mean && none->ierr_max == late->ierr_max);
+            assert(none->res.stats.peak_owned < late->res.stats.peak_owned);
         }
 
     for (int i = 0; i < 3; i++) {                                       /* a trace driven by its own cadence needs no drop, repeat or underrun */
-        const vrr_stats *s = &cells[i][i].res.stats;
-        assert(cells[i][i].dropped == 0 && s->scans_repeat == 0 && s->scans_underrun == 0 && s->shown == scans[i].n);
-        assert(cells[i][i].ierr_mean == 0 && cells[i][i].ierr_max == 0);
+        const vrr_stats *s = &cells[i][i][0].res.stats;
+        assert(cells[i][i][0].dropped == 0 && s->scans_repeat == 0 && s->scans_underrun == 0 && s->shown == scans[i].n);
+        assert(cells[i][i][0].ierr_mean == 0 && cells[i][i][0].ierr_max == 0);
     }
-    const vrr_stats *s = &cells[0][2].res.stats;                        /* 120 Hz scans, 13 ms pictures: a repeat for every scan without a new picture */
-    assert(cells[0][2].dropped == 0 && s->shown == 49 && s->scans_repeat == 27 && s->scans_underrun == 0);
-    s = &cells[0][1].res.stats;                                         /* 120 Hz scans, 10/16 ms pictures */
-    assert(cells[0][1].dropped == 0 && s->shown == 49 && s->scans_repeat == 27 && s->scans_underrun == 0);
-    s = &cells[2][0].res.stats;                                         /* 13 ms scans, 120 Hz pictures: one shown per scan, the rest dropped */
-    assert(s->shown == 49 && cells[2][0].dropped == 27 && s->scans_repeat == 0 && s->scans_underrun == 0);
-    s = &cells[1][0].res.stats;
-    assert(s->shown == 49 && cells[1][0].dropped == 27 && s->scans_repeat == 0 && s->scans_underrun == 0);
+    const vrr_stats *s = &cells[0][2][0].res.stats;                     /* 120 Hz scans, 13 ms pictures: a repeat for every scan without a new picture */
+    assert(cells[0][2][0].dropped == 0 && s->shown == 49 && s->scans_repeat == 27 && s->scans_underrun == 0);
+    s = &cells[0][1][0].res.stats;                                      /* 120 Hz scans, 10/16 ms pictures */
+    assert(cells[0][1][0].dropped == 0 && s->shown == 49 && s->scans_repeat == 27 && s->scans_underrun == 0);
+    s = &cells[2][0][0].res.stats;                                      /* 13 ms scans, 120 Hz pictures: one shown per scan, the rest dropped */
+    assert(s->shown == 49 && cells[2][0][0].dropped == 27 && s->scans_repeat == 0 && s->scans_underrun == 0);
+    s = &cells[1][0][0].res.stats;
+    assert(s->shown == 49 && cells[1][0][0].dropped == 27 && s->scans_repeat == 0 && s->scans_underrun == 0);
 
     int64_t iv[VRR_TRACE_MAX];                                          /* the shuffled picture times on the fixed grid change only on 8 1/3 or 16 2/3 ms */
-    size_t n = visible_intervals(&cells[0][1], iv);
+    size_t n = visible_intervals(&cells[0][1][1], iv);                  /* (with the late cookies: the intervals are the same) */
     assert(n == 48);
     for (size_t i = 0; i < n; i++) assert(llabs(iv[i] - 25 * MS / 3) <= 2 || llabs(iv[i] - 50 * MS / 3) <= 2);
-    n = visible_intervals(&cells[1][1], iv);                            /* and the shuffled trace on its own times reproduces them exactly */
+    n = visible_intervals(&cells[1][1][1], iv);                         /* and the shuffled trace on its own times reproduces them exactly */
     assert(n == 48);
     for (size_t i = 0; i < n; i++) assert(iv[i] == vrr_trace_shuffled_ms((int)i) * MS);
 
-    printf("trace_matrix ok (9 cells, 3 x 3)\n");
-    if (report) print_report((const cell(*)[3])cells);
+    printf("trace_matrix ok (9 cells x 2 cookie lags)\n");
+    if (report) print_report((const cell(*)[3][2])cells);
 }
 
 int main(int argc, char **argv) {
@@ -717,11 +863,14 @@ int main(int argc, char **argv) {
     test_stale_and_future_epoch();
     test_full_queue();
     test_flush();
+    test_flush_holds_the_scanned_surface();
+    test_selection_follows_presentation_order();
     test_shutdown();
     test_retire_after_drop_and_bad_cookies();
     test_lost_cookie_is_a_reported_leak();
     test_oracle_catches_early_release();
     test_ack_is_not_ownership();
+    test_backpressure_never_recycles();
     test_trace_matrix(argc > 3 && !strcmp(argv[3], "--report"));
     return 0;
 }

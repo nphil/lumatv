@@ -16,8 +16,9 @@ SKIPPED = 77  # build.sh's exit status for a missing toolchain, as in the feeder
 
 CASES = (
     'bframe_reordering', 'hold_until_retirement', 'repeat_holds_one_surface', 'duplicates',
-    'stale_and_future_epoch', 'full_queue', 'flush', 'shutdown', 'retire_after_drop_and_bad_cookies',
-    'lost_cookie_is_a_reported_leak', 'oracle_catches_early_release', 'ack_is_not_ownership', 'trace_matrix',
+    'stale_and_future_epoch', 'full_queue', 'flush', 'flush_holds_the_scanned_surface', 'selection_follows_presentation_order',
+    'shutdown', 'retire_after_drop_and_bad_cookies', 'lost_cookie_is_a_reported_leak', 'oracle_catches_early_release',
+    'ack_is_not_ownership', 'backpressure_never_recycles', 'trace_matrix',
 )
 
 

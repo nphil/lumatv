@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Tests for paired_evidence: the arithmetic on labelled fixtures, and the historical captures, which hold neither a link witness nor picture ids.
 
-Every fixture time is made up to exercise the arithmetic (each source carries a `:fixture` name). None of it is a measurement of any panel.
+Every fixture time is made up to exercise the arithmetic (each source carries a `:fixture` name). None of it is a measurement of any panel. No real
+link-witness name is qualified, so the fixtures qualify their own name through `analyse` below.
 """
 import contextlib
 import io
@@ -13,9 +14,10 @@ from fractions import Fraction
 
 import paired_evidence as pe
 
-TICK, H = 16.667, 0.02
+TICK, TICK2, H = 17.5, 17.0, 0.02
 MODE = "3840x2160@120 SDR"
 REAL = "/data/agent/cody-data-scratch/7bfa4e8c2bde/vrr-irq-edges"
+FIXTURE = frozenset({"fixture"})
 
 
 def delays(*, ref=2.0, wait=2.0, link=2.0, tick=TICK, drift=0.0, unsplit_ref=0.0, unsplit_link=0.0, held_ref=2.0, held_link=0.0):
@@ -50,7 +52,8 @@ def build(n, pid, kind, arm, d, h, link_h):
     if d["ready"] is not None:
         times["ready"] = stamp(origin, d["ready"], h, "app")
     return {"pair_id": pid, "arm": arm, "kind": kind, "epoch": 1, "mode": {"name": MODE, "lock": "locked"},
-            "picture": {"previous": previous, "retained": retained, "selected": retained, "retired": retained, "retire_cookie": 7000 + n},
+            "picture": {"previous": previous, "retained": retained, "selected": retained, "retired": retained, "retire_cookie": 7000 + n,
+                        "admitted": [] if kind == "held" else [retained]},
             "times": times, "link": [dict(stamp(origin, t, link_h, "link-witness"), id=id_) for t, id_ in scans]}
 
 
@@ -64,7 +67,20 @@ def document(*sets, h=H, link_h=H):
 
 def two(**kw):
     """Two pairs at two phases of the fixed tick, both built from the same keywords."""
-    return document(delays(**kw), delays(tick=16.0, **kw))
+    return document(delays(**kw), delays(tick=TICK2, **kw))
+
+
+def synthetic(doc):
+    """The same trials with every time marked as a model's, which --allow-synthetic accepts."""
+    for t in doc["trials"]:
+        for time in [*t["times"].values(), *t["link"]]:
+            time["src"] = "synthetic:fixture"
+    return doc
+
+
+def analyse(doc, **kw):
+    """The arithmetic with the fixtures' source name qualified, which the real (empty) registry does not do."""
+    return pe.analyse(doc, qualified=FIXTURE, **kw)
 
 
 def find(doc, p, kind, arm):
@@ -86,7 +102,7 @@ class Arithmetic(unittest.TestCase):
         self.assertEqual(pe.Interval(0, Fraction("0.1")).relation(*band), "apart")
 
     def test_a_true_two_ms_displacement_supports(self):
-        report = pe.analyse(two())
+        report = analyse(two())
         self.assertEqual(report["verdict"], "supports", report["reasons"])
         deltas = report["pairs"][0]["deltas_ms"]
         for step in ("ready", "ref", "wait", "link"):
@@ -94,16 +110,18 @@ class Arithmetic(unittest.TestCase):
         self.assertAlmostEqual(centre(deltas["split"]["tick"]), 0.0, places=6)
         self.assertAlmostEqual(centre(deltas["unsplit"]["link"]), 0.0, places=6)
         self.assertAlmostEqual(centre(deltas["held"]["ref"]), 2.0, places=6)
+        self.assertIn("discriminates the mechanism", report["notes"][-1])      # two pairs tell the mechanism apart; they do not qualify the product
+        self.assertIn("does not qualify the product", report["notes"][-1])
 
     def test_one_pair_is_too_few_for_a_verdict(self):
-        report = pe.analyse(document(delays()))
+        report = analyse(document(delays()))
         self.assertEqual((report["pairs"][0]["verdict"], report["verdict"], report["reasons"]), ("supports", "inconclusive", ["too_few_pairs"]))
-        self.assertEqual(pe.analyse(document(delays()), min_pairs=1)["verdict"], "supports")
+        self.assertEqual(analyse(document(delays()), min_pairs=1)["verdict"], "supports")
 
     def test_a_fixed_tick_phase_alias_is_not_supports(self):
         # The +13 arm's previous link frame start sits 2 ms further from the fixed tick, so a handoff that follows the tick looks like +2 ms everywhere.
         alias = dict(drift=2.0, unsplit_link=2.0, held_link=2.0)
-        report = pe.analyse(document(delays(**alias), delays(tick=16.0, **alias)))
+        report = analyse(document(delays(**alias), delays(tick=TICK2, **alias)))
         self.assertAlmostEqual(centre(report["pairs"][0]["deltas_ms"]["split"]["link"]), 2.0, places=6)
         self.assertEqual(report["verdict"], "inconclusive")
         self.assertIn("phase_mismatch", report["reasons"])
@@ -119,34 +137,34 @@ class Arithmetic(unittest.TestCase):
         }
         for label, (kw, expected) in cases.items():
             with self.subTest(label):
-                self.assertEqual(pe.analyse(two(**kw))["verdict"], expected)
-        self.assertIn("chain_incoherent", pe.analyse(two(wait=0.0))["reasons"])
-        self.assertIn("reference_did_not_move", pe.analyse(two(ref=0.0, wait=0.0, link=0.0))["reasons"])
-        self.assertIn("link_displacement_unexplained", pe.analyse(two(link=5.0))["reasons"])
-        fixed_ref = pe.analyse(two(ref=0.0))
+                self.assertEqual(analyse(two(**kw))["verdict"], expected)
+        self.assertIn("chain_incoherent", analyse(two(wait=0.0))["reasons"])
+        self.assertIn("reference_did_not_move", analyse(two(ref=0.0, wait=0.0, link=0.0))["reasons"])
+        self.assertIn("link_displacement_unexplained", analyse(two(link=5.0))["reasons"])
+        fixed_ref = analyse(two(ref=0.0))
         self.assertIn("reference_fixed_output_followed", fixed_ref["reasons"])
         shifts = fixed_ref["pairs"][0]["shifts"]
         self.assertEqual(shifts["split"], {"ready": "follows", "tick": "fixed", "ref": "fixed", "wait": "follows", "link": "follows"})
         self.assertEqual((shifts["unsplit"]["link"], shifts["held"]["ref"]), ("fixed", "follows"))
 
     def test_ambiguous_brackets_are_inconclusive(self):
-        wide = pe.analyse(document(delays(), delays(tick=16.0), link_h=0.1))
+        wide = analyse(document(delays(), delays(tick=TICK2), link_h=0.1))
         self.assertEqual((wide["verdict"], "displacement_unresolved:link" in wide["reasons"]), ("inconclusive", True))
-        self.assertEqual(pe.analyse(document(delays(wait=0.0, link=0.0), delays(tick=16.0, wait=0.0, link=0.0), link_h=0.1))["verdict"], "inconclusive")
+        self.assertEqual(analyse(document(delays(wait=0.0, link=0.0), delays(tick=TICK2, wait=0.0, link=0.0), link_h=0.1))["verdict"], "inconclusive")
         doc = two()
         scans = find(doc, 1, "split", "+13")["link"]
         scans[-2]["ms"] = list(scans[-1]["ms"])
-        self.assertIn("phase_ambiguous", pe.analyse(doc)["reasons"])
-        late = pe.analyse(document(delays(tick=12.0), delays(tick=12.5)))        # +13 ms eligibility with the next fixed tick at +12 ms
+        self.assertIn("phase_ambiguous", analyse(doc)["reasons"])
+        late = analyse(document(delays(tick=12.0), delays(tick=12.5)))        # +13 ms eligibility with the next fixed tick at +12 ms
         self.assertIn("eligibility_after_tick", late["reasons"])
 
     def test_alignment_uncertainty_counts_against_the_tolerance(self):
         doc = two()
         doc["clock"]["alignment_ms"] = {"link-witness": 0.2}
-        report = pe.analyse(doc)
+        report = analyse(doc)
         self.assertEqual((report["verdict"], "displacement_unresolved:link" in report["reasons"]), ("inconclusive", True))
         doc["clock"]["calibrated"] = False
-        self.assertIn("clock_uncalibrated", pe.analyse(doc)["reasons"])
+        self.assertIn("clock_uncalibrated", analyse(doc)["reasons"])
 
     def test_ids_must_be_resolved_and_in_order(self):
         def edit(*path, value=None):
@@ -175,7 +193,49 @@ class Arithmetic(unittest.TestCase):
             with self.subTest(label):
                 doc = two()
                 change(doc)
-                report = pe.analyse(doc)
+                report = analyse(doc)
+                self.assertEqual(report["verdict"], "inconclusive")
+                self.assertIn(code, report["reasons"])
+
+    def test_each_arm_admits_one_picture(self):
+        cases = [("not recorded", "split", lambda p: p.pop("admitted"), "admitted_unresolved"),
+                 ("two pictures", "split", lambda p: p.update(admitted=[p["retained"], p["retained"] + 1]), "selection_ambiguous"),
+                 ("another picture", "split", lambda p: p.update(admitted=[p["retained"] + 1]), "selection_ambiguous"),
+                 ("none", "unsplit", lambda p: p.update(admitted=[]), "selection_ambiguous"),
+                 ("a new picture in a held arm", "held", lambda p: p.update(admitted=[p["retained"] + 1]), "selection_ambiguous")]
+        for label, kind, change, code in cases:
+            with self.subTest(label):
+                doc = two()
+                change(find(doc, 1, kind, "+13")["picture"])
+                report = analyse(doc)
+                self.assertEqual(report["verdict"], "inconclusive")
+                self.assertIn(code, report["reasons"])
+
+    def test_the_held_picture_ends_at_the_first_link_start_after_the_tick(self):
+        def held(doc):
+            return find(doc, 1, "held", "+13")
+
+        def edge_past_the_end(doc):       # a start after the first one at or after the tick: the held picture ended earlier
+            link = held(doc)["link"]
+            lo, hi = link[-1]["ms"]
+            link.append({"ms": [lo + 8.333, hi + 8.333], "id": 5, "src": "link-witness:fixture"})
+
+        def stops_early(doc):             # the list ends before the tick
+            del held(doc)["link"][2:]
+
+        def tick_on_a_start(doc):         # the tick overlaps the repeat at 16.666: whether that start is before or after it is not certain
+            origin = sum(held(doc)["link"][0]["ms"]) / 2
+            held(doc)["times"]["decoder_tick"]["ms"] = [round(origin + 16.6, 4), round(origin + 16.75, 4)]
+
+        cases = [("an edge past the first start after the tick", edge_past_the_end, "held_end_not_first_after_tick"),
+                 ("the list stops before the tick", stops_early, "held_end_before_tick"),
+                 ("the tick overlaps a start", tick_on_a_start, "tick_order_ambiguous")]
+        self.assertEqual(analyse(two())["verdict"], "supports")
+        for label, change, code in cases:
+            with self.subTest(label):
+                doc = two()
+                change(doc)
+                report = analyse(doc)
                 self.assertEqual(report["verdict"], "inconclusive")
                 self.assertIn(code, report["reasons"])
 
@@ -199,14 +259,41 @@ class Arithmetic(unittest.TestCase):
             with self.subTest(label):
                 doc = two()
                 change(doc)
-                report = pe.analyse(doc)
+                report = analyse(doc)
                 self.assertEqual(report["verdict"], "inconclusive")
                 self.assertIn(code, report["reasons"])
         doc = two()
         link_src("synthetic:model")(doc)
-        report = pe.analyse(doc, allow_synthetic=True)
+        report = analyse(doc, allow_synthetic=True)
         self.assertEqual((report["verdict"], report["synthetic"]), ("supports", True))
         self.assertIn("SYNTHETIC", report["notes"][0])
+
+    def test_no_link_witness_is_qualified_yet(self):
+        self.assertEqual(pe.QUALIFIED_LINK_WITNESSES, frozenset())
+        report = pe.analyse(two())                                  # the registry decides, and the fixture's name is not in it
+        self.assertEqual(report["verdict"], "inconclusive")
+        self.assertIn("link_witness_unqualified:fixture", report["reasons"])
+        doc = two()                                                 # a record cannot qualify its own source
+        doc["witness"]["qualified"] = doc["clock"]["qualified"] = ["fixture"]
+        self.assertIn("link_witness_unqualified:fixture", pe.analyse(doc)["reasons"])
+        unnamed = two()
+        for t in unnamed["trials"]:
+            for scan in t["link"]:
+                scan["src"] = "link-witness"
+        self.assertIn("link_witness_unqualified:unnamed", analyse(unnamed)["reasons"])
+        self.assertEqual(analyse(two())["verdict"], "supports")     # only the caller's list changes that
+
+    def test_irq_tout_crc_and_mcu_are_never_link_witnesses(self):
+        for name in ("irq104", "osd_irq", "IRQ-104", "tout-crc", "factory_crc", "mcu-request"):
+            with self.subTest(name):
+                doc = two()
+                for t in doc["trials"]:
+                    for scan in t["link"]:
+                        scan["src"] = "link-witness:" + name
+                report = pe.analyse(doc, qualified={name})          # not even when the caller lists the name as qualified
+                self.assertEqual(report["verdict"], "inconclusive")
+                self.assertIn("link_witness_forbidden_source:" + name, report["reasons"])
+        self.assertFalse(any(pe.NEVER_LINK_WITNESS.search(name) for name in {*pe.QUALIFIED_LINK_WITNESSES, "fixture"}))
 
     def test_lock_mode_and_epoch_never_reject(self):
         def lock(value):
@@ -215,12 +302,12 @@ class Arithmetic(unittest.TestCase):
         cases = [("lost", lock("lost"), "lock_lost"), ("relocked", lock("relocked"), "lock_lost"), ("unknown", lock(None), "lock_unknown"),
                  ("mode", lambda d: find(d, 1, "split", "+13")["mode"].update(name="3840x2160@60"), "mode_mismatch"),
                  ("epoch", lambda d: find(d, 1, "split", "+13").update(epoch=2), "epoch_mismatch")]
-        self.assertEqual(pe.analyse(two(wait=0.0, link=0.0))["verdict"], "rejects-in-configuration")
+        self.assertEqual(analyse(two(wait=0.0, link=0.0))["verdict"], "rejects-in-configuration")
         for label, change, code in cases:
             with self.subTest(label):
                 doc = two(wait=0.0, link=0.0)
                 change(doc)
-                report = pe.analyse(doc)
+                report = analyse(doc)
                 self.assertEqual(report["verdict"], "inconclusive")
                 self.assertIn(code, report["reasons"])
 
@@ -245,13 +332,13 @@ class Arithmetic(unittest.TestCase):
             with self.subTest(label):
                 if change:
                     change(doc)
-                report = pe.analyse(doc)
+                report = analyse(doc)
                 self.assertEqual(report["verdict"], "inconclusive")
                 self.assertIn(code, report["reasons"])
 
     def test_pairs_that_disagree_are_inconclusive(self):
-        doc = document(delays(), delays(tick=16.0, wait=0.0, link=0.0))
-        report = pe.analyse(doc)
+        doc = document(delays(), delays(tick=TICK2, wait=0.0, link=0.0))
+        report = analyse(doc)
         self.assertEqual([p["verdict"] for p in report["pairs"]], ["supports", "rejects-in-configuration"])
         self.assertEqual((report["verdict"], report["reasons"]), ("inconclusive", ["pairs_disagree"]))
 
@@ -311,15 +398,18 @@ class Command(unittest.TestCase):
 
     def test_json_report_and_bad_input(self):
         with tempfile.TemporaryDirectory() as tmp:
-            good, bad = os.path.join(tmp, "trials.json"), os.path.join(tmp, "other.json")
-            with open(good, "w", encoding="utf-8") as handle:
-                json.dump(two(), handle)
-            with open(bad, "w", encoding="utf-8") as handle:
-                json.dump({"format": "something else"}, handle)
-            code, out, _ = self.run_main(good, "--json")
-            self.assertEqual((code, json.loads(out)["verdict"]), (0, "supports"))
-            code, out, _ = self.run_main(good)
+            model, named, bad = (os.path.join(tmp, name) for name in ("model.json", "trials.json", "other.json"))
+            for path, body in ((model, synthetic(two())), (named, two()), (bad, {"format": "something else"})):
+                with open(path, "w", encoding="utf-8") as handle:
+                    json.dump(body, handle)
+            code, out, _ = self.run_main(model, "--json", "--allow-synthetic")
+            self.assertEqual((code, json.loads(out)["verdict"], json.loads(out)["synthetic"]), (0, "supports", True))
+            code, out, _ = self.run_main(model, "--allow-synthetic")
             self.assertEqual((code, "Verdict: supports" in out, "does not close either hardware gate" in out), (0, True, True))
+            code, out, _ = self.run_main(model)
+            self.assertEqual((code, "Verdict: inconclusive" in out, "provenance_synthetic" in out), (0, True, True))
+            code, out, _ = self.run_main(named, "--json")           # no source is qualified, and the command line cannot qualify one
+            self.assertEqual((code, json.loads(out)["verdict"], "link_witness_unqualified:fixture" in json.loads(out)["reasons"]), (0, "inconclusive", True))
             code, _, err = self.run_main(bad)
             self.assertEqual((code, "paired_evidence:" in err), (2, True))
             self.assertEqual(self.run_main(os.path.join(tmp, "missing.json"))[0], 2)

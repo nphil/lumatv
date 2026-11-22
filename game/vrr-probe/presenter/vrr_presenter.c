@@ -15,14 +15,15 @@ typedef struct {
 struct vrr_presenter {
     vrr_config cfg;
     slot *slots;
-    unsigned *queue;                    /* slot indexes of the QUEUED pictures, oldest first, as a ring */
+    unsigned *queue;                    /* slot indexes of the QUEUED pictures in arrival order, as a ring */
     unsigned q_head, q_len;
     unsigned owned;
     int cur;                            /* slot of the CURRENT picture, -1 when none */
     uint32_t epoch;
-    int have_tb, have_pts, have_scan;
+    int have_tb, have_floor, have_scan;
     vrr_timebase tb;
-    int64_t last_pts, last_scan_ns;
+    int64_t floor_pts;                  /* the greatest pts shown in this epoch: nothing at or below it can still be shown */
+    int64_t last_scan_ns;
     int closed, busy;
     vrr_stats stats;
 };
@@ -83,6 +84,21 @@ static unsigned queue_pop(vrr_presenter *p) {
 
 static int same_timebase(vrr_timebase a, vrr_timebase b) { return (int64_t)a.num * b.den == (int64_t)b.num * a.den; }
 
+/* The picture is never shown. Its surface is released only when the backend returns the cookie this command names. */
+static void drop_slot(vrr_presenter *p, unsigned idx, vrr_drop_reason reason, int64_t now_ns) {
+    slot *s = &p->slots[idx];
+    s->state = VRR_ST_DROPPED;
+    s->reason = reason;
+    s->decided_ns = now_ns;
+    p->stats.dropped[reason]++;
+    if (p->cfg.backend.drop) {
+        vrr_drop cmd = {cookie_of(p, idx), s->pic.epoch, s->pic.id, reason, s->pic.handle};
+        p->cfg.backend.drop(p->cfg.backend.user, &cmd);
+    }
+}
+
+static void drop_front(vrr_presenter *p, vrr_drop_reason reason, int64_t now_ns) { drop_slot(p, queue_pop(p), reason, now_ns); }
+
 static int submit_locked(vrr_presenter *p, const vrr_picture *pic, vrr_cookie *cookie) {
     if (p->closed) return VRR_E_CLOSED;
     if (!pic || pic->tb.num <= 0 || pic->tb.den <= 0) return VRR_E_ARG;
@@ -91,10 +107,11 @@ static int submit_locked(vrr_presenter *p, const vrr_picture *pic, vrr_cookie *c
     if (pic->epoch > p->epoch) return VRR_E_FUTURE_EPOCH;
     for (unsigned i = 0; i < p->cfg.capacity; i++) {
         const slot *s = &p->slots[i];
-        if (s->state != VRR_ST_NONE && (s->pic.handle == pic->handle || (s->pic.epoch == pic->epoch && s->pic.id == pic->id))) return VRR_E_DUPLICATE;
+        if (s->state == VRR_ST_NONE) continue;
+        if (s->pic.handle == pic->handle || (s->pic.epoch == pic->epoch && s->pic.id == pic->id)) return VRR_E_DUPLICATE;
+        if (s->state == VRR_ST_QUEUED && s->pic.pts == pic->pts) return VRR_E_DUPLICATE;    /* two candidates at one presentation time cannot be ordered */
     }
     if (p->have_tb && !same_timebase(p->tb, pic->tb)) return VRR_E_TIMEBASE;
-    if (p->have_pts && pic->pts <= p->last_pts) return VRR_E_ORDER;
     if (p->owned == p->cfg.capacity) return VRR_E_FULL;
 
     unsigned idx = 0;
@@ -106,14 +123,17 @@ static int submit_locked(vrr_presenter *p, const vrr_picture *pic, vrr_cookie *c
     s->reason = VRR_DROP_SUPERSEDED;
     s->scans = 0;
     s->first_scan_ns = s->last_scan_ns = s->decided_ns = -1;
-    p->queue[(p->q_head + p->q_len++) % p->cfg.capacity] = idx;
     p->owned++;
-    p->have_tb = p->have_pts = 1;
+    p->have_tb = 1;
     p->tb = pic->tb;
-    p->last_pts = pic->pts;
     p->stats.submitted++;
     if (p->owned > p->stats.peak_owned) p->stats.peak_owned = p->owned;
     if (cookie) *cookie = cookie_of(p, idx);
+    if (p->have_floor && pic->pts <= p->floor_pts) {                    /* a picture later in presentation order is already on screen */
+        drop_slot(p, idx, VRR_DROP_LATE, pic->ready_ns > p->last_scan_ns ? pic->ready_ns : p->last_scan_ns);
+        return VRR_OK;
+    }
+    p->queue[(p->q_head + p->q_len++) % p->cfg.capacity] = idx;
     return VRR_OK;
 }
 
@@ -124,19 +144,6 @@ int vrr_submit(vrr_presenter *p, const vrr_picture *pic, vrr_cookie *cookie) {
     rc = submit_locked(p, pic, cookie);
     if (rc != VRR_OK) p->stats.rejected[-rc]++;
     return leave(p, rc);
-}
-
-static void drop_front(vrr_presenter *p, vrr_drop_reason reason, int64_t now_ns) {
-    unsigned idx = queue_pop(p);
-    slot *s = &p->slots[idx];
-    s->state = VRR_ST_DROPPED;
-    s->reason = reason;
-    s->decided_ns = now_ns;
-    p->stats.dropped[reason]++;
-    if (p->cfg.backend.drop) {
-        vrr_drop cmd = {cookie_of(p, idx), s->pic.epoch, s->pic.id, reason, s->pic.handle};
-        p->cfg.backend.drop(p->cfg.backend.user, &cmd);
-    }
 }
 
 static void show(vrr_presenter *p, vrr_show_kind kind, unsigned idx, vrr_cookie supersedes, int64_t scan_ns) {
@@ -153,12 +160,23 @@ static int scan_locked(vrr_presenter *p, int64_t scan_ns) {
     p->last_scan_ns = scan_ns;
     p->stats.scans++;
 
-    int pick = -1;                                                      /* the newest picture that is ready */
-    for (unsigned pos = 0; pos < p->q_len; pos++)
-        if (p->slots[queue_peek(p, pos)].pic.ready_ns <= scan_ns) pick = (int)pos;
-    if (pick >= 0) {
-        for (int n = 0; n < pick; n++) drop_front(p, VRR_DROP_SUPERSEDED, scan_ns);     /* older than what is shown: never shown */
-        unsigned idx = queue_pop(p);
+    int best = -1;                                                      /* queue position of the ready picture with the greatest pts */
+    for (unsigned pos = 0; pos < p->q_len; pos++) {
+        const vrr_picture *q = &p->slots[queue_peek(p, pos)].pic;
+        if (q->ready_ns <= scan_ns && (best < 0 || q->pts > p->slots[queue_peek(p, (unsigned)best)].pic.pts)) best = (int)pos;
+    }
+    if (best >= 0) {
+        unsigned idx = queue_peek(p, (unsigned)best);
+        int64_t pts = p->slots[idx].pic.pts;
+        unsigned keep = 0;
+        for (unsigned pos = 0; pos < p->q_len; pos++) {                 /* a smaller pts would go back in presentation order: never shown */
+            unsigned q = queue_peek(p, pos);
+            if (q == idx) continue;
+            if (p->slots[q].pic.pts < pts) drop_slot(p, q, VRR_DROP_SUPERSEDED, scan_ns);
+            else p->queue[(p->q_head + keep++) % p->cfg.capacity] = q;
+        }
+        p->q_len = keep;
+
         slot *s = &p->slots[idx];
         vrr_cookie supersedes = {0, 0};
         if (p->cur >= 0) {
@@ -171,6 +189,8 @@ static int scan_locked(vrr_presenter *p, int64_t scan_ns) {
         s->scans = 1;
         s->first_scan_ns = s->last_scan_ns = scan_ns;
         p->cur = (int)idx;
+        p->have_floor = 1;
+        p->floor_pts = pts;
         p->stats.scans_new++;
         p->stats.shown++;
         show(p, VRR_SHOW_NEW, idx, supersedes, scan_ns);
@@ -178,10 +198,13 @@ static int scan_locked(vrr_presenter *p, int64_t scan_ns) {
     }
     if (p->cur >= 0) {
         slot *s = &p->slots[p->cur];
+        if (s->pic.epoch != p->epoch) {                                 /* the old epoch's last surface: still scanned, never selected anew */
+            p->stats.scans_stale++;
+            return VRR_SCANNED_STALE;
+        }
         s->scans++;
         s->last_scan_ns = scan_ns;
         p->stats.scans_repeat++;
-        if (s->pic.epoch != p->epoch) p->stats.repeats_stale_epoch++;
         show(p, VRR_SHOW_REPEAT, (unsigned)p->cur, (vrr_cookie){0, 0}, scan_ns);
         return VRR_SCANNED_REPEAT;
     }
@@ -225,9 +248,9 @@ int vrr_flush(vrr_presenter *p, uint32_t new_epoch, int64_t now_ns) {
     if (rc != VRR_OK) return rc;
     if (p->closed) return leave(p, VRR_E_CLOSED);
     if (new_epoch <= p->epoch) return leave(p, VRR_E_STALE_EPOCH);
-    while (p->q_len) drop_front(p, VRR_DROP_FLUSH, now_ns);
+    while (p->q_len) drop_front(p, VRR_DROP_FLUSH, now_ns);             /* the queued work is invalid; the CURRENT surface is not queued work */
     p->epoch = new_epoch;
-    p->have_tb = p->have_pts = 0;
+    p->have_tb = p->have_floor = 0;
     return leave(p, VRR_OK);
 }
 
@@ -238,8 +261,9 @@ int vrr_shutdown(vrr_presenter *p, int64_t now_ns) {
     if (!p->closed) {
         p->closed = 1;
         while (p->q_len) drop_front(p, VRR_DROP_SHUTDOWN, now_ns);
-        if (p->cur >= 0) {                                              /* no scan will repeat it again */
+        if (p->cur >= 0) {                                              /* handed back: no scan will show it again */
             p->slots[p->cur].state = VRR_ST_SUPERSEDED;
+            p->slots[p->cur].reason = VRR_DROP_SHUTDOWN;
             p->slots[p->cur].decided_ns = now_ns;
             p->cur = -1;
         }
