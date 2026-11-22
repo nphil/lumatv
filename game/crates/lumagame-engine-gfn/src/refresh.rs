@@ -118,7 +118,7 @@ impl Adapter {
             Some("complete" | "cancelled_observation") => watch.done = true,
             Some("failed") => {
                 watch.done = true;
-                refresh.notes.push(format!("GeForce NOW could not refresh {label}."));
+                refresh.notes.push(format!("GeForce NOW reports a sync problem with {label}. Check its link in GeForce NOW."));
             }
             Some("timed_out") => {
                 watch.done = true;
@@ -149,7 +149,7 @@ impl Adapter {
                 if let Some(watch) = refresh.watches.iter_mut().find(|w| &w.provider == provider) {
                     watch.done = true;
                     watch.polling = false;
-                    refresh.notes.push(format!("GeForce NOW could not refresh {}.", watch.label));
+                    refresh.notes.push(format!("GeForce NOW did not accept the refresh of {} ({code}).", watch.label));
                 }
             }
             _ => {}

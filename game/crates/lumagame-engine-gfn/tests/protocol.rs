@@ -662,7 +662,7 @@ fn a_store_that_fails_or_never_confirms_is_reported_and_no_linked_store_goes_str
     f.adapter.tick(1000);
     f.reply("account.connections.sync.status",json!({"operationId":"op1","phase":"failed","message":"x"}));
     f.collect();
-    assert_eq!(refreshes(&f).last(),Some(&(None,Some("GeForce NOW could not refresh Steam.".into()))));
+    assert_eq!(refreshes(&f).last(),Some(&(None,Some("GeForce NOW reports a sync problem with Steam. Check its link in GeForce NOW.".into()))));
 
     let mut f=FakeCore::new(true);
     f.send(30,Request::Action{key:"refresh".into()});

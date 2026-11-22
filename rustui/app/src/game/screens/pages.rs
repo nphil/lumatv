@@ -919,20 +919,25 @@ fn details_tab(p: &mut Paint<'_>, game: GameId, mut y: f32) {
     }
     let cols = if p.scale > 1.0 { 1 } else { 2 };
     let w = (W - p.x * 2.0 - p.gap * (cols - 1) as f32) / cols as f32;
-    let h = p.line(Type::Caption) + p.line(Type::Body) + 32.0;
-    let rows_n = rows.len().div_ceil(cols);
-    for (i, (label, value)) in rows.into_iter().enumerate() {
-        let f = Frame::new(p.x + (i % cols) as f32 * (w + p.gap), y + (i / cols) as f32 * (h + 8.0), w, h);
-        p.surface(300 + i as u64 * 2, f, Fill::Glass, Radius::Row, false, false, false, 10);
-        p.words(
-            301 + i as u64 * 2,
-            f,
-            vec![p.word(label, Type::Caption, p.ink(Role::Ink2, false), 24.0, 14.0, w - 48.0), p.word(value, Type::Body, p.ink(Role::Ink, false), 24.0, 14.0 + p.line(Type::Caption), w - 48.0)],
-            vec![],
-            11,
-        );
+    // A long value (the feature list) wraps at word boundaries; a row is as tall as its tallest cell.
+    let (caption, body) = (p.line(Type::Caption), p.line(Type::Body));
+    let cells: Vec<(String, Vec<String>)> = rows.into_iter().map(|(label, value)| (label, p.fit(&value, Type::Body, w - 48.0, 3))).collect();
+    let mut tops = Vec::new();
+    let mut cursor = y;
+    for pair in cells.chunks(cols) {
+        let h = pair.iter().map(|(_, lines)| caption + lines.len() as f32 * body + 32.0).fold(0.0, f32::max);
+        tops.push((cursor, h));
+        cursor += h + 8.0;
     }
-    y += rows_n as f32 * (h + 8.0) + 16.0;
+    for (i, (label, lines)) in cells.into_iter().enumerate() {
+        let (top, h) = tops[i / cols];
+        let f = Frame::new(p.x + (i % cols) as f32 * (w + p.gap), top, w, h);
+        p.surface(300 + i as u64 * 2, f, Fill::Glass, Radius::Row, false, false, false, 10);
+        p.words(301 + i as u64 * 2, f, vec![p.word(label, Type::Caption, p.ink(Role::Ink2, false), 24.0, 14.0, w - 48.0)], vec![], 11);
+        let value = Frame::new(f.x + 24.0, f.y + 14.0 + caption, w - 48.0, lines.len() as f32 * body);
+        p.lines(600 + i as u64, lines, value, Type::Body, Role::Ink, false, 11);
+    }
+    y = cursor + 16.0;
     let credits = hub.credits.join("  ");
     p.wrapped(290, &credits, Frame::new(p.x, y, W - p.x * 2.0, 0.0), Type::Caption, Role::Ink2, false, 10);
 }

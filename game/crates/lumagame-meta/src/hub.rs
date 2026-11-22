@@ -163,8 +163,20 @@ pub fn fetch<T: Transport>(client: &Client<T>, pace: &Pacing, lookup: &Lookup<'_
             hub.deck = deck_category(&deck);
         }
         hub.review = reviews(client, pace, id);
-        if let Some(news) = get(client, pace, &format!("https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid={id}&count=8&maxlength=600&format=json"), &[]).and_then(|b| serde_json::from_slice::<Value>(&b).ok()) {
-            hub.news = news_items(&news);
+        // The unfiltered feed is mostly third-party reposts in whatever language the site writes; the developer's own announcements
+        // come first, and the rest only when there are none.
+        for feeds in ["&feeds=steam_community_announcements", ""] {
+            let url = format!("https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid={id}&count=8&maxlength=600&format=json{feeds}");
+            if let Some(news) = get(client, pace, &url, &[]).and_then(|b| serde_json::from_slice::<Value>(&b).ok()) {
+                hub.news = news_items(&news);
+                let latin = |n: &News| n.title.chars().any(|c| c.is_ascii_alphabetic());
+                if hub.news.iter().any(latin) {
+                    hub.news.retain(latin);
+                }
+            }
+            if !hub.news.is_empty() {
+                break;
+            }
         }
         if let Some(shares) = get(client, pace, &format!("https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid={id}&format=json"), &[]).and_then(|b| serde_json::from_slice::<Value>(&b).ok()) {
             rarity(&mut hub.achievements, &shares);
@@ -532,6 +544,16 @@ mod tests {
         let facts: Vec<_> = hub.facts.iter().map(|f| (f.label.as_str(), f.value.as_str())).collect();
         assert_eq!(facts, [("Ultrawide", "Yes"), ("60 FPS", "Yes"), ("Field of view setting", "With a fix or mod"), ("Full controller support", "Yes"), ("Controller remapping", "No")]);
         assert_eq!(hub.credits, [STEAM_CREDIT, PCGW_CREDIT]);
+    }
+
+    #[test]
+    fn news_asks_for_the_developers_announcements_first_and_prefers_latin_titles_in_the_fallback() {
+        let mixed = r#"{"appnews":{"newsitems":[{"title":"Обновление игры","url":"https://x/1","contents":""},{"title":"Patch 1.3","url":"https://x/2","contents":""}]}}"#;
+        let (client, seen) = served(vec![("feeds=steam_community_announcements", ok(r#"{"appnews":{"newsitems":[]}}"#)), ("GetNewsForApp", ok(mixed))]);
+        let hub = fetch(&client, &pace(), &Lookup { steam: Some(620), title: "Portal 2" }, 1);
+        assert_eq!(hub.news.iter().map(|n| n.title.as_str()).collect::<Vec<_>>(), ["Patch 1.3"]);
+        let news: Vec<String> = seen.lock().unwrap().iter().filter(|u| u.contains("GetNewsForApp")).cloned().collect();
+        assert!(news[0].contains("feeds=steam_community_announcements") && !news[1].contains("feeds="), "{news:?}");
     }
 
     #[test]

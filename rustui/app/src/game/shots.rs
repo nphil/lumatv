@@ -239,7 +239,7 @@ fn fixture() -> Model {
                 deck: Some(lumagame_meta::hub::Deck::Verified),
                 developers: vec!["Supergiant Games".into()],
                 publishers: vec!["Supergiant Games".into()],
-                categories: vec!["Single-player".into(), "Steam Cloud".into(), "Full controller support".into()],
+                categories: ["Single-player", "Steam Achievements", "Full controller support", "Steam Cloud", "In-App Purchases", "Remote Play on TV"].map(Into::into).to_vec(),
                 dlc: 0,
                 credits: vec![lumagame_meta::hub::STEAM_CREDIT.into(), lumagame_meta::hub::PCGW_CREDIT.into()],
                 facts: vec![
