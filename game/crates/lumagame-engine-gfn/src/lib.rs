@@ -38,6 +38,8 @@ enum Purpose {
     StopStream,
     StopSeat,
     Pause,
+    /// `session.ended`: releases the seat the core still holds as active after the game ended on the far side.
+    Ended { params: Value, tries: u8 },
 }
 
 #[derive(Debug, Clone)]
@@ -607,7 +609,7 @@ impl Adapter {
                 } else { self.finish(SessionState::Ended { reason:EndReason::Suspended }); }
             }
             Purpose::StopSeat => self.finish(SessionState::Ended { reason:EndReason::Stopped }),
-            Purpose::Pause => {}
+            Purpose::Pause | Purpose::Ended { .. } => {}
         }
     }
 
@@ -668,6 +670,12 @@ impl Adapter {
             Purpose::Poll if code == "busy" || code == "session_update_busy" => {
                 if let Some(l) = &mut self.launch { l.poll_due = self.now+1000; }
             }
+            // The handoff of the ended seat may still be completing; the next launch waits behind this in the queue.
+            Purpose::Ended { params,tries } => {
+                if code == "session_update_busy" && tries < 3 {
+                    self.queue.push_front(Job { method:"session.ended",params:params.clone(),purpose:Purpose::Ended { params,tries:tries+1 },seq:None,epoch:self.epoch });
+                }
+            }
             Purpose::RetryStop => {
                 if let Some(l) = &mut self.launch { l.retry_stopping = false; }
                 self.start();
@@ -678,7 +686,7 @@ impl Adapter {
                     else if code == "streamer_busy" {"The last stream has not closed yet. Try playing again."}
                     else if code == "session_conflict" {"Another GeForce NOW game is still running on this account. End it, or wait a few minutes, then play again."}
                     else {"GeForce NOW could not complete the session request"};
-                self.finish(SessionState::Failed { reason,message:message.into() });
+                self.finish(SessionState::Failed { reason,message:failure_text(message,code) });
                 self.enqueue("streamer.stop",json!({"reason":"the session request failed"}),Purpose::Pause,None);
             }
             Purpose::Hello | Purpose::Detect | Purpose::Setting => self.core_gone("GeForce NOW could not initialize the core and streamer"),
@@ -708,8 +716,7 @@ impl Adapter {
         let status = value["status"].as_i64().unwrap_or(0);
         let phase = value["phase"].as_str().unwrap_or("");
         if status == 7 || phase == "finished" || phase == "failed" {
-            self.finish(SessionState::Ended { reason:EndReason::Remote });
-            self.enqueue("streamer.stop",json!({"reason":"the remote session ended"}),Purpose::Pause,None);
+            self.end_stream(SessionState::Ended { reason:EndReason::Remote },"the remote session ended");
         } else if matches!(status,2|3) && value["rtspsEndpoints"].as_array().is_some_and(|a| !a.is_empty()) && value["resumePending"] != true {
             if !l.started {
                 l.started = true; l.poll_due = 0;
@@ -764,8 +771,19 @@ impl Adapter {
         if !self.launch.as_ref().is_some_and(|l| l.running && !l.stopping && !l.retry_stopping) { return; }
         let state = if v["source"] == "nvst-server" && v["resumable"] != true {SessionState::Ended { reason:EndReason::Remote }}
             else {SessionState::Failed { reason:FailReason::Network,message:"The connection to GeForce NOW was lost.".into() }};
+        self.end_stream(state,"the stream ended");
+    }
+    /// The game is over on the far side. The core keeps the seat as its active session until `session.ended` releases it, and
+    /// refuses every create meanwhile (`session_update_busy`), so the release is queued behind the streamer's stop and ahead of
+    /// whatever the next launch asks for. A failed stream may still be resumable, so only an end the far side made is released.
+    fn end_stream(&mut self, state: SessionState, reason: &str) {
+        let seat = self.launch.as_ref().filter(|_| matches!(state,SessionState::Ended { reason:EndReason::Remote })).and_then(|l| {
+            Some(json!({"sessionId":l.cloud["sessionId"].as_str()?,
+                "ownerScope":{"userId":self.scope["userId"].as_str()?,"providerIdpId":self.scope["providerIdpId"].as_str()?}}))
+        });
         self.finish(state);
-        self.enqueue("streamer.stop",json!({"reason":"the stream ended"}),Purpose::Pause,None);
+        self.enqueue("streamer.stop",json!({"reason":reason}),Purpose::Pause,None);
+        if let Some(params) = seat { self.enqueue("session.ended",params.clone(),Purpose::Ended { params,tries:0 },None); }
     }
     fn event(&mut self, name: &str, payload: &Value) {
         match name {
@@ -776,8 +794,7 @@ impl Adapter {
                 let status = payload["streamer"]["status"].as_str().unwrap_or("");
                 if l.running && matches!(status,"error"|"stopped"|"exited") {
                     let state = if status == "error" {SessionState::Failed { reason:FailReason::Video,message:"The stream stopped unexpectedly".into() }} else {SessionState::Ended { reason:EndReason::Remote }};
-                    self.finish(state);
-                    self.enqueue("streamer.stop",json!({"reason":"the stream ended"}),Purpose::Pause,None);
+                    self.end_stream(state,"the stream ended");
                 }
             }
             "auth.session.changed" => {

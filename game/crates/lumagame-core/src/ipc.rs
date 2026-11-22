@@ -580,6 +580,22 @@ pub fn decode<T: DeserializeOwned>(line: &str) -> Result<T, String> {
     serde_json::from_str(line).map_err(|e| e.to_string())
 }
 
+/// The longest failure code diagnostics carry.
+pub const FAILURE_CODE_MAX: usize = 24;
+
+/// A failure's message with the engine's own error code appended, as `message (code some_code)`. The code is reduced to lowercase
+/// letters, digits and `_` and cut at [`FAILURE_CODE_MAX`], so it is safe to log; the message is shown to the owner as it is.
+pub fn failure_text(message: &str, code: &str) -> String {
+    let code: String = code.chars().filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_').take(FAILURE_CODE_MAX).collect();
+    if code.is_empty() { message.to_owned() } else { format!("{message} (code {code})") }
+}
+
+/// The code [`failure_text`] appended, if the message ends with one. Nothing else in a message is ever read as a code.
+pub fn failure_code(message: &str) -> Option<&str> {
+    let code = message.strip_suffix(')')?.rsplit_once(" (code ")?.1;
+    (!code.is_empty() && code.len() <= FAILURE_CODE_MAX && code.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')).then_some(code)
+}
+
 /// Cuts a byte stream into lines. Bounded, because the other side is another program and maybe another build: a line that never ends
 /// must not grow this side's memory. A line over [`MAX_LINE_BYTES`], or one that is not UTF-8, is dropped whole and counted, and the
 /// stream stays usable after it.
@@ -835,5 +851,17 @@ mod tests {
         push(&mut buffer, &whole);
         assert_eq!(buffer.dropped, 3);
         assert_eq!(lines, ["{\"a\":1}", "{\"b\":2}", "{\"c\":3}", "{\"d\":4}", "{\"e\":5}"]);
+    }
+
+    #[test]
+    fn a_failure_code_survives_the_message_and_only_a_safe_one_is_read_back() {
+        let text = failure_text("It failed.", "session_update_busy");
+        assert_eq!(text, "It failed. (code session_update_busy)");
+        assert_eq!(failure_code(&text), Some("session_update_busy"));
+        assert_eq!(failure_text("It failed.", "https://x/?token=a"), "It failed. (code httpsxtokena)");
+        assert_eq!(failure_text("It failed.", "!!"), "It failed.");
+        for message in ["It failed.", "It failed (code Bad Code)", "It failed (code ", "(code abc)", &format!("x (code {})", "a".repeat(25))] {
+            assert_eq!(failure_code(message), None, "{message}");
+        }
     }
 }

@@ -200,6 +200,60 @@ fn a_stream_the_server_ended_ends_the_session_and_a_lost_connection_fails_it() {
     assert!(matches!(f.session_states().last(),Some(SessionState::Failed{reason:FailReason::Network,..})));
 }
 
+/// The core refuses `session.create` while it holds an active seat (`session_update_busy`), and only `session.ended` or `session.stop`
+/// releases one. 2026-11-22: after Doom was quit from inside the game every relaunch failed until the app was restarted.
+#[test]
+fn a_game_the_host_ended_releases_its_seat_before_the_next_launch_is_checked() {
+    let mut f=FakeCore::new(true);f.launch();
+    f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));
+    f.reply("streamer.start",json!({"status":"running"}));
+    f.adapter.pad_line(&json!({"stream":"ended","source":"nvst-server","resumable":false}).to_string());
+    assert_eq!(f.session_states().last(),Some(&SessionState::Ended{reason:EndReason::Remote}));
+    // The next launch arrives before the core has answered anything.
+    let target=f.target();
+    f.send(21,Request::Launch{session:SessionId(10),target,game:provider()});
+    f.reply("streamer.stop",json!({}));
+    let ended=f.reply("session.ended",json!({"sessionId":"seat","cleared":true}));
+    assert_eq!(ended["params"],json!({"sessionId":"seat","ownerScope":{"userId":"u","providerIdpId":"nvidia"}}));
+    f.inspect_reply();
+    f.reply("session.create",json!({"sessionId":"seat2","status":2,"rtspsEndpoints":["rtsp://server"]}));
+    f.reply("streamer.start",json!({"status":"running"}));
+    f.collect();
+    let second:Vec<_>=f.events.iter().filter_map(|e| match &e.event {Event::Session{session:SessionId(10),state}=>Some(state.clone()),_=>None}).collect();
+    assert!(second.iter().any(|s| matches!(s,SessionState::Running{..})),"{second:?}");
+    assert!(!second.iter().any(|s| matches!(s,SessionState::Failed{..})),"{second:?}");
+}
+
+#[test]
+fn the_seat_release_is_retried_while_the_handoff_completes_and_sent_only_for_an_end_the_far_side_made() {
+    let running=|| {
+        let mut f=FakeCore::new(true);f.launch();
+        f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));
+        f.reply("streamer.start",json!({"status":"running"}));
+        f
+    };
+    let mut f=running();
+    f.event("session.changed",json!({"sessionId":"seat","status":7,"phase":"finished"}));
+    f.reply("streamer.stop",json!({}));
+    f.reject("session.ended","session_update_busy");
+    f.reply("session.ended",json!({"sessionId":"seat","cleared":true}));
+    f.collect();assert!(f.requests.is_empty(),"released once it was cleared");
+
+    let mut f=running();
+    f.adapter.pad_line(&json!({"stream":"ended","source":"nvst-transport","resumable":null}).to_string());
+    f.reply("streamer.stop",json!({}));
+    f.collect();assert!(f.requests.is_empty(),"a lost connection leaves the seat to be resumed");
+}
+
+#[test]
+fn a_refused_launch_carries_the_cores_error_code_in_its_message() {
+    let mut f=FakeCore::new(true);f.launch();
+    f.reject("session.create","session_update_busy");
+    let Some(SessionState::Failed{reason:FailReason::Engine,message})=f.session_states().last().cloned() else { panic!("{:?}",f.session_states()) };
+    assert_eq!(failure_code(&message),Some("session_update_busy"),"{message}");
+    f.reply("streamer.stop",json!({}));
+}
+
 #[test]
 fn guide_opens_the_overlay_and_the_overlay_reads_the_pads_as_menu_keys() {
     use lumatv_gfn_pad::button::{A,DPAD_DOWN,Y};

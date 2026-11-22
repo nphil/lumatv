@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+GeForce NOW starts a new game right after the game was ended from inside it. LumaGame never released the finished seat in OpenNOW's core, which refuses every new launch while it holds one (`session_update_busy`), so each play failed after 0.6 s until LumaGame was restarted (2026-11-22, Doom). The seat is now released when the far side ends the game, and a failed launch ends with the engine's error code in its message, which the screen shows and `session_end` logs as `code`. Not yet checked on the TV.
+
 Multi Link is an off-by-default plugin under Network › Wired. Supported apps can receive parallel downloads over Ethernet, USB Ethernet and saved Wi-Fi while controls retain the wired route. Connection preparation is journalled and restored on disable, standby and helper exit; its page reports observed traffic rather than promised link speeds. Marquee integration is specified separately. The plugin and its page are not yet accepted on the TV.
 
 Helper and interface updates no longer require a compositor restart. Display updates are staged for the next boot by default. A boot update blocks further installs and keeps its rollback copy until a manual check on Home confirms video output. Not yet checked on the TV.

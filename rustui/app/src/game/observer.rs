@@ -272,12 +272,13 @@ impl Observer {
             t.over = true;
             let by = seen.ended_by.unwrap_or("unknown");
             let unexpected = matches!(by, "engine" | "engine_exit" | "timeout");
+            let code = match outcome { Outcome::Failed { message, .. } => ipc::failure_code(message).map(str::to_owned), _ => None };
             let (outcome, reason, level) = match outcome {
                 Outcome::Ended(reason) => ("ended", reason.as_str(), if unexpected { Level::Warn } else { Level::Info }),
                 Outcome::Failed { reason, .. } => ("failed", reason.as_str(), Level::Error),
                 Outcome::Cancelled => ("cancelled", "none", Level::Info),
             };
-            out.push(Event::SessionEnd { ms: now, session: t.id, engine: t.engine, outcome, reason, by, ran_s: seen.played_s, level });
+            out.push(Event::SessionEnd { ms: now, session: t.id, engine: t.engine, outcome, reason, by, ran_s: seen.played_s, code, level });
         }
     }
 
@@ -579,6 +580,18 @@ mod tests {
             assert_eq!((value["outcome"].as_str(), value["reason"].as_str(), value["by"].as_str()), (Some(word), Some(reason), Some(by)), "{line}");
             assert!(!line.contains("secret"), "{line}");
         }
+    }
+
+    #[test]
+    fn a_failed_session_carries_the_engines_error_code_and_nothing_else_of_its_message() {
+        let mut o = running(Level::Error);
+        let mut out = Vec::new();
+        let message = ipc::failure_text("Alice's secret https://example/?token=abc", "session_update_busy");
+        o.session(10, Some(seen(&Phase::Done(Outcome::Failed { reason: FailReason::Engine, message }), None, Some("engine"))), &mut out);
+        let line = serde_json::to_string(&out[0]).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["code"], "session_update_busy");
+        assert_allowlisted(&line);
+        for leak in ["secret", "Alice", "example", "token", "http"] { assert!(!line.contains(leak), "{leak} in {line}"); }
     }
 
     #[test]
