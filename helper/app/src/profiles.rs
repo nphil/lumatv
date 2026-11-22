@@ -1110,7 +1110,7 @@ impl Store {
         self.materialize(id)?;
         self.index.active = id.to_owned();
         self.index.switching = None;
-        self.switched_at = now_ms();
+        self.switched_at = now_ms().max(self.switched_at.saturating_add(1));
         self.write_index()?;
         Ok(())
     }
@@ -1528,6 +1528,12 @@ impl Profiles {
 
     pub fn active_id(&self) -> String {
         self.store.lock().active_id().to_owned()
+    }
+
+    /// A switch away and back still invalidates an unsettled brightness correction.
+    pub(crate) fn active_selection(&self) -> Option<(String, u64)> {
+        let store = self.store.lock();
+        (store.ready && store.index.switching.is_none()).then(|| (store.index.active.clone(), store.switched_at))
     }
 
     fn publish(&self) {

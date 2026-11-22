@@ -5,10 +5,13 @@ use std::sync::Arc;
 #[derive(Default)]
 struct State {
     mode: String,
+    range: String,
+    omit_mixed_range: bool,
     /// Per mode: backlight and Energy saving.
     values: BTreeMap<String, (u32, Option<String>)>,
     lux: f64,
     sensor_down: bool,
+    write_refused: bool,
     writes: Vec<(String, Value)>,
 }
 
@@ -21,6 +24,7 @@ impl Tv {
         {
             let mut s = tv.0.lock();
             s.mode = mode.into();
+            s.range = "sdr".into();
             s.values.insert(mode.into(), (backlight, energy.map(str::to_owned)));
         }
         tv
@@ -45,12 +49,17 @@ impl Settings for Tv {
             READ_URI => {
                 let mode = payload.pointer("/dimension/pictureMode").and_then(Value::as_str).map_or_else(|| s.mode.clone(), str::to_owned);
                 let (backlight, energy) = s.values[&mode].clone();
-                let mut settings = json!({"backlight": backlight.to_string()});
+                let mut settings = json!({"pictureMode": mode, "backlight": backlight.to_string()});
                 if let Some(e) = energy {
                     settings["energySaving"] = json!(e);
                 }
-                Ok(json!({"returnValue": true, "settings": settings, "dimension": {"pictureMode": mode, "input": "default"}}))
+                let mut dimension = json!({"pictureMode": mode, "input": "default"});
+                if !s.omit_mixed_range || payload["keys"] == json!(["pictureMode"]) {
+                    dimension["dynamicRange"] = json!(s.range);
+                }
+                Ok(json!({"returnValue": true, "settings": settings, "dimension": dimension}))
             }
+            WRITE_URI if s.write_refused => Ok(json!({"returnValue": false})),
             WRITE_URI => {
                 let mode = payload["dimension"]["pictureMode"].as_str().unwrap().to_owned();
                 let settings = payload["settings"].clone();
@@ -69,12 +78,26 @@ impl Settings for Tv {
     }
 }
 
-/// The switch on, the picture SDR: the picture module's answer is the range, the read of the setting names none.
+const NITIN: &str = "nitin";
+const ISABEL: &str = "isabel";
+
 fn on() -> Env {
-    Env { on: true, screen: true, game: false, panel_dim: false, minute: None, epoch: T0, context: String::new(), range: "sdr".into(), scene: Scene::default() }
+    Env { on: true, screen: true, epoch: T0, profile: Some((NITIN.into(), 0)), ..Env::default() }
+}
+
+fn learned_file(data: &Path, id: &str) -> PathBuf {
+    data.join("profiles").join(id).join(learn::FILE)
+}
+
+fn profile_env(id: &str, switched: u64) -> Env {
+    Env { profile: Some((id.into(), switched)), ..on() }
 }
 
 fn engine(tv: &Tv, journal: Journal, path: Option<PathBuf>, t0: Instant) -> Engine {
+    if let Some(dir) = path.as_deref().and_then(Path::parent) {
+        std::fs::create_dir_all(dir.join("profiles").join(NITIN)).unwrap();
+        std::fs::create_dir_all(dir.join("profiles").join(ISABEL)).unwrap();
+    }
     Engine::new(Box::new(tv.clone()), journal, path, t0)
 }
 
@@ -112,7 +135,7 @@ fn level_in(l: &Learner, scene: &Scene, lux: f64, epoch: u64) -> f64 {
 }
 
 fn scene(app: &str, playing: bool) -> Scene {
-    Scene { app: app.into(), playing }
+    Scene { app: app.into(), playing, game: false }
 }
 
 #[test]
@@ -343,7 +366,9 @@ fn corrections_and_their_contexts_survive_a_restart_and_a_damaged_file_is_the_de
     .unwrap();
     assert_eq!(Learner::load(&path).held(ECO), 1);
     // an engine over a damaged file starts from the default curve
-    std::fs::write(&path, b"\0\0 not json").unwrap();
+    let profile = learned_file(dir.path(), NITIN);
+    std::fs::create_dir_all(profile.parent().unwrap()).unwrap();
+    std::fs::write(profile, b"\0\0 not json").unwrap();
     let tv = Tv::new("eco", 75, None);
     tv.0.lock().lux = 1.0;
     let t0 = Instant::now();
@@ -373,13 +398,13 @@ fn a_run_of_hand_changes_is_one_correction_taken_once_it_is_left_alone() {
     assert_eq!(e.status()["target"], 20);
     run(&mut e, &on(), now, 120);
     assert_eq!((tv.value("eco"), tv.backlight_writes().len()), (20, writes), "nothing pulls it back toward the old automatic level");
-    let saved = Learner::load(&dir.path().join(learn::FILE));
+    let saved = Learner::load(&learned_file(dir.path(), NITIN));
     assert_eq!((saved.adjustments(), saved.held(ECO)), (1, 1));
     assert!((level(&saved, ECO, 1.0, T0) - 20.0 / 75.0).abs() < 0.015);
 }
 
 #[test]
-fn a_level_chosen_above_the_ceiling_raises_it_and_nothing_is_ever_written_above_it_and_a_lit_room_sets_it() {
+fn a_deliberate_raise_lifts_only_the_profile_limit_and_a_lit_room_can_learn_a_lower_preference() {
     let tv = Tv::new("eco", 80, None);
     tv.0.lock().lux = 7.0;
     let t0 = Instant::now();
@@ -394,11 +419,13 @@ fn a_level_chosen_above_the_ceiling_raises_it_and_nothing_is_ever_written_above_
         assert!(tv.backlight_writes().iter().all(|v| *v <= 95), "{lux}");
         assert!(tv.value("eco") <= 95);
     }
-    // in a lit room the value chosen is the level, down as well as up
+    // A lit-room correction belongs to the curve, not to the shared LG baseline.
     e.by_hand(now, 60, &on()).unwrap();
-    run(&mut e, &on(), now, 20);
-    assert_eq!((e.status()["ceiling"].as_u64(), tv.value("eco")), (Some(60), 60));
-    assert_eq!(e.status()["learned"], 1, "only the first correction was a point");
+    now = run(&mut e, &on(), now, 20);
+    assert_eq!((e.status()["ceiling"].as_u64(), tv.value("eco")), (Some(95), 60));
+    assert_eq!(e.status()["learned"], 2);
+    e.tick(now, &Env { on: false, ..on() });
+    assert_eq!(tv.value("eco"), 80);
 }
 
 #[test]
@@ -412,8 +439,8 @@ fn resetting_forgets_the_points_in_the_file_too() {
     e.by_hand(now, 20, &on()).unwrap();
     now = run(&mut e, &on(), now, 8);
     assert_eq!(e.status()["learned"], 1);
-    assert_eq!(e.reset_learning(now)["learned"], 0);
-    let saved = Learner::load(&dir.path().join(learn::FILE));
+    assert_eq!(e.reset_learning(now, on().profile.as_ref())["learned"], 0);
+    let saved = Learner::load(&learned_file(dir.path(), NITIN));
     assert_eq!((saved.adjustments(), saved.held(ECO)), (0, 0));
     assert_eq!(level(&saved, ECO, 1.0, T0), learn::prior(0.0));
     // the default curve is followed again, a unit at a time
@@ -490,7 +517,7 @@ fn the_slider_through_the_helper_is_written_and_learned_at_once() {
 }
 
 #[test]
-fn nothing_is_written_in_hdr_a_game_or_under_the_panel_dim_and_a_mode_coming_back_goes_to_its_target_at_once() {
+fn hdr_and_panel_dim_hold_the_value_and_sdr_coming_back_goes_to_its_target_at_once() {
     let tv = Tv::new("filmMaker", 80, None);
     tv.0.lock().values.insert("hdrFilmMaker".into(), (100, None));
     tv.0.lock().lux = 0.0;
@@ -498,24 +525,24 @@ fn nothing_is_written_in_hdr_a_game_or_under_the_panel_dim_and_a_mode_coming_bac
     let mut e = engine(&tv, Journal::default(), None, t0);
     let mut now = run(&mut e, &on(), t0, 5);
     let n = tv.backlight_writes().len();
-    for env in [Env { game: true, ..on() }, Env { panel_dim: true, ..on() }] {
-        tv.0.lock().lux = 50.0;
-        now = run(&mut e, &env, now, 60);
-        assert_eq!(tv.backlight_writes().len(), n);
-    }
+    tv.0.lock().lux = 50.0;
+    now = run(&mut e, &Env { panel_dim: true, ..on() }, now, 60);
+    assert_eq!(tv.backlight_writes().len(), n);
     {
         let mut s = tv.0.lock();
         s.mode = "hdrFilmMaker".into();
+        s.range = "hdr10".into();
     }
-    let now = run(&mut e, &Env { context: "hdr".into(), range: "hdr10".into(), ..on() }, now, 60);
+    let now = run(&mut e, &Env { context: json!({"range": "sdr"}), ..on() }, now, 60);
     assert_eq!((tv.backlight_writes().len(), tv.value("hdrFilmMaker")), (n, 100));
     assert_eq!(e.status()["hold"], "hdr");
     {
         let mut s = tv.0.lock();
         s.mode = "filmMaker".into();
+        s.range = "sdr".into();
     }
     // the picture module hears of the mode change: it is looked at at once
-    run(&mut e, &Env { context: "sdr".into(), ..on() }, now, 1);
+    run(&mut e, &Env { context: json!({"mode": "filmMaker"}), ..on() }, now, 1);
     assert_eq!((tv.backlight_writes().len(), tv.value("filmMaker")), (n + 1, 80), "one write to the lit room's level");
 }
 
@@ -562,16 +589,21 @@ fn switching_on_reads_the_light_and_writes_in_the_first_pass_without_waiting_for
 }
 
 #[test]
-fn the_pictures_range_comes_from_the_picture_module_and_an_unknown_one_waits_without_writing() {
+fn unknown_range_blocks_writes_even_if_the_picture_topic_says_sdr() {
     let tv = Tv::new("eco", 75, Some("auto"));
-    tv.0.lock().lux = 7.0;
+    {
+        let mut s = tv.0.lock();
+        s.lux = 7.0;
+        s.range.clear();
+    }
     let t0 = Instant::now();
     let mut e = engine(&tv, Journal::default(), None, t0);
-    let unknown = Env { range: String::new(), ..on() };
+    let unknown = Env { context: json!({"range": "sdr"}), ..on() };
     let now = run(&mut e, &unknown, t0, 1);
     assert_eq!((tv.0.lock().writes.len(), e.status()["hold"].as_str()), (0, Some("range")));
-    // the picture module answers SDR: that is looked at at once, not at the next look
-    run(&mut e, &Env { context: "sdr".into(), ..on() }, now, 1);
+    // A fresh LG reply confirms SDR; the picture topic only wakes the read.
+    tv.0.lock().range = "sdr".into();
+    run(&mut e, &Env { context: json!({"range": "sdr", "mode": "eco"}), ..on() }, now, 1);
     assert_eq!((tv.value("eco"), e.status()["hold"].is_null()), (74, true));
 }
 
@@ -705,7 +737,7 @@ fn a_correction_right_after_a_scene_change_is_not_counted_unless_repeated_and_be
     let mut e = engine(&tv, Journal::default(), Some(dir.path().join(STATE)), t0);
     let (home, app) = (in_app("home", false), in_app(MARQUEE, false));
     let mut now = run(&mut e, &home, t0, 400);
-    let file = dir.path().join(learn::FILE);
+    let file = learned_file(dir.path(), NITIN);
 
     // the app comes to the front and 2 s later the slider moves: that was meant for the home screen it left
     now = run(&mut e, &app, now, 2);
@@ -754,4 +786,164 @@ fn changing_scene_changes_the_target_and_the_value_ramps_there_a_unit_at_a_time(
     let got = tv.value("eco");
     assert!((20..35).contains(&got), "{got}");
     assert!(writes[before..].windows(2).all(|w| w[0] == w[1] + 1), "{writes:?}");
+}
+
+#[test]
+fn switching_profiles_discards_temporary_choices_and_reset_only_forgets_the_selected_profile() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(STATE);
+    let global = dir.path().join(learn::FILE);
+    Learner::load(&global).add(ECO, &scene("old", false), 1.0, 0.2, None, T0);
+    let legacy = std::fs::read(&global).unwrap();
+    let tv = Tv::new("eco", 80, None);
+    let t0 = Instant::now();
+    let mut e = engine(&tv, Journal::default(), Some(path.clone()), t0);
+    let mut nitin = Env { scene: scene("home", false), ..profile_env(NITIN, 1) };
+    let mut isabel = Env { scene: scene(MARQUEE, true), ..profile_env(ISABEL, 3) };
+    e.tick(t0, &nitin);
+    assert_eq!(e.status()["learned"], 0);
+    let mut now = t0 + WATCH;
+    e.by_hand(now, 24, &nitin).unwrap();
+    now += SETTLE;
+    e.tick(now, &nitin);
+    assert!(e.held.is_some());
+
+    now += WATCH;
+    e.by_hand(now, 30, &nitin).unwrap();
+    nitin.profile.as_mut().unwrap().1 = 2;
+    now += WATCH;
+    e.tick(now, &nitin);
+    assert!(e.held.is_none() && e.pending.is_none(), "a switch away and back cannot carry a pending correction");
+    assert_eq!(e.status()["learned"], 1);
+
+    now += WATCH;
+    e.tick(now, &isabel);
+    assert_eq!(e.status()["profile"], ISABEL);
+    assert_eq!((e.status()["learned"].as_u64(), e.status()["apps"].as_u64(), e.status()["target"].as_u64()), (Some(0), Some(0), Some(40)));
+    now += WATCH;
+    e.by_hand(now, 55, &isabel).unwrap();
+    now += SETTLE;
+    e.tick(now, &isabel);
+    assert_eq!(e.status()["learned"], 1);
+    nitin.profile.as_mut().unwrap().1 = 4;
+    e.tick(now + WATCH, &nitin);
+    assert_eq!(e.status()["learned"], 1);
+    assert!(e.held.is_none());
+
+    // The reset arrives before the next settings turn has noticed the profile switch.
+    isabel.profile.as_mut().unwrap().1 = 5;
+    let status = e.reset_learning(now + 2 * WATCH, isabel.profile.as_ref());
+    assert_eq!((status["profile"].as_str(), status["learned"].as_u64()), (Some(ISABEL), Some(0)));
+    assert_eq!(Learner::load(&learned_file(dir.path(), ISABEL)).adjustments(), 0);
+    let mut restarted = engine(&tv, load(&path), Some(path), now + 3 * WATCH);
+    restarted.tick(now + 3 * WATCH, &nitin);
+    assert_eq!((restarted.status()["learned"].as_u64(), restarted.status()["apps"].as_u64()), (Some(1), Some(1)));
+    assert_eq!(std::fs::read(global).unwrap(), legacy);
+}
+
+#[test]
+fn the_learning_path_rejects_traversal_and_links_to_another_profile() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(STATE);
+    let file = learned_file(dir.path(), NITIN);
+    let owner = file.parent().unwrap();
+    std::fs::create_dir_all(owner).unwrap();
+    assert_eq!(profile_file(&path, NITIN), Some(file.clone()));
+    assert!(profile_file(&path, "../profiles/nitin").is_none());
+    assert!(profile_file(&path, owner.to_str().unwrap()).is_none());
+    symlink(owner, learned_file(dir.path(), ISABEL).parent().unwrap()).unwrap();
+    assert!(profile_file(&path, ISABEL).is_none());
+    let legacy = dir.path().join(learn::FILE);
+    std::fs::write(&legacy, b"{}").unwrap();
+    symlink(legacy, file).unwrap();
+    assert!(profile_file(&path, NITIN).is_none());
+}
+
+#[test]
+fn a_raise_cannot_change_another_profile_or_revive_after_the_physical_limit_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(STATE);
+    let tv = Tv::new("eco", 80, None);
+    tv.0.lock().lux = 50.0;
+    let t0 = Instant::now();
+    let mut e = engine(&tv, Journal::default(), Some(path.clone()), t0);
+    let (nitin, isabel) = (on(), profile_env(ISABEL, 1));
+    let off = Env { on: false, ..isabel.clone() };
+    e.tick(t0, &nitin);
+    e.by_hand(t0 + WATCH, 90, &nitin).unwrap();
+    let now = t0 + WATCH + SETTLE;
+    e.tick(now, &nitin);
+    assert_eq!(e.reset_learning(now, nitin.profile.as_ref())["ceiling"], 90);
+
+    e.tick(now + WATCH, &isabel);
+    assert_eq!((e.status()["ceiling"].as_u64(), tv.value("eco")), (Some(80), 80));
+    e.tick(now + 2 * WATCH, &off);
+    tv.0.lock().values.get_mut("eco").unwrap().0 = 60;
+    e.tick(now + 3 * WATCH, &isabel);
+    assert_eq!(e.status()["ceiling"], 60);
+    e.tick(now + 4 * WATCH, &off);
+    tv.0.lock().values.get_mut("eco").unwrap().0 = 80;
+    e.tick(now + 5 * WATCH, &isabel);
+
+    let mut restarted = engine(&tv, load(&path), Some(path), now + 6 * WATCH);
+    restarted.tick(now + 6 * WATCH, &nitin);
+    assert_eq!((restarted.status()["ceiling"].as_u64(), restarted.status()["target"].as_u64()), (Some(80), Some(80)));
+}
+
+#[test]
+fn the_normal_slider_learns_sdr_game_optimizer_only_after_a_successful_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let tv = Tv::new("game", 80, None);
+    {
+        let mut s = tv.0.lock();
+        s.lux = 50.0;
+        s.range = "sdrALLM".into();
+        s.omit_mixed_range = true;
+    }
+    let t0 = Instant::now();
+    let mut e = engine(&tv, Journal::default(), Some(dir.path().join(STATE)), t0);
+    let mut game = Env { minute: Some(60), scene: scene("game.app", false), ..on() };
+    e.tick(t0, &game);
+    assert_eq!(e.status()["active"], true, "the live mode identifies SDR game even without a game hint");
+    tv.0.lock().write_refused = true;
+    assert!(e.by_hand(t0 + WATCH, 54, &game).is_err());
+    assert!(e.pending.is_none());
+    tv.0.lock().write_refused = false;
+    let mut now = t0 + LOOK;
+    e.tick(now, &game);
+    assert_eq!(e.status()["learned"], 0);
+    assert_eq!(e.by_hand(now, 55, &game).unwrap()["level"], 55);
+    game.minute = Some(61);
+    now += SETTLE;
+    e.tick(now, &game);
+    let path = learned_file(dir.path(), NITIN);
+    let model = Learner::load(&path);
+    let scene = Scene { game: true, ..game.scene.clone() };
+    assert_eq!((model.adjustments(), model.held_in("default/game", &scene)), (1, 1));
+    let file: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(file["modes"]["default/game"][0]["minute"], 60);
+
+    let expires = e.held.as_ref().unwrap().until;
+    e.tick(expires, &game);
+    assert!(e.held.is_none(), "the clock-aware model must eventually take over in the same scene and light");
+    e.by_hand(expires + WATCH, 33, &game).unwrap();
+    let writes = tv.backlight_writes().len();
+    now = expires + WATCH;
+    for (mode, range) in [("game", "hdrALLM"), ("hdrGame", "sdr"), ("dolbyHdrGame", "dolbyHdr")] {
+        now += 2 * WATCH;
+        {
+            let mut s = tv.0.lock();
+            s.mode = mode.into();
+            s.range = range.into();
+            s.values.entry(mode.into()).or_insert((80, None));
+        }
+        game.context = json!({"mode": mode, "range": "sdrALLM"});
+        assert!(e.by_hand(now, 65, &game).is_err(), "a stale active UI must not write after the picture changed");
+        e.tick(now, &game);
+        assert_eq!(e.status()["hold"], "hdr");
+        assert!(e.pending.is_none());
+        assert_eq!((tv.backlight_writes().len(), e.status()["learned"].as_u64()), (writes, Some(1)));
+    }
 }

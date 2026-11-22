@@ -288,17 +288,17 @@ impl Service {
         threads.push(("paneldim", crate::paneldim::spawn(&ctx)?));
         let picture = Arc::new(crate::picture::Remote::default());
         threads.push(("picture", crate::picture::spawn(&ctx, picture.clone())?));
+        // Local profiles: the first open makes Nitin and Isabel from the working copy in theme/; the thread carries edits back to their profile.
+        let profiles = crate::profiles::Profiles::open(&ctx);
+        threads.push(("profiles", profiles.spawn(&ctx)?));
         let autobright = Arc::new(crate::autobright::Remote::default());
-        threads.push(("autobright", crate::autobright::spawn(&ctx, autobright.clone())?));
+        threads.push(("autobright", crate::autobright::spawn(&ctx, autobright.clone(), profiles.clone())?));
         threads.push(("dvroom", crate::dvroom::spawn(&ctx)?));
         threads.push(("openapps", crate::openapps::spawn(&ctx)?));
         // Foreground priority: an earlier run's journal is put back before the thread starts; the thread puts everything back at the stop.
         let gamemode = Arc::new(crate::app_priority::game::Remote::default());
         let policy = voice_policy.unwrap_or(ha_link::AddressPolicy::HOME);
         threads.push(("app_priority", crate::app_priority::spawn(&ctx, gamemode.clone(), policy)?));
-        // Local profiles: the first open makes Nitin and Isabel from the working copy in theme/; the thread carries edits back to their profile.
-        let profiles = crate::profiles::Profiles::open(&ctx);
-        threads.push(("profiles", profiles.spawn(&ctx)?));
         threads.push((
             "refreshguard",
             refreshguard::spawn(ctx.stop.clone(), guard.clone(), panel_rx)?,

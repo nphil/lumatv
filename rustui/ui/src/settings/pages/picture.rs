@@ -259,13 +259,13 @@ fn brightness_rows(c: &Ctx) -> [Row; 3] {
         .tab(0)
         .icon("rotate-ccw")
         .label(&crate::autobright::learned_line(learned, ab.apps))
-        .help("Auto brightness learns from the levels you set by hand, for each app and for playing against browsing. Resetting goes back to its own curve.")
+        .help("Learns this profile’s brightness choices in similar room light, picture modes and apps. Repeated choices at similar times count more.")
         .visible(ab.learned.is_some())
         .enabled(learned > 0)
         .does(ask(
             "rotate-ccw",
             "Reset learning?",
-            "Auto brightness forgets the levels you set by hand, in every app, and follows its own curve again.",
+            "Forget this profile’s brightness choices in every app? Other profiles keep theirs.",
             "Reset",
             "Cancel",
             false,

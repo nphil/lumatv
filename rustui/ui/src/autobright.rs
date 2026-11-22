@@ -15,7 +15,7 @@ pub const LEVEL: &str = "/v1/autobright/level";
 pub const RESET: &str = "/v1/autobright/reset";
 pub const LABEL: &str = "Auto brightness";
 pub const ICON: &str = "sun-medium";
-pub const HELP: &str = "Follows the room's light from the TV's own sensor, never brighter than the level you set. Moving OLED pixel brightness while it is on sets the level wanted in that light. LG's Energy saving is held off while it is on.";
+pub const HELP: &str = "Adjusts OLED pixel brightness, not picture black level. In SDR, including games, it learns this profile’s choices from the room light, time of day and what’s on screen.";
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct State {
@@ -49,7 +49,8 @@ pub fn state(on: bool, topic: Option<&Value>) -> State {
     } else {
         match t.get("hold").and_then(Value::as_str) {
             Some("hdr") => "Paused for HDR",
-            Some("game") => "Paused for a game",
+            Some("range") => "Waiting for the picture format",
+            Some("profile") => "Waiting for the active profile",
             Some("panel dim") => "Paused while Home dims the screen",
             Some("error") => "The light sensor is not answering",
             _ => "Starting",

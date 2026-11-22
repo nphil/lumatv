@@ -1,27 +1,15 @@
-//! The owner's own curve, learned from his corrections the way a phone's adaptive brightness is: each settled correction is a point
-//! (the room's light, the level he chose as a share of his ceiling), and the level wanted in a light is a curve fitted through the
-//! points, from the default curve where there are none.
+//! The owner's curve is fitted through settled brightness choices, expressed as shares of the ceiling.
 //!
-//! - **The fit** is a penalised spline: nine knots evenly spaced over [`super::reach`] (log lux, 1 to 30 lux), a point pulling the two
-//!   knots either side of it, a weak pull of every knot to the default curve ([`PRIOR_WEIGHT`]) and a smoothness penalty on how far the
-//!   knots stray from that curve in step ([`SMOOTHNESS`]). Together they make a point move the curve near its light and fade out over
-//!   a few knots (to 0.6 at each knot, a lux factor of 1.5: a correction at 1 lux moves 6 lux by a seventh of it and 12 lux by a
-//!   twentieth), and make many points override the default. The solution is then made non-decreasing (pooled adjacent violators) and
-//!   the top knot is pinned to the ceiling: a brighter room never gets a dimmer picture and nothing goes above the ceiling.
-//! - **Weights.** A point is worth [`NEW_WEIGHT`], four hundred times the default curve's pull, so the curve meets the newest
-//!   correction within a unit and the picture is not pulled back after he lets go. It halves every [`HALF_LIFE_DAYS`], so a habit he
-//!   stops repeating fades to the default over about four months. A new point that disagrees with an older one near the same light by
-//!   more than [`AGREE`] cuts the older one's weight to a fiftieth: the newer wish replaces it instead of being averaged with it for
-//!   ever. Agreeing points keep their weight and add up.
-//! - **Modes.** Each picture mode has its own points; the other modes' points count a tenth ([`OTHER_MODE`]), so a mode with none
-//!   follows the room's habits learned elsewhere and one with a few of its own follows those.
-//! - **Contexts.** A point also carries the app in front and whether it was playing full-screen video, so Home, an app's browsing
-//!   and its playback can each end up with their own level. Within a mode the curve is laid out in three steps: all its points,
-//!   then the playing (or browsing) ones, then the app's own, each held to the step before by [`CONTEXT_PRIOR`]: a new app with
-//!   one point is pulled partway to it, a few consistent ones make it its own. A newer point replaces an older one only in its
-//!   own context.
-//! - **Time of day** is kept with each point but not fitted: a few dozen points over a handful of evenings cannot tell an evening
-//!   preference from a lamp-lit room's, and the room's light already carries most of the difference.
+//! The fit uses nine knots over log lux. A correction pulls the knots around its light, and regularisation
+//! keeps the curve smooth and near the default where little is known. The last knot stays at its prior
+//! unless a bright-room correction pulls on it. The curve never falls as the room gets brighter or
+//! exceeds the ceiling.
+//!
+//! Corrections decay with age. Games and other use have separate curves; other modes lend weaker evidence.
+//! Within a mode, the playing or browsing curve and then the app's own curve refine the shared one.
+//! A further time-of-day refinement needs corrections across different days in the same scene and mode.
+//! Nearby minutes count more, including across midnight. A lone timed correction can inform the shared
+//! curve, but does not establish a time-of-day habit.
 
 use super::{Inputs, Scene, reach, write_atomic};
 use serde::{Deserialize, Serialize};
@@ -49,6 +37,10 @@ pub const SUPERSEDED: f64 = 0.02;
 pub const NEGLIGIBLE: f64 = 1.0;
 const KNOTS: usize = 9;
 const PIN: f64 = 1e6;
+const DAY_MINUTES: u32 = 24 * 60;
+const TIME_WINDOW: u32 = 3 * 60;
+// Two corrections across the same midnight are often one session, not a recurring habit.
+const REPEAT_GAP: u64 = 12 * 60 * 60;
 /// How hard a context's curve is held to its parent's, and how smooth its difference from it is: one point of [`NEW_WEIGHT`] takes
 /// the context about 44% of the way to the level chosen, two 61%, five 80%.
 pub const CONTEXT_PRIOR: f64 = 100.0;
@@ -75,23 +67,36 @@ pub struct Point {
     pub app: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub playing: bool,
-    /// What is left of [`NEW_WEIGHT`] after later corrections near it that disagreed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub game: bool,
+    /// What is left of [`NEW_WEIGHT`] after later untimed corrections near it that disagreed.
     pub weight: f64,
 }
 
 impl Point {
     fn is_in(&self, scene: &Scene) -> bool {
-        self.app == scene.app && self.playing == scene.playing
+        self.app == scene.app && self.is_kind(scene)
+    }
+
+    fn is_kind(&self, scene: &Scene) -> bool {
+        self.playing == scene.playing && self.game == scene.game
     }
 
     fn sound(&self) -> bool {
-        self.lux.is_finite() && self.lux >= 0.0 && (0.0..=1.0).contains(&self.level) && self.weight.is_finite() && self.weight > 0.0
+        self.lux.is_finite() && self.lux >= 0.0 && (0.0..=1.0).contains(&self.level) && self.weight > 0.0 && self.weight <= NEW_WEIGHT
     }
 
     /// The weight at `now` (unix seconds).
     fn worth(&self, now: u64) -> f64 {
         self.weight * 0.5_f64.powf(now.saturating_sub(self.at) as f64 / 86_400.0 / HALF_LIFE_DAYS)
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Ceiling {
+    baseline: u32,
+    generation: u64,
+    value: u32,
 }
 
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -101,6 +106,8 @@ struct File {
     adjustments: u64,
     #[serde(default)]
     modes: BTreeMap<String, Vec<Point>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    ceilings: BTreeMap<String, Ceiling>,
 }
 
 #[derive(Debug, Default)]
@@ -127,6 +134,7 @@ impl Learner {
             }
         }
         file.modes.retain(|_, p| !p.is_empty());
+        file.ceilings.retain(|_, c| (c.baseline..=100).contains(&c.value));
         Learner { path: Some(path.to_owned()), file }
     }
 
@@ -151,76 +159,146 @@ impl Learner {
         self.file.modes.get(key).map_or(0, |p| p.iter().filter(|p| p.is_in(scene)).count())
     }
 
-    /// Forgets everything, in the file too.
+    /// Forgets learned corrections, without changing the manually chosen limits.
     pub fn reset(&mut self) {
-        self.file = File::default();
+        self.file.adjustments = 0;
+        self.file.modes.clear();
         self.save();
     }
 
     /// A settled correction: in `scene` and this `lux` the owner wants `level` of his ceiling in mode `key`.
     pub fn add(&mut self, key: &str, scene: &Scene, lux: f64, level: f64, minute: Option<u32>, now: u64) {
-        let r = reach(lux);
+        let minute = minute.filter(|&m| m < DAY_MINUTES);
         let points = self.file.modes.entry(key.to_owned()).or_default();
-        for p in points.iter_mut().filter(|p| p.is_in(scene) && (reach(p.lux) - r).abs() <= NEAR && (p.level - level).abs() > AGREE) {
-            p.weight *= SUPERSEDED;
+        if minute.is_none() {
+            let r = reach(lux);
+            // Untimed wishes can replace one another; a timed outlier must not erase a recurring habit.
+            for p in points.iter_mut().filter(|p| p.minute.is_none() && p.is_in(scene) && (reach(p.lux) - r).abs() <= NEAR && (p.level - level).abs() > AGREE) {
+                p.weight *= SUPERSEDED;
+            }
         }
         points.retain(|p| p.worth(now) >= NEGLIGIBLE);
-        points.push(Point { lux, level: level.clamp(0.0, 1.0), at: now, minute, app: scene.app.clone(), playing: scene.playing, weight: NEW_WEIGHT });
+        points.push(Point {
+            lux,
+            level: level.clamp(0.0, 1.0),
+            at: now,
+            minute,
+            app: scene.app.clone(),
+            playing: scene.playing,
+            game: scene.game,
+            weight: NEW_WEIGHT,
+        });
         if points.len() > MAX_POINTS {
-            points.sort_by(|a, b| b.worth(now).total_cmp(&a.worth(now)).then(b.at.cmp(&a.at)));
-            points.truncate(MAX_POINTS);
+            let least = points
+                .iter()
+                .enumerate()
+                .map(|(i, p)| (i, p.worth(now), p.at))
+                .min_by(|a, b| a.1.total_cmp(&b.1).then(a.2.cmp(&b.2)));
+            if let Some((i, _, _)) = least {
+                points.swap_remove(i);
+            }
         }
         self.file.adjustments += 1;
         self.save();
     }
 
-    /// The ceiling of mode `key` went from `old` to `new`: its points keep the level they stood for.
-    pub fn rescale(&mut self, key: &str, old: f64, new: f64) {
-        if let Some(points) = self.file.modes.get_mut(key) {
-            for p in points {
-                p.level = (p.level * old / new).clamp(0.0, 1.0);
-            }
+    /// The explicit limit for this mode, valid only for the current physical baseline revision.
+    pub fn ceiling(&self, key: &str, baseline: u32, generation: u64) -> u32 {
+        self.file
+            .ceilings
+            .get(key)
+            .filter(|c| c.baseline == baseline && c.generation == generation)
+            .map_or(baseline, |c| c.value)
+    }
+
+    /// A settled manual raise changes this profile's limit, not the hardware baseline.
+    pub fn raise_ceiling(&mut self, key: &str, baseline: u32, generation: u64, value: u32) {
+        let value = value.min(100);
+        if value <= self.ceiling(key, baseline, generation) {
+            return;
+        }
+        let prev = self.file.ceilings.insert(key.to_owned(), Ceiling { baseline, generation, value });
+        self.rescale(key, prev.map_or(baseline, |c| c.value), value);
+        self.save();
+    }
+
+    /// Discard a raise from an older physical baseline, even if its numeric value came back.
+    pub fn rebase_ceiling(&mut self, key: &str, baseline: u32, generation: u64) {
+        if let Some(c) = self.file.ceilings.get(key).copied()
+            && (c.baseline != baseline || c.generation != generation)
+        {
+            self.file.ceilings.remove(key);
+            self.rescale(key, c.value, baseline);
             self.save();
+        }
+    }
+
+    fn rescale(&mut self, key: &str, old: u32, new: u32) {
+        if old != 0 && new != 0 && old != new
+            && let Some(points) = self.file.modes.get_mut(key)
+        {
+            let ratio = f64::from(old) / f64::from(new);
+            for p in points {
+                p.level = (p.level * ratio).clamp(0.0, 1.0);
+            }
         }
     }
 
     /// The level wanted for `inputs`, between 0 and `ceiling`.
     pub fn target(&self, inputs: &Inputs, ceiling: f64) -> f64 {
-        (self.level(inputs.mode, inputs.scene, inputs.lux, inputs.epoch) * ceiling).clamp(0.0, ceiling)
+        (self.level_at(inputs.mode, inputs.scene, inputs.lux, inputs.minute, inputs.epoch) * ceiling).clamp(0.0, ceiling)
     }
 
-    /// The level wanted in `lux` in mode `key` and `scene`, as a share of the ceiling, at `now` (unix seconds). Three fits, each
-    /// laid over the one before and held back by [`CONTEXT_PRIOR`] so a context with few points stays near its parent: the mode's
-    /// curve from all its points, then the one for the same kind of use (playing or browsing) in every app, then the app's own.
+    #[cfg(test)]
     pub fn level(&self, key: &str, scene: &Scene, lux: f64, now: u64) -> f64 {
+        self.level_at(key, scene, lux, None, now)
+    }
+
+    fn level_at(&self, key: &str, scene: &Scene, lux: f64, minute: Option<u32>, now: u64) -> f64 {
         let r = reach(lux);
         if self.file.modes.is_empty() {
             return prior(r);
         }
-        let mut v = self.fit(key, now);
+        let mut v = self.fit(key, scene.game, now);
         if let Some(points) = self.file.modes.get(key) {
-            let kind: Vec<&Point> = points.iter().filter(|p| p.playing == scene.playing).collect();
-            v = layer(v, &kind, now);
-            let own: Vec<&Point> = kind.into_iter().filter(|p| p.app == scene.app).collect();
-            v = layer(v, &own, now);
-            non_decreasing(&mut v, &[1.0; KNOTS]);
+            let kind = points.iter().filter(|p| p.is_kind(scene));
+            v = layer(v, kind.clone().map(|p| (p, p.worth(now))));
+            let own = kind.filter(|p| p.app == scene.app);
+            v = layer(v, own.clone().map(|p| (p, p.worth(now))));
+            if let Some(minute) = minute.filter(|&m| m < DAY_MINUTES) {
+                v = time_layer(v, own, minute, now);
+            }
         }
         let (j, t) = place(r);
         (v[j] * (1.0 - t) + v[j + 1] * t).clamp(0.0, 1.0)
     }
 
-    fn fit(&self, key: &str, now: u64) -> [f64; KNOTS] {
+    fn fit(&self, key: &str, game: bool, now: u64) -> [f64; KNOTS] {
         let last = KNOTS - 1;
         let at = |k: usize| k as f64 / last as f64;
         let p: [f64; KNOTS] = std::array::from_fn(|k| prior(at(k)));
         let mut a = [[0.0; KNOTS]; KNOTS];
         let mut b = [0.0; KNOTS];
+        let mut known = false;
+        for (mode, points) in &self.file.modes {
+            let share = if mode == key { 1.0 } else { OTHER_MODE };
+            for point in points.iter().filter(|p| p.game == game) {
+                let (j, t) = place(reach(point.lux));
+                data(&mut a, &mut b, j, t, point.worth(now) * share, point.level);
+                known = true;
+            }
+        }
+        if !known {
+            return p;
+        }
+        if a[last][last] == 0.0 {
+            a[last][last] += PIN;
+            b[last] += PIN;
+        }
         for k in 0..KNOTS {
             a[k][k] += PRIOR_WEIGHT;
             b[k] += PRIOR_WEIGHT * p[k];
         }
-        a[last][last] += PIN;
-        b[last] += PIN;
         for k in 0..last {
             let d = p[k + 1] - p[k];
             a[k][k] += SMOOTHNESS;
@@ -229,13 +307,6 @@ impl Learner {
             a[k + 1][k] -= SMOOTHNESS;
             b[k + 1] += SMOOTHNESS * d;
             b[k] -= SMOOTHNESS * d;
-        }
-        for (mode, points) in &self.file.modes {
-            let share = if mode == key { 1.0 } else { OTHER_MODE };
-            for point in points {
-                let (j, t) = place(reach(point.lux));
-                data(&mut a, &mut b, j, t, point.worth(now) * share, point.level);
-            }
         }
         let weights: [f64; KNOTS] = std::array::from_fn(|k| a[k][k]);
         let mut v = solve(a, b);
@@ -276,25 +347,27 @@ fn solve(mut a: [[f64; KNOTS]; KNOTS], mut b: [f64; KNOTS]) -> [f64; KNOTS] {
 
 /// Pooled adjacent violators: the closest non-decreasing values, each knot weighted by its stiffness.
 fn non_decreasing(v: &mut [f64; KNOTS], w: &[f64; KNOTS]) {
-    // each block: weighted sum, weight, knots
-    let mut blocks: Vec<(f64, f64, usize)> = Vec::with_capacity(KNOTS);
+    let mut blocks = [(0.0, 0.0, 0); KNOTS];
+    let mut n = 0;
     for k in 0..KNOTS {
-        blocks.push((v[k] * w[k], w[k], 1));
-        while blocks.len() > 1 {
-            let (s1, w1, _) = blocks[blocks.len() - 2];
-            let (s2, w2, _) = blocks[blocks.len() - 1];
-            if s1 / w1 <= s2 / w2 {
+        let (mut s, mut wt, mut knots) = (v[k] * w[k], w[k], 1);
+        while n > 0 {
+            let (prev_s, prev_w, prev_knots) = blocks[n - 1];
+            if prev_s / prev_w <= s / wt {
                 break;
             }
-            let (_, _, n2) = blocks.pop().unwrap_or_default();
-            let last = blocks.len() - 1;
-            blocks[last] = (s1 + s2, w1 + w2, blocks[last].2 + n2);
+            s += prev_s;
+            wt += prev_w;
+            knots += prev_knots;
+            n -= 1;
         }
+        blocks[n] = (s, wt, knots);
+        n += 1;
     }
     let mut k = 0;
-    for (s, wt, n) in blocks {
-        v[k..k + n].fill(s / wt);
-        k += n;
+    for (s, wt, knots) in blocks.into_iter().take(n) {
+        v[k..k + knots].fill(s / wt);
+        k += knots;
     }
 }
 
@@ -315,28 +388,177 @@ fn data(a: &mut [[f64; KNOTS]; KNOTS], b: &mut [f64; KNOTS], j: usize, t: f64, w
     b[j + 1] += weight * t * y;
 }
 
-/// `base` moved toward `points`: a smooth, small difference that the top knot (the ceiling) never takes part in.
-fn layer(base: [f64; KNOTS], points: &[&Point], now: u64) -> [f64; KNOTS] {
-    if points.is_empty() {
+fn time_layer<'a>(
+    base: [f64; KNOTS],
+    points: impl Iterator<Item = &'a Point> + Clone,
+    minute: u32,
+    now: u64,
+) -> [f64; KNOTS] {
+    let nearby = points.filter_map(|p| {
+        let m = p.minute.filter(|&m| m < DAY_MINUTES)?;
+        let d = m.abs_diff(minute);
+        let d = d.min(DAY_MINUTES - d);
+        let share = f64::from(TIME_WINDOW.saturating_sub(d)) / f64::from(TIME_WINDOW);
+        (share > 0.0).then(|| (p, p.worth(now) * share))
+    });
+    let Some((strongest, _)) = nearby.clone().max_by(|a, b| a.1.total_cmp(&b.1)) else { return base };
+    // Taper by the supporting sample as well, so the first sample cannot turn on a time fit by itself.
+    let repeat = nearby
+        .clone()
+        .filter(|(p, _)| p.at.abs_diff(strongest.at) >= REPEAT_GAP)
+        .map(|(_, weight)| weight / NEW_WEIGHT)
+        .fold(0.0, f64::max)
+        .min(1.0);
+    if repeat == 0.0 {
         return base;
     }
+    // Only corroborated evidence gets here; it needs less blending with the shared curve than a single app point.
+    let strength = 2.0 * repeat;
+    layer(base, nearby.map(|(p, weight)| (p, weight * strength)))
+}
+
+/// `base` moved toward the weighted points, without changing its unobserved bright endpoint.
+fn layer<'a>(base: [f64; KNOTS], mut points: impl Iterator<Item = (&'a Point, f64)>) -> [f64; KNOTS] {
+    let Some(first) = points.next() else { return base };
     let last = KNOTS - 1;
     let mut a = [[0.0; KNOTS]; KNOTS];
     let mut b = [0.0; KNOTS];
+    for (p, weight) in std::iter::once(first).chain(points) {
+        let (j, t) = place(reach(p.lux));
+        data(&mut a, &mut b, j, t, weight, p.level - (base[j] * (1.0 - t) + base[j + 1] * t));
+    }
+    if a[last][last] == 0.0 {
+        a[last][last] += PIN;
+    }
     for (k, row) in a.iter_mut().enumerate() {
         row[k] += CONTEXT_PRIOR;
     }
-    a[last][last] += PIN;
+    // Monotonic projection gives the observed knots more say than unmeasured neighbours.
+    let stiffness: [f64; KNOTS] = std::array::from_fn(|k| a[k][k]);
     for k in 0..last {
         a[k][k] += CONTEXT_SMOOTH;
         a[k + 1][k + 1] += CONTEXT_SMOOTH;
         a[k][k + 1] -= CONTEXT_SMOOTH;
         a[k + 1][k] -= CONTEXT_SMOOTH;
     }
-    for p in points {
-        let (j, t) = place(reach(p.lux));
-        data(&mut a, &mut b, j, t, p.worth(now), p.level - (base[j] * (1.0 - t) + base[j + 1] * t));
-    }
     let g = solve(a, b);
-    std::array::from_fn(|k| (base[k] + g[k]).clamp(0.0, 1.0))
+    let mut v = std::array::from_fn(|k| (base[k] + g[k]).clamp(0.0, 1.0));
+    non_decreasing(&mut v, &stiffness);
+    v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::autobright::BRIGHT_LUX;
+
+    const MODE: &str = "default/eco";
+    const CEILING: f64 = 80.0;
+    const EPOCH: u64 = 1_800_000_000;
+    const DAY: u64 = 86_400;
+
+    fn predict(learner: &Learner, scene: &Scene, lux: f64, minute: Option<u32>, epoch: u64) -> f64 {
+        learner.target(&Inputs { lux, mode: MODE, scene, minute, epoch }, CEILING)
+    }
+
+    #[test]
+    fn recurring_morning_and_night_choices_predict_an_unseen_day() {
+        let mut learner = Learner::default();
+        let scene = Scene { app: "movie".into(), playing: true, game: false };
+        let lux = BRIGHT_LUX.sqrt();
+        let morning = 8 * 60;
+        let night = DAY_MINUTES - 5;
+        for day in 0..6 {
+            let noise = if day % 2 == 0 { 0.01 } else { -0.01 };
+            for (minute, level) in [(morning, 0.8), (night, 0.3)] {
+                learner.add(MODE, &scene, lux, level + noise, Some(minute), EPOCH + day * DAY + u64::from(minute) * 60);
+            }
+        }
+
+        let morning_epoch = EPOCH + 6 * DAY + u64::from(morning + 5) * 60;
+        let night_epoch = EPOCH + 7 * DAY + 5 * 60;
+        for (epoch, minute, wanted) in [(morning_epoch, morning + 5, 64.0), (night_epoch, 5, 24.0)] {
+            let blind = predict(&learner, &scene, lux, None, epoch);
+            let timed = predict(&learner, &scene, lux, Some(minute), epoch);
+            assert!(
+                (timed - wanted).abs() < 7.0 && (blind - wanted).abs() - (timed - wanted).abs() >= 12.0,
+                "minute {minute}: wanted {wanted}, timed {timed:.2}, time-blind {blind:.2}"
+            );
+        }
+
+        let night_before = predict(&learner, &scene, lux, Some(5), night_epoch);
+        learner.add(MODE, &scene, lux, 1.0, Some(morning + 5), morning_epoch);
+        let night_after = predict(&learner, &scene, lux, Some(5), night_epoch);
+        assert!((night_before - night_after).abs() < 2.0, "night before {night_before:.2}, after {night_after:.2}");
+        assert_eq!(learner.held_in(MODE, &scene), 13);
+    }
+
+    #[test]
+    fn two_corrections_across_one_midnight_do_not_establish_a_habit() {
+        let mut learner = Learner::default();
+        let scene = Scene::default();
+        learner.add(MODE, &scene, 5.0, 0.25, Some(DAY_MINUTES - 5), EPOCH);
+        learner.add(MODE, &scene, 5.0, 0.75, Some(5), EPOCH + 10 * 60);
+        let epoch = EPOCH + DAY;
+        let blind = predict(&learner, &scene, 5.0, None, epoch);
+        assert_eq!(predict(&learner, &scene, 5.0, Some(0), epoch), blind);
+    }
+
+    #[test]
+    fn gaming_is_distinct_even_in_the_same_app_and_light() {
+        let mut learner = Learner::default();
+        let ordinary = Scene { app: "same-app".into(), playing: true, game: false };
+        let game = Scene { game: true, ..ordinary.clone() };
+        let minute = Some(19 * 60);
+        let lux = 5.0;
+        learner.add(MODE, &ordinary, lux, 0.35, minute, EPOCH);
+        assert!((predict(&learner, &game, lux, minute, EPOCH) - prior(reach(lux)) * CEILING).abs() < 1e-9);
+
+        for day in 1..4 {
+            learner.add(MODE, &game, lux, 0.75, minute, EPOCH + day * DAY);
+            learner.add(MODE, &ordinary, lux, 0.35, minute, EPOCH + day * DAY);
+        }
+        for (scene, wanted) in [(&ordinary, 28.0), (&game, 60.0)] {
+            let got = predict(&learner, scene, lux, minute, EPOCH + 4 * DAY);
+            assert!((got - wanted).abs() < 2.0, "game {}: wanted {wanted}, got {got}", scene.game);
+        }
+    }
+
+    #[test]
+    fn a_bright_room_can_learn_below_the_ceiling_without_reversing_the_curve() {
+        let mut learner = Learner::default();
+        let scene = Scene::default();
+        let minute = Some(20 * 60);
+        learner.add(MODE, &scene, 1.0, 0.2, minute, EPOCH);
+        for day in 0..4 {
+            learner.add(MODE, &scene, BRIGHT_LUX * 2.0, 0.65, minute, EPOCH + day * DAY);
+        }
+        let at = |lux| predict(&learner, &scene, lux, minute, EPOCH + 4 * DAY);
+        assert!((at(BRIGHT_LUX) - CEILING * 0.65).abs() < 2.0, "bright: {}", at(BRIGHT_LUX));
+        let mut previous = 0.0;
+        for lux in [0.0, 1.0, 2.0, 4.0, 8.0, 12.0, 18.0, 24.0, 29.0, BRIGHT_LUX, 100.0] {
+            let got = at(lux);
+            assert!((0.0..=CEILING).contains(&got) && got >= previous - 1e-9, "lux {lux}: {got} after {previous}");
+            previous = got;
+        }
+    }
+
+    #[test]
+    fn a_manual_raise_survives_reset_but_not_a_changed_baseline_revision() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE);
+        let mut learner = Learner::load(&path);
+        learner.add(MODE, &Scene::default(), 1.0, 0.5, None, EPOCH);
+        learner.raise_ceiling(MODE, 60, 1, 80);
+        assert_eq!(learner.ceiling(MODE, 60, 1), 80);
+        assert_eq!(learner.file.modes[MODE][0].level * 80.0, 30.0);
+        learner.reset();
+
+        let mut learner = Learner::load(&path);
+        assert_eq!((learner.adjustments(), learner.held(MODE), learner.ceiling(MODE, 60, 1)), (0, 0, 80));
+        assert_eq!(learner.ceiling(MODE, 40, 2), 40);
+        assert_eq!(learner.ceiling(MODE, 60, 3), 60);
+        learner.rebase_ceiling(MODE, 60, 3);
+        assert_eq!(Learner::load(&path).ceiling(MODE, 60, 1), 60);
+    }
 }

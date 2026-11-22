@@ -11,11 +11,10 @@
 //! - **The decision** is a level as a share of the owner's ceiling for the accepted lux and the picture mode: [`learn::Learner`], the
 //!   owner's own curve fitted through his corrections and starting from a default one ([`learn::prior`]: from half the ceiling in the
 //!   dark ([`DARK_LUX`] and below) to the ceiling at [`BRIGHT_LUX`], on a log scale).
-//! - **The owner's level is the ceiling.** Nothing here writes a value above the one the picture mode had when auto brightness took it
-//!   over, or a value the owner chose since. Moving the slider while auto brightness is on is read as Android and iOS read it: the
-//!   value chosen is the level wanted in this light. A run of changes (20, 25, 30, 25, 20 in 19 s) is one correction, taken once the
-//!   value has been left alone for [`SETTLE`]; nothing is written over the value meanwhile, and the curve follows it afterwards. A
-//!   value above the level becomes the new level at once; one chosen in a lit room ([`BRIGHT_LUX`]) sets it, up or down.
+//! - **The owner's level is the ceiling.** The mode's manual LG setting is the shared limit. A person can explicitly raise their
+//!   own limit with the slider, but that does not raise it for another profile. A value chosen in any light is a preference within
+//!   the limit, not a new shared limit. A run of changes (20, 25, 30, 25, 20 in 19 s) is one correction, taken once the value has
+//!   been left alone for [`SETTLE`]; nothing is written over the value meanwhile.
 //! - **The ramp.** One unit a write toward the target, never more: a unit is the smallest step the panel takes, 2% of a level of 50,
 //!   so what keeps a step unseen is the time between steps. A drift goes at most [`DARKEN_RATE`] (down) or [`BRIGHTEN_RATE`] (up) of
 //!   the level a second, never closer than [`MIN_GAP`], and starts only for a target [`START_DEADBAND`] units away. A sudden shift (a
@@ -25,18 +24,17 @@
 //!   The design follows `docs/research/auto-brightness-research.md`.
 //! - **LG's Energy saving Auto** reads the same sensor and dims on its own; two of them would fight. A mode whose Energy saving is
 //!   Auto has it switched off while this drives it, and put back exactly when this lets go. Minimum, Medium and Maximum are fixed caps
-//!   and are left as they are. HDR and Dolby Vision modes carry no Energy saving and are never touched.
-//! - **One owner of the value at a time.** Nothing is written while the compositor's panel dim holds the value (its journal exists),
-//!   while a game is in front or LG's Game mode is in force, or while the screen is off.
-//! - **Journal.** `autobright.json` in the data directory holds, per mode, the owner's level, the value last written and the Energy
-//!   saving value replaced, before any write. Switching it off, the helper's stop, the sensor failing [`FAILS`] times in a row and the
-//!   next start after a crash with the switch off all put every mode back: the owner's level where the value is still the one written
-//!   (a value someone changed since stays), and Energy saving as it was. The learned points are a file of their own
-//!   ([`learn::FILE`]) that a put-back leaves alone.
+//!   and are left as they are. HDR and Dolby Vision modes are never driven. SDR Game Optimizer (`sdrALLM`) is supported without
+//!   touching the mode or its latency settings.
+//! - **One owner of the value at a time.** Nothing is driven while the compositor's panel dim holds the value (its journal exists),
+//!   while the picture's range is unknown, or while the screen is off.
+//! - **Journal.** `autobright.json` holds the per-mode LG baseline, the last value written and the Energy saving value replaced.
+//!   Switching off, helper stop, repeated sensor failure and recovery with the switch off put the settings back if still owned.
+//!   Learning lives in the active profile's directory; the old unattributed global history is left untouched.
 //!
 //! The switch is `system.autoBrightness` of theme.json (off unless `true`). Topic `autobright`. LumaTV's sliders send the owner's
-//! brightness through `POST /v1/autobright/level` while it is on, so the value is written at once and the topic's `level`, which they
-//! show, never lags the slider. `POST /v1/autobright/reset` forgets what was learned.
+//! brightness through `POST /v1/autobright/level` while it drives the picture, so the value is written at once.
+//! `POST /v1/autobright/reset` forgets the active profile's learned adjustments.
 
 use crate::ctx::Ctx;
 use crate::paneldim::{self, Settings};
@@ -45,7 +43,10 @@ use learn::Learner;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, VecDeque};
+use std::io::{self, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
 use std::thread::{self, JoinHandle};
@@ -114,6 +115,9 @@ pub const SETTLE: Duration = Duration::from_secs(5);
 pub const SWITCH_GRACE: Duration = Duration::from_secs(3);
 /// The look interval while that is in doubt.
 const WATCH: Duration = Duration::from_secs(1);
+/// Keep a manual choice for this long at most, so a later time-of-day preference can take over without a jump at a minute boundary.
+const HOLD_FOR: Duration = Duration::from_secs(60 * 60);
+const READ_LAG: Duration = Duration::from_secs(5);
 
 /// What a decision is made from.
 pub struct Inputs<'a> {
@@ -135,9 +139,19 @@ pub fn reach(lux: f64) -> f64 {
 }
 
 /// Writes `body` to `path` through a temporary file beside it, so a crash leaves the old file or the new, never half of one.
-fn write_atomic(path: &Path, body: &[u8]) -> std::io::Result<()> {
+fn write_atomic(path: &Path, body: &[u8]) -> io::Result<()> {
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, body).and_then(|()| std::fs::rename(&tmp, path))
+    let open = || std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp);
+    let mut file = open().or_else(|e| {
+        if e.kind() != io::ErrorKind::AlreadyExists {
+            return Err(e);
+        }
+        std::fs::remove_file(&tmp)?;
+        open()
+    })?;
+    file.write_all(body)?;
+    drop(file);
+    std::fs::rename(tmp, path)
 }
 
 /// What [`Ambient::update`] did to the accepted light.
@@ -259,57 +273,129 @@ impl Ambient {
 pub struct Entry {
     pub mode: String,
     pub input: String,
-    /// The owner's level: the ceiling.
+    /// The manual LG setting to restore, shared by profiles.
     pub own: u32,
-    /// The value last written.
+    /// The last requested value.
     pub written: u32,
+    /// The previous value, until the settings service confirms the new one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    previous: Option<u32>,
     /// LG's Energy saving value this replaced with `off`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub energy: Option<String>,
+}
+
+impl Entry {
+    fn owns(&self, value: u32) -> bool {
+        self.written == value || self.previous == Some(value)
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Journal {
     #[serde(default)]
     pub modes: BTreeMap<String, Entry>,
+    #[serde(default)]
+    baselines: BTreeMap<String, Baseline>,
+}
+
+/// Keeps a physical limit's revision even after releasing the mode, so a later return to the same number cannot revive an old raise.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct Baseline {
+    value: u32,
+    revision: u64,
+}
+
+impl Journal {
+    fn observe_baseline(&mut self, key: &str, value: u32) -> (u64, bool) {
+        if let Some(b) = self.baselines.get_mut(key) {
+            if b.value == value {
+                return (b.revision, false);
+            }
+            b.value = value;
+            b.revision = b.revision.saturating_add(1);
+            return (b.revision, true);
+        }
+        let revision = crate::timeutil::now_ms();
+        self.baselines.insert(key.to_owned(), Baseline { value, revision });
+        (revision, true)
+    }
+
+    fn revision(&self, key: &str) -> u64 {
+        self.baselines.get(key).map_or(0, |b| b.revision)
+    }
 }
 
 pub fn load(path: &Path) -> Journal {
     std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
-/// The setting in force: its mode and input, the value and Energy saving. The reply carries no dynamic range (a read of these keys
-/// names only `pictureMode` and `input` in its dimension, measured on the set), so the range is [`Env::range`].
+/// The current LG setting. Reading `pictureMode` with `backlight` also asks LG for the dynamic range.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Here {
     pub mode: String,
     pub input: String,
+    pub range: String,
     pub value: u32,
     pub energy: Option<String>,
 }
 
 impl Here {
     pub fn parse(reply: &Value) -> Option<Here> {
-        let d = reply.get("dimension")?;
-        let s = |v: Option<&Value>| v.and_then(Value::as_str).map(str::to_owned);
+        let dimension = reply.get("dimension")?;
+        let s = |k: &str| dimension.get(k).and_then(Value::as_str);
+        let mode = s("pictureMode").or_else(|| reply.pointer("/settings/pictureMode").and_then(Value::as_str))?;
+        if reply.pointer("/settings/pictureMode").and_then(Value::as_str).is_some_and(|actual| actual != mode) {
+            return None;
+        }
         Some(Here {
-            mode: s(d.get("pictureMode")).or_else(|| s(reply.pointer("/settings/pictureMode")))?,
-            input: s(d.get("input"))?,
+            mode: mode.to_owned(),
+            input: s("input")?.to_owned(),
+            range: s("dynamicRange").unwrap_or_default().to_owned(),
             value: paneldim::backlight(reply)?,
-            energy: s(reply.pointer("/settings/energySaving")),
+            energy: reply.pointer("/settings/energySaving").and_then(Value::as_str).map(str::to_owned),
         })
     }
 
     fn key(&self) -> String {
         format!("{}/{}", self.input, self.mode)
     }
+
+    fn same_picture(&self, other: &Here) -> bool {
+        self.mode == other.mode && self.input == other.input && self.range.eq_ignore_ascii_case(&other.range)
+    }
+
+    fn hold(&self) -> Option<&'static str> {
+        if ["hdr", "dolby", "hlg"].iter().any(|p| self.mode.get(..p.len()).is_some_and(|s| s.eq_ignore_ascii_case(p))) {
+            Some("hdr")
+        } else if self.range.is_empty() || self.mode.is_empty() || self.input.is_empty() {
+            Some("range")
+        } else if !self.range.eq_ignore_ascii_case("sdr") && !self.range.eq_ignore_ascii_case("sdrALLM") {
+            Some("hdr")
+        } else {
+            None
+        }
+    }
+
+    fn game(&self) -> bool {
+        self.mode.eq_ignore_ascii_case("game") || self.range.eq_ignore_ascii_case("sdrALLM")
+    }
+
+    fn scene<'a>(&self, hint: &'a Scene) -> Cow<'a, Scene> {
+        if !hint.game && self.game() {
+            Cow::Owned(Scene { game: true, ..hint.clone() })
+        } else {
+            Cow::Borrowed(hint)
+        }
+    }
 }
 
-/// What was in front: the app, and whether it was playing full-screen video in it (browsing otherwise).
+/// What was in front: the app, full-screen playback and whether it was a game.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Scene {
     pub app: String,
     pub playing: bool,
+    pub game: bool,
 }
 
 /// What the rest of the helper says about now.
@@ -318,30 +404,45 @@ pub struct Env {
     /// The owner's switch.
     pub on: bool,
     pub screen: bool,
-    /// A game in front, LumaTV's game mode or a named game.
-    pub game: bool,
+    /// The live profile id and the time it was activated, or unknown during startup/recovery.
+    pub profile: Option<(String, u64)>,
     /// The compositor's panel dim holds the value.
     pub panel_dim: bool,
     pub minute: Option<u32>,
     /// Unix seconds, from the helper's clock.
     pub epoch: u64,
-    /// The picture in force as the picture module last heard it (mode, input, range): a change is looked at at once, so a mode
-    /// coming into force goes to its target with the mode change.
-    pub context: String,
-    /// The picture's dynamic range from the same place (`sdr`, `hdr10`, `dolbyVision`...); empty while it is not known. Only SDR is
-    /// written.
-    pub range: String,
-    /// The app in front and whether it plays full-screen video: the owner may want each at its own level.
+    /// The picture topic wakes the next look quickly; the settings read decides whether to write.
+    pub context: Value,
+    /// The app in front; the direct settings read can also identify Game Optimizer.
     pub scene: Scene,
 }
 
-/// LG's Game mode: its low-latency picture is left alone.
-const LG_GAME: [&str; 2] = ["game", "hdrGame"];
+fn valid_profile(id: &str) -> bool {
+    !id.is_empty() && id.len() <= crate::profiles::NAME_MAX && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+}
+
+fn profile_file(journal: &Path, id: &str) -> Option<PathBuf> {
+    if !valid_profile(id) {
+        return None;
+    }
+    let root = journal.with_file_name("profiles");
+    let dir = root.join(id);
+    if ![&root, &dir].into_iter().all(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir())) {
+        return None;
+    }
+    let file = dir.join(learn::FILE);
+    match std::fs::symlink_metadata(&file) {
+        Ok(m) if m.is_file() => Some(file),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Some(file),
+        _ => None,
+    }
+}
 
 pub struct Engine {
     tv: Box<dyn Settings + Send>,
     path: Option<PathBuf>,
     journal: Journal,
+    profile: Option<(String, u64)>,
     learner: Learner,
     /// A run of hand changes not yet settled.
     pending: Option<Pending>,
@@ -349,8 +450,8 @@ pub struct Engine {
     here: Option<Here>,
     /// The mode driven at the last turn.
     key: Option<String>,
-    /// The values last written in that mode, newest last: a read that lags a write is not the owner's.
-    recent: VecDeque<u32>,
+    /// The recent writes in the active mode: a read that lags a write is not a correction.
+    recent: VecDeque<(Instant, u32)>,
     target: Option<u32>,
     next_sample: Instant,
     next_turn: Instant,
@@ -362,7 +463,7 @@ pub struct Engine {
     hold: Option<&'static str>,
     error: Option<String>,
     on: bool,
-    context: String,
+    context: Value,
     /// What was in front at the last pass, and since when it last changed.
     scene: Option<Scene>,
     scene_since: Option<Instant>,
@@ -392,13 +493,15 @@ struct Pending {
     key: String,
     /// The value the run has reached.
     value: u32,
-    /// The mode's level when the run began: the ceiling the run's early values were chosen under.
-    own: u32,
+    /// The conditions at the latest change, not at the end of the settle window.
+    lux: f64,
+    minute: Option<u32>,
+    epoch: u64,
     /// The latest change.
     at: Instant,
     /// What was in front at the latest change.
     scene: Scene,
-    /// Begun right after a scene change, or already under way at one, and not added to since: not counted.
+    /// Begun right after a scene change and not added to since: not counted.
     suspect: bool,
 }
 
@@ -409,16 +512,17 @@ struct Held {
     scene: Scene,
     lux: f64,
     value: u32,
+    until: Instant,
 }
 
 impl Engine {
     pub fn new(tv: Box<dyn Settings + Send>, journal: Journal, path: Option<PathBuf>, now: Instant) -> Engine {
-        let learner = path.as_deref().map_or_else(Learner::default, |p| Learner::load(&p.with_file_name(learn::FILE)));
         Engine {
             tv,
             path,
             journal,
-            learner,
+            profile: None,
+            learner: Learner::default(),
             pending: None,
             ambient: Ambient::default(),
             here: None,
@@ -436,7 +540,7 @@ impl Engine {
             scene: None,
             scene_since: None,
             held: None,
-            context: String::new(),
+            context: Value::Null,
             running: false,
             fresh: false,
             sudden: false,
@@ -449,7 +553,28 @@ impl Engine {
         self.next_sample.min(self.next_turn)
     }
 
+    fn select(&mut self, now: Instant, profile: Option<&(String, u64)>) {
+        let profile = profile.filter(|(id, _)| valid_profile(id));
+        if self.profile.as_ref() == profile {
+            return;
+        }
+        self.learner = profile.zip(self.path.as_deref()).and_then(|((id, _), path)| profile_file(path, id))
+            .map_or_else(Learner::default, |path| Learner::load(&path));
+        self.profile = profile.cloned();
+        self.pending = None;
+        self.held = None;
+        self.ramp = None;
+        self.target = None;
+        self.scene = None;
+        self.scene_since = None;
+        self.context = Value::Null;
+        self.fresh = true;
+        self.sudden = false;
+        self.next_turn = now;
+    }
+
     pub fn tick(&mut self, now: Instant, env: &Env) {
+        self.select(now, env.profile.as_ref());
         let was = self.on;
         self.on = env.on;
         if self.latch.is_some_and(|t| now >= t) {
@@ -460,15 +585,18 @@ impl Engine {
         if !env.on || self.latch.is_some() {
             self.hold = Some(if env.on { "error" } else { "off" });
             self.idle(now);
-            if !self.journal.modes.is_empty() && ((was && !env.on) || now >= self.next_turn) {
+            if !env.panel_dim && !self.journal.modes.is_empty() && ((was && !env.on) || now >= self.next_turn) {
                 self.release();
+                self.next_turn = now + LOOK;
+            } else if now >= self.next_turn {
                 self.next_turn = now + LOOK;
             }
             return;
         }
-        if !env.screen {
-            self.hold = Some("screen");
+        if !env.screen || self.profile.is_none() {
+            self.hold = Some(if env.screen { "profile" } else { "screen" });
             self.idle(now);
+            self.next_turn = now + LOOK;
             return;
         }
         if !self.running {
@@ -497,40 +625,59 @@ impl Engine {
             self.hold = Some("sensor");
             return;
         };
-        self.see(now, &env.scene);
+        if self.scene.as_ref().is_none_or(|s| {
+            s.app != env.scene.app || s.playing != env.scene.playing || s.game != (env.scene.game || self.here.as_ref().is_some_and(Here::game))
+        }) {
+            self.next_turn = now;
+        }
         if env.context != self.context {
             self.context.clone_from(&env.context);
             self.next_turn = now;
         }
-        if env.game || env.panel_dim {
-            self.hold = Some(if env.game { "game" } else { "panel dim" });
-            // the mode is snapped to its target when this takes it back
-            self.key = None;
-            self.pending = None;
-            self.held = None;
+        if env.panel_dim {
+            self.pause("panel dim");
+            self.next_turn = now + WATCH;
             return;
+        }
+        if self.hold == Some("panel dim") {
+            self.next_turn = now;
         }
         if now < self.next_turn {
             return;
         }
-        // a scene just changed: look every second, so a hand change is seen about when it was made
-        let watching = self.scene_since.is_some_and(|t| now.saturating_duration_since(t) < SWITCH_GRACE);
-        self.next_turn = now + if watching { WATCH } else { LOOK };
+        self.next_turn = now + LOOK;
         if let Err(e) = self.turn(now, lux, env) {
+            self.pause("settings");
             self.failed(now, e, false);
+        } else {
+            self.fails = 0;
+            self.error = None;
         }
     }
 
     fn idle(&mut self, now: Instant) {
         self.ambient.reset();
         self.here = None;
+        self.scene = None;
+        self.scene_since = None;
+        self.sudden = false;
+        self.clear_drive();
+        self.running = false;
+        self.next_sample = now + SAMPLE;
+    }
+
+    fn clear_drive(&mut self) {
         self.key = None;
         self.target = None;
         self.ramp = None;
         self.pending = None;
         self.held = None;
-        self.running = false;
-        self.next_sample = now + SAMPLE;
+        self.recent.clear();
+    }
+
+    fn pause(&mut self, reason: &'static str) {
+        self.hold = Some(reason);
+        self.clear_drive();
     }
 
     fn failed(&mut self, now: Instant, e: String, sensor: bool) {
@@ -550,115 +697,113 @@ impl Engine {
         r.get("eyeQLux").and_then(Value::as_f64).filter(|l| l.is_finite() && *l >= 0.0).ok_or_else(|| format!("no reading: {r}"))
     }
 
+    fn read_here(&self) -> Result<Here, String> {
+        let reply = self.tv.call(READ_URI, &json!({"category": "picture", "keys": ["pictureMode", "backlight", "energySaving"]}))?;
+        let mut here = Here::parse(&reply).ok_or_else(|| format!("no picture setting: {reply}"))?;
+        if here.range.is_empty() {
+            // Some replies omit the range with mixed keys. Trust only a fresh pictureMode reply for the same mode and input.
+            let picture = self.tv.call(READ_URI, &json!({"category": "picture", "keys": ["pictureMode"]}))?;
+            if let Some(p) = crate::picture::Context::parse(&picture).filter(|p| p.mode == here.mode && p.input == here.input) {
+                here.range = p.range;
+            }
+        }
+        Ok(here)
+    }
+
     fn turn(&mut self, now: Instant, lux: f64, env: &Env) -> Result<(), String> {
-        let reply = self.tv.call(READ_URI, &json!({"category": "picture", "keys": ["backlight", "energySaving"]}))?;
-        let here = Here::parse(&reply).ok_or_else(|| format!("no picture setting: {reply}"))?;
-        self.fails = 0;
-        self.error = None;
+        let here = self.read_here()?;
+        let same_picture = self.here.as_ref().is_some_and(|h| h.same_picture(&here));
+        let changed_value = same_picture && self.here.as_ref().is_some_and(|h| h.value != here.value);
         self.here = Some(here.clone());
-        if env.range.is_empty() {
-            // the picture module has not said yet: look again soon, write nothing
-            self.hold = Some("range");
-            self.key = None;
-            self.target = None;
+        let scene = here.scene(&env.scene);
+        self.see(now, &scene);
+        let watching = self.watching(now);
+        self.next_turn = now + if watching { WATCH } else { LOOK };
+        if let Some(reason) = here.hold() {
+            self.pause(reason);
+            if reason == "hdr" {
+                self.fresh = false;
+            }
             self.next_turn = now + MIN_GAP;
             return Ok(());
         }
-        if !env.range.eq_ignore_ascii_case("sdr") || LG_GAME.contains(&here.mode.as_str()) {
-            self.hold = Some(if LG_GAME.contains(&here.mode.as_str()) { "game" } else { "hdr" });
-            self.key = None;
-            self.ramp = None;
-            self.pending = None;
-            self.held = None;
-            self.fresh = false;
-            return Ok(());
-        }
         self.hold = None;
+        if !same_picture {
+            self.clear_drive();
+        }
         let key = here.key();
-        let inputs = Inputs { lux, mode: &key, scene: &env.scene, minute: env.minute, epoch: env.epoch };
-        self.settle(now, &key, &inputs);
+        let inputs = Inputs { lux, mode: &key, scene: &scene, minute: env.minute, epoch: env.epoch };
         let dimension = json!({"pictureMode": here.mode, "input": here.input});
         let fresh = std::mem::take(&mut self.fresh);
-        let mut entered = self.key.as_deref() != Some(key.as_str());
+        let entered = self.key.as_deref() != Some(key.as_str());
         let known = self.journal.modes.get(&key).cloned();
-        if fresh && known.as_ref().is_some_and(|e| e.written == here.value) {
-            // a restart with the switch on: the value is the one this wrote, so it carries on from there
-            entered = false;
-            self.recent = VecDeque::from([here.value]);
+        let new = known.is_none();
+        let mut entry = known.unwrap_or_else(|| Entry {
+            mode: here.mode.clone(), input: here.input.clone(), own: here.value, written: here.value, previous: None, energy: None,
+        });
+        let ours = entry.owns(here.value) || self.recent.iter().any(|&(at, value)| value == here.value && now.saturating_duration_since(at) <= READ_LAG);
+        let disable_auto = here.energy.as_deref() == Some("auto");
+        if here.value == entry.written {
+            entry.previous = None;
         }
-        let mut entry = if let Some(entry) = known {
-            entry
-        } else {
-            // a mode taken over: its value is the owner's level. The owner just switched this on: it ramps from there. A mode change
-            // hides it: it goes to its target at once. Then LG's Energy saving Auto is switched off.
-            let mut entry = Entry {
-                mode: here.mode.clone(),
-                input: here.input.clone(),
-                own: here.value,
-                written: here.value,
-                energy: here.energy.clone().filter(|e| e == "auto"),
-            };
-            if !fresh {
-                let target = self.learner.target(&inputs, f64::from(here.value)).round() as u32;
-                entry.written = target.min(here.value);
-            }
-            crate::log_info!("auto brightness: {key} taken over at {} (level {}), lux {lux:.1}", entry.written, entry.own);
-            self.journal.modes.insert(key.clone(), entry.clone());
-            self.save();
-            self.key = Some(key.clone());
-            self.recent = VecDeque::from([entry.written]);
-            self.target = Some(entry.written);
-            self.ramp = None;
-            if entry.written != here.value {
-                self.write(&dimension, json!({"backlight": entry.written.to_string()}))?;
-            }
-            if entry.energy.is_some() {
-                self.write(&dimension, json!({"energySaving": "off"}))?;
-            }
-            if !fresh {
-                self.next_turn = now + MIN_GAP;
-                return Ok(());
-            }
-            entered = false;
-            entry
-        };
-        // Energy saving put back to Auto meanwhile (a preset, LG's own menu): this is the one switch, so it goes off again and the
-        // value it had is what a release puts back
-        if here.energy.as_deref() == Some("auto") {
+        if entered && !ours && !disable_auto && here.value < entry.own {
+            // A lower manual LG setting while away becomes the physical cap, not a correction for the profile entering now.
+            entry.own = here.value;
+            entry.written = here.value;
+            entry.previous = None;
+        }
+        let (revision, baseline_changed) = self.journal.observe_baseline(&key, entry.own);
+        self.learner.rebase_ceiling(&key, entry.own, revision);
+        if here.value == entry.written && let Some(saved) = self.journal.modes.get_mut(&key) {
+            saved.previous = None;
+        }
+        let remember_auto = disable_auto && entry.energy.is_none();
+        if remember_auto {
             entry.energy = Some("auto".into());
+        }
+        if new || baseline_changed || remember_auto {
             self.journal.modes.insert(key.clone(), entry.clone());
             self.save();
+        }
+        if disable_auto {
             self.write(&dimension, json!({"energySaving": "off"}))?;
         }
-        // a read that lags a write of this mode is not the owner's; the other mode's writes say nothing about this one
-        let ours = here.value == entry.written || (!entered && self.recent.contains(&here.value));
-        if entered {
-            self.recent = VecDeque::from([entry.written]);
-            if !ours {
-                // changed while the mode was not in force: whoever changed it set the mode's level
-                entry.own = here.value;
-            }
-        } else if !ours {
-            // set by hand elsewhere (LG's own menu): the value chosen is the level wanted in this light
-            self.hand(now, &key, entry, here.value);
+        if new {
+            crate::log_info!("auto brightness: {key} taken over at {} with lux {lux:.1}", entry.own);
+        }
+        if !fresh && !entered && !watching && changed_value && !ours && !disable_auto {
+            // Only infer an LG menu adjustment in a continuously owned picture, never on entry or from a late read of our own write.
+            entry.written = here.value;
+            entry.previous = None;
+            self.journal.modes.insert(key.clone(), entry);
+            self.save();
+            self.hand(now, &inputs, here.value);
             return Ok(());
+        }
+        if entered || !ours {
+            self.remember(now, here.value);
         }
         if let Some(p) = &self.pending {
-            // a run of changes not yet left alone: the value stays as it is until it counts
-            self.next_turn = p.at + SETTLE;
-            return Ok(());
+            if now < p.at + SETTLE {
+                self.next_turn = p.at + SETTLE;
+                return Ok(());
+            }
+            self.settle(now, &inputs, here.value);
         }
-        if self.held.as_ref().is_some_and(|h| h.key != key || h.scene != env.scene || h.lux != lux) {
+        if self.held.as_ref().is_some_and(|h| h.key != key || h.scene != *scene || h.lux != lux || now >= h.until) {
             self.held = None;
         }
-        let wanted = self.held.as_ref().map_or_else(|| self.learner.target(&inputs, f64::from(entry.own)), |h| f64::from(h.value));
-        let target = (wanted.round() as u32).min(entry.own);
+        let ceiling = self.learner.ceiling(&key, entry.own, revision);
+        let wanted = self.held.as_ref().map_or_else(|| self.learner.target(&inputs, f64::from(ceiling)), |h| f64::from(h.value));
+        let target = (wanted.round() as u32).min(ceiling);
         self.target = Some(target);
-        self.key = Some(key.clone());
+        if entered {
+            self.key = Some(key.clone());
+        }
         if std::mem::take(&mut self.sudden) {
             self.ramp = Some(Ramp { from: here.value, fast: true });
         }
-        let value = if entered {
+        let value = if entered && !fresh {
             self.ramp = None;
             target
         } else {
@@ -668,28 +813,20 @@ impl Engine {
                 return Ok(());
             }
             if self.ramp.is_none() {
-                if apart < START_DEADBAND {
+                if apart < START_DEADBAND && here.value <= ceiling {
                     return Ok(());
                 }
                 self.ramp = Some(Ramp { from: here.value, fast: false });
             }
-            if target > here.value { here.value + 1 } else { here.value - 1 }
+            (if target > here.value { here.value + 1 } else { here.value - 1 }).min(ceiling)
         };
-        if entered && value == here.value {
-            if entry != self.journal.modes[&key] {
-                self.journal.modes.insert(key, entry);
-                self.save();
-            }
+        if value == here.value {
             return Ok(());
         }
-        entry.written = value;
-        self.journal.modes.insert(key, entry);
-        self.save();
-        self.recent.push_back(value);
-        while self.recent.len() > 4 {
-            self.recent.pop_front();
+        self.write_backlight(now, key, entry, &dimension, value)?;
+        if let Some(current) = &mut self.here {
+            current.value = value;
         }
-        self.write(&dimension, json!({"backlight": value.to_string()}))?;
         match self.ramp {
             Some(ramp) if value != target => {
                 let total = f64::from(target.abs_diff(ramp.from).max(1));
@@ -701,101 +838,100 @@ impl Engine {
         Ok(())
     }
 
-    /// The scene in front changed (or is first seen): the target follows at once, and a run of hand changes already under way
-    /// is as likely meant for the scene just left.
+    fn remember(&mut self, now: Instant, value: u32) {
+        if self.recent.len() == 4 {
+            self.recent.pop_front();
+        }
+        self.recent.push_back((now, value));
+    }
+
+    fn watching(&self, now: Instant) -> bool {
+        self.scene_since.is_some_and(|t| now.saturating_duration_since(t) < SWITCH_GRACE)
+    }
+
+    /// Never finish a pending correction or keep its temporary hold in a different scene.
     fn see(&mut self, now: Instant, scene: &Scene) {
         if self.scene.as_ref() == Some(scene) {
             return;
         }
         if self.scene.is_some() {
             self.scene_since = Some(now);
-            if let Some(p) = &mut self.pending {
-                p.suspect = true;
-            }
+            self.pending = None;
+            self.held = None;
         }
         self.scene = Some(scene.clone());
-        self.next_turn = now;
     }
 
-    /// The owner chose `value`: it stays as it is, the mode's level rises to it when it is above, and it counts as a correction once
-    /// left alone for [`SETTLE`] (what a run of changes has reached by then is the one that counts). A run that began within
-    /// [`SWITCH_GRACE`] of a scene change, and has not been added to since, is probably about the scene before and does not count.
-    fn hand(&mut self, now: Instant, key: &str, mut entry: Entry, value: u32) {
-        let prev = self.pending.as_ref().filter(|p| p.key == key);
-        let own = prev.map_or(entry.own, |p| p.own);
-        let suspect = self.scene_since.is_some_and(|t| now.saturating_duration_since(t) < SWITCH_GRACE) && prev.is_none_or(|p| p.suspect);
-        entry.own = entry.own.max(value).min(100);
-        entry.written = value;
-        crate::log_info!("auto brightness: {key} set to {value} by hand; level {}", entry.own);
-        self.journal.modes.insert(key.to_owned(), entry);
-        self.save();
-        self.pending = Some(Pending { key: key.to_owned(), value, own, at: now, scene: self.scene.clone().unwrap_or_default(), suspect });
+    /// The value was chosen by hand and reached the TV; coalesce a slider's run of changes into its final position.
+    fn hand(&mut self, now: Instant, inputs: &Inputs, value: u32) {
+        let suspect = self.watching(now) && self.pending.as_ref().is_none_or(|p| p.suspect);
+        self.pending = Some(Pending {
+            key: inputs.mode.to_owned(), value, at: now, scene: inputs.scene.clone(), lux: inputs.lux, minute: inputs.minute, epoch: inputs.epoch, suspect,
+        });
         self.held = None;
-        self.recent = VecDeque::from([value]);
+        self.remember(now, value);
         self.target = Some(value);
         self.ramp = None;
         self.next_turn = now + SETTLE;
     }
 
-    /// Counts a run of hand changes once it has been left alone for [`SETTLE`], or at once when the mode in force is no longer its.
-    /// The correction belongs to the scene in force when it settles, or, when the mode changed under it, to the one it was made in.
-    fn settle(&mut self, now: Instant, key: &str, inputs: &Inputs) {
-        let Some(p) = self.pending.take_if(|p| p.key != key || now >= p.at + SETTLE) else { return };
-        let Some(mut entry) = self.journal.modes.get(&p.key).cloned() else { return };
-        // in a lit room the value chosen is the level, up or down; elsewhere it only raises it
-        let lit = reach(inputs.lux) >= 1.0;
-        let own = if lit || p.value > p.own { p.value } else { p.own }.min(100);
-        let scene = if p.key == key { inputs.scene.clone() } else { p.scene.clone() };
+    fn settle(&mut self, now: Instant, inputs: &Inputs, observed: u32) {
+        let Some(p) = self.pending.take_if(|p| now >= p.at + SETTLE) else { return };
+        if p.suspect || p.key != inputs.mode || p.scene != *inputs.scene || p.value != observed {
+            return;
+        }
+        let Some(entry) = self.journal.modes.get(&p.key) else { return };
+        let revision = self.journal.revision(&p.key);
+        self.learner.raise_ceiling(&p.key, entry.own, revision, p.value);
+        let own = self.learner.ceiling(&p.key, entry.own, revision);
         if own > 0 {
-            if own != p.own {
-                self.learner.rescale(&p.key, f64::from(p.own), f64::from(own));
-            }
-            if !lit && !p.suspect {
-                self.learner.add(&p.key, &scene, inputs.lux, f64::from(p.value) / f64::from(own), inputs.minute, inputs.epoch);
-                // the curve may meet it only partway (a new app's first point): it stays as chosen while the light and the scene do
-                if p.key == key {
-                    self.held = Some(Held { key: p.key.clone(), scene, lux: inputs.lux, value: p.value.min(own) });
-                }
-            }
-        }
-        if p.suspect {
-            crate::log_info!("auto brightness: {} set to {} by hand within {} s of a scene change; not learned", p.key, p.value, SWITCH_GRACE.as_secs());
-        } else {
-            crate::log_info!("auto brightness: {} set to {} by hand at lux {:.1}, level {own}; learned from {} adjustments", p.key, p.value, inputs.lux, self.learner.adjustments());
-        }
-        if entry.own != own {
-            entry.own = own;
-            self.journal.modes.insert(p.key, entry);
-            self.save();
+            self.learner.add(&p.key, &p.scene, p.lux, f64::from(p.value) / f64::from(own), p.minute, p.epoch);
+            self.held = Some(Held { key: p.key, scene: p.scene, lux: p.lux, value: p.value, until: now + HOLD_FOR });
         }
     }
 
-    /// Forgets what was learned: the default curve again.
-    pub fn reset_learning(&mut self, now: Instant) -> Value {
-        self.learner.reset();
+    /// Forgets the active profile's learned points, not its explicit limit.
+    pub fn reset_learning(&mut self, now: Instant, profile: Option<&(String, u64)>) -> Value {
+        self.select(now, profile);
+        if self.profile.is_some() {
+            self.learner.reset();
+        }
         self.pending = None;
         self.held = None;
+        self.ramp = None;
+        self.target = None;
         self.next_turn = now;
         self.status()
     }
 
-    /// The owner's slider (`POST /v1/autobright/level`): written at once, and while this drives the mode in force, learned as
-    /// [`Engine::turn`] learns a value set elsewhere, without waiting for the next look.
+    /// The Quick Settings and Picture sliders use this route while auto brightness drives the picture.
     pub fn by_hand(&mut self, now: Instant, value: u32, env: &Env) -> Result<Value, String> {
-        let value = value.min(100);
-        let reply = self.tv.call(READ_URI, &json!({"category": "picture", "keys": ["backlight", "energySaving"]}))?;
-        let mut here = Here::parse(&reply).ok_or_else(|| format!("no picture setting: {reply}"))?;
-        let key = here.key();
-        self.see(now, &env.scene);
-        let driving = self.on && self.hold.is_none() && self.key.as_deref() == Some(key.as_str());
-        if let (true, Some(lux)) = (driving, self.ambient.lux()) {
-            self.settle(now, &key, &Inputs { lux, mode: &key, scene: &env.scene, minute: env.minute, epoch: env.epoch });
-            if let Some(entry) = self.journal.modes.get(&key).cloned() {
-                self.hand(now, &key, entry, value);
-            }
+        self.select(now, env.profile.as_ref());
+        if !env.on || !env.screen || env.panel_dim || self.profile.is_none() || self.hold.is_some() {
+            return Err("auto brightness is not controlling this picture".into());
         }
-        self.write(&json!({"pictureMode": here.mode, "input": here.input}), json!({"backlight": value.to_string()}))?;
-        here.value = value;
+        let lux = self.ambient.lux().ok_or("the room light is not known yet")?;
+        let value = value.min(100);
+        let mut here = self.read_here()?;
+        let key = here.key();
+        if here.hold().is_some() || self.key.as_deref() != Some(key.as_str()) || self.here.as_ref().is_none_or(|h| !h.same_picture(&here)) {
+            return Err("the picture changed; try the slider again".into());
+        }
+        let mut entry = self.journal.modes.get(&key).cloned().ok_or("auto brightness has not taken over this mode yet")?;
+        if here.value == entry.written {
+            entry.previous = None;
+        }
+        let scene = here.scene(&env.scene);
+        self.see(now, &scene);
+        let inputs = Inputs { lux, mode: &key, scene: &scene, minute: env.minute, epoch: env.epoch };
+        if value != here.value {
+            let dimension = json!({"pictureMode": here.mode, "input": here.input});
+            self.write_backlight(now, key.clone(), entry, &dimension, value)?;
+            self.settle(now, &inputs, here.value);
+            self.remember(now, here.value);
+            self.hand(now, &inputs, value);
+            here.value = value;
+        }
         self.here = Some(here);
         Ok(self.status())
     }
@@ -805,17 +941,35 @@ impl Engine {
         if r.get("returnValue").and_then(Value::as_bool) == Some(true) { Ok(()) } else { Err(format!("write refused: {r}")) }
     }
 
+    fn write_backlight(&mut self, now: Instant, key: String, mut entry: Entry, dimension: &Value, value: u32) -> Result<(), String> {
+        // Either reading after a timeout or crash still identifies a setting to put back; only an acknowledged slider write learns.
+        if entry.written != value {
+            entry.previous = entry.previous.or(Some(entry.written));
+            entry.written = value;
+            self.journal.modes.insert(key, entry);
+            self.save();
+        }
+        self.remember(now, value);
+        self.write(dimension, json!({"backlight": value.to_string()}))
+    }
+
     /// Puts every mode back: the owner's level where the value is still the one written, Energy saving as it was. A mode the service
     /// did not answer for stays in the journal for the next try. True when nothing is left.
     pub fn release(&mut self) -> bool {
+        if self.journal.modes.is_empty() {
+            return true;
+        }
+        if self.path.as_deref().is_some_and(|p| p.with_file_name(paneldim::JOURNAL).exists()) {
+            return false;
+        }
         let keys: Vec<String> = self.journal.modes.keys().cloned().collect();
         for key in keys {
             let e = self.journal.modes[&key].clone();
             let dimension = json!({"pictureMode": e.mode, "input": e.input});
-            let done = (|| -> Result<(), String> {
+            let done = (|| -> Result<u32, String> {
                 let r = self.tv.call(READ_URI, &json!({"category": "picture", "keys": ["backlight", "energySaving"], "dimension": dimension}))?;
-                let value = paneldim::backlight(&r);
-                if value == Some(e.written) && e.written != e.own {
+                let value = paneldim::backlight(&r).ok_or_else(|| format!("no picture setting: {r}"))?;
+                if e.owns(value) && value != e.own {
                     self.write(&dimension, json!({"backlight": e.own.to_string()}))?;
                 }
                 if let Some(prev) = &e.energy
@@ -823,11 +977,14 @@ impl Engine {
                 {
                     self.write(&dimension, json!({"energySaving": prev}))?;
                 }
-                Ok(())
+                Ok(if e.owns(value) { e.own } else { value })
             })();
             match done {
-                Ok(()) => {
-                    crate::log_info!("auto brightness: {key} put back to {}", e.own);
+                Ok(value) => {
+                    if value == e.own {
+                        crate::log_info!("auto brightness: {key} put back to {}", e.own);
+                    }
+                    self.journal.observe_baseline(&key, value);
                     self.journal.modes.remove(&key);
                 }
                 Err(err) => crate::log_warn!("auto brightness: putting {key} back: {err}"),
@@ -847,17 +1004,22 @@ impl Engine {
     }
 
     pub fn status(&self) -> Value {
-        let entry = self.here.as_ref().and_then(|h| self.journal.modes.get(&h.key()));
+        let entry = self.key.as_ref().and_then(|key| self.journal.modes.get(key).map(|e| (key, e)));
+        let ceiling = entry.map(|(key, e)| {
+            let cap = self.learner.ceiling(key, e.own, self.journal.revision(key));
+            self.pending.as_ref().filter(|p| &p.key == key && !p.suspect).map_or(cap, |p| cap.max(p.value))
+        });
         json!({
             "on": self.on,
-            "active": self.on && self.hold.is_none() && entry.is_some(),
+            "active": self.on && self.profile.is_some() && self.hold.is_none() && entry.is_some(),
+            "profile": self.profile.as_ref().map(|(id, _)| id),
             "hold": self.hold,
             "lux": self.ambient.lux().map(|l| (l * 10.0).round() / 10.0),
             "level": self.here.as_ref().map(|h| h.value),
             "target": self.target,
-            "ceiling": entry.map(|e| e.own),
-            "mode": self.here.as_ref().map(|h| h.mode.clone()),
-            "energySaving": entry.and_then(|e| e.energy.clone()),
+            "ceiling": ceiling,
+            "mode": self.here.as_ref().map(|h| &h.mode),
+            "energySaving": entry.and_then(|(_, e)| e.energy.as_deref()),
             "learned": self.learner.adjustments(),
             "apps": self.learner.apps(),
             "error": self.error,
@@ -888,42 +1050,53 @@ fn switch_on(theme: &Path) -> bool {
         == Some(true)
 }
 
-fn minute_now() -> Option<u32> {
-    let s = i64::try_from(crate::timeutil::now_ms() / 1000).ok()?;
+fn minute_at(epoch: u64) -> Option<u32> {
+    let s = i64::try_from(epoch).ok()?;
     let local = s + crate::dnd::utc_offset_s(s)?;
     u32::try_from(local.rem_euclid(86_400) / 60).ok()
 }
 
 enum Msg {
     Stop,
-    Level(u32, mpsc::Sender<Result<Value, String>>),
-    Reset(mpsc::Sender<Value>),
+    Level((String, u64), u32, mpsc::Sender<Result<Value, String>>),
+    Reset((String, u64), mpsc::Sender<Value>),
 }
 
 /// The door to the thread for `POST /v1/autobright/level` and `/reset`.
 #[derive(Default)]
-pub struct Remote(Mutex<Option<mpsc::Sender<Msg>>>);
+pub struct Remote(Mutex<Option<Mailbox>>);
+
+struct Mailbox {
+    tx: mpsc::Sender<Msg>,
+    profiles: Arc<crate::profiles::Profiles>,
+}
 
 impl Remote {
+    fn send(&self, msg: impl FnOnce((String, u64)) -> Msg) -> Option<()> {
+        let mailbox = self.0.lock();
+        let mailbox = mailbox.as_ref()?;
+        let profile = mailbox.profiles.active_selection()?;
+        mailbox.tx.send(msg(profile)).ok()
+    }
+
     /// `None` while the thread is not running.
     pub fn level(&self, value: u32) -> Option<Result<Value, String>> {
         let (tx, rx) = mpsc::channel();
-        self.0.lock().as_ref()?.send(Msg::Level(value, tx)).ok()?;
-        // a read and a write, each up to luna-send's deadline
+        self.send(|profile| Msg::Level(profile, value, tx))?;
         rx.recv_timeout(Duration::from_secs(10)).ok()
     }
 
     /// Forgets what was learned; the new status. `None` while the thread is not running.
     pub fn reset(&self) -> Option<Value> {
         let (tx, rx) = mpsc::channel();
-        self.0.lock().as_ref()?.send(Msg::Reset(tx)).ok()?;
+        self.send(|profile| Msg::Reset(profile, tx))?;
         rx.recv_timeout(Duration::from_secs(10)).ok()
     }
 }
 
-pub fn spawn(ctx: &Ctx, remote: Arc<Remote>) -> std::io::Result<JoinHandle<()>> {
+pub fn spawn(ctx: &Ctx, remote: Arc<Remote>, profiles: Arc<crate::profiles::Profiles>) -> io::Result<JoinHandle<()>> {
     let ctx = ctx.clone();
-    thread::Builder::new().name("autobright".to_owned()).stack_size(256 * 1024).spawn(move || run(&ctx, &remote))
+    thread::Builder::new().name("autobright".to_owned()).stack_size(256 * 1024).spawn(move || run(&ctx, &remote, profiles))
 }
 
 /// The owner's switch, read again only when theme.json changes.
@@ -944,18 +1117,18 @@ impl Switch {
     }
 }
 
-/// What is in front: the app playing full-screen video (the picture module's reading of videooutputd) or else the app first on
-/// screen. Without the app priority topic every app is one.
-fn scene(hub: &crate::hub::Hub, picture: Option<&Value>) -> Scene {
-    let playing = picture.and_then(|p| p.get("playing")).filter(|v| v.get("full").and_then(Value::as_bool) == Some(true));
-    let app = playing
-        .and_then(|v| v.get("app").and_then(Value::as_str).map(str::to_owned))
-        .or_else(|| hub.get(crate::app_priority::TOPIC).and_then(|a| a.pointer("/front/0").and_then(Value::as_str).map(str::to_owned)))
-        .unwrap_or_default();
-    Scene { app, playing: playing.is_some() }
+/// Use the foreground game rather than a video window left over from the preceding app.
+fn scene(hub: &crate::hub::Hub, picture: &Value) -> Scene {
+    let game = crate::picture::game_in_front(hub);
+    let fronts = hub.get(crate::app_priority::TOPIC);
+    let front = fronts.as_ref().and_then(|a| a.pointer("/front/0")).and_then(Value::as_str);
+    let playing = picture.get("playing").filter(|v| v.get("full").and_then(Value::as_bool) == Some(true));
+    let video = playing.and_then(|v| v.get("app")).and_then(Value::as_str);
+    let app = if game { front.or(video) } else { video.or(front) };
+    Scene { app: app.unwrap_or_default().to_owned(), playing: playing.is_some() && (!game || video == app), game }
 }
 
-fn run(ctx: &Ctx, remote: &Remote) {
+fn run(ctx: &Ctx, remote: &Remote, profiles: Arc<crate::profiles::Profiles>) {
     let (tx, rx) = mpsc::channel();
     {
         let tx = tx.clone();
@@ -963,23 +1136,24 @@ fn run(ctx: &Ctx, remote: &Remote) {
             let _ = tx.send(Msg::Stop);
         });
     }
-    remote.0.lock().replace(tx);
+    remote.0.lock().replace(Mailbox { tx, profiles: profiles.clone() });
     let path = ctx.paths.data_dir.join(STATE);
     let mut switch = Switch { path: ctx.paths.theme_file(), seen: None, on: false };
     let dim = ctx.paths.data_dir.join(paneldim::JOURNAL);
     let mut engine = Engine::new(Box::new(LunaSource::new(&ctx.config.luna.send)), load(&path), Some(path), Instant::now());
     let env = |switch: &mut Switch| {
-        let picture = ctx.hub.get(crate::picture::TOPIC);
+        let mut picture = ctx.hub.get(crate::picture::TOPIC).unwrap_or_default();
+        let scene = scene(&ctx.hub, &picture);
+        let epoch = crate::timeutil::now_ms() / 1000;
         Env {
             on: switch.on(),
             screen: crate::screen::is_on(&ctx.hub),
-            game: crate::picture::game_in_front(&ctx.hub),
+            profile: profiles.active_selection(),
             panel_dim: dim.exists(),
-            minute: minute_now(),
-            epoch: crate::timeutil::now_ms() / 1000,
-            context: picture.as_ref().and_then(|p| p.get("context").map(Value::to_string)).unwrap_or_default(),
-            range: picture.as_ref().and_then(|p| p.pointer("/context/range").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default(),
-            scene: scene(&ctx.hub, picture.as_ref()),
+            minute: minute_at(epoch),
+            epoch,
+            context: picture.get_mut("context").map_or(Value::Null, Value::take),
+            scene,
         }
     };
     loop {
@@ -989,11 +1163,20 @@ fn run(ctx: &Ctx, remote: &Remote) {
         let wait = engine.next().saturating_duration_since(Instant::now()).clamp(Duration::from_millis(50), Duration::from_secs(1));
         match rx.recv_timeout(wait) {
             Ok(Msg::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-            Ok(Msg::Level(value, reply)) => {
-                let _ = reply.send(engine.by_hand(Instant::now(), value, &env(&mut switch)));
+            Ok(Msg::Level(profile, value, reply)) => {
+                let env = env(&mut switch);
+                let result = if env.profile.as_ref() == Some(&profile) {
+                    engine.by_hand(Instant::now(), value, &env)
+                } else {
+                    Err("the active profile changed; try the slider again".into())
+                };
+                let _ = reply.send(result);
             }
-            Ok(Msg::Reset(reply)) => {
-                let _ = reply.send(engine.reset_learning(Instant::now()));
+            Ok(Msg::Reset(profile, reply)) => {
+                let current = profiles.active_selection();
+                if current.as_ref() == Some(&profile) {
+                    let _ = reply.send(engine.reset_learning(Instant::now(), current.as_ref()));
+                }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
