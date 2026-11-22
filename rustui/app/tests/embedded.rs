@@ -437,20 +437,18 @@ fn a_frame_takes_the_contexts_scope_only_for_the_calls_that_reach_the_gl() {
     let _ = std::fs::remove_dir_all(&shm);
 }
 
-/// Home with a moving wallpaper and nothing over it keeps the layers above the wallpaper in the ceiling: a page is drawn as the wallpaper and one
-/// blended copy, not every layer, and it is the picture the same layers drawn straight over the wallpaper make (to the rounding of the blend). A
-/// panel that opens over Home and closes again switches the page between the ceiling and the floor, and no frame holds Home composed both ways.
+/// The engine counts a wallpaper's steps in the panel's real refresh: at 60 fps on a 60 Hz panel it steps in every frame, none early; told the
+/// panel runs at 120 Hz (the compositor tells the engine at every tick), it asks for every second refresh, not every one.
 #[test]
-fn a_page_over_a_moving_wallpaper_comes_from_the_ceiling_and_matches_the_layers_drawn_straight() {
+fn a_wallpaper_at_60_fps_asks_for_every_second_refresh_once_the_panel_is_told_it_runs_at_120_hz() {
     const CW: u32 = 960;
     const CH: u32 = 540;
-    const ABOVE: usize = 60;
     software_gl();
     let host = Gles::software_pbuffer(LIB, CW, CH).expect("a software GL");
-    let (page, straight) = (host.new_render_target(CW, CH).expect("a page"), host.new_render_target(CW, CH).expect("a target"));
+    let page = host.new_render_target(CW, CH).expect("a page");
     // SAFETY: the host's context is current on this thread and outlives the engine.
     let wrapped = unsafe { Gles::current(LIB) }.expect("the current context");
-    let shm = std::env::temp_dir().join(format!("lumatv-embedded-ceiling-{}", std::process::id()));
+    let shm = std::env::temp_dir().join(format!("lumatv-embedded-refresh-{}", std::process::id()));
     std::fs::create_dir_all(&shm).expect("a shm dir");
     let (mut engine, app_end) = Engine::new(
         wrapped,
@@ -462,31 +460,11 @@ fn a_page_over_a_moving_wallpaper_comes_from_the_ceiling_and_matches_the_layers_
     let ui = Ui::new(scene);
     let wallpaper = compositor_protocol::Wallpaper { kind: compositor_protocol::WallpaperKind::Starfield, speed: 1.0, intensity: 1.0, fps: 60 };
     let _sky = ui.scene.wallpaper(CW, CH, 0, wallpaper, Props::at(0.0, 0.0)).expect("a wallpaper");
-    // Home's tiles: translucent cards (a blend over the wallpaper that rounds), a few glass panes showing its blur, and one that moves
-    let tiles: Vec<_> = (0..ABOVE)
-        .map(|i| {
-            let (x, y) = ((i % 10) as f32 * 92.0 + 12.0, (i / 10) as f32 * 80.0 + 20.0);
-            ui.scene.shape(80, 64, 1 + i as i32, solid(10.0, (40 + i * 3 % 200) as u8, 90, (200 - i * 2 % 120) as u8, (120 + i * 5 % 100) as u8), Props::at(x, y))
-        })
-        .collect();
-    let _panes: Vec<_> = (0..3).map(|i| ui.scene.glass(240, 120, 70 + i, glass(Backdrop::Cached { radius: 16.0 }), Props::at(40.0 + i as f32 * 300.0, 380.0))).collect();
-    let layers_of_home = ABOVE + 3 + 1;
-    let mut panel = None;
+    let _tile = ui.scene.shape(80, 64, 1, solid(10.0, 40, 90, 200, 120), Props::at(12.0, 20.0));
 
     let full = [[0, 0, CW as i32, CH as i32]];
     let mut now = lumatv_render::now_ns();
-    let (mut worst, mut ceiling_frames, mut compared) = (0u8, 0usize, 0usize);
     for k in 0..60usize {
-        // a panel opens over Home at 20 and closes at 36; one tile moves every fifth frame, so the ceiling owes a little in some frames
-        if k == 20 {
-            panel = Some(ui.scene.shape(500, 300, 110, solid(20.0, 230, 230, 240, 235), Props::at(230.0, 120.0)));
-        }
-        if k == 36 {
-            panel = None;
-        }
-        if k % 5 == 0 {
-            tiles[0].set(Props::at(12.0 + (k % 40) as f32 * 6.0, 20.0));
-        }
         let _ = ui.try_commit().expect("a commit");
         while events.try_recv().is_ok() {}
         for _ in 0..200 {
@@ -498,66 +476,18 @@ fn a_page_over_a_moving_wallpaper_comes_from_the_ceiling_and_matches_the_layers_
         }
         now += REFRESH_NS;
         engine.plan(now).expect("plan");
-        let over = engine.has_layers(1);
-        assert_eq!(over, panel.is_some(), "frame {k}: the panel is in stack 1 while it is open");
-        // Odd frames are counted and even ones compared: the frame drawn again straight would add its own layers to the count.
-        let compare = k % 2 == 0;
         engine.draw_stack(0, page.framebuffer, &full).expect("stack 0");
-        if over {
-            engine.draw_stack(1, page.framebuffer, &full).expect("stack 1");
-        }
-        if compare {
-            engine.draw_stack_direct(0, straight.framebuffer, &full).expect("stack 0 straight");
-            if over {
-                engine.draw_stack(1, straight.framebuffer, &full).expect("stack 1");
-            }
-        }
         let cost = engine.finish().expect("finish");
         assert_eq!(cost.gl_error, None, "frame {k}: GL error");
         engine.frame_done(now, &cost);
         engine.tidy();
-        if compare {
-            host.bind_framebuffer(page.framebuffer);
-            let drawn = host.read_pixels(0, 0, CW, CH);
-            host.bind_framebuffer(straight.framebuffer);
-            let whole = host.read_pixels(0, 0, CW, CH);
-            let diff = drawn.iter().zip(&whole).map(|(a, b)| a.abs_diff(*b)).max().unwrap_or(0);
-            // over the panel the page is the floor's exact copy, and Home's own frames (the first, the ones after the panel) are drawn whole
-            worst = worst.max(diff);
-            assert!(diff <= 1, "frame {k}: the page differs from the layers drawn straight by {diff} at most");
-            compared += 1;
-        } else if (8..20).contains(&k) || k >= 44 {
-            // A frame of Home alone (the panel gone for more than the frames a page keeps copying from the floor) in which the wallpaper steps and a
-            // tile moves now and then: the wallpaper and a copy, not the scene's layers
-            ceiling_frames += 1;
-            assert!(
-                (cost.layers as usize) * 4 < layers_of_home,
-                "frame {k}: {} layers drawn for a scene of {layers_of_home} over a stepping wallpaper",
-                cost.layers
-            );
-        }
     }
-    assert!(ceiling_frames >= 10 && compared >= 25, "{ceiling_frames} frames counted, {compared} compared");
-    let (on, through) = engine.ceiling().expect("a ceiling");
-    assert!(on && through as usize >= ceiling_frames, "{through} frames planned through the ceiling");
-    // Switched off while running (the compositor's `ctl ceiling off`), the next frame draws Home's layers straight.
-    assert!(engine.set_ceiling(false));
-    now += REFRESH_NS;
-    engine.plan(now).expect("plan");
-    engine.draw_stack(0, page.framebuffer, &full).expect("stack 0");
-    let cost = engine.finish().expect("finish");
-    engine.frame_done(now, &cost);
-    assert!((cost.layers as usize) * 4 >= layers_of_home, "{} layers drawn straight", cost.layers);
-    assert_eq!(engine.ceiling(), Some((false, through)));
-    // At its 60 fps the wallpaper stepped in every frame of a 60 Hz panel, none of them early; told the panel runs at 120 Hz (the compositor
-    // tells the engine the panel's refresh at every tick), it asks for every second refresh, not every one (to the nanoseconds a frame here
-    // drifts from the engine's 16 666 666 ns grid).
+    // To the nanoseconds a frame here drifts from the engine's 16 666 666 ns grid.
     let (steps, merged) = engine.steps();
     assert!(steps >= 55 && merged == 0, "{steps} steps, {merged} of them early");
     assert_eq!(engine.demand(), Demand::EveryRefresh);
     engine.set_refresh_period_ns(REFRESH_NS / 2);
     assert!(matches!(engine.demand(), Demand::At(at) if at.abs_diff(now + REFRESH_NS) < 1_000), "{:?} after a step at {now}", engine.demand());
-    eprintln!("ceiling: worst channel difference {worst}");
     let _ = std::fs::remove_dir_all(&shm);
 }
 

@@ -130,12 +130,11 @@ impl Ui {
         &mut self.engine
     }
 
-    /// The engine's part of `ctl status`'s `ui`: whether the ceiling is used and the frames planned through it (`null` without one),
-    /// whether a wallpaper's step may come a refresh early, and the steps since the start and those that came early.
+    /// The engine's part of `ctl status`'s `ui`: whether a wallpaper's step may come a refresh early, and
+    /// the steps since the start and those that came early.
     pub fn report(&self) -> serde_json::Value {
         let (steps, merged) = self.engine.steps();
         serde_json::json!({
-            "ceiling": self.engine.ceiling().map(|(on, frames)| serde_json::json!({"on": on, "frames": frames})),
             "merge": self.engine.step_merging(),
             "steps": steps,
             "mergedSteps": merged,

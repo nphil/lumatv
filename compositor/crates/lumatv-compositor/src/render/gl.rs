@@ -2251,17 +2251,6 @@ impl Output for Gl {
         self.ui_report_with(None)
     }
 
-    fn ui_set_ceiling(&mut self, _on: bool) -> bool {
-        #[cfg(feature = "ui")]
-        {
-            self.ui.as_mut().is_some_and(|ui| ui.engine().set_ceiling(_on))
-        }
-        #[cfg(not(feature = "ui"))]
-        {
-            false
-        }
-    }
-
     fn ui_set_step_merging(&mut self, _on: bool) -> bool {
         #[cfg(feature = "ui")]
         if let Some(ui) = &mut self.ui {

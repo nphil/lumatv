@@ -38,16 +38,6 @@
 //! (`kms::frames`): its ring keeps the account a compositor keeps, a page copies from the page drawn last what it owes from the
 //! frames before (while something is over Home), and the frame draws only what it changes, so what the host measures is what the
 //! set draws. `LUMATV_FLOOR=0` and `LUMATV_PAGE_COPY=0` switch either off, to compare.
-//!
-//! Stack 0 over a moving wallpaper. A step of Home's wallpaper (a wallpaper of a base kind over the whole panel) changes all of the
-//! panel under Home, and a page drew every layer of Home in it: 108 layers over 2 Mpx with the owner's Home on the host, about 10.7 ms of
-//! GPU at round 23's cost, and the set measured 24.8 % of the GPU busy at 10 steps a second, 49.6 % at 30 and 75.5 % at 60 against 9.6 %
-//! with the wallpaper still. While it steps, the layers of stack 0 over it are kept in a render target of their own over nothing, the
-//! ceiling, with an account of their own in the renderer: a page draws the layers up to the wallpaper and one blended copy of the ceiling
-//! in each area it owes, and what the ceiling owes there is drawn into it first, so that a step costs the wallpaper and the copy. The
-//! blend rounds otherwise than the same layers drawn over the wallpaper one by one, so a page never holds Home composed both ways: all of
-//! stack 0 is drawn again when the ceiling comes into use or goes out of it. Switched off (`LUMATV_CEILING=0`, or
-//! [`Engine::set_ceiling`] from the compositor's control socket), stack 0 is drawn straight.
 
 use crate::backdrop::Area;
 use crate::clock::now_ns;
@@ -62,7 +52,7 @@ use crate::scene::{Demand, Drawn, Scene};
 use crate::session::{Config, Limits, Session};
 use crate::stats::SharedStats;
 use crate::tiles::{Ring, TileSet};
-use compositor_protocol::{Content, Event, LayerId, PROTOCOL_VERSION, Request, read_frame, write_frame};
+use compositor_protocol::{Event, LayerId, PROTOCOL_VERSION, Request, read_frame, write_frame};
 use device_profile::Rotation;
 use std::collections::HashMap;
 use std::ffi::CStr;
@@ -212,8 +202,6 @@ pub struct Engine {
     /// Stack 0 kept whole (the module's notes), when the layers are drawn in two stacks and the floor is not switched off
     /// (`LUMATV_FLOOR=0`).
     floor: Option<Floor>,
-    /// The layers of stack 0 over Home's moving wallpaper kept whole (the module's notes), when the layers are drawn in two stacks.
-    ceiling: Option<Ceiling>,
     /// Copies a picture of the panel's size into a target: the floor into a page, and on the host's pages what a page owes from
     /// the frames before from the page drawn last.
     copier: Option<PictureCopy>,
@@ -344,12 +332,8 @@ pub const AMBIENT_COPY_REFRESHES: u64 = 3;
 /// The most rectangles a compositor's page is drawn in (`damage::MAX_RECTS` of the compositor): past it the page owes their bounds.
 const COMPOSITOR_RECTS: usize = 12;
 
-/// Frames planned with stack 0 not drawn (Home under an app's picture) before the floor's memory is given back, and frames planned
-/// without a page drawn through the ceiling before its memory is.
+/// Frames planned with stack 0 not drawn (Home under an app's picture) before the floor's memory is given back.
 const FLOOR_UNUSED_FRAMES: u32 = 240;
-
-/// The renderer's account of the ceiling's layers (the module's notes), after those of the two stacks.
-const CEILING: usize = 2;
 
 /// A merge of rectangles into covers is taken only where the covers draw at most a quarter more of the panel than the rectangles
 /// (in quarters). On the set a pass's pixels cost as well as its layers: in round 26 the dock's tiles and the library's cells merged
@@ -380,38 +364,6 @@ struct Floor {
     behind: bool,
     /// The pixels drawn into the floor in the frame being drawn.
     drawn_px: u64,
-}
-
-/// The layers of stack 0 over Home's moving wallpaper, kept in a render target of their own over nothing (the module's notes).
-struct Ceiling {
-    /// Made by the first frame that draws a page through it, and given back when no frame has for a while.
-    target: Option<RenderTarget>,
-    /// The reference's ([`HostConfig::reference`]): the ceiling drawn whole in each frame.
-    whole: Option<RenderTarget>,
-    /// Where its layers begin in the frame planned, after the wallpaper; `None` while stack 0 is drawn straight.
-    from: Option<usize>,
-    /// What of it is out of date: what its layers changed since those tiles were last drawn into it.
-    owed: TileSet,
-    /// Scratch for a page's areas: the tiles of them it owes.
-    here: TileSet,
-    /// Frames planned since a page was last drawn through it.
-    unused: u32,
-    /// Whether it is used ([`Engine::set_ceiling`]; `LUMATV_CEILING=0` starts it off): for comparing the two on the set.
-    on: bool,
-    /// The frames planned with stack 0 through it.
-    frames: u64,
-}
-
-/// Where the ceiling's layers begin in stack 0 (`layers`, as the renderer placed them on `panel`): after the topmost wallpaper of a base
-/// kind that steps, covers the panel and shows. `None` without one, or with nothing over it.
-fn ceiling_from(renderer: &Renderer, layers: &[Drawn], panel: Area) -> Option<usize> {
-    let moving = |layer: &Drawn| {
-        matches!(layer.content, Content::Wallpaper(w) if !crate::wallpapers::is_overlay(&w.kind) && w.fps > 0 && w.speed != 0.0)
-            && renderer.painted_extent(layer) == Some(panel)
-            && !renderer.unseen().contains(&layer.id)
-    };
-    let at = layers.iter().rposition(moving)?;
-    (at + 1 < layers.len()).then_some(at + 1)
 }
 
 /// Copies a picture of the panel's size into a target: each pixel of the target is the picture's at the same place, read as it
@@ -451,20 +403,15 @@ impl PictureCopy {
         Ok(Self { program, buffer })
     }
 
-    /// Copies `picture` into the framebuffer `target` inside each of `areas`: as it is, blending off, or `over` what the target holds
-    /// (a picture of premultiplied colour over nothing, the ceiling). Blending is on after it, as a pass leaves it.
-    fn run(&self, gl: &Gles, picture: &RenderTarget, target: u32, areas: &[Area], over: bool) {
+    /// Copies `picture` into the framebuffer `target` inside each of `areas`, blending off; blending is on after it, as a pass
+    /// leaves it.
+    fn run(&self, gl: &Gles, picture: &RenderTarget, target: u32, areas: &[Area]) {
         if areas.is_empty() {
             return;
         }
         gl.bind_framebuffer(target);
         gl.viewport(0, 0, picture.width as i32, picture.height as i32);
-        if over {
-            gl.enable(crate::gl::GL_BLEND);
-            gl.blend_func(crate::gl::GL_ONE, crate::gl::GL_ONE_MINUS_SRC_ALPHA);
-        } else {
-            gl.disable(crate::gl::GL_BLEND);
-        }
+        gl.disable(crate::gl::GL_BLEND);
         gl.enable(crate::gl::GL_SCISSOR_TEST);
         gl.use_program(self.program);
         gl.use_vertex_buffer(self.buffer);
@@ -570,10 +517,7 @@ pub fn precompile(mut gles: Gles, cache: &Arc<Cache>, width: u32, height: u32) -
     } else {
         let error = renderer.warm_up();
         let (floor, page) = (renderer.gles().new_render_target(width, height)?, renderer.gles().new_render_target(width, height)?);
-        let whole = [[0, 0, width as i32, height as i32]];
-        copy.run(renderer.gles(), &floor, page.framebuffer, &whole, false);
-        // (and blended, as the ceiling is copied)
-        copy.run(renderer.gles(), &floor, page.framebuffer, &whole, true);
+        copy.run(renderer.gles(), &floor, page.framebuffer, &[[0, 0, width as i32, height as i32]]);
         renderer.gles().finish();
         renderer.gles().delete_render_target(floor);
         renderer.gles().delete_render_target(page);
@@ -664,16 +608,6 @@ impl Engine {
                 behind: false,
                 drawn_px: 0,
             });
-        let ceiling = copy.is_some().then(|| Ceiling {
-            target: None,
-            whole: None,
-            from: None,
-            owed: TileSet::full(config.width, config.height),
-            here: TileSet::new(config.width, config.height),
-            unused: 0,
-            on: std::env::var("LUMATV_CEILING").as_deref() != Ok("0"),
-            frames: 0,
-        });
         if let Some(saved) = &entered {
             renderer.gles().leave(saved);
         }
@@ -766,7 +700,6 @@ impl Engine {
                     lazy: std::env::var("LUMATV_LAZY_SCOPES").as_deref() != Ok("0"),
                 }),
                 floor,
-                ceiling,
                 copier: copy,
                 ahead: false,
                 over_frames: 0,
@@ -806,26 +739,23 @@ impl Engine {
     }
 
     /// Gives back what the engine holds on the GPU, for an engine whose client has gone in a context that lives on (the compositor's, which
-    /// keeps every name it is not told to delete): the renderer's ([`Renderer::release`]), the floor's and the ceiling's pictures and the
-    /// pages. Call it on the context's thread before the engine is dropped; the programs go back to the cache with the renderer.
+    /// keeps every name it is not told to delete): the renderer's ([`Renderer::release`]), the floor's picture and the pages. Call it on the
+    /// context's thread before the engine is dropped; the programs go back to the cache with the renderer.
     pub fn release(&mut self) {
         self.scoped(|engine| {
             engine.renderer.release();
             let floor = engine.floor.as_mut().and_then(|floor| floor.target.take());
-            let ceiling = engine.ceiling.as_mut().map_or([None, None], |ceiling| [ceiling.target.take(), ceiling.whole.take()]);
-            for target in floor.into_iter().chain(ceiling.into_iter().flatten()).chain(engine.pages.drain(..)).chain(engine.reference.take()) {
+            for target in floor.into_iter().chain(engine.pages.drain(..)).chain(engine.reference.take()) {
                 engine.renderer.gles().delete_render_target(target);
             }
             engine.renderer.gles().flush();
         });
     }
 
-    /// What the engine holds on the GPU, in bytes: the renderer's census (`census.rs`) and the floor's and the ceiling's pictures.
+    /// What the engine holds on the GPU, in bytes: the renderer's census (`census.rs`) and the floor's picture.
     pub fn gpu_bytes(&self) -> u64 {
-        let bytes = |target: Option<&RenderTarget>| target.map_or(0, |t| u64::from(t.width) * u64::from(t.height) * 4);
-        let floor = bytes(self.floor.as_ref().and_then(|floor| floor.target.as_ref()));
-        let ceiling = bytes(self.ceiling.as_ref().and_then(|ceiling| ceiling.target.as_ref()));
-        self.renderer.census().bytes() + floor + ceiling
+        let floor = self.floor.as_ref().and_then(|floor| floor.target.as_ref()).map_or(0, |t| u64::from(t.width) * u64::from(t.height) * 4);
+        self.renderer.census().bytes() + floor
     }
 
     /// Runs `f`, which draws or makes GL objects, in the compositor's context as the toolkit's: the context's state is saved and
@@ -1191,7 +1121,7 @@ impl Engine {
     /// is planned; the page owes what the two stacks changed over the frames since it was drawn into (as the compositor's ring keeps
     /// it); what it owes from the frames before this one is copied from the page drawn last, which holds that frame whole; and stack
     /// 0 then stack 1 are drawn where this frame changed (in at most [`COMPOSITOR_RECTS`] rectangles, merged where one pass costs less).
-    /// The reference is the same frame drawn whole, every layer straight into it, the floor left out ([`Engine::draw_reference`]).
+    /// The reference is the same frame drawn whole, every layer straight into it, the floor left out.
     fn draw_stacks(&mut self, now_ns: u64) -> FrameCost {
         let began = Instant::now();
         if self.plan(now_ns).is_err() {
@@ -1210,7 +1140,12 @@ impl Engine {
         let was_moving = self.external.as_mut().is_some_and(|external| std::mem::replace(&mut external.moving, moving));
         let on_screen = self.external.as_ref().filter(|external| external.keep).and_then(|external| external.last_page);
         if let Some(shown) = on_screen.filter(|_| changed.is_empty() && !moving && !was_moving) {
-            self.draw_reference();
+            if let (Some(reference), Some(external)) = (self.reference, self.external.as_mut())
+                && let Some(planned) = external.planned.as_mut()
+            {
+                let surface = Surface { stack: 0, from: 0, to: self.drawn.len(), transparent: false };
+                self.renderer.draw_planned(planned, &Draw { surface, slot: None, target: reference.framebuffer, areas: None, clear: true });
+            }
             let mut cost = self.finish().unwrap_or_default();
             if let Some(reference) = self.reference {
                 self.mismatch = self.compare(&self.pages[shown], &reference);
@@ -1245,7 +1180,7 @@ impl Engine {
                 areas.clear();
                 areas.extend(owed.bounds());
             }
-            copier.run(self.renderer.gles(), &self.pages[last], self.pages[page].framebuffer, &areas, false);
+            copier.run(self.renderer.gles(), &self.pages[last], self.pages[page].framebuffer, &areas);
             owed.clone_from(&changed);
         }
         owed.rects(&mut areas);
@@ -1262,7 +1197,12 @@ impl Engine {
                 let _ = self.draw_stack(1, target, &areas);
             }
         }
-        self.draw_reference();
+        if let (Some(reference), Some(external)) = (self.reference, self.external.as_mut())
+            && let Some(planned) = external.planned.as_mut()
+        {
+            let surface = Surface { stack: 0, from: 0, to: self.drawn.len(), transparent: false };
+            self.renderer.draw_planned(planned, &Draw { surface, slot: None, target: reference.framebuffer, areas: None, clear: true });
+        }
         let mut cost = self.finish().unwrap_or_default();
         if let Some(external) = self.external.as_mut() {
             external.last_page = Some(page);
@@ -1288,37 +1228,6 @@ impl Engine {
             cost.gpu_us = began.elapsed().as_micros() as u32;
         }
         cost
-    }
-
-    /// The reference ([`HostConfig::reference`]): the frame planned drawn whole into it, every layer straight, the floor left out. While the
-    /// pages have stack 0 through the ceiling it is made the same way, each part drawn whole: the ceiling's blend rounds otherwise than its
-    /// layers drawn one by one over the wallpaper.
-    fn draw_reference(&mut self) {
-        let Some(external) = self.external.as_mut() else { return };
-        let (split, layers) = (external.split, self.drawn.len());
-        let system = external.surface(1, layers);
-        let (Some(reference), Some(planned)) = (self.reference, external.planned.as_mut()) else { return };
-        let whole = |surface: Surface, target: u32, clear: bool| Draw { surface, slot: None, target, areas: None, clear };
-        if let (Some(ceiling), Some(copier)) = (self.ceiling.as_mut(), self.copier.as_ref())
-            && let Some(from) = ceiling.from
-        {
-            if ceiling.whole.is_none() {
-                match self.renderer.gles().new_render_target(self.window.0, self.window.1) {
-                    Ok(made) => ceiling.whole = Some(made),
-                    Err(e) => crate::log::log(format!("the reference is drawn straight: no ceiling for it: {e}")),
-                }
-            }
-            if let Some(picture) = ceiling.whole {
-                self.renderer.draw_planned(planned, &whole(Surface { stack: 0, from: 0, to: from, transparent: false }, reference.framebuffer, true));
-                self.renderer.draw_planned(planned, &whole(Surface { stack: CEILING, from, to: split, transparent: true }, picture.framebuffer, true));
-                copier.run(self.renderer.gles(), &picture, reference.framebuffer, &[[0, 0, self.window.0 as i32, self.window.1 as i32]], true);
-                if split < layers {
-                    self.renderer.draw_planned(planned, &whole(system, reference.framebuffer, false));
-                }
-                return;
-            }
-        }
-        self.renderer.draw_planned(planned, &whole(Surface { stack: 0, from: 0, to: layers, transparent: false }, reference.framebuffer, true));
     }
 
     fn cost(&mut self, report: &DrawReport, cpu_us: u32, gpu_us: u32) -> FrameCost {
@@ -1416,35 +1325,9 @@ impl Engine {
             external.split = engine.drawn.partition_point(|layer| external.z.get(&layer.id).is_some_and(|&z| z < external.system_z));
             engine.over_frames = if external.split < engine.drawn.len() { OVER_FRAMES } else { engine.over_frames.saturating_sub(1) };
             let mut planned = engine.renderer.plan_frame(&engine.drawn, &engine.scene);
-            // Stack 0 goes through the ceiling (the module's notes) with nothing over Home, while Home shows and its wallpaper steps.
-            if let Some(ceiling) = engine.ceiling.as_mut() {
-                let panel = [0, 0, engine.window.0 as i32, engine.window.1 as i32];
-                let from = if ceiling.on && engine.over_frames == 0 && engine.home_shown {
-                    ceiling_from(&engine.renderer, &engine.drawn[..external.split], panel)
-                } else {
-                    None
-                };
-                if from != ceiling.from {
-                    // A page never holds Home composed both ways: all of stack 0 is drawn again, and a ceiling over other layers than it
-                    // held is drawn whole.
-                    engine.renderer.set_targets(0, 1);
-                    engine.renderer.set_targets(CEILING, usize::from(from.is_some()));
-                    ceiling.owed.fill();
-                    ceiling.from = from;
-                }
-                ceiling.unused = ceiling.unused.saturating_add(1);
-                ceiling.frames += u64::from(ceiling.from.is_some());
-            }
             for stack in 0..2 {
                 let surface = external.surface(stack, engine.drawn.len());
                 engine.renderer.damage(&mut planned, surface);
-            }
-            // What the ceiling's layers changed is owed by it until it is drawn into, as the floor owes what stack 0 changed.
-            if let Some(ceiling) = engine.ceiling.as_mut()
-                && let Some(from) = ceiling.from
-            {
-                let surface = Surface { stack: CEILING, from, to: external.split, transparent: true };
-                ceiling.owed.union(engine.renderer.damage(&mut planned, surface));
             }
             // What stack 0 changed is owed by the floor until it is drawn into, in whichever frame that is.
             if let Some(floor) = engine.floor.as_mut() {
@@ -1515,21 +1398,6 @@ impl Engine {
         self.scene.paced_due()
     }
 
-    /// Uses the ceiling (the module's notes) from the next frame, or draws stack 0 straight; `false` without one (the layers in
-    /// one stack).
-    pub fn set_ceiling(&mut self, on: bool) -> bool {
-        let Some(ceiling) = self.ceiling.as_mut() else {
-            return false;
-        };
-        ceiling.on = on;
-        true
-    }
-
-    /// Whether the ceiling is used, and the frames planned through it since the start; `None` without one.
-    pub fn ceiling(&self) -> Option<(bool, u64)> {
-        self.ceiling.as_ref().map(|ceiling| (ceiling.on, ceiling.frames))
-    }
-
     /// `areas`, what a page owes, as the rectangles the planned frame is cheapest drawn in ([`Planned::merged`]): a pass draws every
     /// layer that meets its rectangle, so the rows of a list that scrolls (a dozen bands, each with the sheet and the copy of the
     /// floor under it) are cheaper as one cover. Covers that would draw much more of the panel than the rectangles are not taken
@@ -1537,13 +1405,12 @@ impl Engine {
     /// stacks and its windows over all of them in turn, and an overlap would be drawn over twice. Left as they are with no frame
     /// planned.
     pub fn merge_areas(&mut self, areas: &mut Vec<Area>) {
-        let through = (self.floor.is_some() && self.over_home()) || self.ceiling.as_ref().is_some_and(|ceiling| ceiling.from.is_some());
-        let layers = self.drawn.len();
+        let (floor, layers) = (self.floor.is_some() && self.over_home(), self.drawn.len());
         let Some(external) = self.external.as_mut() else { return };
         let Some(planned) = external.planned.as_ref() else { return };
         let Some(region) = Region::exact(areas) else { return };
-        // With the floor (something over Home) or the ceiling (Home's wallpaper stepping), stack 0 is a copy in each pass, whatever it holds.
-        let merged = within_growth(planned.merged(region, if through { external.split..layers } else { 0..layers }), region);
+        // With the floor (something over Home), stack 0 is one copy in each pass, whatever it holds.
+        let merged = within_growth(planned.merged(region, if floor { external.split..layers } else { 0..layers }), region);
         if merged == region {
             return;
         }
@@ -1562,9 +1429,7 @@ impl Engine {
     /// Draws stack 0 or 1 of the planned frame into the framebuffer `target` (a page of the compositor's), inside `areas` and
     /// nowhere else: stack 0 clears them first, and stack 1 is drawn over what the compositor has drawn there. The areas are
     /// what the page owes, so that no pixel of the windows around them is touched. While something is over Home, stack 0 comes
-    /// from the floor: what the floor owes under the areas is drawn into it first, and each area is then one copy of it. While Home's
-    /// wallpaper steps, stack 0 is the layers up to the wallpaper and one blended copy of the ceiling, what the ceiling owes there
-    /// drawn into it first.
+    /// from the floor: what the floor owes under the areas is drawn into it first, and each area is then one copy of it.
     pub fn draw_stack(&mut self, stack: usize, target: u32, areas: &[Area]) -> io::Result<()> {
         self.draw_stack_from(stack, target, areas, true, stack == 0)
     }
@@ -1638,49 +1503,11 @@ impl Engine {
                             floor.drawn_px += owed.pixels();
                             floor.owed.subtract(&floor.here);
                         }
-                        copier.run(engine.renderer.gles(), &picture, target, region.rects(), false);
+                        copier.run(engine.renderer.gles(), &picture, target, region.rects());
                         // A copy is a layer drawn in each area, as the frame's cost counts layers.
                         external.report.drawn += region.rects().len() as u32;
                         return;
                     }
-                }
-            }
-            if stack == 0
-                && from_floor
-                && !region.is_empty()
-                && let (Some(ceiling), Some(copier)) = (engine.ceiling.as_mut(), engine.copier.as_ref())
-                && let Some(from) = ceiling.from
-            {
-                if ceiling.target.is_none() {
-                    match engine.renderer.gles().new_render_target(engine.window.0, engine.window.1) {
-                        Ok(made) => {
-                            ceiling.target = Some(made);
-                            ceiling.owed.fill();
-                        }
-                        Err(e) => crate::log::log(format!("no ceiling over the wallpaper this frame: {e}")),
-                    }
-                }
-                if let Some(picture) = ceiling.target {
-                    ceiling.unused = 0;
-                    // What the ceiling owes under the areas, and nothing else of it, merged as the floor's passes are.
-                    ceiling.here.clear();
-                    for &area in region.rects() {
-                        ceiling.here.union_within(&ceiling.owed, area);
-                    }
-                    if !ceiling.here.is_empty() {
-                        let owed = ceiling.here.region();
-                        let owed = within_growth(planned.merged(owed, from..surface.to), owed);
-                        let over = Surface { stack: CEILING, from, to: surface.to, transparent: true };
-                        let draw = Draw { surface: over, slot: None, target: picture.framebuffer, areas: Some(owed), clear: true };
-                        external.report.add(&engine.renderer.draw_planned(planned, &draw));
-                        ceiling.owed.subtract(&ceiling.here);
-                    }
-                    let ground = Draw { surface: Surface { to: from, ..surface }, slot: None, target, areas: Some(region), clear };
-                    external.report.add(&engine.renderer.draw_planned(planned, &ground));
-                    copier.run(engine.renderer.gles(), &picture, target, region.rects(), true);
-                    // A copy is a layer drawn in each area, as the frame's cost counts layers.
-                    external.report.drawn += region.rects().len() as u32;
-                    return;
                 }
             }
             let draw = Draw { surface, slot: None, target, areas: Some(region), clear };
@@ -1697,13 +1524,12 @@ impl Engine {
             return Err(io::Error::other("finish: no frame is planned"));
         };
         let mut report = DrawReport::default();
-        // The floor is brought up to date (drawn into) or given back (a target freed), and the ceiling given back, in the frames that say
-        // so below; ending the frame touches the context in no other.
+        // The floor is brought up to date (drawn into) or given back (a target freed) in the frames that say so below; ending the frame
+        // touches the context in no other.
         let floor_gl = self.floor.as_ref().is_some_and(|floor| {
             floor.unused >= FLOOR_UNUSED_FRAMES || (floor.behind && !floor.direct && self.home_shown && matches!(self.scene.demand(), Demand::Idle))
         });
-        let ceiling_gl = self.ceiling.as_ref().is_some_and(|ceiling| ceiling.unused >= FLOOR_UNUSED_FRAMES && ceiling.target.is_some());
-        self.scoped_when(floor_gl || ceiling_gl, |engine| {
+        self.scoped_when(floor_gl, |engine| {
             // After frames that drew Home straight into the pages, the first frame in which Home shows and stands and nothing waits
             // to move draws what the floor owes (the floor whole, the first time), so that a panel opening over Home only copies it.
             if let Some(floor) = engine.floor.as_mut()
@@ -1758,14 +1584,6 @@ impl Engine {
                 floor.owed.fill();
                 floor.behind = false;
             }
-            // So does a ceiling no page has been drawn through for as long.
-            if let Some(ceiling) = engine.ceiling.as_mut()
-                && ceiling.unused >= FLOOR_UNUSED_FRAMES
-                && let Some(picture) = ceiling.target.take()
-            {
-                engine.renderer.gles().delete_render_target(picture);
-                ceiling.owed.fill();
-            }
         });
         let busy = self.external.as_mut().map_or(Duration::ZERO, |external| std::mem::take(&mut external.busy));
         let gpu_us = if self.gpu_sync {
@@ -1784,9 +1602,6 @@ impl Engine {
         self.renderer.forget_targets();
         if let Some(floor) = self.floor.as_mut() {
             floor.owed.fill();
-        }
-        if let Some(ceiling) = self.ceiling.as_mut() {
-            ceiling.owed.fill();
         }
         if let Some(external) = self.external.as_mut() {
             if let Some(ring) = external.ring.as_mut() {

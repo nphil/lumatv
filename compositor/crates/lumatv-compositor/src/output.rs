@@ -263,15 +263,10 @@ pub trait Output {
         Ok(false)
     }
 
-    /// The UI engine's account for `ctl status` (`ui`): the refresh it counts in, the ceiling, the wallpapers' steps and the flips by
+    /// The UI engine's account for `ctl status` (`ui`): the refresh it counts in, the wallpapers' steps and the flips by
     /// what they were drawn for. `None` without a UI.
     fn ui_report(&self) -> Option<serde_json::Value> {
         None
-    }
-
-    /// Switches the ceiling over Home's moving wallpaper (`ctl ceiling`, `Engine::set_ceiling`): false without one.
-    fn ui_set_ceiling(&mut self, _on: bool) -> bool {
-        false
     }
 
     /// Switches a wallpaper's step a refresh early in a frame drawn for something else (`ctl merge`, `Engine::set_step_merging`): false

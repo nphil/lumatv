@@ -388,26 +388,25 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             }
             json!({"ok": true, "idle_tick_ms": state.config.idle_tick_ns / 1_000_000})
         }
-        // Home's moving wallpaper, for comparing on the set without a restart: `ceiling on|off` draws the layers over it through the
-        // ceiling or straight (`lumatv_render::host` notes), `merge on|off` lets its step come a refresh early in a frame drawn for
-        // something else (`wallpaper::Clock::advance`). Either alone reads `ui`, as `status` does.
-        "ceiling" | "merge" => {
+        // Home's moving wallpaper, for comparing on the set without a restart: `merge on|off` lets its step come a refresh early in a
+        // frame drawn for something else (`wallpaper::Clock::advance`). Alone it reads `ui`, as `status` does.
+        "merge" => {
             let asked = match words.next() {
                 None => Ok(None),
                 Some("on") => Ok(Some(true)),
                 Some("off") => Ok(Some(false)),
-                Some(_) => Err(format!("{cmd} [on|off]")),
+                Some(_) => Err("merge [on|off]".to_string()),
             };
             match asked {
                 Ok(on) => {
-                    let done = on.is_none_or(|on| if cmd == "ceiling" { state.output.ui_set_ceiling(on) } else { state.output.ui_set_step_merging(on) });
+                    let done = on.is_none_or(|on| state.output.ui_set_step_merging(on));
                     if let Some(on) = on.filter(|_| done) {
-                        state.journal(format!("{cmd}: {} (control socket)", if on { "on" } else { "off" }));
+                        state.journal(format!("merge: {} (control socket)", if on { "on" } else { "off" }));
                     }
                     if done {
                         json!({"ok": true, "ui": state.output.ui_report()})
                     } else {
-                        json!({"ok": false, "error": format!("{cmd}: no UI engine here, or no ceiling in it")})
+                        json!({"ok": false, "error": "merge: no UI engine here"})
                     }
                 }
                 Err(e) => json!({"ok": false, "error": e}),
@@ -518,7 +517,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer [aim] X Y, wheel, click, sched mali fifo|other, callbacks clients commit|early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], ceiling [on|off], merge [on|off], scanout [off|direct|offset on|off], pageprobe [WxH SECONDS|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], paneldim [want X|release], fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer [aim] X Y, wheel, click, sched mali fifo|other, callbacks clients commit|early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], merge [on|off], scanout [off|direct|offset on|off], pageprobe [WxH SECONDS|off], pointer [plane|gpu|X Y], afbc [on|off], pagealpha [on|off], vwin [off|idle|apps|claim|move|release], paneldim [want X|release], fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

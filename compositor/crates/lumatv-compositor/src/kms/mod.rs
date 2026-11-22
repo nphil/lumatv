@@ -1536,10 +1536,6 @@ impl Output for Kms {
         self.gl.ui_report_with(Some(&self.flip_causes))
     }
 
-    fn ui_set_ceiling(&mut self, on: bool) -> bool {
-        self.gl.ui_set_ceiling(on)
-    }
-
     fn ui_set_step_merging(&mut self, on: bool) -> bool {
         self.gl.ui_set_step_merging(on)
     }
