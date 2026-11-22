@@ -1,8 +1,48 @@
 diff --git a/native/opennow-core/src/cloudmatch.rs b/native/opennow-core/src/cloudmatch.rs
-index 74cc7946..9a2e3fd3 100644
+index 74cc7946..7d60a32c 100644
 --- a/native/opennow-core/src/cloudmatch.rs
 +++ b/native/opennow-core/src/cloudmatch.rs
-@@ -392,6 +392,12 @@ impl CloudMatchService {
+@@ -4,6 +4,7 @@ use rand::RngCore as _;
+ use reqwest::blocking::{Client, Response};
+ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT};
+ use serde_json::{Value, json};
++use std::borrow::Cow;
+ use std::collections::HashMap;
+ use std::io::Read;
+ use std::net::{IpAddr, UdpSocket};
+@@ -117,6 +118,14 @@ struct ActiveSession {
+     client: Client,
+ }
+ 
++impl ActiveSession {
++    /// The identity the session was created or claimed under: its polls and its end send that one even
++    /// after the setting changed.
++    fn identity(&self) -> Option<ClientIdentity> {
++        ClientIdentity::from_name(self.info["clientIdentity"].as_str())
++    }
++}
++
+ struct SessionConflict {
+     owner: (String, String),
+     received: Instant,
+@@ -327,6 +336,7 @@ impl CloudMatchService {
+     ) -> Result<Value, ServiceError> {
+         let settings = allocation_settings(settings, auth);
+         let settings = &settings;
++        let identity = ClientIdentity::from_settings(settings);
+         let (client, base) = connection()?;
+         crate::requests::check()?;
+         let app_id = launch_app_id(params)?;
+@@ -365,7 +375,7 @@ impl CloudMatchService {
+         crate::language::append_session_preferences(&mut url, settings);
+         let response = client
+             .post(url)
+-            .headers(cloudmatch_headers(token, device_id)?)
++            .headers(cloudmatch_headers(token, device_id, identity)?)
+             .json(&body)
+             .send()
+             .map_err(|error| network("Session creation failed", error))?;
+@@ -392,6 +402,25 @@ impl CloudMatchService {
          } else {
              "nvst"
          });
@@ -12,10 +52,169 @@ index 74cc7946..9a2e3fd3 100644
 +            info["transportMode"] == "nvst"
 +                && body["sessionRequestData"]["clientRequestMonitorSettings"][0]["sdrHdrMode"] == 1
 +        );
++        info["clientIdentity"] = json!(identity.name());
++        // One line per session, so a run under each identity can be compared from the log alone, even when the stream
++        // setup after it fails. The answer is the response's own field only when its source says `server`; a response that
++        // omits it reads back as the request's echo, and the stream setup's `session answered hdr` line follows the polls.
++        eprintln!(
++            "CloudMatch session created as the {} client: hdr requested {}, hdr in the response {} ({})",
++            identity.name(),
++            info["requestedHdr"],
++            info["negotiatedStreamProfile"]["enableHdr"],
++            info["negotiatedStreamProfile"]["enableHdrSource"]
++                .as_str()
++                .unwrap_or("none")
++        );
          select_webrtc_endpoint(&mut info);
          info["keyboardLayout"] = json!(crate::language::session_keyboard_layout(settings));
          if let Some(session_id) = network_test["sessionId"].as_str() {
-@@ -1703,7 +1709,8 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id:
+@@ -409,7 +438,7 @@ impl CloudMatchService {
+             info: info.clone(),
+             base: control_base,
+             client: client.clone(),
+-            headers: cloudmatch_headers(token, device_id)?,
++            headers: cloudmatch_headers(token, device_id, identity)?,
+             owner: (auth.provider.idp_id.clone(), auth.user.user_id.clone()),
+         });
+         if crate::requests::current().cancelled() {
+@@ -655,7 +684,11 @@ impl CloudMatchService {
+             .ok_or_else(|| invalid("No active session control endpoint"))?;
+         let base = trusted_cloudmatch_base(&control_base)?;
+         let token = session_token(auth);
+-        let headers = cloudmatch_headers(token, device_id)?;
++        let identity = current
++            .as_ref()
++            .and_then(ActiveSession::identity)
++            .unwrap_or_default();
++        let headers = cloudmatch_headers(token, device_id, identity)?;
+         let payload = match self.get_session(&client, &base, &session_id, &headers) {
+             Ok(payload) => payload,
+             Err(error) if error.code == "session_not_found" => {
+@@ -778,11 +811,15 @@ impl CloudMatchService {
+                 base.join(&format!("v2/session/{session_id}"))
+             })
+             .map_err(|_| invalid("Invalid test stop URL"))?;
++        let identity = current
++            .as_ref()
++            .and_then(ActiveSession::identity)
++            .unwrap_or_else(|| ClientIdentity::from_settings(settings));
+         self.stop_at(
+             &session_id,
+             &client,
+             url,
+-            cloudmatch_headers(session_token(auth), device_id)?,
++            cloudmatch_headers(session_token(auth), device_id, identity)?,
+         )
+     }
+ 
+@@ -956,7 +993,11 @@ impl CloudMatchService {
+             });
+         let requested =
+             recovery_region.map_or_else(|| requested_streaming_base(params, settings, auth), Ok)?;
+-        let headers = cloudmatch_headers(session_token(auth), device_id)?;
++        let headers = cloudmatch_headers(
++            session_token(auth),
++            device_id,
++            ClientIdentity::from_settings(settings),
++        )?;
+         let mut bases = vec![requested.clone()];
+         let server_info_url = requested
+             .join("v2/serverInfo")
+@@ -1089,7 +1130,8 @@ impl CloudMatchService {
+             .filter(|value| !value.is_empty())
+             .ok_or_else(|| invalid("session.claim requires sessionId"))?;
+         let requested = requested_streaming_base(params, settings, auth)?;
+-        let headers = cloudmatch_headers(session_token(auth), device_id)?;
++        let identity = ClientIdentity::from_settings(settings);
++        let headers = cloudmatch_headers(session_token(auth), device_id, identity)?;
+         let discovered = self
+             .discovered
+             .lock()
+@@ -1168,6 +1210,7 @@ impl CloudMatchService {
+             if let Some(retained) = &retained_webrtc {
+                 preserve_session_profile(&mut info, retained);
+             }
++            info["clientIdentity"] = json!(identity.name());
+             check()?;
+             self.store_active(&mut info, &control_base, zone, &app_id, client)?;
+             self.remember_webrtc_allocation(&info, auth)?;
+@@ -1218,6 +1261,7 @@ impl CloudMatchService {
+         if resumed {
+             info["keyboardLayout"] = json!(crate::language::session_keyboard_layout(settings));
+         }
++        info["clientIdentity"] = json!(identity.name());
+         info["resumePending"] = json!(true);
+         info["phase"] = json!("resuming");
+         self.store_active(&mut info, &control_base, zone, &app_id, client)?;
+@@ -1279,9 +1323,17 @@ impl CloudMatchService {
+         if let Some(reason) = params["cancelReason"].as_str() {
+             update["cancelReason"] = json!(reason);
+         }
++        let identity = current
++            .as_ref()
++            .and_then(ActiveSession::identity)
++            .unwrap_or_default();
+         let response = client
+             .put(url)
+-            .headers(cloudmatch_headers(session_token(auth), device_id)?)
++            .headers(cloudmatch_headers(
++                session_token(auth),
++                device_id,
++                identity,
++            )?)
+             .json(&json!({"action":6,"adUpdates":[update]}))
+             .send()
+             .map_err(|error| network("Session ad update failed", error))?;
+@@ -1413,7 +1465,14 @@ impl CloudMatchService {
+         if explicit_create_base(params, settings) {
+             return Ok(requested.clone());
+         }
+-        self.resolve_create_base(client, requested, token, device_id, true)
++        self.resolve_create_base(
++            client,
++            requested,
++            token,
++            device_id,
++            ClientIdentity::from_settings(settings),
++            true,
++        )
+     }
+ 
+     fn resolve_create_base(
+@@ -1422,12 +1481,13 @@ impl CloudMatchService {
+         requested: &Url,
+         token: &str,
+         device_id: &str,
++        identity: ClientIdentity,
+         prefer_regional: bool,
+     ) -> Result<Url, ServiceError> {
+         let Ok(url) = requested.join("v2/serverInfo") else {
+             return Ok(requested.clone());
+         };
+-        let headers = cloudmatch_headers(token, device_id)?;
++        let headers = cloudmatch_headers(token, device_id, identity)?;
+         let Ok(response) = client.get(url).headers(headers).send() else {
+             return Ok(requested.clone());
+         };
+@@ -1572,6 +1632,9 @@ fn build_resume_body(app_id: &str, session: &Value, settings: &Value, device_id:
+     );
+     if webrtc {
+         request.insert("sdkVersion".to_owned(), json!("1.0"));
++    }
++    // Only when the create body sets it (WebRTC, the LG identity): a desktop resume leaves it out.
++    if source["enhancedStreamMode"] == 1 {
+         request.insert("enhancedStreamMode".to_owned(), json!(1));
+     }
+     request.insert(
+@@ -1641,6 +1704,7 @@ fn monitor_display_data(hdr: bool, settings: &Value) -> Value {
+ }
+ 
+ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id: &str) -> Value {
++    let identity = ClientIdentity::from_settings(settings);
+     let (width, height) = parse_resolution(&setting_string(settings, "resolution", "1920x1080"));
+     let fps = crate::frame_rate::request_frame_rate(settings, params, width, height);
+     // The codec stays client-selected: the official Bifrost client resolves it from local
+@@ -1703,7 +1767,8 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id:
      features["hidDevices"] = Value::Null;
      let mut body = json!({"sessionRequestData":{
          "appId":app_id.parse::<i64>().unwrap_or_default(),
@@ -25,7 +224,35 @@ index 74cc7946..9a2e3fd3 100644
          "availableSupportedControllers":[2],
          "preferredController":2,
          "networkTestSessionId":params["networkTestSessionId"].as_str(),
-@@ -2061,11 +2068,8 @@ fn session_info(
+@@ -1713,14 +1778,14 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id:
+         "clientVersion":"30.0",
+         "sdkVersion":"2.0",
+         "streamerVersion":"14",
+-        "clientPlatformName":platform_name(settings),
++        "clientPlatformName":identity.platform_name(settings),
+         "clientRequestMonitorSettings":[{
+             "monitorId":0,"positionX":0,"positionY":0,
+             "widthInPixels":width,"heightInPixels":height,"framesPerSecond":fps,
+             "sdrHdrMode":if hdr { 1 } else { 0 },
+             "displayData":monitor_display_data(hdr, settings),
+             "hdr10PlusGamingData":null,
+-            "dpi":if cfg!(target_os = "macos") { 144 } else { 96 }
++            "dpi":identity.dpi()
+         }],
+         "useOps":true,
+         "audioMode":2,
+@@ -1741,6 +1806,10 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id:
+         "requestedStreamingFeatures":features,
+         "transport":null
+     }});
++    if identity == ClientIdentity::LgWebos {
++        // Every official web request sets it, the LG app's included; the desktop client's carries 0.
++        body["sessionRequestData"]["enhancedStreamMode"] = json!(1);
++    }
+     if settings["allianceWebrtcCompatibility"] == true {
+         let request = &mut body["sessionRequestData"];
+         request["sdkVersion"] = json!("1.0");
+@@ -2061,11 +2130,8 @@ fn session_info(
      });
      let hdr = accepted_hdr_mode(session);
      negotiated["enableHdr"] = json!(hdr.map(|mode| mode == 1));
@@ -39,15 +266,17 @@ index 74cc7946..9a2e3fd3 100644
      let ad_state = normalize_ad_state(session);
      let mut info = json!({
          "sessionId":session_id,
-@@ -2094,6 +2098,7 @@ fn session_info(
+@@ -2094,7 +2160,9 @@ fn session_info(
          "mediaConnectionInfo":media,
          "negotiatedStreamProfile":negotiated,
          "hdrDowngrade":null,
 +        "requestedHdr":null,
          "catalogAppId":null,
++        "clientIdentity":null,
          "requestedStreamingFeatures":session["sessionRequestData"]["requestedStreamingFeatures"],
          "finalizedStreamingFeatures":session["finalizedStreamingFeatures"],
-@@ -2132,18 +2137,27 @@ fn normalize_ad_state(session: &Value) -> Value {
+         "clientId":LCARS_CLIENT_ID,
+@@ -2132,18 +2200,27 @@ fn normalize_ad_state(session: &Value) -> Value {
  }
  
  fn accepted_hdr_mode(session: &Value) -> Option<i64> {
@@ -80,16 +309,305 @@ index 74cc7946..9a2e3fd3 100644
  }
  
  fn preserve_session_profile(info: &mut Value, previous: &Value) {
-@@ -2154,7 +2168,7 @@ fn preserve_session_profile(info: &mut Value, previous: &Value) {
+@@ -2154,7 +2231,12 @@ fn preserve_session_profile(info: &mut Value, previous: &Value) {
      if previous["sessionId"].as_str() != Some(session_id) {
          return;
      }
 -    for key in ["hdrDowngrade", "catalogAppId"] {
-+    for key in ["hdrDowngrade", "catalogAppId", "requestedHdr"] {
++    for key in [
++        "hdrDowngrade",
++        "catalogAppId",
++        "requestedHdr",
++        "clientIdentity",
++    ] {
          if info[key].is_null() {
              info[key] = previous[key].clone();
          }
-@@ -5301,17 +5315,41 @@ mod tests {
+@@ -2260,28 +2342,58 @@ fn negotiated_profile(monitor: &Value, features: &Value) -> Value {
+     })
+ }
+ 
+-fn cloudmatch_headers(token: &str, device_id: &str) -> Result<HeaderMap, ServiceError> {
++fn cloudmatch_headers(
++    token: &str,
++    device_id: &str,
++    identity: ClientIdentity,
++) -> Result<HeaderMap, ServiceError> {
++    let web = identity.is_web_client();
+     let mut headers = HeaderMap::new();
+-    let user_agent = bifrost_user_agent();
++    let user_agent = identity.user_agent();
+     insert_header(&mut headers, USER_AGENT, &user_agent)?;
+     insert_header(&mut headers, AUTHORIZATION, &format!("GFNJWT {token}"))?;
+-    headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/plain"));
++    headers.insert(
++        CONTENT_TYPE,
++        HeaderValue::from_static(if web {
++            "application/json"
++        } else {
++            "text/plain"
++        }),
++    );
+     headers.insert("nv-client-id", HeaderValue::from_static(LCARS_CLIENT_ID));
+     headers.insert(
+         "nv-client-streamer",
+         HeaderValue::from_static("NVIDIA-CLASSIC"),
+     );
+-    headers.insert("nv-client-type", HeaderValue::from_static("NATIVE"));
++    headers.insert(
++        "nv-client-type",
++        HeaderValue::from_static(if web { "BROWSER" } else { "NATIVE" }),
++    );
+     headers.insert(
+         "nv-client-version",
+         HeaderValue::from_static(GFN_CLIENT_VERSION),
+     );
+-    headers.insert("nv-device-os", HeaderValue::from_static(device_os()));
+-    headers.insert("nv-device-type", HeaderValue::from_static(device_type()));
+-    headers.insert("nv-device-make", HeaderValue::from_static(device_make()));
++    headers.insert(
++        "nv-device-os",
++        HeaderValue::from_static(identity.device_os()),
++    );
++    headers.insert(
++        "nv-device-type",
++        HeaderValue::from_static(identity.device_type()),
++    );
++    headers.insert(
++        "nv-device-make",
++        HeaderValue::from_static(identity.device_make()),
++    );
++    // The LG app sends its launcher's CPU name here and the official native web app its host's model or
++    // system name; neither is known, so `UNKNOWN` stays.
+     headers.insert("nv-device-model", HeaderValue::from_static(device_model()));
+     insert_header(&mut headers, "x-device-id", device_id)?;
+-    insert_header(&mut headers, "x-nv-client-identity", &user_agent)?;
++    if web {
++        headers.insert("nv-browser-type", HeaderValue::from_static("CHROMIUM"));
++    } else {
++        insert_header(&mut headers, "x-nv-client-identity", &user_agent)?;
++    }
+     Ok(headers)
+ }
+ 
+@@ -2806,7 +2918,8 @@ fn try_network_test_session(
+     let profile = network_test_display_profile(settings, params);
+     let url = crate::network_test::nettest_url(base)?;
+     let body = crate::network_test::allocation_body("GFN-PC", profile);
+-    let mut headers = cloudmatch_headers(token, device_id)?;
++    let identity = ClientIdentity::from_settings(settings);
++    let mut headers = cloudmatch_headers(token, device_id, identity)?;
+     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+     crate::requests::check()?;
+     let response = client
+@@ -2984,6 +3097,108 @@ fn app_launch_mode(params: &Value) -> i64 {
+     }
+ }
+ 
++/// The TV's web view as it reports itself (LG OLED65C4PUA, webOS 10.2.1); the LG app's requests carry it as their user agent.
++const LG_WEBOS_USER_AGENT: &str = "Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.270 Safari/537.36 WebAppManager";
++
++/// The OS token of the Windows client's Bifrost user agent. `GFN-PC/30.0` and `BifrostClientSDK/4.9 (38495286)`
++/// come from an official Mac request; the Windows token is upstream's own composition, not a capture.
++const BIFROST_WINDOWS_PLATFORM: &str = "Windows NT 10.0";
++
++/// What the user-agent, client-type and device headers of every CloudMatch request, and the body's
++/// platform name, DPI and `enhancedStreamMode`, say the client is. The service builds its answer (HDR,
++/// resolution, transport) from the client it believes it talks to, so these change together, never one
++/// alone. The fields that choose the streamer keep their desktop NVST/RTSP values under every identity
++/// (`nv-client-streamer`, `sdkVersion`, `streamerVersion`, `secureRTSPSupported`, and for the LG app
++/// `clientPlatformName`): the LG app's own select WebRTC, whose request carries no HDR, and the identity
++/// is meant to change the answer to the same 4K 120 HDR request.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++enum ClientIdentity {
++    /// The desktop GeForce NOW client of the OS this build runs on.
++    #[default]
++    Desktop,
++    /// The web client inside NVIDIA's LG webOS app. No client sends its fields with the NVST transport,
++    /// so the service may answer differently than to any identity it knows.
++    LgWebos,
++    /// The native Windows client, from any host OS: the desktop identity with the Windows values of the
++    /// OS-derived fields (user agent, device OS and make, platform name, DPI).
++    Windows,
++}
++
++impl ClientIdentity {
++    fn from_name(name: Option<&str>) -> Option<Self> {
++        match name? {
++            "desktop" => Some(Self::Desktop),
++            "lgWebos" => Some(Self::LgWebos),
++            "windows" => Some(Self::Windows),
++            _ => None,
++        }
++    }
++
++    fn from_settings(settings: &Value) -> Self {
++        Self::from_name(settings["clientIdentity"].as_str()).unwrap_or_default()
++    }
++
++    fn name(self) -> &'static str {
++        match self {
++            Self::Desktop => "desktop",
++            Self::LgWebos => "lgWebos",
++            Self::Windows => "windows",
++        }
++    }
++
++    /// The LG app is a browser client: it sends the browser header set and never `x-nv-client-identity`.
++    fn is_web_client(self) -> bool {
++        self == Self::LgWebos
++    }
++
++    fn user_agent(self) -> Cow<'static, str> {
++        match self {
++            Self::Desktop => Cow::Owned(bifrost_user_agent()),
++            Self::LgWebos => Cow::Borrowed(LG_WEBOS_USER_AGENT),
++            Self::Windows => Cow::Owned(bifrost_user_agent_on(BIFROST_WINDOWS_PLATFORM)),
++        }
++    }
++
++    fn device_os(self) -> &'static str {
++        match self {
++            Self::Desktop => device_os(),
++            Self::LgWebos => "WEBOS",
++            Self::Windows => "WINDOWS",
++        }
++    }
++
++    fn device_type(self) -> &'static str {
++        match self {
++            Self::Desktop | Self::Windows => device_type(),
++            Self::LgWebos => "TV",
++        }
++    }
++
++    fn device_make(self) -> &'static str {
++        match self {
++            Self::Desktop => device_make(),
++            Self::LgWebos => "LG",
++            Self::Windows => "UNKNOWN",
++        }
++    }
++
++    /// The body's `clientPlatformName`. The LG app's own, `browser`, belongs to its WebRTC request.
++    fn platform_name(self, settings: &Value) -> &'static str {
++        match self {
++            Self::Desktop | Self::LgWebos => platform_name(settings),
++            Self::Windows => "Windows",
++        }
++    }
++
++    fn dpi(self) -> u32 {
++        if self != Self::Windows && cfg!(target_os = "macos") {
++            144
++        } else {
++            96
++        }
++    }
++}
++
+ fn platform_name(settings: &Value) -> &'static str {
+     if setting_bool(settings, "identifyAsSteamDeck", false) {
+         "SteamOS"
+@@ -3022,15 +3237,18 @@ fn device_model() -> &'static str {
+     "UNKNOWN"
+ }
+ 
++fn bifrost_user_agent_on(platform: &str) -> String {
++    format!("GFN-PC/30.0 ({platform}) BifrostClientSDK/4.9 (38495286)")
++}
++
+ fn bifrost_user_agent() -> String {
+-    let platform = if cfg!(target_os = "windows") {
+-        "Windows NT 10.0"
++    bifrost_user_agent_on(if cfg!(target_os = "windows") {
++        BIFROST_WINDOWS_PLATFORM
+     } else if cfg!(target_os = "macos") {
+         "MacOSX"
+     } else {
+         "Linux"
+-    };
+-    format!("GFN-PC/30.0 ({platform}) BifrostClientSDK/4.9 (38495286)")
++    })
+ }
+ 
+ fn random_uuid() -> String {
+@@ -3102,6 +3320,7 @@ fn network(context: &str, error: impl std::fmt::Display) -> ServiceError {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++    use std::collections::{BTreeMap, BTreeSet};
+ 
+     fn session_server(
+         replies: Vec<(u16, Value)>,
+@@ -3142,6 +3361,57 @@ mod tests {
+         (base, worker)
+     }
+ 
++    /// A request as the service received it.
++    struct Received {
++        line: String,
++        headers: BTreeMap<String, String>,
++        body: Vec<u8>,
++    }
++
++    /// Like `session_server`, but hands back each request whole.
++    fn recording_server(replies: Vec<(u16, Value)>) -> (Url, thread::JoinHandle<Vec<Received>>) {
++        use std::io::{BufRead, BufReader, Read, Write};
++        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
++        let base = Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
++        let worker = thread::spawn(move || {
++            let mut received = Vec::new();
++            for (status, reply) in replies {
++                let (mut stream, _) = listener.accept().unwrap();
++                stream
++                    .set_read_timeout(Some(Duration::from_secs(5)))
++                    .unwrap();
++                let mut reader = BufReader::new(&stream);
++                let mut line = String::new();
++                reader.read_line(&mut line).unwrap();
++                let request_line = line.trim().to_owned();
++                let mut headers = BTreeMap::new();
++                loop {
++                    line.clear();
++                    assert!(reader.read_line(&mut line).unwrap() > 0);
++                    if line == "\r\n" {
++                        break;
++                    }
++                    let (name, value) = line.split_once(':').unwrap();
++                    headers.insert(name.to_ascii_lowercase(), value.trim().to_owned());
++                }
++                let length = headers
++                    .get("content-length")
++                    .map_or(0, |length| length.parse().unwrap());
++                let mut body = vec![0; length];
++                reader.read_exact(&mut body).unwrap();
++                received.push(Received {
++                    line: request_line,
++                    headers,
++                    body,
++                });
++                let reply = reply.to_string();
++                write!(stream, "HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}", reply.len()).unwrap();
++            }
++            received
++        });
++        (base, worker)
++    }
++
+     #[test]
+     fn create_and_claim_use_exact_independent_language_query_pairs() {
+         for (game, keyboard, expected_game, expected_keyboard) in [
+@@ -4189,7 +4459,7 @@ mod tests {
+         assert_eq!(request["requestedStreamingFeatures"]["chromaFormat"], 0);
+         assert_eq!(request["remoteControllersBitmap"], 1);
+         assert!(reported_webrtc_session(&body));
+-        let headers = cloudmatch_headers("test", "device").unwrap();
++        let headers = cloudmatch_headers("test", "device", ClientIdentity::Desktop).unwrap();
+         assert_eq!(headers["nv-client-streamer"], "NVIDIA-CLASSIC");
+         assert_eq!(headers["nv-client-type"], "NATIVE");
+         assert!(request.get("requestedAudioFormat").is_none());
+@@ -5301,17 +5571,49 @@ mod tests {
          let base = trusted_cloudmatch_base(DEFAULT_STREAMING_BASE).unwrap();
          let payload = |id: &str| json!({"session":{"sessionId":id,"status":2,"sdrHdrMode":0}});
          let mut created = session_info(&payload("seat"), &base, "auto", "123", "device").unwrap();
@@ -98,15 +616,18 @@ index 74cc7946..9a2e3fd3 100644
 +            created["hdrDowngrade"].is_null()
 +                && created["catalogAppId"].is_null()
 +                && created["requestedHdr"].is_null()
++                && created["clientIdentity"].is_null()
 +        );
          created["hdrDowngrade"] = json!("game-unsupported");
          created["catalogAppId"] = json!("doom-eternal");
 +        created["requestedHdr"] = json!(false);
++        created["clientIdentity"] = json!("lgWebos");
          let mut polled = session_info(&payload("seat"), &base, "auto", "123", "device").unwrap();
          preserve_session_profile(&mut polled, &created);
          assert_eq!(polled["hdrDowngrade"], "game-unsupported");
          assert_eq!(polled["catalogAppId"], "doom-eternal");
 +        assert_eq!(polled["requestedHdr"], false);
++        assert_eq!(polled["clientIdentity"], "lgWebos");
          assert_eq!(polled["negotiatedStreamProfile"]["enableHdr"], false);
          let mut other = session_info(&payload("other"), &base, "auto", "123", "device").unwrap();
          preserve_session_profile(&mut other, &created);
@@ -115,13 +636,15 @@ index 74cc7946..9a2e3fd3 100644
 +            other["hdrDowngrade"].is_null()
 +                && other["catalogAppId"].is_null()
 +                && other["requestedHdr"].is_null()
++                && other["clientIdentity"].is_null()
 +        );
 +    }
 +
 +    #[test]
 +    fn a_refused_hdr_request_stays_requested_beside_the_service_answer() {
 +        let base = trusted_cloudmatch_base(DEFAULT_STREAMING_BASE).unwrap();
-+        let payload = json!({"session":{"sessionId":"seat","status":2,"monitorSettings":[{"sdrHdrMode":0}]}});
++        let payload =
++            json!({"session":{"sessionId":"seat","status":2,"monitorSettings":[{"sdrHdrMode":0}]}});
 +        let mut created = session_info(&payload, &base, "auto", "123", "device").unwrap();
 +        // `create_admitted` sets this from the request body.
 +        created["requestedHdr"] = json!(true);
@@ -129,11 +652,14 @@ index 74cc7946..9a2e3fd3 100644
 +        preserve_session_profile(&mut polled, &created);
 +        assert_eq!(polled["requestedHdr"], true);
 +        assert_eq!(polled["negotiatedStreamProfile"]["enableHdr"], false);
-+        assert_eq!(polled["negotiatedStreamProfile"]["enableHdrSource"], "server");
++        assert_eq!(
++            polled["negotiatedStreamProfile"]["enableHdrSource"],
++            "server"
++        );
      }
  
      #[test]
-@@ -5747,6 +5785,92 @@ mod tests {
+@@ -5747,6 +6049,92 @@ mod tests {
          assert_eq!(accepted_hdr_mode(&json!({"sdrHdrMode":2})), Some(0));
      }
  
@@ -226,7 +752,366 @@ index 74cc7946..9a2e3fd3 100644
      #[test]
      fn in_game_settings_persistence_defaults_on_and_requires_game_support() {
          for preference in [Value::Null, json!(false), json!(true)] {
-@@ -5875,7 +5999,7 @@ mod tests {
+@@ -5833,11 +6221,354 @@ mod tests {
+         }
+     }
+ 
++    fn wire(headers: &HeaderMap) -> BTreeMap<String, String> {
++        headers
++            .iter()
++            .map(|(name, value)| (name.to_string(), value.to_str().unwrap().to_owned()))
++            .collect()
++    }
++
++    /// Each header that differs: its name and its value in `from` and in `to` (`None`: absent).
++    fn header_changes(
++        from: &BTreeMap<String, String>,
++        to: &BTreeMap<String, String>,
++    ) -> Vec<(String, Option<String>, Option<String>)> {
++        from.keys()
++            .chain(to.keys())
++            .collect::<BTreeSet<_>>()
++            .into_iter()
++            .filter(|name| from.get(*name) != to.get(*name))
++            .map(|name| (name.clone(), from.get(name).cloned(), to.get(name).cloned()))
++            .collect()
++    }
++
++    /// Each leaf of a request body that differs: its path and its value in `from` and in `to`.
++    fn body_changes(
++        path: &str,
++        from: &Value,
++        to: &Value,
++        changes: &mut Vec<(String, Value, Value)>,
++    ) {
++        match (from, to) {
++            (Value::Object(left), Value::Object(right)) => {
++                for key in left.keys().chain(right.keys()).collect::<BTreeSet<_>>() {
++                    let missing = Value::Null;
++                    let (left, right) = (left.get(key), right.get(key));
++                    body_changes(
++                        &format!("{path}/{key}"),
++                        left.unwrap_or(&missing),
++                        right.unwrap_or(&missing),
++                        changes,
++                    );
++                }
++            }
++            (Value::Array(left), Value::Array(right)) if left.len() == right.len() => {
++                for (index, (left, right)) in left.iter().zip(right).enumerate() {
++                    body_changes(&format!("{path}/{index}"), left, right, changes);
++                }
++            }
++            _ if from != to => changes.push((path.to_owned(), from.clone(), to.clone())),
++            _ => {}
++        }
++    }
++
++    /// The body with its one random value (the sub-session id) fixed.
++    fn steady(mut body: Value) -> Value {
++        for entry in body["sessionRequestData"]["metaData"]
++            .as_array_mut()
++            .unwrap()
++        {
++            if entry["key"] == "SubSessionId" {
++                entry["value"] = json!("fixed");
++            }
++        }
++        body
++    }
++
+     #[test]
+-    fn session_requests_keep_the_classic_nvst_client_identity() {
+-        let headers = cloudmatch_headers("token", "device-id").unwrap();
+-        assert_eq!(headers["nv-client-type"], "NATIVE");
+-        assert_eq!(headers["nv-client-streamer"], "NVIDIA-CLASSIC");
++    fn an_unrecognised_identity_setting_is_the_desktop_client() {
++        for settings in [
++            json!({}),
++            json!({"clientIdentity":"desktop"}),
++            json!({"clientIdentity":"toaster"}),
++            json!({"clientIdentity":7}),
++        ] {
++            assert_eq!(
++                ClientIdentity::from_settings(&settings),
++                ClientIdentity::Desktop
++            );
++        }
++        for (name, identity) in [
++            ("lgWebos", ClientIdentity::LgWebos),
++            ("windows", ClientIdentity::Windows),
++        ] {
++            let settings = json!({"clientIdentity":name});
++            assert_eq!(ClientIdentity::from_settings(&settings), identity);
++        }
++        // The name a session records reads back as the same identity.
++        for identity in [
++            ClientIdentity::Desktop,
++            ClientIdentity::LgWebos,
++            ClientIdentity::Windows,
++        ] {
++            assert_eq!(
++                ClientIdentity::from_name(Some(identity.name())),
++                Some(identity)
++            );
++        }
++    }
++
++    #[test]
++    fn the_desktop_identity_is_the_classic_native_request() {
++        let agent = bifrost_user_agent();
++        let expected: BTreeMap<String, String> = [
++            ("user-agent", agent.as_str()),
++            ("authorization", "GFNJWT token"),
++            ("content-type", "text/plain"),
++            ("nv-client-id", LCARS_CLIENT_ID),
++            ("nv-client-streamer", "NVIDIA-CLASSIC"),
++            ("nv-client-type", "NATIVE"),
++            ("nv-client-version", GFN_CLIENT_VERSION),
++            ("nv-device-os", device_os()),
++            ("nv-device-type", "DESKTOP"),
++            ("nv-device-make", device_make()),
++            ("nv-device-model", "UNKNOWN"),
++            ("x-device-id", "device-id"),
++            ("x-nv-client-identity", agent.as_str()),
++        ]
++        .into_iter()
++        .map(|(name, value)| (name.to_owned(), value.to_owned()))
++        .collect();
++        let headers = cloudmatch_headers("token", "device-id", ClientIdentity::Desktop).unwrap();
++        assert_eq!(wire(&headers), expected);
++        let body = build_create_body("123", &json!({}), &json!({}), "device");
++        assert_eq!(body["sessionRequestData"]["enhancedStreamMode"], 0);
++    }
++
++    #[test]
++    fn the_lg_webos_identity_changes_only_the_identity_headers() {
++        let desktop = cloudmatch_headers("token", "device-id", ClientIdentity::Desktop).unwrap();
++        let lg = cloudmatch_headers("token", "device-id", ClientIdentity::LgWebos).unwrap();
++        let agent = bifrost_user_agent();
++        let change = |name: &str, from: Option<&str>, to: Option<&str>| {
++            (
++                name.to_owned(),
++                from.map(str::to_owned),
++                to.map(str::to_owned),
++            )
++        };
++        assert_eq!(
++            header_changes(&wire(&desktop), &wire(&lg)),
++            [
++                change("content-type", Some("text/plain"), Some("application/json")),
++                change("nv-browser-type", None, Some("CHROMIUM")),
++                change("nv-client-type", Some("NATIVE"), Some("BROWSER")),
++                change("nv-device-make", Some(device_make()), Some("LG")),
++                change("nv-device-os", Some(device_os()), Some("WEBOS")),
++                change("nv-device-type", Some("DESKTOP"), Some("TV")),
++                change("user-agent", Some(&agent), Some(LG_WEBOS_USER_AGENT)),
++                change("x-nv-client-identity", Some(&agent), None),
++            ]
++        );
++    }
++
++    /// The 4K 120 HEVC HDR create body of the desktop client and of `identity`: the same request otherwise.
++    fn bodies_for(identity: &str) -> (Value, Value) {
++        let params = json!({"appLaunchMode":"gamepadFriendly"});
++        let desktop = json!({"resolution":"3840x2160","fps":120,"codec":"h265",
++            "colorQuality":"10bit_420","enableHdr":true,"nativeHdrSupported":true});
++        let mut other = desktop.clone();
++        other["clientIdentity"] = json!(identity);
++        (
++            steady(build_create_body("123", &params, &desktop, "device")),
++            steady(build_create_body("123", &params, &other, "device")),
++        )
++    }
++
++    /// What no identity changes: 4K 120 with HDR on the NVST/RTSP transport.
++    fn assert_the_4k120_hdr_request(body: &Value) {
++        let request = &body["sessionRequestData"];
++        let monitor = &request["clientRequestMonitorSettings"][0];
++        assert_eq!(monitor["widthInPixels"], 3840);
++        assert_eq!(monitor["heightInPixels"], 2160);
++        assert_eq!(monitor["framesPerSecond"], 120);
++        assert_eq!(monitor["sdrHdrMode"], 1);
++        assert_eq!(request["secureRTSPSupported"], true);
++        assert_eq!(request["sdkVersion"], "2.0");
++        assert_eq!(request["streamerVersion"], "14");
++        assert!(!reported_webrtc_session(body));
++    }
++
++    #[test]
++    fn the_lg_webos_identity_asks_for_the_enhanced_stream_and_nothing_else() {
++        let (desktop, lg) = bodies_for("lgWebos");
++        let mut changes = Vec::new();
++        body_changes("", &desktop, &lg, &mut changes);
++        assert_eq!(
++            changes,
++            [(
++                "/sessionRequestData/enhancedStreamMode".to_owned(),
++                json!(0),
++                json!(1)
++            )]
++        );
++        assert_the_4k120_hdr_request(&lg);
++    }
++
++    /// The Windows client's user agent as the Bifrost SDK builds it, written out so that a change to either side shows.
++    const WINDOWS_AGENT: &str = "GFN-PC/30.0 (Windows NT 10.0) BifrostClientSDK/4.9 (38495286)";
++
++    #[test]
++    fn the_windows_identity_changes_only_the_os_headers() {
++        let desktop = cloudmatch_headers("token", "device-id", ClientIdentity::Desktop).unwrap();
++        let windows = cloudmatch_headers("token", "device-id", ClientIdentity::Windows).unwrap();
++        let agent = bifrost_user_agent();
++        // The desktop values are those of the OS the test runs on, so a header is expected to differ only
++        // where that OS is not Windows; the Windows values are written out.
++        let change = |name: &str, host: &str, windows: &str| {
++            (host != windows).then(|| {
++                (
++                    name.to_owned(),
++                    Some(host.to_owned()),
++                    Some(windows.to_owned()),
++                )
++            })
++        };
++        let expected: Vec<_> = [
++            change("nv-device-make", device_make(), "UNKNOWN"),
++            change("nv-device-os", device_os(), "WINDOWS"),
++            change("user-agent", &agent, WINDOWS_AGENT),
++            change("x-nv-client-identity", &agent, WINDOWS_AGENT),
++        ]
++        .into_iter()
++        .flatten()
++        .collect();
++        assert_eq!(header_changes(&wire(&desktop), &wire(&windows)), expected);
++    }
++
++    #[test]
++    fn the_windows_identity_names_the_windows_platform_and_nothing_else() {
++        let (desktop, windows) = bodies_for("windows");
++        let mut changes = Vec::new();
++        body_changes("", &desktop, &windows, &mut changes);
++        // Only what the host OS decides: the platform name and, on a Mac, the DPI.
++        let host = platform_name(&json!({}));
++        let mut expected = Vec::new();
++        if host != "Windows" {
++            expected.push((
++                "/sessionRequestData/clientPlatformName".to_owned(),
++                json!(host),
++                json!("Windows"),
++            ));
++        }
++        if cfg!(target_os = "macos") {
++            expected.push((
++                "/sessionRequestData/clientRequestMonitorSettings/0/dpi".to_owned(),
++                json!(144),
++                json!(96),
++            ));
++        }
++        assert_eq!(changes, expected);
++        assert_eq!(windows["sessionRequestData"]["enhancedStreamMode"], 0);
++        assert_the_4k120_hdr_request(&windows);
++        // The Windows identity wins over the Steam Deck flag, which names the platform otherwise.
++        let flagged = json!({"clientIdentity":"windows","identifyAsSteamDeck":true});
++        let body = build_create_body("123", &json!({}), &flagged, "device");
++        assert_eq!(body["sessionRequestData"]["clientPlatformName"], "Windows");
++    }
++
++    #[test]
++    fn a_resume_names_the_enhanced_stream_only_where_the_create_body_does() {
++        let resume = |identity: &str| {
++            build_resume_body(
++                "123",
++                &json!({}),
++                &json!({"clientIdentity":identity}),
++                "device",
++            )
++        };
++        assert_eq!(
++            resume("lgWebos")["sessionRequestData"]["enhancedStreamMode"],
++            1
++        );
++        assert!(
++            resume("desktop")["sessionRequestData"]
++                .get("enhancedStreamMode")
++                .is_none()
++        );
++    }
++
++    #[test]
++    fn a_session_keeps_the_client_identity_it_was_created_under() {
++        // The identity, then the user agent, client type and device OS it sends and the body's `enhancedStreamMode`.
++        for (identity, agent, client_type, os, enhanced) in [
++            ("lgWebos", LG_WEBOS_USER_AGENT, "BROWSER", "WEBOS", 1),
++            ("windows", WINDOWS_AGENT, "NATIVE", "WINDOWS", 0),
++        ] {
++            let seat = |status| {
++                json!({"requestStatus":{"statusCode":1},"session":{
++                    "sessionId":"A","status":status,
++                    "sessionControlInfo":{"ip":"seat.nvidiagrid.net","port":443}
++                }})
++            };
++            let (base, server) = recording_server(vec![
++                (200, seat(1)),
++                (200, seat(1)),
++                (200, json!({"requestStatus":{"statusCode":1}})),
++            ]);
++            let client = Client::builder()
++                .no_proxy()
++                .timeout(Duration::from_secs(5))
++                .build()
++                .unwrap();
++            let mut service = CloudMatchService::new(client.clone());
++            service.set_test_control_base(base.clone());
++            let auth = conflict_auth();
++            let created = service
++                .create_at(
++                    &json!({"appId":"123"}),
++                    &json!({"clientIdentity":identity}),
++                    &auth,
++                    "device",
++                    || Ok((client, base)),
++                )
++                .unwrap();
++            assert_eq!(created["session"]["clientIdentity"], identity);
++            service.finish_create("A", true).unwrap();
++            // The setting is back on the desktop client by now; the seat keeps the identity it was created under.
++            let polled = service
++                .poll(&json!({"sessionId":"A"}), &auth, "device")
++                .unwrap();
++            assert_eq!(polled["session"]["clientIdentity"], identity);
++            service
++                .stop(
++                    &json!({"sessionId":"A"}),
++                    &json!({"clientIdentity":"desktop"}),
++                    &auth,
++                    "device",
++                )
++                .unwrap();
++            let received = server.join().unwrap();
++            let methods: Vec<_> = received
++                .iter()
++                .map(|request| request.line.split(' ').next().unwrap())
++                .collect();
++            assert_eq!(methods, ["POST", "GET", "DELETE"]);
++            for request in &received {
++                let line = &request.line;
++                assert_eq!(request.headers["user-agent"], agent, "{line}");
++                assert_eq!(request.headers["nv-client-type"], client_type, "{line}");
++                assert_eq!(request.headers["nv-device-os"], os, "{line}");
++                // The browser client never sends it.
++                assert_eq!(
++                    request.headers.contains_key("x-nv-client-identity"),
++                    client_type == "NATIVE",
++                    "{line}"
++                );
++            }
++            let body: Value = serde_json::from_slice(&received[0].body).unwrap();
++            assert_eq!(body["sessionRequestData"]["enhancedStreamMode"], enhanced);
++        }
+     }
+ 
+     #[test]
+@@ -5875,7 +6606,7 @@ mod tests {
          );
          assert!(request.get("externalAppId").is_none());
          assert_eq!(request["enablePersistingInGameSettings"], true);
@@ -235,7 +1120,7 @@ index 74cc7946..9a2e3fd3 100644
          assert_eq!(request["accountLinked"], true);
          assert_eq!(request["appLaunchMode"], 2);
          assert_eq!(request["secureRTSPSupported"], true);
-@@ -6373,6 +6497,40 @@ mod tests {
+@@ -6373,6 +7104,40 @@ mod tests {
          })));
      }
  
@@ -411,8 +1296,58 @@ index d3a3db54..9eeaca97 100644
          }
          entered_tx.send(()).unwrap();
          release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+diff --git a/native/opennow-core/src/settings.rs b/native/opennow-core/src/settings.rs
+index a8eea09b..acfc69a0 100644
+--- a/native/opennow-core/src/settings.rs
++++ b/native/opennow-core/src/settings.rs
+@@ -467,6 +467,12 @@ impl SettingsStore {
+             &["auto", "on", "off"],
+             "auto",
+         );
++        normalize_choice(
++            &mut self.values,
++            "clientIdentity",
++            &["desktop", "lgWebos", "windows"],
++            "desktop",
++        );
+         self.values.insert(
+             "allianceWebrtcCompatibility".to_owned(),
+             json!(self.values["webrtcCompatibilityMode"] == "on"),
+@@ -1220,6 +1226,7 @@ fn defaults() -> Map<String, Value> {
+         "windowX":null, "windowY":null, "windowWidth":1400, "windowHeight":900, "keyboardLayout":"en-US",
+         "gameLanguage":"en_US", "enablePersistingInGameSettings":true, "enableL4S":false,
+         "identifyAsSteamDeck":false, "steamBigPictureMode":false,
++        "clientIdentity":"desktop",
+         "enableCloudGsync":false, "discordRichPresence":false,
+         "autoCheckForUpdates":true, "autoDownloadUpdates":false,
+         "updateChannel":crate::version::update_channel(crate::version::APPLICATION_VERSION),
+@@ -1493,6 +1500,24 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn client_identity_is_the_desktop_client_unless_a_known_identity_is_chosen() {
++        let directory = tempfile::tempdir().unwrap();
++        let mut store = SettingsStore::load(Some(directory.path().to_path_buf())).unwrap();
++        assert_eq!(store.all()["clientIdentity"], "desktop");
++        for identity in ["lgWebos", "windows"] {
++            assert_eq!(
++                store.set("clientIdentity", json!(identity)).unwrap(),
++                identity
++            );
++            let restored = SettingsStore::load(Some(directory.path().to_path_buf())).unwrap();
++            assert_eq!(restored.all()["clientIdentity"], identity);
++        }
++        for invalid in [json!(true), json!("lgwebos"), json!("Windows"), Value::Null] {
++            assert_eq!(store.set("clientIdentity", invalid).unwrap(), "desktop");
++        }
++    }
++
+     #[test]
+     fn provider_region_preferences_are_atomic_isolated_and_persisted() {
+         let directory = tempfile::tempdir().unwrap();
 diff --git a/native/opennow-core/src/streamer.rs b/native/opennow-core/src/streamer.rs
-index ae84bd82..a24a37c9 100644
+index ae84bd82..da97b406 100644
 --- a/native/opennow-core/src/streamer.rs
 +++ b/native/opennow-core/src/streamer.rs
 @@ -910,6 +910,7 @@ impl StreamerService {
@@ -431,7 +1366,7 @@ index ae84bd82..a24a37c9 100644
      if session["negotiatedStreamProfile"].is_null() {
          session["negotiatedStreamProfile"] = json!({"codec":codec.to_ascii_uppercase()});
      }
-@@ -2031,6 +2033,19 @@ fn streamer_context(mut session: Value, settings: &Value) -> Value {
+@@ -2031,6 +2033,23 @@ fn streamer_context(mut session: Value, settings: &Value) -> Value {
      })
  }
  
@@ -443,15 +1378,19 @@ index ae84bd82..a24a37c9 100644
 +    session["requestedHdr"] == true
 +        && settings["transportMode"] == "nvst"
 +        && matches!(
-+            (settings["codec"].as_str(), settings["colorQuality"].as_str()),
-+            (Some("H265" | "HEVC"), Some("10bit_420" | "10bit_444")) | (Some("AV1"), Some("10bit_420"))
++            (
++                settings["codec"].as_str(),
++                settings["colorQuality"].as_str()
++            ),
++            (Some("H265" | "HEVC"), Some("10bit_420" | "10bit_444"))
++                | (Some("AV1"), Some("10bit_420"))
 +        )
 +}
 +
  fn context_resolution(context: &Value) -> (u64, u64) {
      context["settings"]["resolution"]
          .as_str()
-@@ -4093,6 +4108,35 @@ mod tests {
+@@ -4093,6 +4112,42 @@ mod tests {
          assert_eq!(context_resolution(&context), (1920, 1080));
      }
  
@@ -470,7 +1409,14 @@ index ae84bd82..a24a37c9 100644
 +            (json!(true), json!(false), "H265", "10bit_420", true, false),
 +            (json!(true), json!(true), "H265", "10bit_420", true, true),
 +            (json!(true), json!(false), "AV1", "10bit_420", true, false),
-+            (json!(false), json!(false), "H265", "10bit_420", false, false),
++            (
++                json!(false),
++                json!(false),
++                "H265",
++                "10bit_420",
++                false,
++                false,
++            ),
 +            (Value::Null, json!(false), "H265", "10bit_420", false, false),
 +            // HDR needs 10-bit HEVC or 10-bit 4:2:0 AV1.
 +            (json!(true), json!(false), "H264", "8bit_420", false, false),

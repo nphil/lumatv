@@ -114,6 +114,11 @@ Engine decisions:
   cannot be read (H.264, or an unreadable parameter set) leave the TV in SDR.
   The core keeps what the session request asked for (`requestedHdr`) beside the service's answer; the stream's ANNOUNCE asks for HDR
   whenever the request did and the stream is 10-bit HEVC or AV1.
+  The Stream setting Client identity (`client-identity`: Linux PC, the default, the official LG webOS app or the official Windows
+  app; the core's `clientIdentity`) is an experiment on whether the service's HDR answer depends on who the request says it is.
+  The LG and Windows identities change the user agent, the client-type and device headers, the body's platform name and (LG) its
+  `enhancedStreamMode`, nothing that selects the transport, resolution, frame rate or HDR mode; the field list, the sources and the
+  risks are in `gfn/engine/patches/opennow-core.md`.
 - **Punktfunk:** a 64-bit engine on `punktfunk-core` and `pf-client-core`, with the session logic of client-webos ported, feeding
   the shared feeder. Rejected: running Punktfunk's own 32-bit client as a child (it is not `main`, so it has no NDL role, and it
   would be a second NDL path). Risks: the `aws-lc-rs` cross-build for aarch64 glibc 2.36; parity with the stock client, to be

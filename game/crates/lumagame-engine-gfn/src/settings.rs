@@ -30,6 +30,9 @@ pub fn schema(prefs: &Value) -> SettingsSchema {
          "help":"Smooth evens out frames that arrive in bursts, holding a frame for at most 1.5 frame times."},
         {"key":"cloud-gsync","label":"Cloud G-SYNC (experimental)","type":"toggle","default":false,
          "help":"Asks the server for Cloud G-SYNC, a stream that follows the game's frame rate, and stops padding it to a fixed 120 fps. NVIDIA offers it only in its Windows and Mac apps, on an Ultimate plan; the TV's own refresh rate does not change. May judder."},
+        {"key":"client-identity","label":"Client identity","type":"choice","default":"linux","options":[
+            {"id":"linux","label":"Linux PC (current)"},{"id":"lg-webos","label":"LG webOS TV (official LG app)"},{"id":"windows","label":"Windows PC (official GFN app)"}],
+         "help":"Experimental. Who the session request says it is, to see whether the server then grants HDR. LG webOS TV sends the official LG app's client type, device and user agent; Windows PC sends the Windows app's user agent, operating system and platform name. The server may also change the resolution or frame rate it grants, or refuse the session. Applies from the next launch."},
         {"key":"bitrate-mbps","label":"Bitrate cap","type":"number","min":5,"max":150,"step":5,"unit":"Mbit/s","default":bitrate},
         {"key":"deadzone","label":"Stick dead zone","type":"number","min":0,"max":20,"step":1,"unit":"%","default":deadzone},
         {"key":"anti-deadzone","label":"Stick anti-deadzone","type":"number","min":0,"max":30,"step":1,"unit":"%","default":0},
@@ -94,6 +97,12 @@ pub fn core_settings(values: &Values, display: &Display) -> Vec<(&'static str, V
         // `forced` asks for Cloud G-SYNC without the PC client's VRR-display check, which a TV cannot pass; `disabled` stops a
         // value left in the core's own settings from asking for it. The core's session request and the streamer's ANNOUNCE read this one key.
         ("nativeCloudGsyncMode", json!(if boolean(values, "cloud-gsync") { "forced" } else { "disabled" })),
+        // Which client the session request says it is; the core reads it for every CloudMatch request. Anything but the LG or Windows app is the desktop identity it sent before.
+        ("clientIdentity", json!(match values.get("client-identity") {
+            Some(lumagame_core::settings::Value::Text(id)) if id == "lg-webos" => "lgWebos",
+            Some(lumagame_core::settings::Value::Text(id)) if id == "windows" => "windows",
+            _ => "desktop",
+        })),
     ]
 }
 
@@ -183,5 +192,21 @@ mod tests {
         assert_eq!(mode(&s.defaults()), Some(json!("disabled")), "off pushes `disabled`, so a stale core setting cannot ask for it");
         let on = s.resolve(&Values::from([("cloud-gsync".into(), V::Bool(true))]));
         assert_eq!(mode(&on), Some(json!("forced")));
+    }
+
+    #[test]
+    fn the_client_identity_is_the_desktop_client_unless_the_viewer_picks_an_official_app() {
+        use lumagame_core::settings::Value as V;
+        let s = schema(&Value::Null);
+        s.validate().unwrap();
+        let d = Display { width:3840,height:2160,refresh_hz:120,hdr10:true,codecs:vec![Codec::H265] };
+        let identity = |v: &Values| core_settings(v, &d).into_iter().find(|(key, _)| *key == "clientIdentity").map(|(_, value)| value);
+        assert!(s.check("client-identity", &V::Text("toaster".into())).is_err());
+        assert_eq!(identity(&s.defaults()), Some(json!("desktop")), "the default is the identity the core sent before");
+        for (id, core) in [("lg-webos", "lgWebos"), ("windows", "windows")] {
+            assert_eq!(s.check("client-identity", &V::Text(id.into())), Ok(()));
+            let picked = s.resolve(&Values::from([("client-identity".into(), V::Text(id.into()))]));
+            assert_eq!(identity(&picked), Some(json!(core)));
+        }
     }
 }
