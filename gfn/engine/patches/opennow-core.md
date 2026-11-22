@@ -24,6 +24,13 @@ official client reads it (vendor.js `at()`, main.js `hdrStreamingMode`), before 
 and the stream was declared HDR over SDR content. `enableHdrSource` is `server` for the response's own
 fields and `request` for the echo.
 
+The accepted resolution and frame rate are read the same way, from `monitorSettings[0]` (`widthInPixels` with `heightInPixels`, and
+`framesPerSecond`) before the echo, and `resolutionSource` and `fpsSource` say which (`server`, `request` or `unreported`). The profile
+held only the echo, so a session whose TV ended at a 1080p 60 source mode still said 2160p 120 in the stream menu and the feeder's load
+line. The stream's announce, the feeder's load, the pacer and the app's stream info all follow the profile, so they now follow the
+response. A frame rate the client cannot ask for (`SUPPORTED_FRAME_RATES`) stays the echo's, because `prepare_embedded` snaps rates to
+that list and would refuse the stream over the difference. A response without a size or rate changes nothing.
+
 The session also records `requestedHdr`: whether the create request carried `sdrHdrMode` 1 (false for WebRTC and for a game
 the catalog gate downgraded), kept through polls like `hdrDowngrade`. The service's answer stays in
 `negotiatedStreamProfile.enableHdr`; the two differ when the service refuses. `streamer_context` derives `settings.announceHdr` from
@@ -70,7 +77,15 @@ account's 4K 120 entitlements.
 
 Risks: the service may grant less than 4K 120 to a TV profile, or answer or refuse a browser client on the classic transport (no real
 client sends that pair), and an unusual identity on the account may be noticed; `windows` on a Linux build claims an OS the stream does
-not come from. Whether the identity gates HDR at all is not known.
-The core logs one line per session, `CloudMatch session created as the <identity> client: hdr requested <bool>, hdr in the response
-<bool> (<source>)`; the streamer's `session answered hdr` line and the diagnostics' `stream_format` and `vui` events show the answer
-the stream carries.
+not come from.
+
+On the TV (build 64b7545d, Hogwarts Legacy, 4K 120 HEVC, HDR on) only `windows` was answered with HDR: HDR10 at 4K 120, then SDR tags (same
+codec, size and rate) about 16 s in, about when Steam's Big Picture gave way to the game. `desktop` was SDR from the start at 4K 120;
+`lgWebos` was SDR and its TV ended at a 1080p 60 source mode. Whether the return to SDR is the game's own HDR setting being off is not
+checked.
+
+The core logs `CloudMatch session created as the <identity> client: hdr requested <bool>, hdr in the response <bool>` once per session
+and `CloudMatch session ready as the <identity> client: the response says resolution <WxH>, fps <n>, hdr <bool>; the stream is set up
+for <WxH> at <n> fps` once per prepared stream. A part reads `unreported` when only the echo of the request carried it, which is not an
+answer; the create response carried no HDR field on the TV. The streamer's `session answered hdr` line and the diagnostics'
+`stream_format` and `vui` events show what the stream carries.

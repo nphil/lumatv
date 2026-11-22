@@ -1,5 +1,5 @@
 diff --git a/native/opennow-core/src/cloudmatch.rs b/native/opennow-core/src/cloudmatch.rs
-index 74cc7946..7d60a32c 100644
+index 74cc7946..bd22e309 100644
 --- a/native/opennow-core/src/cloudmatch.rs
 +++ b/native/opennow-core/src/cloudmatch.rs
 @@ -4,6 +4,7 @@ use rand::RngCore as _;
@@ -42,7 +42,7 @@ index 74cc7946..7d60a32c 100644
              .json(&body)
              .send()
              .map_err(|error| network("Session creation failed", error))?;
-@@ -392,6 +402,25 @@ impl CloudMatchService {
+@@ -392,6 +402,23 @@ impl CloudMatchService {
          } else {
              "nvst"
          });
@@ -54,21 +54,19 @@ index 74cc7946..7d60a32c 100644
 +        );
 +        info["clientIdentity"] = json!(identity.name());
 +        // One line per session, so a run under each identity can be compared from the log alone, even when the stream
-+        // setup after it fails. The answer is the response's own field only when its source says `server`; a response that
-+        // omits it reads back as the request's echo, and the stream setup's `session answered hdr` line follows the polls.
++        // setup after it fails. The answer is the response's own field, and `unreported` when the response carries none or
++        // only the echo of the request, which is not an answer. The create response carried none on the TV (the session is
++        // still being set up); `prepare_embedded` logs what the response says once the session is ready.
 +        eprintln!(
-+            "CloudMatch session created as the {} client: hdr requested {}, hdr in the response {} ({})",
++            "CloudMatch session created as the {} client: hdr requested {}, hdr in the response {}",
 +            identity.name(),
 +            info["requestedHdr"],
-+            info["negotiatedStreamProfile"]["enableHdr"],
-+            info["negotiatedStreamProfile"]["enableHdrSource"]
-+                .as_str()
-+                .unwrap_or("none")
++            response_hdr(&info["negotiatedStreamProfile"])
 +        );
          select_webrtc_endpoint(&mut info);
          info["keyboardLayout"] = json!(crate::language::session_keyboard_layout(settings));
          if let Some(session_id) = network_test["sessionId"].as_str() {
-@@ -409,7 +438,7 @@ impl CloudMatchService {
+@@ -409,7 +436,7 @@ impl CloudMatchService {
              info: info.clone(),
              base: control_base,
              client: client.clone(),
@@ -77,7 +75,7 @@ index 74cc7946..7d60a32c 100644
              owner: (auth.provider.idp_id.clone(), auth.user.user_id.clone()),
          });
          if crate::requests::current().cancelled() {
-@@ -655,7 +684,11 @@ impl CloudMatchService {
+@@ -655,7 +682,11 @@ impl CloudMatchService {
              .ok_or_else(|| invalid("No active session control endpoint"))?;
          let base = trusted_cloudmatch_base(&control_base)?;
          let token = session_token(auth);
@@ -90,7 +88,7 @@ index 74cc7946..7d60a32c 100644
          let payload = match self.get_session(&client, &base, &session_id, &headers) {
              Ok(payload) => payload,
              Err(error) if error.code == "session_not_found" => {
-@@ -778,11 +811,15 @@ impl CloudMatchService {
+@@ -778,11 +809,15 @@ impl CloudMatchService {
                  base.join(&format!("v2/session/{session_id}"))
              })
              .map_err(|_| invalid("Invalid test stop URL"))?;
@@ -107,7 +105,7 @@ index 74cc7946..7d60a32c 100644
          )
      }
  
-@@ -956,7 +993,11 @@ impl CloudMatchService {
+@@ -956,7 +991,11 @@ impl CloudMatchService {
              });
          let requested =
              recovery_region.map_or_else(|| requested_streaming_base(params, settings, auth), Ok)?;
@@ -120,7 +118,7 @@ index 74cc7946..7d60a32c 100644
          let mut bases = vec![requested.clone()];
          let server_info_url = requested
              .join("v2/serverInfo")
-@@ -1089,7 +1130,8 @@ impl CloudMatchService {
+@@ -1089,7 +1128,8 @@ impl CloudMatchService {
              .filter(|value| !value.is_empty())
              .ok_or_else(|| invalid("session.claim requires sessionId"))?;
          let requested = requested_streaming_base(params, settings, auth)?;
@@ -130,7 +128,7 @@ index 74cc7946..7d60a32c 100644
          let discovered = self
              .discovered
              .lock()
-@@ -1168,6 +1210,7 @@ impl CloudMatchService {
+@@ -1168,6 +1208,7 @@ impl CloudMatchService {
              if let Some(retained) = &retained_webrtc {
                  preserve_session_profile(&mut info, retained);
              }
@@ -138,7 +136,7 @@ index 74cc7946..7d60a32c 100644
              check()?;
              self.store_active(&mut info, &control_base, zone, &app_id, client)?;
              self.remember_webrtc_allocation(&info, auth)?;
-@@ -1218,6 +1261,7 @@ impl CloudMatchService {
+@@ -1218,6 +1259,7 @@ impl CloudMatchService {
          if resumed {
              info["keyboardLayout"] = json!(crate::language::session_keyboard_layout(settings));
          }
@@ -146,7 +144,7 @@ index 74cc7946..7d60a32c 100644
          info["resumePending"] = json!(true);
          info["phase"] = json!("resuming");
          self.store_active(&mut info, &control_base, zone, &app_id, client)?;
-@@ -1279,9 +1323,17 @@ impl CloudMatchService {
+@@ -1279,9 +1321,17 @@ impl CloudMatchService {
          if let Some(reason) = params["cancelReason"].as_str() {
              update["cancelReason"] = json!(reason);
          }
@@ -165,7 +163,7 @@ index 74cc7946..7d60a32c 100644
              .json(&json!({"action":6,"adUpdates":[update]}))
              .send()
              .map_err(|error| network("Session ad update failed", error))?;
-@@ -1413,7 +1465,14 @@ impl CloudMatchService {
+@@ -1413,7 +1463,14 @@ impl CloudMatchService {
          if explicit_create_base(params, settings) {
              return Ok(requested.clone());
          }
@@ -181,7 +179,7 @@ index 74cc7946..7d60a32c 100644
      }
  
      fn resolve_create_base(
-@@ -1422,12 +1481,13 @@ impl CloudMatchService {
+@@ -1422,12 +1479,13 @@ impl CloudMatchService {
          requested: &Url,
          token: &str,
          device_id: &str,
@@ -196,7 +194,7 @@ index 74cc7946..7d60a32c 100644
          let Ok(response) = client.get(url).headers(headers).send() else {
              return Ok(requested.clone());
          };
-@@ -1572,6 +1632,9 @@ fn build_resume_body(app_id: &str, session: &Value, settings: &Value, device_id:
+@@ -1572,6 +1630,9 @@ fn build_resume_body(app_id: &str, session: &Value, settings: &Value, device_id:
      );
      if webrtc {
          request.insert("sdkVersion".to_owned(), json!("1.0"));
@@ -206,7 +204,7 @@ index 74cc7946..7d60a32c 100644
          request.insert("enhancedStreamMode".to_owned(), json!(1));
      }
      request.insert(
-@@ -1641,6 +1704,7 @@ fn monitor_display_data(hdr: bool, settings: &Value) -> Value {
+@@ -1641,6 +1702,7 @@ fn monitor_display_data(hdr: bool, settings: &Value) -> Value {
  }
  
  fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id: &str) -> Value {
@@ -214,7 +212,7 @@ index 74cc7946..7d60a32c 100644
      let (width, height) = parse_resolution(&setting_string(settings, "resolution", "1920x1080"));
      let fps = crate::frame_rate::request_frame_rate(settings, params, width, height);
      // The codec stays client-selected: the official Bifrost client resolves it from local
-@@ -1703,7 +1767,8 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id:
+@@ -1703,7 +1765,8 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id:
      features["hidDevices"] = Value::Null;
      let mut body = json!({"sessionRequestData":{
          "appId":app_id.parse::<i64>().unwrap_or_default(),
@@ -224,7 +222,7 @@ index 74cc7946..7d60a32c 100644
          "availableSupportedControllers":[2],
          "preferredController":2,
          "networkTestSessionId":params["networkTestSessionId"].as_str(),
-@@ -1713,14 +1778,14 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id:
+@@ -1713,14 +1776,14 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id:
          "clientVersion":"30.0",
          "sdkVersion":"2.0",
          "streamerVersion":"14",
@@ -241,7 +239,7 @@ index 74cc7946..7d60a32c 100644
          }],
          "useOps":true,
          "audioMode":2,
-@@ -1741,6 +1806,10 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id:
+@@ -1741,6 +1804,10 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id:
          "requestedStreamingFeatures":features,
          "transport":null
      }});
@@ -252,7 +250,15 @@ index 74cc7946..7d60a32c 100644
      if settings["allianceWebrtcCompatibility"] == true {
          let request = &mut body["sessionRequestData"];
          request["sdkVersion"] = json!("1.0");
-@@ -2061,11 +2130,8 @@ fn session_info(
+@@ -2039,6 +2106,7 @@ fn session_info(
+     let codec_reported =
+         session["negotiatedStreamProfile"].get("codec").is_some() || features.contains_key("codec");
+     let mut negotiated = negotiated_profile(monitor, &Value::Object(features));
++    granted_mode(&mut negotiated, &session["monitorSettings"][0]);
+     for key in ["bitDepth", "chromaFormat"] {
+         if session["finalizedStreamingFeatures"].get(key).is_some() {
+             negotiated[format!("{key}Source")] = json!("finalized");
+@@ -2061,11 +2129,8 @@ fn session_info(
      });
      let hdr = accepted_hdr_mode(session);
      negotiated["enableHdr"] = json!(hdr.map(|mode| mode == 1));
@@ -266,7 +272,7 @@ index 74cc7946..7d60a32c 100644
      let ad_state = normalize_ad_state(session);
      let mut info = json!({
          "sessionId":session_id,
-@@ -2094,7 +2160,9 @@ fn session_info(
+@@ -2094,7 +2159,9 @@ fn session_info(
          "mediaConnectionInfo":media,
          "negotiatedStreamProfile":negotiated,
          "hdrDowngrade":null,
@@ -276,7 +282,7 @@ index 74cc7946..7d60a32c 100644
          "requestedStreamingFeatures":session["sessionRequestData"]["requestedStreamingFeatures"],
          "finalizedStreamingFeatures":session["finalizedStreamingFeatures"],
          "clientId":LCARS_CLIENT_ID,
-@@ -2132,18 +2200,27 @@ fn normalize_ad_state(session: &Value) -> Value {
+@@ -2132,18 +2199,27 @@ fn normalize_ad_state(session: &Value) -> Value {
  }
  
  fn accepted_hdr_mode(session: &Value) -> Option<i64> {
@@ -309,7 +315,7 @@ index 74cc7946..7d60a32c 100644
  }
  
  fn preserve_session_profile(info: &mut Value, previous: &Value) {
-@@ -2154,7 +2231,12 @@ fn preserve_session_profile(info: &mut Value, previous: &Value) {
+@@ -2154,7 +2230,12 @@ fn preserve_session_profile(info: &mut Value, previous: &Value) {
      if previous["sessionId"].as_str() != Some(session_id) {
          return;
      }
@@ -323,11 +329,79 @@ index 74cc7946..7d60a32c 100644
          if info[key].is_null() {
              info[key] = previous[key].clone();
          }
-@@ -2260,28 +2342,58 @@ fn negotiated_profile(monitor: &Value, features: &Value) -> Value {
+@@ -2238,6 +2319,7 @@ fn negotiated_profile(monitor: &Value, features: &Value) -> Value {
+     let color = profile_color(&json!(bit_depth), &json!(chroma));
+     let dynamic_streaming_mode =
+         value_i64(&features["dynamicStreamingMode"]).filter(|value| (0..=3).contains(value));
++    let fps = value_i64(&monitor["framesPerSecond"]);
+     json!({
+         "resolution":resolution,
+         // Carried alongside `resolution` so consumers do not have to re-parse
+@@ -2246,13 +2328,15 @@ fn negotiated_profile(monitor: &Value, features: &Value) -> Value {
+         // preserving the aspect ratio.
+         "width":width,
+         "height":height,
+-        "fps":value_i64(&monitor["framesPerSecond"]),
++        "fps":fps,
+         "codec":codec,
+         "colorQuality":color,
+         "bitDepth":bit_depth,
+         "chromaFormat":chroma,
+         "bitDepthSource":if features.get("bitDepth").is_some() { "request" } else { "unreported" },
+         "chromaFormatSource":if features.get("chromaFormat").is_some() { "request" } else { "unreported" },
++        "resolutionSource":if resolution.is_some() { "request" } else { "unreported" },
++        "fpsSource":if fps.is_some() { "request" } else { "unreported" },
+         "dynamicStreamingMode":dynamic_streaming_mode,
+         "enableL4S":features["enabledL4S"],
+         "enableCloudGsync":features["cloudGsync"],
+@@ -2260,28 +2344,101 @@ fn negotiated_profile(monitor: &Value, features: &Value) -> Value {
      })
  }
  
 -fn cloudmatch_headers(token: &str, device_id: &str) -> Result<HeaderMap, ServiceError> {
++/// Puts the mode the service reports in the response's own `monitorSettings[0]` over the request's echo in `sessionRequestData`,
++/// which reads as accepted whatever the service decided: an LG-identity session ended with the TV's source mode at 1080p 60
++/// while the echo said 2160p 120. Everything that follows the profile (the stream's announce and feeder load, the app's stream
++/// menu) then follows the answer. A part the monitor omits keeps the echo's value, labelled `request`; so does a frame rate
++/// the client cannot ask for, since `prepare_embedded` snaps rates to that list and would refuse the stream over the difference.
++fn granted_mode(profile: &mut Value, granted: &Value) {
++    let positive = |key: &str| value_i64(&granted[key]).filter(|value| *value > 0);
++    if let Some((width, height)) = positive("widthInPixels").zip(positive("heightInPixels")) {
++        profile["width"] = json!(width);
++        profile["height"] = json!(height);
++        profile["resolution"] = json!(format!("{width}x{height}"));
++        profile["resolutionSource"] = json!("server");
++    }
++    if let Some(fps) = positive("framesPerSecond")
++        .filter(|fps| crate::frame_rate::SUPPORTED_FRAME_RATES.contains(fps))
++    {
++        profile["fps"] = json!(fps);
++        profile["fpsSource"] = json!("server");
++    }
++}
++
++/// `value` as the log words it: only a part whose source is `server` is something the response said; the request's echo, or
++/// nothing, reads `unreported`.
++fn said(profile: &Value, key: &str, value: Option<impl ToString>) -> String {
++    value
++        .filter(|_| profile[&format!("{key}Source")] == "server")
++        .map_or_else(|| "unreported".to_owned(), |value| value.to_string())
++}
++
++fn response_hdr(profile: &Value) -> String {
++    said(profile, "enableHdr", profile["enableHdr"].as_bool())
++}
++
++/// The stream mode the response itself reported, for the log.
++pub(crate) fn response_mode(profile: &Value) -> String {
++    format!(
++        "resolution {}, fps {}, hdr {}",
++        said(profile, "resolution", profile["resolution"].as_str()),
++        said(profile, "fps", profile["fps"].as_i64()),
++        response_hdr(profile)
++    )
++}
++
 +fn cloudmatch_headers(
 +    token: &str,
 +    device_id: &str,
@@ -390,7 +464,7 @@ index 74cc7946..7d60a32c 100644
      Ok(headers)
  }
  
-@@ -2806,7 +2918,8 @@ fn try_network_test_session(
+@@ -2806,7 +2963,8 @@ fn try_network_test_session(
      let profile = network_test_display_profile(settings, params);
      let url = crate::network_test::nettest_url(base)?;
      let body = crate::network_test::allocation_body("GFN-PC", profile);
@@ -400,7 +474,7 @@ index 74cc7946..7d60a32c 100644
      headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
      crate::requests::check()?;
      let response = client
-@@ -2984,6 +3097,108 @@ fn app_launch_mode(params: &Value) -> i64 {
+@@ -2984,6 +3142,108 @@ fn app_launch_mode(params: &Value) -> i64 {
      }
  }
  
@@ -509,7 +583,7 @@ index 74cc7946..7d60a32c 100644
  fn platform_name(settings: &Value) -> &'static str {
      if setting_bool(settings, "identifyAsSteamDeck", false) {
          "SteamOS"
-@@ -3022,15 +3237,18 @@ fn device_model() -> &'static str {
+@@ -3022,15 +3282,18 @@ fn device_model() -> &'static str {
      "UNKNOWN"
  }
  
@@ -532,7 +606,7 @@ index 74cc7946..7d60a32c 100644
  }
  
  fn random_uuid() -> String {
-@@ -3102,6 +3320,7 @@ fn network(context: &str, error: impl std::fmt::Display) -> ServiceError {
+@@ -3102,6 +3365,7 @@ fn network(context: &str, error: impl std::fmt::Display) -> ServiceError {
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -540,7 +614,7 @@ index 74cc7946..7d60a32c 100644
  
      fn session_server(
          replies: Vec<(u16, Value)>,
-@@ -3142,6 +3361,57 @@ mod tests {
+@@ -3142,6 +3406,57 @@ mod tests {
          (base, worker)
      }
  
@@ -598,7 +672,7 @@ index 74cc7946..7d60a32c 100644
      #[test]
      fn create_and_claim_use_exact_independent_language_query_pairs() {
          for (game, keyboard, expected_game, expected_keyboard) in [
-@@ -4189,7 +4459,7 @@ mod tests {
+@@ -4189,7 +4504,7 @@ mod tests {
          assert_eq!(request["requestedStreamingFeatures"]["chromaFormat"], 0);
          assert_eq!(request["remoteControllersBitmap"], 1);
          assert!(reported_webrtc_session(&body));
@@ -607,7 +681,7 @@ index 74cc7946..7d60a32c 100644
          assert_eq!(headers["nv-client-streamer"], "NVIDIA-CLASSIC");
          assert_eq!(headers["nv-client-type"], "NATIVE");
          assert!(request.get("requestedAudioFormat").is_none());
-@@ -5301,17 +5571,49 @@ mod tests {
+@@ -5301,17 +5616,49 @@ mod tests {
          let base = trusted_cloudmatch_base(DEFAULT_STREAMING_BASE).unwrap();
          let payload = |id: &str| json!({"session":{"sessionId":id,"status":2,"sdrHdrMode":0}});
          let mut created = session_info(&payload("seat"), &base, "auto", "123", "device").unwrap();
@@ -659,7 +733,7 @@ index 74cc7946..7d60a32c 100644
      }
  
      #[test]
-@@ -5747,6 +6049,92 @@ mod tests {
+@@ -5747,6 +6094,195 @@ mod tests {
          assert_eq!(accepted_hdr_mode(&json!({"sdrHdrMode":2})), Some(0));
      }
  
@@ -690,6 +764,109 @@ index 74cc7946..7d60a32c 100644
 +        assert_eq!(
 +            accepted_hdr_mode(&json!({"sdrHdrMode":0,"monitorSettings":[{"sdrHdrMode":1}]})),
 +            Some(0)
++        );
++    }
++
++    #[test]
++    fn the_stream_mode_is_read_from_the_response_monitor_before_the_request_echo() {
++        let base = trusted_cloudmatch_base(DEFAULT_STREAMING_BASE).unwrap();
++        let profile = |session: Value| {
++            let info =
++                session_info(&json!({"session":session}), &base, "", "123", "device").unwrap();
++            info["negotiatedStreamProfile"].clone()
++        };
++        let echo = json!({"clientRequestMonitorSettings":[
++            {"widthInPixels":3840,"heightInPixels":2160,"framesPerSecond":120,"sdrHdrMode":1}]});
++        let mode = |profile: &Value| {
++            (
++                profile["resolution"].clone(),
++                profile["width"].clone(),
++                profile["height"].clone(),
++                profile["fps"].clone(),
++                profile["resolutionSource"].clone(),
++                profile["fpsSource"].clone(),
++            )
++        };
++        // A TV profile asked for 2160p 120 and was streamed 1080p 60: only the service's own monitor says so.
++        let granted = profile(
++            json!({"sessionId":"seat","status":2,"sessionRequestData":echo,
++            "monitorSettings":[{"widthInPixels":1920,"heightInPixels":1080,"framesPerSecond":60,"sdrHdrMode":0}]}),
++        );
++        assert_eq!(
++            mode(&granted),
++            (
++                json!("1920x1080"),
++                json!(1920),
++                json!(1080),
++                json!(60),
++                json!("server"),
++                json!("server")
++            )
++        );
++        assert_eq!(
++            response_mode(&granted),
++            "resolution 1920x1080, fps 60, hdr false"
++        );
++        // Without one the echo stays, and the log does not take it for an answer.
++        let echoed = profile(json!({"sessionId":"seat","status":2,"sessionRequestData":echo}));
++        assert_eq!(
++            mode(&echoed),
++            (
++                json!("3840x2160"),
++                json!(3840),
++                json!(2160),
++                json!(120),
++                json!("request"),
++                json!("request")
++            )
++        );
++        assert_eq!(
++            response_mode(&echoed),
++            "resolution unreported, fps unreported, hdr unreported"
++        );
++        // A monitor that leaves out the size, or reports none (0), leaves the size to the echo; its frame rate still counts.
++        let partial = profile(
++            json!({"sessionId":"seat","status":2,"sessionRequestData":echo,
++            "monitorSettings":[{"widthInPixels":0,"heightInPixels":0,"framesPerSecond":60}]}),
++        );
++        assert_eq!(
++            mode(&partial),
++            (
++                json!("3840x2160"),
++                json!(3840),
++                json!(2160),
++                json!(60),
++                json!("request"),
++                json!("server")
++            )
++        );
++        // A frame rate the client cannot ask for stays the echo's: `prepare_embedded` would refuse the stream over it.
++        let off_list = profile(
++            json!({"sessionId":"seat","status":2,"sessionRequestData":echo,
++            "monitorSettings":[{"widthInPixels":1920,"heightInPixels":1080,"framesPerSecond":100}]}),
++        );
++        assert_eq!(
++            mode(&off_list),
++            (
++                json!("1920x1080"),
++                json!(1920),
++                json!(1080),
++                json!(120),
++                json!("server"),
++                json!("request")
++            )
++        );
++        let silent = profile(json!({"sessionId":"seat","status":2}));
++        assert_eq!(
++            mode(&silent),
++            (
++                Value::Null,
++                Value::Null,
++                Value::Null,
++                Value::Null,
++                json!("unreported"),
++                json!("unreported")
++            )
 +        );
 +    }
 +
@@ -752,7 +929,7 @@ index 74cc7946..7d60a32c 100644
      #[test]
      fn in_game_settings_persistence_defaults_on_and_requires_game_support() {
          for preference in [Value::Null, json!(false), json!(true)] {
-@@ -5833,11 +6221,354 @@ mod tests {
+@@ -5833,11 +6369,354 @@ mod tests {
          }
      }
  
@@ -1111,7 +1288,7 @@ index 74cc7946..7d60a32c 100644
      }
  
      #[test]
-@@ -5875,7 +6606,7 @@ mod tests {
+@@ -5875,7 +6754,7 @@ mod tests {
          );
          assert!(request.get("externalAppId").is_none());
          assert_eq!(request["enablePersistingInGameSettings"], true);
@@ -1120,7 +1297,7 @@ index 74cc7946..7d60a32c 100644
          assert_eq!(request["accountLinked"], true);
          assert_eq!(request["appLaunchMode"], 2);
          assert_eq!(request["secureRTSPSupported"], true);
-@@ -6373,6 +7104,40 @@ mod tests {
+@@ -6373,6 +7252,40 @@ mod tests {
          })));
      }
  
@@ -1347,10 +1524,31 @@ index a8eea09b..acfc69a0 100644
      fn provider_region_preferences_are_atomic_isolated_and_persisted() {
          let directory = tempfile::tempdir().unwrap();
 diff --git a/native/opennow-core/src/streamer.rs b/native/opennow-core/src/streamer.rs
-index ae84bd82..da97b406 100644
+index ae84bd82..83ff6865 100644
 --- a/native/opennow-core/src/streamer.rs
 +++ b/native/opennow-core/src/streamer.rs
-@@ -910,6 +910,7 @@ impl StreamerService {
+@@ -725,6 +725,20 @@ impl StreamerService {
+                 "Resuming HDR requires current embedded window output capabilities",
+             ));
+         }
++        // Once per prepared stream: what the response itself said of the mode, beside what the stream is set up with. The
++        // setup takes the response's resolution and frame rate where it gave them and the request's echo otherwise, so
++        // `unreported` here means the echo.
++        eprintln!(
++            "CloudMatch session ready as the {} client: the response says {}; the stream is set up for {} at {} fps",
++            context["session"]["clientIdentity"]
++                .as_str()
++                .unwrap_or("unknown"),
++            crate::cloudmatch::response_mode(&context["session"]["negotiatedStreamProfile"]),
++            context["settings"]["resolution"]
++                .as_str()
++                .unwrap_or("unknown"),
++            context["settings"]["fps"]
++        );
+         context["surface"] = Value::Null;
+         Ok(json!({
+             "protocolVersion": STREAMER_PROTOCOL_VERSION,
+@@ -910,6 +924,7 @@ impl StreamerService {
              "toggle-fullscreen" => "fullscreen-toggle",
              "toggle-microphone" => "microphone-toggle",
              "anti-afk-pulse" => "anti-afk-pulse",
@@ -1358,7 +1556,7 @@ index ae84bd82..da97b406 100644
              _ => return Err(invalid("Unknown native streamer control action")),
          };
          self.reap_finished();
-@@ -2011,6 +2012,7 @@ fn streamer_context(mut session: Value, settings: &Value) -> Value {
+@@ -2011,6 +2026,7 @@ fn streamer_context(mut session: Value, settings: &Value) -> Value {
              normalized[key] = session["negotiatedStreamProfile"][key].clone();
          }
      }
@@ -1366,7 +1564,7 @@ index ae84bd82..da97b406 100644
      if session["negotiatedStreamProfile"].is_null() {
          session["negotiatedStreamProfile"] = json!({"codec":codec.to_ascii_uppercase()});
      }
-@@ -2031,6 +2033,23 @@ fn streamer_context(mut session: Value, settings: &Value) -> Value {
+@@ -2031,6 +2047,23 @@ fn streamer_context(mut session: Value, settings: &Value) -> Value {
      })
  }
  
@@ -1390,7 +1588,7 @@ index ae84bd82..da97b406 100644
  fn context_resolution(context: &Value) -> (u64, u64) {
      context["settings"]["resolution"]
          .as_str()
-@@ -4093,6 +4112,42 @@ mod tests {
+@@ -4093,6 +4126,42 @@ mod tests {
          assert_eq!(context_resolution(&context), (1920, 1080));
      }
  
