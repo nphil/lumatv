@@ -46,6 +46,7 @@ serde.workspace = true
 serde_json.workspace = true
 gamesir-config = { path = "../../game/crates/gamesir-config" }
 leadjoy-config = { path = "../../game/crates/leadjoy-config" }
+multilink = { path = "../../multilink" }
 
 [dev-dependencies]
 tempfile.workspace = true

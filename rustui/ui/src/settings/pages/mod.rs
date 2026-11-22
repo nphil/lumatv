@@ -20,6 +20,7 @@ pub mod homeassistant;
 pub mod inputs;
 pub mod language;
 pub mod logging;
+pub mod multi_link;
 pub mod network;
 pub mod onhome;
 pub mod owner;
@@ -84,6 +85,7 @@ pub fn all() -> Vec<Page> {
         beszel::page(),
         ssgw::page(),
         gaming::page(),
+        multi_link::page(),
         support::page(),
         support::delete_data(),
         support::permissions(),

@@ -1,0 +1,23 @@
+{
+  "dateLocal": "2026-11-21",
+  "tv": "192.168.1.242",
+  "kernel": "5.4.268-329.ptl4tv.2",
+  "testHost": "192.168.1.75:18964",
+  "socketUid": 5365,
+  "actualMarqueeJail": false,
+  "testDurationSeconds": 4,
+  "networkMutations": [],
+  "pluginInstalled": false,
+  "baselineWiredHttpLatencyMs": {"n": 15, "median": 3.2, "p95": 15.5, "max": 15.5},
+  "tests": [
+    {"name": "wire", "wirePayloadMbps": 93.988, "wifiPayloadMbps": 0, "combinedPayloadMbps": 93.988, "wiredHttpLatencyMs": {"n": 35, "median": 9.8, "p95": 17.1, "max": 19.9}, "interfaceBytes": {"eth0": {"rx": 49175967, "tx": 1040385}, "wlan0": {"rx": 4068866, "tx": 4722}}},
+    {"name": "wifi-return-wired-acks", "wirePayloadMbps": 0, "wifiPayloadMbps": 147.664, "combinedPayloadMbps": 147.664, "wiredHttpLatencyMs": {"n": 37, "median": 1.8, "p95": 5.2, "max": 6.5}, "interfaceBytes": {"eth0": {"rx": 72815, "tx": 1185661}, "wlan0": {"rx": 81233905, "tx": 5928}}},
+    {"name": "both", "wirePayloadMbps": 93.939, "wifiPayloadMbps": 181.781, "combinedPayloadMbps": 275.720, "wiredHttpLatencyMs": {"n": 34, "median": 12.2, "p95": 17.2, "max": 17.8}, "interfaceBytes": {"eth0": {"rx": 49208863, "tx": 2253669}, "wlan0": {"rx": 99092040, "tx": 5972}}},
+    {"name": "both-wire-paced-70", "wirePayloadMbps": 69.962, "wifiPayloadMbps": 175.626, "combinedPayloadMbps": 245.588, "wiredHttpLatencyMs": {"n": 37, "median": 4.6, "p95": 8.2, "max": 8.8}, "interfaceBytes": {"eth0": {"rx": 36663943, "tx": 2020152}, "wlan0": {"rx": 95291016, "tx": 6904}}}
+  ],
+  "routedPlexIdentity": {"server": "192.168.5.10:32400", "responseBytesEach": 389, "eth0IpBytesToWiredAddress": 657, "wlan0IpBytesToWifiAddress": 657},
+  "usbDrivers": {"ax88179_178a": "built-in registered", "cdc_ether": "built-in registered", "r8152": "module registered", "cdc_ncm": "module registered"},
+  "usbRootHubsMbps": {"usb1": 480, "usb2": 5000, "usb3": 480, "usb4": 5000, "usb5": 480, "usb6": 5000, "usb7": 480, "usb8": 12, "usb9": 480, "usb10": 5000},
+  "preservedBaseline": {"eth0": "192.168.1.242/24", "wlan0": "192.168.1.180/24", "gateway": "192.168.1.1", "wifiProfile": 777, "allArpIgnore": 1, "allArpAnnounce": 2, "allRpFilter": 2, "eth0RpFilter": 2, "wlan0RpFilter": 2, "privateHostRoute": "192.168.5.10 via 192.168.1.1 dev wlan0 src 192.168.1.180"},
+  "untestedOnHardware": ["plugin lifecycle and UI", "jail source binding", "range ordering and failover", "wifi drop or weakening", "DHCP renew", "standby and wake", "roaming", "AirPlay/P2P coexistence", "USB adapter chipset and throughput"]
+}

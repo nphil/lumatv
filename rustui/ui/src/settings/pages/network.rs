@@ -62,6 +62,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows.push(Row::info("wired").tab(1).icon("ethernet-port").label("Wired connection").value(if n.wired { "Connected" } else { "Unplugged" }));
     rows.push(Row::info("ipaddr2").tab(1).icon("router").label("IP address").value(if n.ip.is_empty() { "None" } else { &n.ip }).visible(n.wired));
     rows.push(Row::link("ip2").tab(1).icon("router").label("IP Settings").does(go("ipsettings")));
+    rows.push(Row::link("multi-link").tab(1).icon("ethernet-port").label("Multi Link").value(&super::multi_link::summary(c)).help("Keep controls wired and let supported apps download over more than one connection.").does(go("multi-link")));
 
     // ---- Details
     let signal = if !n.wifi {

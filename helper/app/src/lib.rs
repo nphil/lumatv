@@ -92,6 +92,7 @@ pub mod luna;
 pub mod logging;
 pub mod logging_native;
 pub mod media_audio;
+pub mod multi_link;
 pub mod placement;
 pub mod phone_remote;
 pub mod plex;

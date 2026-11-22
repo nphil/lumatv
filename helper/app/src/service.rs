@@ -229,6 +229,7 @@ impl Service {
         );
         threads.push(("plugins", plugins.spawn(&ctx)?));
         threads.push(("gaming", crate::gaming::spawn(&ctx, plugins.shared().clone())?));
+        threads.push(("multi-link", crate::multi_link::spawn(&ctx, plugins.shared().clone())?));
         // The Denon receiver plugin's switch: the receiver's page, and with it the receiver client, only while it is on.
         let receiver_plugin = {
             let tx = receiver_tx.clone();
