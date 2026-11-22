@@ -22,6 +22,10 @@ use super::stats::{Mode as StatsMode, Overlay, Telemetry};
 use super::diagnostics::{Config as DiagnosticsConfig, Level as DiagnosticsLevel, Status as DiagnosticsStatus};
 use super::input::{Labels, PadKind, Source, Sources};
 use super::uplink::{self, Uplink};
+mod hub;
+mod refresh;
+pub use hub::HubTab;
+pub use refresh::Line as RefreshLine;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
@@ -100,7 +104,7 @@ pub enum Input {
     },
     Details {
         game: GameId,
-        details: GameDetails,
+        details: Box<GameDetails>,
     },
     Text(String),
     /// A click supplies its hit-test destination; pointer movement never changes focus.
@@ -291,7 +295,7 @@ pub struct GameDetails {
     pub players: Option<String>,
     pub developer: Option<String>,
     pub capabilities: Vec<String>,
-    pub achievements: Option<String>,
+    pub hub: lumagame_meta::Hub,
     pub cloud_saves: Option<bool>,
     pub media: Vec<Media>,
 }
@@ -375,6 +379,8 @@ pub enum Focus {
     HubAction(usize),
     Tab(usize),
     Way(usize),
+    /// A row of the achievements or news section.
+    Item(usize),
     Media(usize),
     Rail(usize),
     Setting(usize),
@@ -673,8 +679,12 @@ pub struct Model {
     ended_by: Option<Cause>,
     requested_art: BTreeSet<String>,
     requested_details: BTreeSet<GameId>,
+    owned: BTreeMap<GameId, Vec<ipc::Unlocked>>,
+    requested_owned: BTreeSet<GameId>,
+    resting: Option<(GameId, u64)>,
     pages: BTreeMap<(EngineId, TargetId), Vec<ipc::LibraryEntry>>,
     sources: Sources,
+    refresher: refresh::Refresher,
 }
 impl Model {
     pub fn new(state: State, mut listing: Listing, manifests: Vec<Manifest>) -> Self {
@@ -728,8 +738,12 @@ impl Model {
             ended_by: None,
             requested_art: BTreeSet::new(),
             requested_details: BTreeSet::new(),
+            owned: BTreeMap::new(),
+            requested_owned: BTreeSet::new(),
+            resting: None,
             pages: BTreeMap::new(),
             sources: Sources::default(),
+            refresher: refresh::Refresher::default(),
         };
         m.rebuild_catalog();
         m.rebuild_navigation();
@@ -1010,6 +1024,7 @@ impl Model {
             }
             Input::EngineGone(id) => {
                 self.pages.retain(|(engine, _), _| *engine != id);
+                self.refresh_gone(&id);
                 if let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == id) {
                     e.descriptor = None;
                     e.error = Some("Connection lost".into());
@@ -1023,6 +1038,10 @@ impl Model {
             }
             Input::Foreground(on) => {
                 self.foreground = on;
+                self.refresh_foreground(on, &mut out);
+                if on {
+                    self.requested_owned.clear();
+                }
                 self.pressed = None;
                 self.stats_request(&mut out);
                 if !on {
@@ -1046,6 +1065,8 @@ impl Model {
                 self.unix_s = unix_s;
                 self.session_input(session::Input::Tick, &mut out);
                 changed = second && (self.view.page == Page::Overlay || self.view.idle.is_some() || self.view.auth.as_ref().is_some_and(|a| a.expires_ms.is_some()));
+                changed |= self.refresh_tick(second);
+                self.look_ahead(&mut out);
                 if self.hud_visible() {
                     let asked = self.asked();
                     changed |= self.telemetry.tick(now_ms, &asked);
@@ -1074,7 +1095,7 @@ impl Model {
                 self.requested_art.insert(url);
             }
             Input::Details { game, details } => {
-                self.details.insert(game, details);
+                self.details.insert(game, *details);
                 self.rebuild_rows();
                 self.rebuild_filter();
             }
@@ -1525,6 +1546,7 @@ impl Model {
                     self.play(out);
                 }
             }
+            Focus::Hero(2) => self.refresh_libraries(None, out),
             Focus::Hero(_) => {
                 if let Some(id) = self.view.featured {
                     self.hub(id);
@@ -1559,8 +1581,11 @@ impl Model {
                     self.open_sheet(Sheet::Genre, Focus::SheetRow(0));
                 } else if i == engines.len() + 2 {
                     self.view.filter.favourites = !self.view.filter.favourites;
-                } else {
+                } else if i == engines.len() + 3 {
                     self.open_sheet(Sheet::Sort, Focus::SheetRow(Sort::ALL.iter().position(|s| *s == self.view.sort).unwrap_or(0)));
+                } else {
+                    self.refresh_libraries(None, out);
+                    return;
                 }
                 self.view.first_grid_row = 0;
                 self.rebuild_filter();
@@ -1583,6 +1608,12 @@ impl Model {
             Focus::HubAction(_) => self.open_chooser(),
             Focus::Tab(tab) => {
                 self.view.hub_tab = tab;
+            }
+            Focus::Item(i) => {
+                let url = self.view.selected.and_then(|id| self.details.get(&id)).filter(|_| self.hub_tab() == HubTab::News).and_then(|d| d.hub.news.get(i)).map(|n| n.url.clone());
+                if let Some(url) = url {
+                    out.push(Command::PlayMedia { url });
+                }
             }
             Focus::Way(i) => {
                 if let Some(game) = self.selected_game() {
@@ -1916,6 +1947,7 @@ impl Model {
                     self.open_sheet(Sheet::AddHost, Focus::Keyboard(0));
                 }
                 3 => self.sign_out(id, out),
+                4 => self.refresh_libraries(Some(id), out),
                 _ => return false,
             }
             return true;
@@ -2241,26 +2273,6 @@ impl Model {
             }
         }
     }
-    /// Asks every signed-in account engine (Steam) for its library again; the one entry point for "refresh". After a stream it
-    /// shows the play that just ended on Home at once, and the engine serves its saved copy when it refreshed a moment ago. `force`
-    /// (the owner's Refresh) tells the engine to skip that saved copy first. A traversal already under way is left to finish.
-    pub(crate) fn refresh_accounts(&mut self, force: bool, out: &mut Vec<Command>) {
-        let linked: Vec<(EngineId, TargetId)> = self
-            .integrations
-            .iter()
-            .filter(|e| e.manifest.kind == EngineKind::Account && self.enabled(&e.manifest.id))
-            .flat_map(|e| e.targets.iter().filter(|t| t.link == ipc::Link::Linked).map(|t| (e.manifest.id.clone(), t.id.clone())))
-            .collect();
-        for (engine, target) in linked {
-            if let std::collections::btree_map::Entry::Vacant(slot) = self.pages.entry((engine.clone(), target.clone())) {
-                slot.insert(Vec::new());
-                if force {
-                    Self::send(out, &engine, Request::Action { key: "refresh".into() });
-                }
-                Self::send(out, &engine, Request::Library { target, cursor: None });
-            }
-        }
-    }
     fn open_overlay(&mut self, out: &mut Vec<Command>) {
         if let Some(s) = self.session.as_ref().filter(|s| *s.phase() == Phase::Running) {
             self.view.page = Page::Overlay;
@@ -2581,7 +2593,10 @@ impl Model {
                 } else {
                     let entries = self.pages.remove(&(id.clone(), target.clone())).unwrap_or_default();
                     self.listing.replace(&id, &target, entries);
+                    let held = self.held();
                     self.rebuild_catalog();
+                    self.follow(held);
+                    self.refresh_loaded(&id);
                     out.push(Command::SaveCatalog);
                     out.push(Command::SaveState);
                 }
@@ -2673,6 +2688,7 @@ impl Model {
                     self.lab.trip = Trip::Idle;
                 }
                 self.pages.retain(|(engine, _), _| *engine != id);
+                self.refresh_error(&id, code);
                 if self.engine_in_view(&id) {
                     self.view.notice = Some(message.clone());
                 }
@@ -2680,6 +2696,8 @@ impl Model {
                     e.error = Some(message);
                 }
             }
+            ipc::Event::Refresh { step, note } => self.refresh_step(&id, step, note, out),
+            ipc::Event::Achievements { target, game, unlocked } => self.owned_achievements(&id, &target, &game, unlocked),
             ipc::Event::Unknown => {}
         }
     }
@@ -2698,8 +2716,18 @@ impl Model {
                 if !self.details.contains_key(&id) && self.requested_details.insert(id) {
                     out.push(Command::FetchDetails { game: id });
                 }
+                if self.view.page == Page::Hub {
+                    self.request_owned(id, out);
+                }
+                let media_open = self.view.page == Page::Media || self.hub_tab() == HubTab::Media;
+                let icons_open = self.hub_tab() == HubTab::Achievements;
                 if let Some(details) = self.details.get(&id) {
-                    wanted.extend(details.media.iter().map(|m| m.image.clone()));
+                    if media_open {
+                        wanted.extend(details.media.iter().map(|m| m.image.clone()).filter(|url| !url.is_empty()));
+                    }
+                    if icons_open {
+                        wanted.extend(details.hub.achievements.shown.iter().map(|a| a.icon.clone()));
+                    }
                 }
             }
         }
@@ -2794,14 +2822,14 @@ impl Model {
             match self.view.page {
                 Page::Home if self.games.is_empty() => rows.push((0..self.integrations.len()).map(Focus::FirstRun).collect()),
                 Page::Home => {
-                    if self.prefs.text_percent > 100 { rows.extend([vec![Focus::Hero(0)], vec![Focus::Hero(1)]]); } else { rows.push(vec![Focus::Hero(0), Focus::Hero(1)]); }
+                    if self.prefs.text_percent > 100 { rows.extend([vec![Focus::Hero(0)], vec![Focus::Hero(1)], vec![Focus::Hero(2)]]); } else { rows.push(vec![Focus::Hero(0), Focus::Hero(1), Focus::Hero(2)]); }
                     for (r, row) in self.home_rows.iter().enumerate() {
                         rows.push((0..row.items.len()).map(|i| Focus::Home(r, i)).collect());
                     }
                 }
                 Page::Library | Page::Search => {
                     if self.view.page == Page::Library {
-                        rows.push((0..self.integrations.iter().filter(|e| self.enabled(&e.manifest.id)).count() + 4).map(Focus::Filter).collect());
+                        rows.push((0..self.integrations.iter().filter(|e| self.enabled(&e.manifest.id)).count() + 5).map(Focus::Filter).collect());
                     } else {
                         rows.push(vec![Focus::SearchField]);
                         for i in (0..44).step_by(10) {
@@ -2818,11 +2846,17 @@ impl Model {
                     if self.view.hub_tab == 0 {
                         if self.prefs.text_percent > 100 { rows.extend([vec![Focus::HubAction(0)], vec![Focus::HubAction(1)]]); } else { rows.push(vec![Focus::HubAction(0), Focus::HubAction(1)]); }
                     }
-                    rows.push((0..3).map(Focus::Tab).collect());
-                    if self.view.hub_tab == 1 {
+                    rows.push((0..self.hub_tabs().len()).map(Focus::Tab).collect());
+                    let items = self.view.selected.and_then(|id| self.details.get(&id)).map_or(0, |d| match self.hub_tab() {
+                        HubTab::Achievements => d.hub.achievements.shown.len(),
+                        HubTab::News => d.hub.news.len(),
+                        _ => 0,
+                    });
+                    rows.extend((0..items).map(|i| vec![Focus::Item(i)]));
+                    if self.hub_tab() == HubTab::Ways {
                         rows.extend((0..=self.selected_game().map_or(0, |g| g.sources.len())).map(|i| vec![Focus::Way(i)]));
                     }
-                    if self.view.hub_tab == 2 {
+                    if self.hub_tab() == HubTab::Media {
                         if let Some(details) = self.view.selected.and_then(|id| self.details.get(&id)) {
                             for video in [true, false] {
                                 let row = details
@@ -2872,6 +2906,9 @@ impl Model {
                             rows.push(vec![Focus::Setting(2)]);
                         }
                         rows.extend((0..e.targets.len()).map(|i| vec![Focus::Target(i)]));
+                        if self.can_refresh(e) {
+                            rows.push(vec![Focus::Setting(4)]);
+                        }
                         if e.can_sign_out() {
                             rows.push(vec![Focus::Setting(3)]);
                         }
@@ -3611,6 +3648,9 @@ pub(crate) mod tests {
 
         let mut out = Vec::new();
         m.refresh_accounts(false, &mut out);
+        assert!(sent(&out).is_empty(), "an account listed a moment ago is not asked again");
+        m.step(Input::Tick { now_ms: 300_000, unix_s: 0 });
+        m.refresh_accounts(false, &mut out);
         assert!(matches!(sent(&out)[..], [Request::Library { cursor: None, .. }]), "returning from a stream asks the signed-in account again");
         let mut again = Vec::new();
         m.refresh_accounts(true, &mut again);
@@ -3628,6 +3668,154 @@ pub(crate) mod tests {
         let mut after = Vec::new();
         m.refresh_accounts(true, &mut after);
         assert!(sent(&after).is_empty(), "a signed-out account is not asked");
+    }
+    fn refreshing_steam() -> (Model, TargetId) {
+        use lumagame_core::activity::Activity;
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("steam", "Steam", EngineKind::Account)]);
+        describe(&mut m, "steam", vec![lumagame_core::engine::AuthMethod::Qr], &[]);
+        let account = TargetId::new("76561198000000000").unwrap();
+        engine_says(&mut m, "steam", ipc::Event::Targets { targets: vec![linked("76561198000000000")] });
+        let records = ["Beta", "Gamma", "Delta"].iter().enumerate().map(|(i, t)| entry(&format!("{i}"), t, ipc::Role::Game, &[&format!("steam:{i}")], Activity::default())).collect();
+        engine_says(&mut m, "steam", ipc::Event::Library { target: account.clone(), entries: records, next: None });
+        (m, account)
+    }
+    #[test]
+    fn a_game_page_offers_only_the_sections_that_have_data() {
+        use lumagame_meta::hub::{Achievements, Hub, News};
+        let (mut m, _) = refreshing_steam();
+        let game = id_of(&m, "Beta");
+        m.view.selected = Some(game);
+        m.view.page = Page::Hub;
+        assert_eq!(m.hub_tabs(), [HubTab::Overview, HubTab::Ways], "nothing fetched: no empty sections");
+        m.step(Input::Details { game, details: Box::new(GameDetails::from_hub(Hub { credits: vec!["x".into()], ..Hub::default() })) });
+        assert_eq!(m.hub_tabs(), [HubTab::Overview, HubTab::Ways, HubTab::Details]);
+        let hub = Hub {
+            achievements: Achievements { total: 5, ..Achievements::default() },
+            news: vec![News { title: "t".into(), author: String::new(), date: 1, url: "https://x".into(), summary: String::new() }],
+            screenshots: vec!["https://x/a.jpg".into()],
+            credits: vec!["x".into()],
+            developers: vec!["d".into()],
+            ..Hub::default()
+        };
+        m.step(Input::Details { game, details: Box::new(GameDetails::from_hub(hub)) });
+        assert_eq!(m.hub_tabs(), [HubTab::Overview, HubTab::Ways, HubTab::Achievements, HubTab::News, HubTab::Media, HubTab::Details]);
+        m.view.hub_tab = 3;
+        m.view.focus = Focus::Item(0);
+        m.rebuild_navigation();
+        assert!(key(&mut m, Key::Ok).iter().any(|c| matches!(c, Command::PlayMedia { url } if url == "https://x")), "OK on a news row opens it");
+    }
+    #[test]
+    fn the_owners_achievements_are_asked_for_once_per_visit_and_kept() {
+        use lumagame_core::ids::ProviderGameId;
+        let (mut m, account) = refreshing_steam();
+        describe(&mut m, "steam", vec![lumagame_core::engine::AuthMethod::Qr], &[Feature::Achievements]);
+        let game = id_of(&m, "Beta");
+        m.view.selected = Some(game);
+        m.view.page = Page::Hub;
+        let asked = m.step(Input::Notice("x".into()));
+        assert!(matches!(sent(&asked)[..], [Request::Achievements { .. }]));
+        assert!(sent(&m.step(Input::Notice("y".into()))).is_empty(), "not again on every redraw");
+        engine_says(&mut m, "steam", ipc::Event::Achievements { target: account, game: ProviderGameId::new("0").unwrap(), unlocked: vec![ipc::Unlocked { name: "ACH_A".into(), at: None }] });
+        assert_eq!(m.unlocked(game).map(<[_]>::len), Some(1));
+        assert_eq!(m.hub_tabs(), [HubTab::Overview, HubTab::Ways, HubTab::Achievements]);
+        let back = m.step(Input::Foreground(true));
+        assert_eq!(sent(&back).iter().filter(|r| matches!(r, Request::Achievements { .. })).count(), 1, "asked again after the app comes back");
+    }
+    #[test]
+    fn a_tile_that_rests_in_focus_gets_its_page_data_fetched_ahead() {
+        let (mut m, _) = refreshing_steam();
+        let game = id_of(&m, "Beta");
+        m.view.featured = Some(game);
+        let tick = |m: &mut Model, ms| m.step(Input::Tick { now_ms: ms, unix_s: 0 });
+        let fetches = |c: &[Command]| c.iter().filter(|c| matches!(c, Command::FetchDetails { .. })).count();
+        assert_eq!(fetches(&tick(&mut m, 10_000)), 0);
+        assert_eq!(fetches(&tick(&mut m, 10_600)), 0, "not yet");
+        assert_eq!(fetches(&tick(&mut m, 10_700)), 1);
+        assert_eq!(fetches(&tick(&mut m, 11_700)), 0, "once");
+    }
+    #[test]
+    fn a_refresh_counts_new_and_removed_games_keeps_the_focused_game_and_clears_its_notice() {
+        use lumagame_core::activity::Activity;
+        let (mut m, account) = refreshing_steam();
+        m.view.page = Page::Library;
+        m.view.focus = Focus::Grid(1);
+        m.rebuild_navigation();
+        let held = m.filtered[1];
+        assert_eq!(m.games()[..].iter().find(|g| g.id == held).map(|g| g.title.as_str()), Some("Delta"));
+
+        let mut out = Vec::new();
+        m.refresh_libraries(None, &mut out);
+        assert!(matches!(sent(&out)[..], [Request::Action { .. }, Request::Library { cursor: None, .. }]));
+        assert!(matches!(m.refresh_line(), Some(RefreshLine::Working { seconds: None, .. })), "no seconds while it is quick");
+        let mut again = Vec::new();
+        m.refresh_libraries(None, &mut again);
+        assert!(again.is_empty(), "pressing it while it runs changes nothing");
+
+        let records = [("a0", "Alpha"), ("0", "Beta"), ("2", "Delta")].iter().map(|(i, t)| entry(i, t, ipc::Role::Game, &[&format!("steam:{i}")], Activity::default())).collect();
+        engine_says(&mut m, "steam", ipc::Event::Library { target: account, entries: records, next: None });
+        assert_eq!(m.refresh_line(), Some(RefreshLine::Done { text: "1 new game, 1 removed.".into(), problem: false }));
+        assert_eq!(m.view.focus, Focus::Grid(m.filtered.iter().position(|id| m.game(*id).unwrap().title == "Delta").unwrap()), "the focus follows its game");
+
+        m.step(Input::Tick { now_ms: 11_999, unix_s: 0 });
+        assert!(m.refresh_line().is_some());
+        m.step(Input::Tick { now_ms: 12_000, unix_s: 0 });
+        assert_eq!(m.refresh_line(), None, "the result clears itself");
+    }
+    #[test]
+    fn a_refresh_that_finds_nothing_says_so_and_a_slow_one_counts_seconds() {
+        let (mut m, account) = refreshing_steam();
+        let mut out = Vec::new();
+        m.refresh_libraries(None, &mut out);
+        m.step(Input::Tick { now_ms: 4_000, unix_s: 0 });
+        assert!(matches!(m.refresh_line(), Some(RefreshLine::Working { seconds: Some(4), .. })));
+        let same = ["Beta", "Gamma", "Delta"].iter().enumerate().map(|(i, t)| entry(&format!("{i}"), t, ipc::Role::Game, &[&format!("steam:{i}")], Default::default())).collect();
+        engine_says(&mut m, "steam", ipc::Event::Library { target: account, entries: same, next: None });
+        assert_eq!(m.refresh_line(), Some(RefreshLine::Done { text: "Up to date.".into(), problem: false }));
+    }
+    #[test]
+    fn a_refresh_names_a_network_or_sign_in_failure_in_plain_words() {
+        let (mut m, _) = refreshing_steam();
+        for (code, text) in [(ipc::ErrorCode::Network, "Can't reach Steam. Check the network."), (ipc::ErrorCode::SignIn, "Steam needs you to sign in again.")] {
+            m.refresh_libraries(None, &mut Vec::new());
+            engine_says(&mut m, "steam", ipc::Event::Error { code, message: "x".into() });
+            assert_eq!(m.refresh_line(), Some(RefreshLine::Done { text: text.into(), problem: true }));
+            assert!(!m.refreshing());
+        }
+        let mut nothing = Model::new(State::default(), Listing::default(), vec![manifest("pc", "PC", EngineKind::Host)]);
+        nothing.refresh_libraries(None, &mut Vec::new());
+        assert!(matches!(nothing.refresh_line(), Some(RefreshLine::Done { problem: true, .. })), "no account: it says to sign in");
+    }
+    #[test]
+    fn a_cloud_refresh_waits_for_the_engines_store_check_then_loads_the_library() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gfn", "GeForce NOW", EngineKind::Cloud)]);
+        describe(&mut m, "gfn", vec![lumagame_core::engine::AuthMethod::Qr], &[Feature::StoreSync]);
+        let account = TargetId::new("me").unwrap();
+        engine_says(&mut m, "gfn", ipc::Event::Targets { targets: vec![linked("me")] });
+        engine_says(&mut m, "gfn", ipc::Event::Library { target: account.clone(), entries: Vec::new(), next: None });
+
+        let mut out = Vec::new();
+        m.refresh_libraries(Some(EngineId::new("gfn").unwrap()), &mut out);
+        assert!(matches!(sent(&out)[..], [Request::Action { .. }]), "the library waits for the stores' answer");
+        engine_says(&mut m, "gfn", ipc::Event::Refresh { step: Some("Checking Steam".into()), note: None });
+        assert_eq!(m.refresh_line(), Some(RefreshLine::Working { text: "Checking Steam".into(), seconds: None }));
+        let asked = engine_says(&mut m, "gfn", ipc::Event::Refresh { step: None, note: Some("Epic has not answered.".into()) });
+        assert!(matches!(sent(&asked)[..], [Request::Library { cursor: None, .. }]));
+        let found = vec![entry("g1", "Fortnite", ipc::Role::Game, &[], Default::default())];
+        engine_says(&mut m, "gfn", ipc::Event::Library { target: account, entries: found, next: None });
+        assert_eq!(m.refresh_line(), Some(RefreshLine::Done { text: "1 new game. Epic has not answered.".into(), problem: true }));
+    }
+    #[test]
+    fn coming_back_after_half_an_hour_refreshes_quietly_and_a_short_absence_does_not() {
+        let (mut m, _) = refreshing_steam();
+        m.step(Input::Tick { now_ms: 400_000, unix_s: 0 });
+        m.step(Input::Foreground(false));
+        m.step(Input::Tick { now_ms: 400_000 + 600_000, unix_s: 0 });
+        assert!(sent(&m.step(Input::Foreground(true))).is_empty(), "ten minutes away is not enough");
+        m.step(Input::Foreground(false));
+        m.step(Input::Tick { now_ms: 1_000_000 + 1_800_000, unix_s: 0 });
+        let out = m.step(Input::Foreground(true));
+        assert!(matches!(sent(&out)[..], [Request::Library { cursor: None, .. }]));
+        assert_eq!(m.refresh_line(), None, "a quiet refresh shows nothing");
     }
     #[test]
     fn a_qr_sign_in_lasts_as_long_as_the_whole_attempt_however_often_the_code_rotates() {

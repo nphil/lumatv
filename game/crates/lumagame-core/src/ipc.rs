@@ -137,6 +137,12 @@ pub enum Request {
     Action {
         key: String,
     },
+    /// Asks for the owner's own unlocked achievements in one game. Answered with `achievements`, only by an engine with the
+    /// `achievements` feature.
+    Achievements {
+        target: TargetId,
+        game: ProviderGameId,
+    },
 }
 
 /// The first message: where the engine may keep things and what the TV can show.
@@ -233,6 +239,20 @@ pub enum Event {
         session: SessionId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         seconds: Option<u32>,
+    },
+    /// A refresh the engine runs in steps (`store-sync`): `step` says what it is doing now, and `None` says its part is over, so the
+    /// app can fetch the library. `note` is one plain sentence about anything that did not go through, shown with the result.
+    Refresh {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        step: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<String>,
+    },
+    /// The signed-in owner's own progress in one game, for an engine with `achievements`.
+    Achievements {
+        target: TargetId,
+        game: ProviderGameId,
+        unlocked: Vec<Unlocked>,
     },
     Error {
         code: ErrorCode,
@@ -597,6 +617,14 @@ word_enum! {
     unknown => Other
 }
 
+/// One achievement the owner has unlocked: the game's own id for it, and when (unix seconds) if known.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Unlocked {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<u64>,
+}
+
 word_enum! {
     pub enum ErrorCode {
         /// The two sides do not speak the same contract.
@@ -606,6 +634,10 @@ word_enum! {
         /// A request it has, with something in it that it cannot use.
         BadRequest => "bad-request",
         Internal => "internal",
+        /// The far side or the network could not be reached. The owner can try again later.
+        Network => "network",
+        /// The account must sign in again before the request can work.
+        SignIn => "sign-in",
     }
     unknown => Other
 }
@@ -774,6 +806,7 @@ mod tests {
             Request::RoundTrip { session: SessionId(1) },
             Request::SteamOverlay { session: SessionId(1) },
             Request::Activity { session: SessionId(1) },
+            Request::Achievements { target: target(), game: game() },
             Request::Action { key: "sign-out".into() },
         ];
         for (seq, request) in requests.into_iter().enumerate() {
@@ -838,6 +871,9 @@ mod tests {
             Event::Overlay { session: SessionId(1) },
             Event::IdleWarning { session: SessionId(1), seconds: Some(59) },
             Event::IdleWarning { session: SessionId(1), seconds: None },
+            Event::Refresh { step: Some("Checking Steam".into()), note: None },
+            Event::Refresh { step: None, note: Some("Steam could not be refreshed.".into()) },
+            Event::Achievements { target: target(), game: game(), unlocked: vec![Unlocked { name: "ACH_WIN".into(), at: Some(1_700_000_000) }] },
             Event::Error { code: ErrorCode::Unsupported, message: "wake".into() },
         ];
         for event in events {

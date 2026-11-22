@@ -102,7 +102,7 @@ mod tests {
     fn workers_fall_through_missing_art_and_reuse_validated_disk_bytes() {
         let dir = tempfile::tempdir().unwrap();
         let transport = Replay(Mutex::new(VecDeque::from([
-            Response { status: 404, body: vec![] }, Response { status: 200, body: png() },
+            Response::new(404, vec![]), Response::new(200, png()),
         ])));
         let client = Client::with_transport(transport, Secrets::default());
         let mut loader = Loader::with_client(dir.path().join("art"), CacheLimits::default(), 2, client).unwrap();
@@ -126,10 +126,10 @@ mod tests {
         let mut cache = Cache::open(dir.path().join("art"), CacheLimits::default()).unwrap();
         cache.put("https://fixture/cover", b"corrupt").unwrap();
         let cache = Mutex::new(Some(cache));
-        let client = Client::with_transport(Replay(Mutex::new(VecDeque::from([Response { status: 200, body: png() }]))), Secrets::default());
+        let client = Client::with_transport(Replay(Mutex::new(VecDeque::from([Response::new(200, png())]))), Secrets::default());
         let job = Job { key: "a".into(), artwork: vec![artwork("https://fixture/cover")], spec: Some(ImageSpec { width: 1, height: 1, contain: false, trim_alpha: false }) };
         assert!(load(&client, &cache, &job, 16 << 20).unwrap().image.is_some());
-        let client = Client::with_transport(Replay(Mutex::new(VecDeque::from([Response { status: 200, body: png() }]))), Secrets::default());
+        let client = Client::with_transport(Replay(Mutex::new(VecDeque::from([Response::new(200, png())]))), Secrets::default());
         let loaded = load(&client, &Mutex::new(None), &job, 16 << 20).unwrap();
         assert!(loaded.path.is_none());
         assert!(loaded.image.is_some());

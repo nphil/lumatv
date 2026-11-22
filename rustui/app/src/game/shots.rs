@@ -232,7 +232,35 @@ fn fixture() -> Model {
         if title == "Hades II" {
             details.description = "Battle beyond the Underworld as Melinoë, Princess of the Underworld, against the Titan of Time.".into();
             details.capabilities = vec!["4K HDR".into(), "Full controller support".into(), "Cloud saves".into()];
-            details.achievements = Some("18 of 40".into());
+            let mut hub = lumagame_meta::Hub {
+                release: Some("30 Sep, 2025".into()),
+                review: Some(lumagame_meta::hub::Review { label: "Overwhelmingly Positive".into(), percent: Some(97), count: 48_210 }),
+                metacritic: Some(93),
+                deck: Some(lumagame_meta::hub::Deck::Verified),
+                developers: vec!["Supergiant Games".into()],
+                publishers: vec!["Supergiant Games".into()],
+                categories: vec!["Single-player".into(), "Steam Cloud".into(), "Full controller support".into()],
+                dlc: 0,
+                credits: vec![lumagame_meta::hub::STEAM_CREDIT.into(), lumagame_meta::hub::PCGW_CREDIT.into()],
+                facts: vec![
+                    lumagame_meta::hub::Fact { label: "Ultrawide".into(), value: "Yes".into() },
+                    lumagame_meta::hub::Fact { label: "HDR".into(), value: "No".into() },
+                    lumagame_meta::hub::Fact { label: "Adaptive triggers".into(), value: "Yes".into() },
+                ],
+                news: vec![
+                    lumagame_meta::hub::News { title: "Patch 1.2: new boons and fixes".into(), author: "Supergiant".into(), date: 1_760_000_000, url: "https://store.steampowered.com/news/1".into(), summary: "Adds a set of boons, rebalances several weapons and fixes the co-op menu focus. Saves carry over.".into() },
+                    lumagame_meta::hub::News { title: "Anniversary sale".into(), author: String::new(), date: 1_758_000_000, url: "https://store.steampowered.com/news/2".into(), summary: String::new() },
+                ],
+                ..Default::default()
+            };
+            hub.achievements.total = 40;
+            hub.achievements.rarest = Some(12);
+            for (i, (name, permille)) in [("First Descent", Some(870)), ("Titan Slayer", Some(310)), ("The Last Word", None)].into_iter().enumerate() {
+                let url = format!("fixture://achievement/{i}");
+                model.art.insert(url.clone(), assets().join("1145350/media/shot-1.jpg"));
+                hub.achievements.shown.push(lumagame_meta::hub::Achievement { api: None, name: name.into(), icon: url, permille });
+            }
+            details.hub = hub;
             for (i, name) in ["trailer-1.jpg", "trailer-2.jpg", "shot-1.jpg", "shot-2.jpg", "shot-3.jpg", "shot-4.jpg", "shot-5.jpg"].into_iter().enumerate() {
                 let path = assets().join("1145350/media").join(name);
                 let url = format!("fixture://media/{name}");
@@ -843,6 +871,53 @@ fn screens() -> Vec<(String, Model)> {
         .collect::<Vec<_>>();
     out.extend(marked);
     out.extend(steam_screens(&base));
+    for (suffix, light, text) in [("dark100", false, 100u16), ("light100", true, 100), ("dark200", false, 200), ("light200", true, 200)] {
+        let mut base = base.clone();
+        base.prefs.light = light;
+        base.prefs.text_percent = text;
+        base.integrations.iter_mut().find(|e| e.manifest.id.as_str() == "gfn").unwrap().descriptor.as_mut().unwrap().capabilities.features.insert(Feature::StoreSync);
+        let gfn = EngineId::new("gfn").unwrap();
+        let mut working = base.clone();
+        working.view.focus = Focus::Hero(2);
+        working.refresh_libraries(Some(gfn.clone()), &mut Vec::new());
+        let mut failed = working.clone();
+        event(&mut failed, "gfn", ipc::Event::Error { code: ipc::ErrorCode::Network, message: "offline".into() });
+        let mut done = working.clone();
+        let mut entries: Vec<_> = done.games().iter().flat_map(|g| g.sources.iter()).filter(|s| s.engine == gfn).map(|s| s.entry.clone()).collect();
+        let mut fresh = entries[0].clone();
+        fresh.id = lumagame_core::ids::ProviderGameId::new("silksong").unwrap();
+        fresh.title = "Hollow Knight: Silksong".into();
+        fresh.external.clear();
+        entries.push(fresh);
+        event(&mut done, "gfn", ipc::Event::Library { target: TargetId::new("main").unwrap(), entries, next: None });
+        let mut library = working.clone();
+        library.view.page = Page::Library;
+        library.view.focus = Focus::Filter(library.integrations.iter().filter(|e| library.enabled(&e.manifest.id)).count() + 4);
+        let hub = |title: &str, tab: usize| {
+            let mut m = base.clone();
+            m.view.page = Page::Hub;
+            m.view.selected = Some(id(&m, title));
+            m.view.hub_tab = tab;
+            m.view.focus = if tab == 0 && text == 100 { Focus::HubAction(0) } else if tab == 2 || tab == 3 { Focus::Item(0) } else { Focus::Tab(tab) };
+            m
+        };
+        for (name, m) in [
+            ("70-refresh-working", working),
+            ("71-refresh-failed", failed),
+            ("71-refresh-result", done),
+            ("72-library-refresh", library),
+            ("73-hub-steam", hub("Hades II", 0)),
+            ("74-hub-achievements", hub("Hades II", 2)),
+            ("75-hub-news", hub("Hades II", 3)),
+            ("76-hub-details", hub("Hades II", 5)),
+            ("77-hub-gfn-only", hub("Cyberpunk 2077", 0)),
+            ("78-hub-native", hub("Celeste Classic", 0)),
+        ] {
+            let mut m = m;
+            m.rebuild_navigation();
+            out.push((format!("{name}-{suffix}"), m));
+        }
+    }
     out
 }
 /// The Steam integration's page signed out, with its QR sheet and signed in, and the Home and game pages its records feed, in both

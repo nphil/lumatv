@@ -14,7 +14,10 @@ pub struct Request {
     pub body: Vec<u8>,
     pub limit: usize,
 }
-pub struct Response { pub status: u16, pub body: Vec<u8> }
+pub struct Response { pub status: u16, pub body: Vec<u8>, pub location: Option<String> }
+impl Response {
+    pub fn new(status: u16, body: Vec<u8>) -> Self { Self { status, body, location: None } }
+}
 pub trait Transport: Send + Sync + 'static { fn execute(&self, request: Request) -> Result<Response>; }
 
 pub struct Http { agent: ureq::Agent }
@@ -36,10 +39,11 @@ impl Transport for Http {
             Err(_) => return Err(Error::Invalid("artwork provider connection failed")),
         };
         let status = response.status();
+        let response_location = response.header("location").map(str::to_owned);
         let mut body = Vec::new();
         response.into_reader().take(request.limit as u64 + 1).read_to_end(&mut body)?;
         if body.len() > request.limit { return Err(Error::Invalid("artwork response exceeds byte limit")); }
-        Ok(Response { status, body })
+        Ok(Response { status, body, location: response_location })
     }
 }
 
@@ -62,6 +66,23 @@ impl Client<Http> {
 impl<T: Transport> Client<T> {
     pub fn with_transport(transport: T, secrets: Secrets) -> Self {
         Self { transport: Arc::new(transport), secrets: Arc::new(secrets), token: Arc::new(Mutex::new(None)), gate: Arc::new(Gate::default()) }
+    }
+
+    /// A GET that follows up to three redirects, and only to the public hosts the metadata sources live on. Steam answers some of its
+    /// public endpoints with a redirect (a community vanity name, a store landing page), so `Http`, which never follows one on its own,
+    /// leaves the decision to this one place.
+    pub fn get(&self, url: &str, headers: &[(&str, &str)], limit: usize) -> Result<Response> {
+        let mut url = url.to_owned();
+        for _ in 0..4 {
+            let response = self.transport.execute(Request {
+                method: "GET", url: url.clone(), headers: headers.iter().map(|(k, v)| ((*k).into(), (*v).into())).collect(), body: vec![], limit,
+            })?;
+            let (300..400, Some(next)) = (response.status, response.location.as_deref()) else { return Ok(response) };
+            let next = if next.starts_with('/') { format!("{}{next}", origin(&url)) } else { next.to_owned() };
+            if !followable(&next) { return Ok(response); }
+            url = next;
+        }
+        Err(Error::Invalid("too many redirects"))
     }
 
     pub fn image(&self, url: &str) -> Result<Vec<u8>> {
@@ -162,6 +183,15 @@ fn encode(value: &str) -> String {
     encoded
 }
 fn safe_remote(url: &str) -> bool { url.starts_with("https://") && !url.chars().any(char::is_control) }
+fn origin(url: &str) -> &str {
+    let after = url.find("://").map_or(0, |i| i + 3);
+    &url[..url[after..].find('/').map_or(url.len(), |i| after + i)]
+}
+/// The public hosts the keyless metadata sources redirect within.
+fn followable(url: &str) -> bool {
+    const HOSTS: [&str; 5] = ["store.steampowered.com", "api.steampowered.com", "steamcommunity.com", "www.pcgamingwiki.com", "pcgamingwiki.com"];
+    safe_remote(url) && HOSTS.contains(&origin(url).trim_start_matches("https://"))
+}
 #[derive(Deserialize)]
 struct Auth { access_token: String, expires_in: u64, token_type: String }
 #[derive(Deserialize)]

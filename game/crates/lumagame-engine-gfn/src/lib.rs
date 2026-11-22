@@ -2,6 +2,7 @@
 //! Account files stay beneath Hello.data_dir; migrated prefs.json supplies settings defaults, never credentials to the shell.
 //! The deterministic adapter accepts JSON lines and an injected monotonic clock so a fake core exercises the real protocol path.
 mod catalog;
+mod refresh;
 mod settings;
 pub mod runtime;
 
@@ -46,6 +47,11 @@ enum Purpose {
     Pause,
     /// `session.ended`: releases the seat the core still holds as active after the game ended on the far side.
     Ended { params: Value, tries: u8 },
+    /// `account.connections.list`, `.sync` and `.sync.status` of the owner's refresh, and the status that closes a sync.
+    SyncList,
+    SyncStart { provider: String },
+    SyncPoll { provider: String },
+    SyncAck,
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +137,9 @@ pub struct Adapter {
     selections: BTreeMap<ProviderGameId, Selection>,
     auth: Option<Auth>,
     launch: Option<Launch>,
+    /// The owner's refresh while GeForce NOW re-checks the linked stores, and the sync operations waiting for the new library.
+    refresh: Option<refresh::Refresh>,
+    acks: Vec<String>,
 }
 
 impl Adapter {
@@ -141,7 +150,7 @@ impl Adapter {
             hello, schema, values, streamer, hello_seq:seq, ready:false,failed:false,now:0,next_id:1,epoch:0,
             queue:VecDeque::new(),pending:None,output:Output::default(),scope:Value::Null,target:None,
             runtime:Value::Null,region:None,catalog_revision:Value::Null,catalog_context:Value::Null,
-            cursors:BTreeSet::new(),selections:BTreeMap::new(),auth:None,launch:None,
+            cursors:BTreeSet::new(),selections:BTreeMap::new(),auth:None,launch:None,refresh:None,acks:Vec::new(),
         };
         this.enqueue("core.hello", json!({"protocolVersion":5,"shell":"lumagame","shellVersion":env!("CARGO_PKG_VERSION")}), Purpose::Hello, Some(seq));
         this
@@ -200,6 +209,7 @@ impl Adapter {
             Request::AuthCancel => self.cancel_auth(message.seq),
             Request::Forget { target } if self.matches_target(&target) => self.logout(seq),
             Request::Action { key } if key == "sign-out" => self.logout(seq),
+            Request::Action { key } if key == "refresh" => self.begin_refresh(message.seq),
             Request::Library { target, cursor } if self.matches_target(&target) => {
                 let mut params = json!({"limit":60,"cursor":cursor.as_deref().unwrap_or("")});
                 if let Some(cursor) = &cursor {
@@ -393,6 +403,7 @@ impl Adapter {
                 self.enqueue("auth.device.poll",json!({"attemptId":a.attempt}),Purpose::AuthPoll,Some(a.seq));
             }
         }
+        self.refresh_tick();
         if let Some(l) = &self.launch {
             if !l.stopping && !l.started && l.poll_due > 0 && now >= l.poll_due && !self.queued("session.poll") {
                 self.enqueue("session.poll",json!({"sessionId":l.cloud["sessionId"]}),Purpose::Poll,None);
@@ -402,6 +413,7 @@ impl Adapter {
 
     pub fn core_gone(&mut self, message: &str) {
         self.failed = true;
+        self.refresh = None;
         self.queue.clear(); self.pending = None;
         if self.auth.take().is_some() {
             self.emit(None,Event::Auth { state:AuthState::Failed { reason:AuthFail::Network,message:message.into() } });
@@ -575,7 +587,7 @@ impl Adapter {
             }
             Purpose::AuthCancel => { self.enqueue("auth.session.get",json!({}),Purpose::Restore,None); }
             Purpose::Logout => {
-                self.epoch += 1; self.queue.clear(); self.auth = None; self.target = None; self.scope = Value::Null;
+                self.epoch += 1; self.queue.clear(); self.auth = None; self.target = None; self.scope = Value::Null; self.refresh = None; self.acks.clear();
                 self.selections.clear(); self.cursors.clear(); self.region = None;
                 self.targets(job.seq);
             }
@@ -630,7 +642,9 @@ impl Adapter {
                 } else { self.finish(SessionState::Ended { reason:EndReason::Suspended }); }
             }
             Purpose::StopSeat => self.finish(SessionState::Ended { reason:EndReason::Stopped }),
-            Purpose::Pause | Purpose::Ended { .. } => {}
+            Purpose::Pause | Purpose::Ended { .. } | Purpose::SyncAck => {}
+            Purpose::SyncList => self.refresh_listed(r),
+            Purpose::SyncStart { provider } | Purpose::SyncPoll { provider } => self.refresh_progress(&provider,r),
         }
     }
 
@@ -664,14 +678,17 @@ impl Adapter {
                 for (entry,selection) in entries.iter().zip(selections) { self.selections.insert(entry.id.clone(),selection); }
                 self.catalog_revision = r["catalogRevision"].clone(); self.catalog_context = r["catalogContext"].clone();
                 if let Some(n) = &next { self.cursors.insert(n.clone()); }
+                let last = next.is_none();
                 self.emit(seq,Event::Library { target,entries,next });
+                if last { self.acknowledge_refresh(); }
             }
             Err(e) => self.error(seq,ErrorCode::Internal,e),
         }
     }
     fn rejected(&mut self, job: Job, code: &str) {
         match job.purpose {
-            Purpose::Regions | Purpose::Subscription => {}
+            Purpose::Regions | Purpose::Subscription | Purpose::SyncAck => {}
+            Purpose::SyncList | Purpose::SyncStart { .. } | Purpose::SyncPoll { .. } => self.refresh_rejected(&job.purpose,code),
             Purpose::Restore => { self.targets(job.seq); }
             Purpose::AuthPoll => { if let Some(a) = &mut self.auth { a.due = self.now+a.interval; } }
             Purpose::AuthStart | Purpose::AuthComplete => self.auth_failure(AuthFail::Network,"GeForce NOW could not complete sign-in"),
@@ -711,7 +728,10 @@ impl Adapter {
                 self.enqueue("streamer.stop",json!({"reason":"the session request failed"}),Purpose::Pause,None);
             }
             Purpose::Hello | Purpose::Detect | Purpose::Setting => self.core_gone("GeForce NOW could not initialize the core and streamer"),
-            _ => self.error(job.seq,ErrorCode::Internal,format!("GeForce NOW refused {} ({code})",job.method)),
+            _ => match refresh::classify(code) {
+                Some((kind,message)) => self.error(job.seq,kind,message),
+                None => self.error(job.seq,ErrorCode::Internal,format!("GeForce NOW refused {} ({code})",job.method)),
+            },
         }
     }
     fn claim(&mut self, r: &Value) {
@@ -880,7 +900,7 @@ pub fn descriptor() -> Descriptor {
     Descriptor { id:EngineId::new("gfn").unwrap(),version:env!("CARGO_PKG_VERSION").into(),capabilities:Capabilities {
         kind:EngineKind::Cloud,targets:TargetKind::Account,auth:vec![AuthMethod::DeviceCode],presentation:Presentation::Feeder,
         features:BTreeSet::from([Feature::Readiness,Feature::Queue,Feature::EndGame,Feature::Stats,Feature::RoundTrip,Feature::Rumble,Feature::OverlayKeys,
-            Feature::SteamOverlay]),
+            Feature::SteamOverlay,Feature::StoreSync]),
         video:Some(VideoCaps { codecs:vec![Codec::H265,Codec::Av1,Codec::H264],width:3840,height:2160,fps:120,hdr10:true }),
     } }
 }

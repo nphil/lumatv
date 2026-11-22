@@ -2,7 +2,7 @@ use super::{
     art::Stage,
     paint::{Fill, H, Paint, W, status_word},
 };
-use crate::game::model::{Density, Focus, HomeItem, Key, Page};
+use crate::game::model::{Density, Focus, HomeItem, HubTab, Key, Page};
 use lumagame_core::{
     catalog::{ArtKind, SaveCompat},
     engine::EngineKind,
@@ -20,7 +20,7 @@ use ui::{
 pub fn canvas(p: &mut Paint<'_>, stage: bool) {
     p.solid(1, Frame::new(0.0, 0.0, W, H), p.ink(Role::Canvas, stage), 0.0, 0);
 }
-pub fn nav(p: &mut Paint<'_>, stage: bool) {
+pub fn nav(p: &mut Paint<'_>, stage: bool) -> f32 {
     let labels = [("Home", Icon::Home), ("Library", Icon::Cards), ("Search", Icon::Search)];
     let side = 30.0 * p.scale;
     let mut widths = Vec::new();
@@ -91,6 +91,32 @@ pub fn nav(p: &mut Paint<'_>, stage: bool) {
         p.zoom(from, target, p.tokens.focus.button_scale);
     }
     p.hit(Focus::Nav(3), target);
+    p.x + w
+}
+/// What a refresh is doing or found: a pill between the navigation and the avatar. Progress counts seconds once it is slow, a result
+/// stays a few seconds and goes (the model clears it), so nothing bright keeps its place on the panel. The mark and the words carry the
+/// meaning, the colour only backs them.
+pub fn refresh_note(p: &mut Paint<'_>, id: u64, left: f32, y: f32) {
+    use crate::game::model::RefreshLine;
+    let Some(line) = p.model.refresh_line() else { return };
+    let (text, icon, role) = match line {
+        RefreshLine::Working { text, seconds: Some(s) } => (format!("{text}…  {s} s"), Icon::Hourglass, Role::Ink2),
+        RefreshLine::Working { text, seconds: None } => (format!("{text}…"), Icon::Hourglass, Role::Ink2),
+        RefreshLine::Done { text, problem: false } => (text, Icon::Check, Role::Positive),
+        RefreshLine::Done { text, problem: true } => (text, Icon::Alert, Role::Warning),
+    };
+    let x = left + 24.0;
+    let avatar = W - p.x - 144.0 - 24.0;
+    let side = 26.0 * p.scale;
+    let text_w = (avatar - x - side - 52.0).max(200.0);
+    let lines = p.fit(&text, Type::Caption, text_w, 3);
+    let h = (lines.len() as f32 * p.line(Type::Caption) + 16.0).max(44.0);
+    let widest = lines.iter().map(|l| p.width(l, Type::Caption)).fold(0.0, f32::max);
+    let w = widest.ceil() + side + 44.0;
+    let f = Frame::new(x, (y + (p.tokens.target.max(p.line(Type::Label) + 12.0) + 12.0 - h) / 2.0).max(24.0), w, h);
+    p.surface(id, f, Fill::Sheet, Radius::Pill, false, false, false, 60);
+    p.words(id + 1, f, vec![], vec![p.mark(icon, side, 12.0, (h - side) / 2.0, role, false)], 61);
+    p.lines(id + 2, lines, Frame::new(f.x + side + 26.0, f.y + 8.0, widest.ceil() + 2.0, h - 16.0), Type::Caption, Role::Ink, false, 61);
 }
 pub fn stage(p: &mut Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_to: f32, dim: bool, curtain: bool) {
     if let Some(path) = p.model.art_url(game, ArtKind::Hero).and_then(|url| p.model.art_path(&url)) {
@@ -110,21 +136,26 @@ pub fn stage(p: &mut Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_t
 pub fn logo_art(p: &Paint<'_>, game: GameId) -> Option<PathBuf> {
     p.model.art_url(game, ArtKind::Logo).and_then(|url| p.model.art_path(&url))
 }
+/// Whether the game has hero art, which the text over it takes its (stage) ink from; without art the page's own ink applies.
+fn has_hero(p: &Paint<'_>, game: GameId) -> bool {
+    p.model.art_url(game, ArtKind::Hero).and_then(|url| p.model.art_path(&url)).is_some()
+}
 /// The game's logo, or its title in text when it has no logo art: as many lines as `frame` is tall, never more, so a long title
 /// ends in an ellipsis instead of running down into what sits under the frame.
 pub fn logo(p: &mut Paint<'_>, id: u64, game: GameId, frame: Frame) {
+    let on_art = has_hero(p, game);
     if let Some(path) = logo_art(p, game) {
         p.image(id, path, frame, 0.0, true, None, 10);
     } else if let Some(game) = p.model.game(game) {
         let lines = p.fit(&game.title, Type::Title, frame.w, p.rows(Type::Title, frame.h));
-        p.lines(id, lines, frame, Type::Title, Role::Ink, true, 10);
+        p.lines(id, lines, frame, Type::Title, Role::Ink, on_art, 10);
     }
 }
 fn target_label(p: &Paint<'_>, game: GameId) -> String {
     p.model.play_target(game).map(|key| p.model.engine_name(&key.engine).to_string()).unwrap_or_else(|| "Choose where to play".into())
 }
 #[allow(clippy::too_many_arguments)]
-pub fn target_line(p: &mut Paint<'_>, id: u64, game: GameId, x: f32, y: f32, w: f32, stage: bool, with_target: bool) {
+pub fn target_line(p: &mut Paint<'_>, id: u64, game: GameId, x: f32, y: f32, w: f32, stage: bool, backed: bool, with_target: bool) {
     let Some(key) = p.model.play_target(game) else {
         return;
     };
@@ -147,6 +178,10 @@ pub fn target_line(p: &mut Paint<'_>, id: u64, game: GameId, x: f32, y: f32, w: 
         Some(EngineKind::Account) => Icon::Person,
         _ => Icon::Package,
     };
+    if backed {
+        let width = base + 22.0 + p.width(ready, Type::Caption) + 30.0;
+        p.surface(id + 100, Frame::new(x - 14.0, y - 6.0, width, f.h + 12.0), Fill::Sheet, Radius::Pill, false, false, false, 10);
+    }
     p.words(
         id,
         f,
@@ -187,7 +222,7 @@ pub fn home(p: &mut Paint<'_>) {
     let meta_text = meta_parts.join("  ·  ");
     let meta_h = ui::components::wrap(p.fonts, &meta_text, p.ty(Type::Label), 820.0).len() as f32 * p.line(Type::Label);
     let button_h = p.tokens.target.max(p.line(Type::Label) + 24.0);
-    let actions_h = if p.scale > 1.0 { button_h * 2.0 + 16.0 } else { button_h };
+    let actions_h = if p.scale > 1.0 { button_h * 3.0 + 32.0 } else { button_h };
     let description = if density == Density::Cinematic { meta.map(|d| d.description.as_str()).unwrap_or("") } else { "" };
     let desc_lines = if description.is_empty() { Vec::new() } else { ui::components::wrap(p.fonts, description, p.ty(Type::Body), 820.0) };
     let desc_h = desc_lines.len() as f32 * p.line(Type::Body);
@@ -210,7 +245,8 @@ pub fn home(p: &mut Paint<'_>) {
     );
     p.solid(3, Frame::new(0.0, 0.0, W, H), p.ink(Role::Canvas, false), 0.0, 2);
     p.plan.nodes.last_mut().unwrap().props.opacity = if deep { if p.mode == Mode::Light { 1.0 } else { 0.5 } } else { 0.0 };
-    nav(p, !deep);
+    let nav_end = nav(p, !deep);
+    refresh_note(p, 40, nav_end, p.y);
     if !deep {
         let top = hero_end - content;
         logo(p, 100, game.id, Frame::new(p.x, top, 600.0, density.logo_height()));
@@ -222,7 +258,9 @@ pub fn home(p: &mut Paint<'_>) {
         let label = if p.model.play_target(game.id).is_some() { format!("Play  ·  {}", target_label(p, game.id)) } else { "Choose where to play".into() };
         let width = p.button(105, Focus::Hero(0), &label, Some(Icon::Play), p.x, actions_y, true, true, 12);
         let (x, y) = if p.scale > 1.0 { (p.x, actions_y + button_h + 16.0) } else { (p.x + width + 16.0, actions_y) };
-        p.button(110, Focus::Hero(1), "Game details", Some(Icon::Info), x, y, false, true, 12);
+        let details = p.button(110, Focus::Hero(1), "Game details", Some(Icon::Info), x, y, false, true, 12);
+        let (x, y) = if p.scale > 1.0 { (p.x, y + button_h + 16.0) } else { (x + details + 16.0, y) };
+        p.button(114, Focus::Hero(2), "Refresh libraries", Some(if p.model.refreshing() { Icon::Hourglass } else { Icon::Refresh }), x, y, false, true, 12);
     }
     let body = p.line(Type::Body);
     let caption = p.line(Type::Caption);
@@ -334,7 +372,7 @@ pub fn cover(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, x: f32, y: 
         p.zoom(start, f, p.tokens.focus.tile_scale);
         let caption = Frame::new(x, y + f.h + 26.0, (w * 2.2).min(W - p.x - x), p.line(Type::Body));
         p.text(id + 3, &game.title, caption, Type::Body, Role::Ink, false, 15);
-        target_line(p, id + 4, game.id, x, caption.y + caption.h, w * 2.2, false, false);
+        target_line(p, id + 4, game.id, x, caption.y + caption.h, w * 2.2, false, false, false);
     }
     p.hit(focus, f);
 }
@@ -389,7 +427,8 @@ fn genre(p: &mut Paint<'_>, id: u64, name: &str, focus: Focus, x: f32, y: f32) {
     }
 }
 pub fn library(p: &mut Paint<'_>, search: bool) {
-    nav(p, false);
+    let nav_end = nav(p, false);
+    refresh_note(p, 40, nav_end, p.y);
     let m = p.model;
     let mut y = 162.0;
     if search {
@@ -427,10 +466,10 @@ pub fn library(p: &mut Paint<'_>, search: bool) {
                 labels.push(format!("{}  {}", e.manifest.name, m.filter_count(Some(&e.manifest.id))));
             }
         }
-        labels.extend([m.view.filter.genre.clone().unwrap_or_else(|| "Genre".into()), "Favourites".into(), "Sort".into()]);
+        labels.extend([m.view.filter.genre.clone().unwrap_or_else(|| "Genre".into()), "Favourites".into(), "Sort".into(), "Refresh libraries".into()]);
         let face = p.pad_face(Key::Menu);
         let side = 30.0 * p.scale;
-        let extra = |i: usize| if face.is_some() && i + 1 == labels.len() { side + 4.0 } else { 0.0 };
+        let extra = |i: usize| if face.is_some() && i + 2 == labels.len() { side + 4.0 } else { 0.0 };
         let widths: Vec<_> = labels.iter().enumerate().map(|(i, s)| p.width(s, Type::Label) + 52.0 + extra(i)).collect();
         let focused = if let Focus::Filter(i) = m.view.focus { Some(i) } else { None };
         let total_before = focused.map_or(0.0, |i| widths.iter().take(i + 1).sum::<f32>() + 12.0 * i as f32);
@@ -442,10 +481,10 @@ pub fn library(p: &mut Paint<'_>, search: bool) {
             if x + f.w >= p.x && x < W - p.x {
                 let active = if i == 0 {
                     m.view.filter == Default::default()
-                } else if i <= labels.len() - 4 {
+                } else if i <= labels.len() - 5 {
                     m.view.filter.engine.as_ref().is_some_and(|id| label.starts_with(m.engine_name(id)))
                 } else {
-                    i == labels.len() - 2 && m.view.filter.favourites
+                    i == labels.len() - 3 && m.view.filter.favourites
                 };
                 let from = p.plan.nodes.len();
                 p.surface(
@@ -571,11 +610,12 @@ pub fn hub(p: &mut Paint<'_>) {
     // The hero art fades into the page's canvas between these heights. In the light theme ink over the art is the stage's (light) ink
     // and ink over the canvas below it the page's (dark) ink, so a row that would sit across the fade starts below it.
     let (fade_from, fade_to) = (if p.mode == Mode::Light { 740.0 } else { 540.0 }, 800.0);
-    let light_hero = !deep && p.mode == Mode::Light;
+    let on_art = !deep && has_hero(p, game.id);
+    let light_hero = on_art && p.mode == Mode::Light;
     if !deep || p.mode == Mode::Dark {
         stage(p, game.id, 760.0, fade_from, fade_to, deep, false);
     }
-    let topstage = !deep;
+    let topstage = on_art;
     p.icon_button(10, Focus::HubTop(0), Icon::Back, p.x, p.y, topstage, 60);
     p.text(20, &game.title, Frame::new(p.x + 88.0, p.y + 12.0, 1200.0, p.line(Type::Label)), Type::Label, Role::Ink, topstage, 62);
     p.symbol_button(30, Focus::HubTop(1), super::symbols::Symbol::Heart, m.state().profile().user.favourites.contains(&game.id), W - p.x - 144.0, p.y, topstage, 60);
@@ -594,10 +634,10 @@ pub fn hub(p: &mut Paint<'_>) {
             meta.push(players.clone());
         }
         if !meta.is_empty() {
-            y += p.wrapped(101, &meta.join("  ·  "), Frame::new(p.x, y, 1000.0, 0.0), Type::Label, Role::Ink, true, 10) + 10.0;
+            y += p.wrapped(101, &meta.join("  ·  "), Frame::new(p.x, y, 1000.0, 0.0), Type::Label, Role::Ink, on_art, 10) + 10.0;
         }
         if let Some(description) = details.map(|d| d.description.as_str()).filter(|s| !s.is_empty()) {
-            y += p.wrapped(102, description, Frame::new(p.x, y, 820.0, 0.0), Type::Body, Role::Ink, true, 10);
+            y += p.wrapped(102, description, Frame::new(p.x, y, 820.0, 0.0), Type::Body, Role::Ink, on_art, 10);
         }
         let mut chips = details.map(|d| d.capabilities.clone()).unwrap_or_default();
         chips.extend(m.favourite_on(game.id).into_iter().map(|name| format!("Favourite on {name}")));
@@ -610,13 +650,13 @@ pub fn hub(p: &mut Paint<'_>) {
                     x = p.x;
                     y += p.line(Type::Caption) + 20.0;
                 }
-                x += p.status(110 + i as u64 * 3, label, Role::Positive, x, y, true, 10) + 12.0;
+                x += p.status(110 + i as u64 * 3, label, Role::Positive, x, y, on_art, 10) + 12.0;
             }
             y += 44.0f32.max(p.line(Type::Caption) + 8.0);
         }
         y += 30.0;
         let label = if p.model.play_target(game.id).is_some() { format!("Play  ·  {}", target_label(p, game.id)) } else { "Choose where to play".into() };
-        let w = p.button(140, Focus::HubAction(0), &label, Some(Icon::Play), p.x, y, true, true, 12);
+        let w = p.button(140, Focus::HubAction(0), &label, Some(Icon::Play), p.x, y, on_art, true, 12);
         let other = "Choose where to play";
         let other_w = p.width(other, Type::Label) + 110.0;
         if p.scale > 1.0 || p.x + w + 16.0 + other_w > W - p.x {
@@ -631,7 +671,12 @@ pub fn hub(p: &mut Paint<'_>) {
             y += p.wrapped(151, notice, Frame::new(p.x + 24.0, y + 16.0, 1052.0, 0.0), Type::Label, Role::Ink, false, 21) + 32.0;
         } else {
             let line = p.line(Type::Caption);
-            target_line(p, 150, game.id, p.x, y, 1200.0, !light_hero || y + line <= fade_from, true);
+            if light_hero && y < fade_to && y + line > fade_from {
+                y = fade_to;
+            }
+            let on_stage = on_art && (!light_hero || y + line <= fade_from);
+            // Scrolled up over the art at large text sizes, the page's dark ink needs the sheet behind it.
+            target_line(p, 150, game.id, p.x, y, 1200.0, on_stage, light_hero && !on_stage, true);
             y += line;
         }
         y += 42.0;
@@ -640,14 +685,19 @@ pub fn hub(p: &mut Paint<'_>) {
     if light_hero && y < fade_to && y + tab_h > fade_from {
         y = fade_to;
     }
-    let tab_stage = light_hero && y + tab_h <= fade_from;
+    // Over the hero art the page's (dark) ink would be faint in the light theme, and the art can sit behind the row at any scroll
+    // position, so the row and the tiles below it sit on an opaque capsule or sheet there.
+    if light_hero {
+        let total: f32 = m.hub_tabs().iter().map(|t| p.width(t.label(), Type::Label) + 66.0).sum();
+        p.surface(199, Frame::new(p.x - 8.0, y - 6.0, total + 8.0, tab_h + 12.0), Fill::Sheet, Radius::Pill, false, false, false, 14);
+    }
     let mut x = p.x;
-    for (i, label) in ["Overview", "Ways to play", "Media"].into_iter().enumerate() {
+    for (i, label) in m.hub_tabs().into_iter().map(|tab| tab.label()).enumerate() {
         let w = p.width(label, Type::Label) + 58.0;
         let f = Frame::new(x, y, w, tab_h);
         let from = p.plan.nodes.len();
         if i == m.view.hub_tab || p.focused(Focus::Tab(i)) {
-            p.surface(200 + i as u64 * 3, f, Fill::Tint(if p.focused(Focus::Tab(i)) { 0.16 } else { 0.09 }), Radius::Pill, tab_stage, false, false, 15);
+            p.surface(200 + i as u64 * 3, f, Fill::Tint(if p.focused(Focus::Tab(i)) { 0.16 } else { 0.09 }), Radius::Pill, false, false, false, 15);
         }
         p.text(
             201 + i as u64 * 3,
@@ -655,7 +705,7 @@ pub fn hub(p: &mut Paint<'_>) {
             Frame::new(x + 29.0, y + (tab_h - p.line(Type::Label)) / 2.0, w - 58.0, p.line(Type::Label)),
             Type::Label,
             Role::Ink,
-            tab_stage,
+            false,
             16,
         );
         if p.focused(Focus::Tab(i)) {
@@ -665,46 +715,42 @@ pub fn hub(p: &mut Paint<'_>) {
         x += w + 8.0;
     }
     y += tab_h + 28.0;
-    match m.view.hub_tab {
-        0 => {
+    match m.hub_tab() {
+        HubTab::Overview => {
             let last_label = match m.last_played(game.id).map(|last| last.place) {
                 Some(lumagame_core::activity::Place::Service(engine)) => format!("Last played on {}", m.engine_name(&engine)),
                 _ => "Last played".to_string(),
             };
             let play = m.play_time_of(game.id);
             let play_label = format!("Play time on {}", play.as_ref().map_or("this TV".to_string(), |(_, place)| m.place_name(place)));
-            let facts = [
-                (last_label, m.since_played(game.id)),
-                (play_label, play.map(|(seconds, _)| crate::game::model::play_time(seconds))),
-                ("Achievements".to_string(), details.and_then(|d| d.achievements.clone())),
-                ("Saves".to_string(), details.and_then(|d| d.cloud_saves).map(|cloud| if cloud { "Cloud saves" } else { "Local saves" }.into())),
-            ];
             let cols = if p.scale > 1.0 { 2 } else { 4 };
             let w = (W - p.x * 2.0 - p.gap * (cols - 1) as f32) / cols as f32;
+            let mut facts = vec![(last_label, Some(m.since_played(game.id).unwrap_or_else(|| "Not played yet".into()))), (play_label, play.map(|(seconds, _)| crate::game::model::play_time(seconds)))];
+            facts.push(("Player reviews".to_string(), details.and_then(|d| d.hub.review.as_ref()).map(|r| r.label.clone())));
+            facts.push(("Achievements".to_string(), achievement_summary(m, game.id, details)));
+            facts.push(("Played in the last 2 weeks".to_string(), m.recent_play(game.id).map(crate::game::model::play_time)));
+            facts.push(("Metacritic".to_string(), details.and_then(|d| d.hub.metacritic).map(|s| format!("{s} out of 100"))));
+            facts.push(("Released".to_string(), details.and_then(|d| d.hub.release.clone())));
+            facts.push(("Saves".to_string(), details.and_then(|d| d.cloud_saves).map(|cloud| if cloud { "Cloud saves" } else { "Local saves" }.into())));
+            // Only what is known is shown, and as many tiles as the page has room for.
+            let facts: Vec<(String, String)> = facts.into_iter().filter_map(|(label, value)| Some((label, value?))).take(4).collect();
             for (i, (label, value)) in facts.into_iter().enumerate() {
                 let h = p.line(Type::Caption) + p.line(Type::Body) + 48.0;
                 let f = Frame::new(p.x + (i % cols) as f32 * (w + p.gap), y + (i / cols) as f32 * (h + p.gap), w, h);
-                p.surface(300 + i as u64 * 2, f, Fill::Glass, Radius::Tile, false, false, false, 10);
+                p.surface(300 + i as u64 * 2, f, if light_hero { Fill::Sheet } else { Fill::Glass }, Radius::Tile, false, false, false, 10);
                 p.words(
                     301 + i as u64 * 2,
                     f,
                     vec![
                         p.word(label, Type::Caption, p.ink(Role::Ink2, false), 24.0, 20.0, w - 48.0),
-                        p.word(
-                            value.unwrap_or_else(|| "Not available".into()),
-                            Type::Body,
-                            p.ink(Role::Ink, false),
-                            24.0,
-                            20.0 + p.line(Type::Caption),
-                            w - 48.0,
-                        ),
+                        p.word(value, Type::Body, p.ink(Role::Ink, false), 24.0, 20.0 + p.line(Type::Caption), w - 48.0),
                     ],
                     vec![],
                     11,
                 );
             }
         }
-        1 => {
+        HubTab::Ways => {
             let focused = if let Focus::Way(i) = m.view.focus { i } else { 0 };
             let first = focused.saturating_sub(if p.scale > 1.0 { 2 } else { 6 });
             for (i, source) in game.sources.iter().enumerate().skip(first) {
@@ -715,7 +761,10 @@ pub fn hub(p: &mut Paint<'_>) {
             }
             p.button(700, Focus::Way(game.sources.len()), "Add a way to play", Some(Icon::Plus), p.x, y + 16.0, false, false, 10);
         }
-        _ => {
+        HubTab::Achievements => achievements_tab(p, game.id, y),
+        HubTab::News => news_tab(p, game.id, y),
+        HubTab::Details => details_tab(p, game.id, y),
+        HubTab::Media => {
             let media = details.map(|d| d.media.as_slice()).unwrap_or(&[]);
             if media.is_empty() {
                 p.text(300, "No media supplied by the connected sources", Frame::new(p.x, y, 1500.0, p.line(Type::Body)), Type::Body, Role::Ink2, false, 10);
@@ -752,6 +801,140 @@ pub fn hub(p: &mut Paint<'_>) {
             }
         }
     }
+}
+/// "18 of 51 unlocked" from the owner's own list, or the store's count of what the game has.
+fn achievement_summary(m: &crate::game::model::Model, id: GameId, details: Option<&crate::game::model::GameDetails>) -> Option<String> {
+    let total = details.map_or(0, |d| d.hub.achievements.total);
+    match (m.unlocked(id), total) {
+        (Some(unlocked), 0) => Some(format!("{} unlocked", unlocked.len())),
+        (Some(unlocked), total) => Some(format!("{} of {total} unlocked", unlocked.len())),
+        (None, 0) => None,
+        (None, total) => Some(format!("{total} to earn")),
+    }
+}
+fn thousands(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+/// One row of a section list: an optional picture, a title, up to `lines` lines of detail and a short word at the right. Returns its height.
+#[allow(clippy::too_many_arguments)]
+fn item_row(p: &mut Paint<'_>, id: u64, index: usize, f: Frame, icon: Option<PathBuf>, title: &str, detail: &str, lines: usize, side: Option<(String, Role)>) -> f32 {
+    let focus = Focus::Item(index);
+    let focused = p.focused(focus);
+    let pad = 24.0;
+    let text_x = pad + if icon.is_some() { 92.0 } else { 0.0 };
+    let side_w = side.as_ref().map_or(0.0, |(s, _)| p.width(s, Type::Caption) + 32.0);
+    let text_w = f.w - text_x - pad - side_w;
+    let detail_lines = if detail.is_empty() { Vec::new() } else { p.fit(detail, Type::Caption, text_w, lines) };
+    let text_h = p.line(Type::Body) + detail_lines.len() as f32 * p.line(Type::Caption);
+    let f = Frame::new(f.x, f.y, f.w, (text_h + pad * 2.0).max(if icon.is_some() { 72.0 + pad * 2.0 } else { 0.0 }));
+    let from = p.plan.nodes.len();
+    p.surface(id, f, Fill::Tint(if focused { p.tokens.states.focus_wash[usize::from(p.mode == Mode::Light)] } else { 0.04 }), Radius::Row, false, focused, false, 32);
+    if let Some(path) = icon {
+        p.image(id + 1, path, Frame::new(f.x + pad, f.y + (f.h - 72.0) / 2.0, 72.0, 72.0), p.tokens.radius(Radius::Control), false, None, 33);
+    }
+    let top = (f.h - text_h) / 2.0;
+    let mut words = vec![p.word(title, Type::Body, p.ink(Role::Ink, false), text_x, top, text_w)];
+    for (i, line) in detail_lines.iter().enumerate() {
+        words.push(p.word(line.clone(), Type::Caption, p.ink(Role::Ink2, false), text_x, top + p.line(Type::Body) + i as f32 * p.line(Type::Caption), text_w));
+    }
+    if let Some((label, role)) = side {
+        words.push(p.word(label, Type::Caption, p.ink(role, false), f.w - pad - side_w + 32.0, (f.h - p.line(Type::Caption)) / 2.0, side_w - 32.0));
+    }
+    p.words(id + 2, f, words, vec![], 34);
+    if focused {
+        p.zoom(from, f, p.tokens.focus.card_scale);
+    }
+    p.hit(focus, f);
+    f.h
+}
+fn achievements_tab(p: &mut Paint<'_>, game: GameId, mut y: f32) {
+    let m = p.model;
+    let Some(hub) = m.details.get(&game).map(|d| &d.hub) else { return };
+    let summary = achievement_summary(m, game, m.details.get(&game)).unwrap_or_default();
+    y += p.wrapped(300, &summary, Frame::new(p.x, y, W - p.x * 2.0, 0.0), Type::Body, Role::Ink, false, 10) + 6.0;
+    if let Some(rarest) = hub.achievements.rarest {
+        y += p.wrapped(301, &format!("The rarest is earned by {}% of players.", percent(rarest)), Frame::new(p.x, y, W - p.x * 2.0, 0.0), Type::Caption, Role::Ink2, false, 10);
+    }
+    y += 16.0;
+    let unlocked = m.unlocked(game);
+    for (i, a) in hub.achievements.shown.iter().enumerate() {
+        let state = match (unlocked, &a.api) {
+            (Some(list), Some(api)) => Some(if list.iter().any(|u| &u.name == api) { ("Unlocked".to_string(), Role::Positive) } else { ("Not yet".to_string(), Role::Ink2) }),
+            _ => None,
+        };
+        let share = a.permille.map(|s| format!("{}% of players have it", percent(s)));
+        y += item_row(p, 400 + i as u64 * 4, i, Frame::new(p.x, y, W - p.x * 2.0, 0.0), m.art_path(&a.icon), &a.name, share.as_deref().unwrap_or(""), 1, state) + 8.0;
+    }
+    if !hub.achievements.shown.is_empty() {
+        p.wrapped(380, "The list shows the achievements the Steam store highlights.", Frame::new(p.x, y + 8.0, W - p.x * 2.0, 0.0), Type::Caption, Role::Ink2, false, 10);
+    }
+}
+fn percent(permille: u32) -> String {
+    if permille % 10 == 0 { (permille / 10).to_string() } else { format!("{}.{}", permille / 10, permille % 10) }
+}
+fn news_tab(p: &mut Paint<'_>, game: GameId, mut y: f32) {
+    let m = p.model;
+    let Some(hub) = m.details.get(&game).map(|d| &d.hub) else { return };
+    for (i, n) in hub.news.iter().enumerate() {
+        let when = lumagame_meta::hub::date(n.date);
+        let by = if n.author.is_empty() { when } else { format!("{when}  ·  {}", n.author) };
+        let lines = if p.scale > 1.0 { 2 } else { 3 };
+        let detail = if n.summary.is_empty() { by } else { format!("{by}  ·  {}", n.summary) };
+        y += item_row(p, 400 + i as u64 * 4, i, Frame::new(p.x, y, W - p.x * 2.0, 0.0), None, &n.title, &detail, lines, Some(("Open".into(), Role::Ink2))) + 8.0;
+    }
+}
+fn details_tab(p: &mut Paint<'_>, game: GameId, mut y: f32) {
+    let m = p.model;
+    let Some(hub) = m.details.get(&game).map(|d| &d.hub) else { return };
+    let join = |v: &[String]| (!v.is_empty()).then(|| v.join(", "));
+    let deck = hub.deck.map(|d| match d {
+        lumagame_meta::hub::Deck::Verified => "Verified",
+        lumagame_meta::hub::Deck::Playable => "Playable",
+        lumagame_meta::hub::Deck::Unsupported => "Unsupported",
+    });
+    let reviews = hub.review.as_ref().map(|r| match r.percent {
+        Some(percent) => format!("{}, {percent}% of {} reviews", r.label, thousands(r.count)),
+        None => r.label.clone(),
+    });
+    let mut rows: Vec<(String, String)> = Vec::new();
+    let mut add = |label: &str, value: Option<String>| rows.extend(value.map(|v| (label.to_string(), v)));
+    add("Developer", join(&hub.developers));
+    add("Publisher", join(&hub.publishers));
+    add("Released", hub.release.clone());
+    add("Steam Deck", deck.map(str::to_owned));
+    add("Player reviews", reviews);
+    add("Metacritic", hub.metacritic.map(|s| format!("{s} out of 100")));
+    add("Features", join(&hub.categories));
+    add("Extra content", (hub.dlc > 0).then(|| format!("{} add-ons", hub.dlc)));
+    for fact in &hub.facts {
+        add(&fact.label, Some(fact.value.clone()));
+    }
+    let cols = if p.scale > 1.0 { 1 } else { 2 };
+    let w = (W - p.x * 2.0 - p.gap * (cols - 1) as f32) / cols as f32;
+    let h = p.line(Type::Caption) + p.line(Type::Body) + 32.0;
+    let rows_n = rows.len().div_ceil(cols);
+    for (i, (label, value)) in rows.into_iter().enumerate() {
+        let f = Frame::new(p.x + (i % cols) as f32 * (w + p.gap), y + (i / cols) as f32 * (h + 8.0), w, h);
+        p.surface(300 + i as u64 * 2, f, Fill::Glass, Radius::Row, false, false, false, 10);
+        p.words(
+            301 + i as u64 * 2,
+            f,
+            vec![p.word(label, Type::Caption, p.ink(Role::Ink2, false), 24.0, 14.0, w - 48.0), p.word(value, Type::Body, p.ink(Role::Ink, false), 24.0, 14.0 + p.line(Type::Caption), w - 48.0)],
+            vec![],
+            11,
+        );
+    }
+    y += rows_n as f32 * (h + 8.0) + 16.0;
+    let credits = hub.credits.join("  ");
+    p.wrapped(290, &credits, Frame::new(p.x, y, W - p.x * 2.0, 0.0), Type::Caption, Role::Ink2, false, 10);
 }
 pub fn way(p: &mut Paint<'_>, id: u64, index: usize, key: lumagame_core::ids::SourceKey, mut f: Frame, sheet: bool) -> f32 {
     let focus = if sheet { Focus::SheetRow(index) } else { Focus::Way(index) };

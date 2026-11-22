@@ -563,3 +563,74 @@ fn a_colour_that_arrives_before_running_is_attached_to_it_and_an_ended_session_i
     f.adapter.pad_line(&colour(18));
     assert_eq!(running_streams(&mut f).len(),1);
 }
+
+fn refreshes(f:&FakeCore) -> Vec<(Option<String>,Option<String>)> {
+    f.events.iter().filter_map(|e| match &e.event {Event::Refresh{step,note}=>Some((step.clone(),note.clone())),_=>None}).collect()
+}
+fn stores() -> Value {
+    json!({"accounts":[
+        {"provider":"STEAM","label":"Steam","isConnected":true,"status":"connected","supportsSync":true},
+        {"provider":"EPIC","label":"Epic","isConnected":true,"status":"connected","supportsSync":false},
+        {"provider":"GOG","label":"GOG","isConnected":false,"status":"not_connected","supportsSync":true}]})
+}
+
+#[test]
+fn a_refresh_syncs_the_linked_store_waits_for_the_core_and_closes_the_sync_after_the_new_library() {
+    let mut f=FakeCore::new(true);let target=f.target();
+    f.send(30,Request::Action{key:"refresh".into()});
+    f.reply("account.connections.list",stores());
+    let sync=f.reply("account.connections.sync",json!({"operationId":"op1","provider":"STEAM","phase":"waiting_remote","retryAfterMs":2000}));
+    assert_eq!(sync["params"],json!({"provider":"STEAM"}), "only the connected store that can sync");
+    f.adapter.tick(1999);f.collect();assert!(f.requests.is_empty(),"the core's pause is kept");
+    f.adapter.tick(2000);
+    let poll=f.reply("account.connections.sync.status",json!({"operationId":"op1","phase":"refreshing_library","catalogRevision":8}));
+    assert_eq!(poll["params"],json!({"operationId":"op1"}));
+    f.collect();
+    let steps=refreshes(&f);
+    assert_eq!(steps.first(),Some(&(Some("Checking your linked stores".into()),None)));
+    assert_eq!(steps.last(),Some(&(None,None)), "the engine's part is over and nothing went wrong");
+    f.send(31,Request::Library{target,cursor:None});
+    f.reply("catalog.library.list",json!({"games":[game()],"nextCursor":"","hasNextPage":false,"catalogRevision":8,"catalogContext":"ctx","scope":scope(4)}));
+    let ack=f.next("account.connections.sync.status");
+    assert_eq!(ack["params"],json!({"operationId":"op1","libraryRefreshed":true}));
+}
+
+#[test]
+fn a_store_that_fails_or_never_confirms_is_reported_and_no_linked_store_goes_straight_to_the_library() {
+    let mut f=FakeCore::new(true);
+    f.send(30,Request::Action{key:"refresh".into()});
+    f.reply("account.connections.list",json!({"accounts":[]}));
+    f.collect();
+    assert_eq!(refreshes(&f).last(),Some(&(None,None)));
+
+    let mut f=FakeCore::new(true);
+    f.send(30,Request::Action{key:"refresh".into()});
+    f.reply("account.connections.list",stores());
+    f.reply("account.connections.sync",json!({"operationId":"op1","provider":"STEAM","phase":"waiting_remote","retryAfterMs":1000}));
+    f.adapter.tick(1000);
+    f.reply("account.connections.sync.status",json!({"operationId":"op1","phase":"failed","message":"x"}));
+    f.collect();
+    assert_eq!(refreshes(&f).last(),Some(&(None,Some("GeForce NOW could not refresh Steam.".into()))));
+
+    let mut f=FakeCore::new(true);
+    f.send(30,Request::Action{key:"refresh".into()});
+    f.reply("account.connections.list",stores());
+    f.reply("account.connections.sync",json!({"operationId":"op1","provider":"STEAM","phase":"waiting_remote"}));
+    f.adapter.tick(135_000);f.collect();
+    assert_eq!(refreshes(&f).last(),Some(&(None,Some("GeForce NOW was still checking Steam when the wait ended.".into()))));
+}
+
+#[test]
+fn a_refresh_that_cannot_reach_or_sign_in_to_geforce_now_is_a_named_error_and_a_signed_out_engine_refuses_it() {
+    for (code,expected) in [("network_error",ErrorCode::Network),("http_unauthorized",ErrorCode::SignIn)] {
+        let mut f=FakeCore::new(true);
+        f.send(30,Request::Action{key:"refresh".into()});
+        f.reject("account.connections.list",code);
+        f.collect();
+        assert!(f.events.iter().any(|e| matches!(&e.event,Event::Error{code,..} if *code==expected)),"{code}");
+        assert!(refreshes(&f).iter().all(|(step,_)| step.is_some()),"no end is announced: the app ends the run on the error");
+    }
+    let mut f=FakeCore::new(false);
+    f.send(30,Request::Action{key:"refresh".into()});
+    assert!(f.events.iter().any(|e| matches!(&e.event,Event::Error{code:ErrorCode::SignIn,..})));
+}

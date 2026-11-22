@@ -1,6 +1,6 @@
 //! The feeder launches this 64-bit card window; engine decisions stay in the model and media stays out of this loop.
 use lumagame_core::{catalog::ArtKind, engine::Codec, ids::GameId, ipc::{Display, Request}};
-use lumagame_meta::{Artwork, CacheLimits, Client, Http, Job, Kind, Loader, Metadata, secrets::Secrets};
+use lumagame_meta::{Artwork, Cache, CacheLimits, Client, Http, Job, Kind, Loader, Metadata, secrets::Secrets};
 use lumatv_gfn_pad::{MAX_PADS, PadConfig, PadEvent, PadRuntime, PadSink, RawReport, menu::MenuKeys};
 use lumatv_render::{Demand, now_ns, host::{Engine, HostConfig}};
 use lumatv_rustui::{card::{FULLSCREEN, MINIMIZED}, game::{helper::{ControllerClient, ControllerRequest, ControllerReply, Lease}, host::{self, HostEvent, Supervisor}, model::{Command, GameDetails, Input, Key, Media, Model, PadMode}, screens::GameUi, store::{self, Store}}, lifecycle::{Channel, FromApp, ToApp}, window::{self, Event, Spec}};
@@ -214,36 +214,48 @@ impl MenuPads {
     }
 }
 impl Drop for MenuPads { fn drop(&mut self) { self.runtime.stop(); } }
-
 struct Details {
-    jobs: SyncSender<(GameId, Vec<lumagame_core::ids::ExternalId>)>,
-    results: Receiver<(GameId, Option<Metadata>)>,
+    jobs: SyncSender<(GameId, Vec<lumagame_core::ids::ExternalId>, String)>,
+    results: Receiver<(GameId, Option<lumagame_meta::Hub>, Option<Metadata>)>,
 }
 impl Details {
-    fn new(secrets: Secrets) -> io::Result<Option<Self>> {
-        if secrets.twitch_client_id.is_empty() || secrets.twitch_client_secret.is_empty() { return Ok(None); }
+    /// The page-data worker. The public sources need no key; IGDB is added when the owner has configured its keys.
+    fn new(secrets: Secrets, dir: PathBuf) -> io::Result<Option<Self>> {
+        let igdb = !secrets.twitch_client_id.is_empty() && !secrets.twitch_client_secret.is_empty();
         let client = Client::<Http>::new(secrets);
-        let (jobs, incoming) = mpsc::sync_channel::<(GameId, Vec<lumagame_core::ids::ExternalId>)>(4);
+        let cache = Mutex::new(Cache::open(dir, CacheLimits { bytes: 16 << 20, files: 2048, image_bytes: 1 << 20 }).ok());
+        let pace = lumagame_meta::hub::Pacing::new(Duration::from_millis(1000));
+        let (jobs, incoming) = mpsc::sync_channel::<(GameId, Vec<lumagame_core::ids::ExternalId>, String)>(4);
         let (finished, results) = mpsc::sync_channel(4);
         std::thread::Builder::new().name("game-details".into()).spawn(move || {
-            while let Ok((id, external)) = incoming.recv() {
-                let details = client.igdb(&external).ok().flatten();
-                if finished.send((id, details)).is_err() { break; }
+            while let Ok((id, external, title)) = incoming.recv() {
+                let steam = external.iter().find(|e| e.ns() == lumagame_core::ids::ExternalId::STEAM).and_then(|e| e.id().parse::<u64>().ok());
+                let hub = lumagame_meta::hub::load(&client, &pace, &cache, &lumagame_meta::hub::Lookup { steam, title: &title }, unix_seconds());
+                let metadata = if igdb { client.igdb(&external).ok().flatten() } else { None };
+                if finished.send((id, hub, metadata)).is_err() { break; }
             }
         })?;
         Ok(Some(Self { jobs, results }))
     }
 }
 
-fn game_details(metadata: Metadata) -> GameDetails {
+/// What the owner's keyed provider adds to what the public sources gave: it fills gaps and never replaces.
+fn game_details(hub: Option<lumagame_meta::Hub>, metadata: Option<Metadata>) -> Option<GameDetails> {
+    if hub.is_none() && metadata.is_none() { return None; }
+    let mut details = hub.map(GameDetails::from_hub).unwrap_or_default();
+    let Some(metadata) = metadata else { return Some(details) };
     let year = metadata.release_date.and_then(|seconds| {
         let seconds: libc::time_t = seconds;
         let mut date = std::mem::MaybeUninit::<libc::tm>::uninit();
         if unsafe { libc::gmtime_r(&seconds, date.as_mut_ptr()) }.is_null() { None }
         else { u32::try_from(unsafe { date.assume_init() }.tm_year + 1900).ok() }
     });
-    GameDetails { description: metadata.summary, year, genres: metadata.genres, developer: (!metadata.developers.is_empty()).then(|| metadata.developers.join(", ")),
-        media: metadata.artwork.into_iter().filter(|art| matches!(art.kind, Kind::Hero | Kind::Header)).map(|art| Media { title: "Artwork".into(), image: art.url, video: None }).collect(), ..GameDetails::default() }
+    if details.description.is_empty() { details.description = metadata.summary; }
+    details.year = details.year.or(year);
+    if details.genres.is_empty() { details.genres = metadata.genres; }
+    if details.developer.is_none() && !metadata.developers.is_empty() { details.developer = Some(metadata.developers.join(", ")); }
+    details.media.extend(metadata.artwork.into_iter().filter(|art| matches!(art.kind, Kind::Hero | Kind::Header)).map(|art| Media { title: "Artwork".into(), image: art.url, video: None }));
+    Some(details)
 }
 
 struct Shell {
@@ -324,7 +336,7 @@ impl Shell {
                 Command::ClearCheckpoint => if self.state_saved { self.store.clear_checkpoint() } else { Ok(()) },
                 Command::LowLatency(on) => { self.lease.set(on, now_ms); Ok(()) }
                 Command::FetchArt { url } => { self.art_waiting.push_back(url); Ok(()) }
-                Command::FetchDetails { game } => { if self.details.is_some() { self.details_waiting.push_back(game); } Ok(()) }
+                Command::FetchDetails { game } => { self.details_waiting.push_back(game); Ok(()) }
                 Command::PlayMedia { url } => {
                     if !url.starts_with("https://") { Err(io::Error::new(io::ErrorKind::InvalidInput, "media must use HTTPS")) }
                     else { self.launch_app("com.webos.app.browser", serde_json::json!({"target":url})) }
@@ -402,12 +414,14 @@ impl Shell {
         }
         if let Some(details) = &self.details {
             while let Some(id) = self.details_waiting.front() {
-                let external = self.model.game(*id).map(|game| game.external().into_iter().cloned().collect()).unwrap_or_default();
-                if details.jobs.try_send((*id, external)).is_err() { break; }
+                let game = self.model.game(*id);
+                let external = game.map(|game| game.external().into_iter().cloned().collect()).unwrap_or_default();
+                let title = game.map(|game| game.title.clone()).unwrap_or_default();
+                if details.jobs.try_send((*id, external, title)).is_err() { break; }
                 self.details_waiting.pop_front();
             }
-            while let Ok((game, metadata)) = details.results.try_recv() {
-                if let Some(metadata) = metadata { inputs.push(Input::Details { game, details: game_details(metadata) }); }
+            while let Ok((game, hub, metadata)) = details.results.try_recv() {
+                if let Some(found) = game_details(hub, metadata) { inputs.push(Input::Details { game, details: Box::new(found) }); }
             }
         }
         while let Some(notice) = self.lease.notice() { inputs.push(Input::Notice(notice)); }
@@ -448,7 +462,7 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
     let host = Supervisor::new(installed, host::Config { data, feeder: o.feeder, runner: o.runner,
         display: Display { width: 3840, height: 2160, refresh_hz: 120, hdr10: true, codecs: vec![Codec::H264, Codec::H265, Codec::Av1] }, locale: "en-US".into(), lifecycle: channel.is_some() })?;
     let art = Loader::with_client(store.root().join("cache/art"), CacheLimits::default(), 2, Client::<Http>::new(snapshot.secrets.clone())).map_err(io::Error::other)?;
-    let details = Details::new(snapshot.secrets)?;
+    let details = Details::new(snapshot.secrets, store.root().join("cache/hub"))?;
     let mut inputs = vec![Input::Foreground(!o.hidden)];
     inputs.extend(snapshot.notices.into_iter().chain(notices).chain(temporary).map(Input::Notice));
     let mut uplink_watch = uplink::Watch::default();

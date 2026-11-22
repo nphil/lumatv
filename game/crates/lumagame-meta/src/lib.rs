@@ -4,6 +4,8 @@
 mod cache;
 mod decode;
 mod loader;
+pub mod hub;
+pub use hub::Hub;
 pub mod providers;
 pub mod secrets;
 

@@ -10,6 +10,7 @@
 //! Nothing that identifies the owner or opens the account is ever logged or sent to the app: no token, no URL that carries one, no
 //! login name. The one address that is sent is the QR code's, which is meant to be shown.
 
+mod achievements;
 mod auth;
 #[cfg(test)]
 mod fake;
@@ -22,7 +23,7 @@ mod store;
 use auth::{Account, Attempt};
 use http::Http;
 use library::Snapshot;
-use lumagame_core::engine::{AuthMethod, Capabilities, Descriptor, EngineKind, Presentation, TargetKind};
+use lumagame_core::engine::{AuthMethod, Capabilities, Descriptor, EngineKind, Feature, Presentation, TargetKind};
 use lumagame_core::ids::{EngineId, TargetId};
 use lumagame_core::ipc::{ErrorCode, Event, FromEngine, Hello, Link, PROTOCOL, Reach, Request, Target};
 use lumagame_core::settings::{Field, FieldKind, Section, SettingsSchema};
@@ -173,6 +174,7 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             Request::AuthCancel => self.cancel_auth(seq),
             Request::Forget { target } => self.forget(seq, &target),
             Request::Library { target, cursor } => self.library(seq, target, cursor.as_deref()),
+            Request::Achievements { target, game } => self.achievements(seq, target, game),
             _ => self.error(seq, ErrorCode::Unsupported, "This operation is not supported by Steam"),
         }
     }
@@ -253,7 +255,7 @@ pub fn descriptor() -> Descriptor {
             targets: TargetKind::Account,
             auth: vec![AuthMethod::Qr],
             presentation: Presentation::Nothing,
-            features: BTreeSet::new(),
+            features: BTreeSet::from([Feature::Achievements]),
             video: None,
         },
     }
@@ -306,7 +308,7 @@ mod tests {
         let capabilities = descriptor().capabilities;
         assert_eq!((capabilities.kind, capabilities.targets, capabilities.presentation), (EngineKind::Account, TargetKind::Account, Presentation::Nothing));
         assert_eq!(capabilities.auth, [AuthMethod::Qr]);
-        assert!(capabilities.features.is_empty() && capabilities.video.is_none());
+        assert!(capabilities.features.iter().eq([&Feature::Achievements]) && capabilities.video.is_none());
         assert_eq!(schema().validate(), Ok(()));
         assert_eq!(rig.log.lines(), ["ready, signed out"]);
     }

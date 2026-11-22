@@ -7,7 +7,7 @@ impl Transport for Replay {
     fn execute(&self, request: Request) -> lumagame_meta::Result<Response> {
         self.requests.lock().unwrap().push(request);
         let (status, body) = self.replies.lock().unwrap().pop_front().expect("unexpected network request");
-        Ok(Response { status, body })
+        Ok(Response::new(status, body))
     }
 }
 type Requests = Arc<Mutex<Vec<Request>>>;

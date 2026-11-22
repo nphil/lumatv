@@ -906,7 +906,7 @@ mod tests {
         let mut rig = library_rig(UNIX0 + 30 * 86_400);
         rig.http.on("GenerateAccessTokenForApp", [fake::eresult(15, r#"{"response":{}}"#)]);
         let events = library(&mut rig);
-        let [FromEngine { re: Some(2), event: Event::Error { code: ErrorCode::Internal, .. } }, FromEngine { re: None, event: Event::Targets { targets } }] =
+        let [FromEngine { re: Some(2), event: Event::Error { code: ErrorCode::SignIn, .. } }, FromEngine { re: None, event: Event::Targets { targets } }] =
             events.as_slice()
         else {
             panic!("{events:?}")
@@ -934,7 +934,7 @@ mod tests {
         assert!(
             matches!(
                 events.as_slice(),
-                [FromEngine { event: Event::Error { code: ErrorCode::Internal, .. }, .. }, FromEngine { event: Event::Targets { .. }, .. }]
+                [FromEngine { event: Event::Error { code: ErrorCode::SignIn, .. }, .. }, FromEngine { event: Event::Targets { .. }, .. }]
             ),
             "{events:?}"
         );

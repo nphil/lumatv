@@ -437,6 +437,16 @@ and serves its cache (`cache/steam/`, at most 1500 games, genres and tags kept 3
 one refresh entry point, `Model::refresh_accounts(force, out)`, asks every linked account engine again; `force` (an explicit
 Refresh) first sends the engine `Action refresh`, which skips the 300-second wait.
 
+**Refresh libraries.** One action (`Model::refresh_libraries`) on Home, in Library and on each integration page. It shows a pill
+beside the navigation while it works (the seconds waited after 3 s) and the result ("N new games", "Up to date" or a plain
+error) for 12 s, then clears. GeForce NOW first asks the service to re-sync its linked stores, then re-fetches. The automatic
+refresh is throttled to 300 s per engine and runs on start, on stream return and after 30 minutes away.
+
+**Game page data.** The page's sections (Overview, Ways to play, Achievements, News, Media, Details) exist only when they have
+data. Keyless sources (Steam store, news, achievement rarity, Steam Deck, reviews, PCGamingWiki) are fetched on page open and for
+a tile that rests in focus for 0.7 s, paced per host, cached on disk (16 MiB, stale copies served offline). The Steam engine adds
+the owner's unlocked achievements and two-week play time. Trailers open on OK only and never autoplay.
+
 **Sheet and page.** The QR sheet reuses the device-code layout without an address or code: instruction, QR on the white
 `qr-plate` that every theme uses, the time left, Cancel. It is interactive, lasts 300 seconds at most and closes at expiry, so
 its one bright element does not stay. The Steam page has Enable, Sign in (Switch account once linked), the account row and

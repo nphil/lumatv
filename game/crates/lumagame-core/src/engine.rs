@@ -118,6 +118,10 @@ word_enum! {
         Keyboard => "keyboard",
         Mouse => "mouse",
         Surround => "surround",
+        /// Re-checks the stores linked to the account before the library is fetched, and reports its steps (`refresh`).
+        StoreSync => "store-sync",
+        /// Answers `achievements` with what the owner has unlocked in one game.
+        Achievements => "achievements",
     }
     unknown => Other
 }

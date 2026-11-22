@@ -63,6 +63,8 @@ struct Game {
     name: Option<String>,
     minutes: u64,
     last_played: Option<u64>,
+    /// Minutes played in the last two weeks.
+    recent_minutes: u64,
 }
 
 /// A game's name for display: one line, at most 160 characters.
@@ -90,6 +92,7 @@ fn parse_owned(body: &[u8]) -> Option<Vec<Game>> {
         name: Option<Value>,
         playtime_forever: Option<Value>,
         rtime_last_played: Option<Value>,
+        playtime_2weeks: Option<Value>,
     }
     let Body { response } = serde_json::from_slice(body).ok()?;
     let mut seen = HashSet::new();
@@ -104,6 +107,7 @@ fn parse_owned(body: &[u8]) -> Option<Vec<Game>> {
                 minutes: raw.playtime_forever.as_ref().and_then(Value::as_u64).unwrap_or(0),
                 // 0 is Steam's word for never.
                 last_played: raw.rtime_last_played.as_ref().and_then(Value::as_u64).filter(|at| *at > 0),
+                recent_minutes: raw.playtime_2weeks.as_ref().and_then(Value::as_u64).unwrap_or(0),
             })
         })
         .collect();
@@ -125,6 +129,7 @@ fn entry(game: &Game, store: &Store) -> Option<LibraryEntry> {
         playtime_s: (game.minutes > 0).then(|| game.minutes.saturating_mul(60)),
         // Steam keeps Favorites in the client: the web API does not give them.
         favourite: false,
+        recent_s: (game.recent_minutes > 0).then(|| game.recent_minutes.saturating_mul(60)),
         genres,
         tags,
     };
@@ -183,13 +188,10 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         match (paged, cursor) {
             (Some(Some((entries, next))), _) => self.answer(seq, Event::Library { target, entries, next }),
             (Some(None), _) | (None, Some(_)) => self.error(seq, ErrorCode::BadRequest, STALE_CURSOR),
-            (None, None) => {
-                let message = match refusal {
-                    Some(Refusal::Expired) => "The Steam sign-in has expired and nothing is saved yet",
-                    _ => "Steam is not reachable and nothing is saved yet",
-                };
-                self.error(seq, ErrorCode::Internal, message);
-            }
+            (None, None) => match refusal {
+                Some(Refusal::Expired) => self.error(seq, ErrorCode::SignIn, "The Steam sign-in has expired and nothing is saved yet"),
+                _ => self.error(seq, ErrorCode::Network, "Steam is not reachable and nothing is saved yet"),
+            },
         }
     }
 
@@ -327,6 +329,7 @@ mod tests {
                 day_only: false,
                 playtime_s: Some(7_200),
                 favourite: false,
+                recent_s: None,
                 genres: vec!["RPG".to_owned(), "Action".to_owned()],
                 tags: vec!["Souls-like".to_owned(), "Open World".to_owned()],
             },
@@ -438,13 +441,13 @@ mod tests {
     fn with_nothing_saved_trouble_is_an_error_that_says_why() {
         let mut rig = rig_with(&fake::owned(&[]));
         rig.http.on("GetOwnedGames", [fake::down()]);
-        assert_eq!(message(&library(&mut rig)), (ErrorCode::Internal, NOT_REACHABLE));
+        assert_eq!(message(&library(&mut rig)), (ErrorCode::Network, NOT_REACHABLE));
         rig.http.on("GetOwnedGames", [fake::ok(&fake::owned(&[(10, "Ten", 0, 0)]))]);
         assert_eq!(ids(&page_of(&library(&mut rig)).0), ["10"], "and the next try is not held back");
 
         let mut rig = rig_with(&fake::owned(&[]));
         rig.http.on("GenerateAccessTokenForApp", [fake::down()]);
-        assert_eq!(message(&library(&mut rig)), (ErrorCode::Internal, NOT_REACHABLE));
+        assert_eq!(message(&library(&mut rig)), (ErrorCode::Network, NOT_REACHABLE));
     }
 
     #[test]
@@ -466,7 +469,7 @@ mod tests {
         let mut rig = rig_with(&fake::owned(&[]));
         rig.http.on("GetOwnedGames", [fake::status(401)]);
         let events = library(&mut rig);
-        assert_eq!(message(&events[..1]), (ErrorCode::Internal, "The Steam sign-in has expired and nothing is saved yet"));
+        assert_eq!(message(&events[..1]), (ErrorCode::SignIn, "The Steam sign-in has expired and nothing is saved yet"));
     }
 
     #[test]
@@ -571,7 +574,7 @@ mod tests {
         assert!(done.stopped.is_none());
 
         let long_title = title(&wide.repeat(200));
-        let games: Vec<Game> = (1..=200).map(|appid| Game { appid, name: long_title.clone(), minutes: u64::MAX, last_played: Some(u64::MAX) }).collect();
+        let games: Vec<Game> = (1..=200).map(|appid| Game { appid, name: long_title.clone(), minutes: u64::MAX, last_played: Some(u64::MAX), recent_minutes: 0 }).collect();
         let entries: Vec<LibraryEntry> = games.iter().filter_map(|game| entry(game, &store)).collect();
         assert_eq!((entries[0].activity.genres.len(), entries[0].activity.tags.len()), (6, 5));
         let (shown, next) = page(&entries, None).unwrap();
@@ -616,7 +619,7 @@ mod tests {
             rig.restart();
             rig.hello();
             rig.http.on("GetOwnedGames", [fake::down()]);
-            assert_eq!(message(&library(&mut rig)), (ErrorCode::Internal, NOT_REACHABLE));
+            assert_eq!(message(&library(&mut rig)), (ErrorCode::Network, NOT_REACHABLE));
         }
     }
 

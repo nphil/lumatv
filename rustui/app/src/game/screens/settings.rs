@@ -590,6 +590,14 @@ pub fn integration(p: &mut Paint<'_>) {
         };
         y += row(p, 10_000 + i as u64 * 100, Focus::Target(i), &target.name, None, Control::Value(state), Frame::new(x, y, w, 0.0));
     }
+    if m.can_refresh(e) {
+        let note = match m.refresh_line() {
+            Some(crate::game::model::RefreshLine::Working { text, seconds }) => format!("{text}…{}", seconds.map_or(String::new(), |s| format!("  {s} s"))),
+            Some(crate::game::model::RefreshLine::Done { text, .. }) => text,
+            None => "Checks the account for games added or removed".to_owned(),
+        };
+        y += row(p, 9_500, Focus::Setting(4), "Refresh libraries", Some(&note), Control::Value(if m.refreshing() { "Working" } else { "Refresh" }), Frame::new(x, y, w, 0.0));
+    }
     if e.can_sign_out() {
         y += row(p, 9_000, Focus::Setting(3), "Sign out", Some("Removes the saved sign-in from this TV"), Control::Value("Sign out"), Frame::new(x, y, w, 0.0));
     }

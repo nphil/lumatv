@@ -38,6 +38,9 @@ pub struct Activity {
     /// `last_played` is the start of a day, because the service gives a date and no time.
     #[serde(default, skip_serializing_if = "is_false")]
     pub day_only: bool,
+    /// What was played in the last two weeks, in seconds, for a service that says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recent_s: Option<u64>,
     /// The service's own total for the game, in seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub playtime_s: Option<u64>,
@@ -124,6 +127,11 @@ pub fn longest_play(game: &Game, history: &History) -> Option<(u64, Place)> {
 /// [`longest_play`]'s figure, or 0.
 pub fn play_seconds(game: &Game, history: &History) -> u64 {
     longest_play(game, history).map_or(0, |(seconds, _)| seconds)
+}
+
+/// What the game was played in the last two weeks, in seconds, by the service that says the most.
+pub fn recent_play(game: &Game) -> Option<u64> {
+    game.reports.iter().filter_map(|r| r.activity.recent_s).filter(|s| *s > 0).max()
 }
 
 /// Every game played anywhere, the latest first.
