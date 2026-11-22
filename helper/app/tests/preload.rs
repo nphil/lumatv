@@ -3,7 +3,6 @@
 mod support;
 
 use serde_json::json;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::Duration;
 use support::*;
@@ -25,17 +24,14 @@ fn the_listed_apps_are_told_at_start_and_at_every_switch_on_and_a_removed_file_m
     let (state, log) = (dir.join("state"), dir.join("calls"));
     std::fs::write(&state, "Active").unwrap();
     let program = dir.join("luna-send");
-    std::fs::write(
+    write_executable(
         &program,
-        format!(
+        &format!(
             "#!/bin/sh\ncase \"$3\" in\n  *getPowerState) printf '{{\"returnValue\":true,\"state\":\"%s\"}}\\n' \"$(cat {})\" ;;\n  *setPreloadPolicy) echo \"$4\" >> {} ;;\n  *) exit 1 ;;\nesac\n",
             state.display(),
             log.display()
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-    settle(&program);
+    );
     std::fs::write(
         rig.paths.preload_file(),
         r#"{"off":["youtube.leanback.v4","com.webos.app.lgchannels","com.webos.app.browser"]}"#,

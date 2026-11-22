@@ -691,10 +691,8 @@ mod tests {
 
     /// `luna-send` as a shell script that prints what LG's updater printed on the set (2026-10-29, pretty-printed).
     fn fake_luna(dir: &Path, body: &str) -> String {
-        use std::os::unix::fs::PermissionsExt;
         let path = dir.join("luna-send");
-        std::fs::write(&path, format!("#!/bin/sh\ncat <<'EOF'\n{body}\nEOF\n")).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::executable::write_executable(&path, &format!("#!/bin/sh\ncat <<'EOF'\n{body}\nEOF\n"));
         path.display().to_string()
     }
 

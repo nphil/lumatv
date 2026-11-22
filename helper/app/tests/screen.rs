@@ -171,16 +171,10 @@ fn when_the_power_state_cannot_be_read_the_screen_is_assumed_on_and_says_so() {
 fn a_garbled_answer_is_not_a_reading() {
     let dir = tempfile::tempdir().unwrap();
     let script = dir.path().join("luna-send");
-    std::fs::write(
+    write_executable(
         &script,
         "#!/bin/sh\nif [ \"$2\" != 1 ]; then exit 0; fi\necho 'Unable to connect to the bus'\n",
-    )
-    .unwrap();
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    settle(&script);
+    );
     let ctx = ctx(dir.path(), script.to_str().unwrap(), 20);
     let handle = screen::spawn(&ctx, Arc::new(|| {}))
         .unwrap()

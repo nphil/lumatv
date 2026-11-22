@@ -900,10 +900,8 @@ mod tests {
 
     /// A `luna-send` that answers like the TV: the refresher takes `{}`, the usage call refuses anything but `{"subscribe":false}`.
     fn tv_luna(dir: &std::path::Path) -> String {
-        use std::os::unix::fs::PermissionsExt;
         let path = dir.join("luna-send");
         let script = r#"#!/bin/sh
-[ "$1" = probe ] && exit 0
 case "$3" in
   */getPixelRefresherInfoList)
     echo '{"returnValue":true,"pixelRefresherInfoList":[{"offrsCount":2,"offrsLastTime":20,"offrsInterval":4}]}' ;;
@@ -913,21 +911,7 @@ case "$3" in
   *) echo '{"returnValue":false,"errorText":"unknown"}' ;;
 esac
 "#;
-        std::fs::write(&path, script).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        // A script another thread's fork still holds open for writing fails to run once ("text file busy").
-        for _ in 0..300 {
-            match Command::new(&path)
-                .arg("probe")
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-            {
-                Err(e) if e.raw_os_error() == Some(26) => thread::sleep(Duration::from_millis(10)),
-                _ => break,
-            }
-        }
+        crate::executable::write_executable(&path, script);
         path.display().to_string()
     }
 

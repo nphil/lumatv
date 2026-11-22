@@ -387,7 +387,8 @@ mod tests {
         let (reader, writer) = std::os::unix::net::UnixStream::pair().unwrap();
         let holder = Holder { pid: 100, fd: reader.into() };
         assert!(!holder_dead(&holder));
-        drop(writer);
+        // Not `drop`: a child another test forked meanwhile holds a copy of the descriptor until its exec, and the peer sees no hang-up yet.
+        writer.shutdown(std::net::Shutdown::Both).unwrap();
         assert!(holder_dead(&holder));
     }
 

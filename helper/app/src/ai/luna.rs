@@ -454,23 +454,6 @@ mod tests {
     const OK: &str = include_str!("../../tests/fixtures/luna/ok.json");
     const DENIED: &str = include_str!("../../tests/fixtures/luna/denied.json");
 
-    /// Runs a script that was just written until the system lets it run: another test thread's fork can hold the script's
-    /// write descriptor for a moment, and exec of a file open for writing fails with "text file busy".
-    fn settle(program: &Path) {
-        for _ in 0..300 {
-            let result = Command::new(program)
-                .arg("probe")
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
-            match result {
-                Err(e) if e.raw_os_error() == Some(26) => thread::sleep(Duration::from_millis(10)),
-                _ => return,
-            }
-        }
-    }
-
     /// A `luna-send` that records `uri<TAB>payload` of every call to `calls` and answers with the file named like the last
     /// part of the URI in `answers/` (no file, no output). With a file `hang` it records its pid and sleeps instead.
     struct FakeLuna {
@@ -483,14 +466,9 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             std::fs::create_dir(dir.path().join("answers")).unwrap();
             let program = dir.path().join("luna-send");
-            let script = "#!/bin/sh\n[ \"$1\" = probe ] && exit 0\nD=DIR\nprintf '%s\\t%s\\n' \"$3\" \"$4\" >> \"$D/calls\"\nif [ -f \"$D/hang\" ]; then echo $$ > \"$D/pid\"; exec sleep 30; fi\nf=\"$D/answers/$(basename \"$3\")\"\n[ -f \"$f\" ] && cat \"$f\"\nexit 0\n"
+            let script = "#!/bin/sh\nD=DIR\nprintf '%s\\t%s\\n' \"$3\" \"$4\" >> \"$D/calls\"\nif [ -f \"$D/hang\" ]; then echo $$ > \"$D/pid\"; exec sleep 30; fi\nf=\"$D/answers/$(basename \"$3\")\"\n[ -f \"$f\" ] && cat \"$f\"\nexit 0\n"
                 .replace("DIR", &dir.path().display().to_string());
-            std::fs::write(&program, script).unwrap();
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-            }
-            settle(&program);
+            crate::executable::write_executable(&program, &script);
             let fake = Self { dir, program };
             fake.answer("listApps", LIST_APPS);
             fake.answer("getAllInputStatus", INPUTS);

@@ -1520,7 +1520,6 @@ mod tests {
         ) -> Self {
             use std::io::{Read, Write};
             use std::net::TcpListener;
-            use std::os::unix::fs::PermissionsExt;
             use std::sync::{
                 Arc,
                 atomic::{AtomicBool, Ordering},
@@ -1572,8 +1571,7 @@ case "$3" in
     printf '{"returnValue":true,"volumeStatus":{"soundOutput":"%s"}}\n' "$(cat route)" ;;
 esac
 "##.replace("@ROOT@", dir.path().to_str().unwrap());
-            std::fs::write(&script, boundary).unwrap();
-            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::executable::write_executable(&script, &boundary);
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let port = listener.local_addr().unwrap().port();
             listener.set_nonblocking(true).unwrap();
@@ -2181,7 +2179,6 @@ esac
         use settings_schema::{SettingChange, Value as SettingValue};
         use std::io::{Read, Write};
         use std::net::TcpListener;
-        use std::os::unix::fs::PermissionsExt;
         use std::sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
@@ -2217,8 +2214,7 @@ esac
                 route = route.display(),
                 calls = calls.display()
             );
-            std::fs::write(&script, body).unwrap();
-            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::executable::write_executable(&script, &body);
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let port = listener.local_addr().unwrap().port();
             drop(listener);

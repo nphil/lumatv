@@ -518,7 +518,6 @@ impl Fetch for CurlFetch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
 
     #[test]
@@ -608,28 +607,8 @@ esac
 "#,
             args = args.display()
         );
-        std::fs::write(&program, script).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-        settle(&program);
+        crate::executable::write_executable(&program, &script);
         program
-    }
-
-    /// Runs a script that was just written until the system lets it run. Another test thread's fork can hold the script's write
-    /// descriptor for a moment, and exec of a file that is open for writing fails with "text file busy"; once one exec has
-    /// worked, no later one can fail that way.
-    fn settle(program: &Path) {
-        for _ in 0..300 {
-            let result = Command::new(program)
-                .arg("probe")
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
-            match result {
-                Err(e) if e.raw_os_error() == Some(26) => thread::sleep(Duration::from_millis(10)),
-                _ => return,
-            }
-        }
     }
 
     fn limits(secs: u64, max: usize) -> FetchLimits {
@@ -742,17 +721,14 @@ esac
         let dir = tempfile::tempdir().unwrap();
         let (args, input) = (dir.path().join("args"), dir.path().join("stdin"));
         let program = dir.path().join("curl");
-        std::fs::write(
+        crate::executable::write_executable(
             &program,
-            format!(
+            &format!(
                 "#!/bin/sh\necho \"$@\" > '{}'\ncat > '{}'\nprintf '{{\"code\":4003}}\\n400'\n",
                 args.display(),
                 input.display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-        settle(&program);
+        );
         let curl = CurlFetch::new(program.to_str().unwrap(), None);
         let x = Exchange {
             method: "POST",
@@ -793,9 +769,7 @@ esac
         let openssl = dir.join("openssl");
         match openssl_says {
             Some(text) => {
-                std::fs::write(&openssl, format!("#!/bin/sh\necho '{text}'\n")).unwrap();
-                std::fs::set_permissions(&openssl, std::fs::Permissions::from_mode(0o755)).unwrap();
-                settle(&openssl);
+                crate::executable::write_executable(&openssl, &format!("#!/bin/sh\necho '{text}'\n"));
             }
             None => {
                 let _ = std::fs::remove_file(&openssl);

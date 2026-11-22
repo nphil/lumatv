@@ -490,8 +490,7 @@ mod tests {
         let package = dir.join("plugins").join(id);
         std::fs::create_dir_all(package.join("bin")).unwrap();
         let program = package.join("bin").join("run.sh");
-        std::fs::write(&program, script).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::executable::write_executable(&program, script);
         for d in [dir, &dir.join("plugins"), &package, &package.join("bin")] {
             std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
@@ -579,7 +578,10 @@ mod tests {
         let mut member = plugin(dir.path(), "polite", "", my_uid());
         // `sleep` keeps the signal mask it is given, as a plugin built on the SDK does (a shell clears it as it starts), and SIGTERM
         // ends it at once unless the mask holds it back
-        std::fs::copy("/bin/sleep", dir.path().join("plugins/polite/bin/run.sh")).unwrap();
+        crate::executable::copy_executable(
+            Path::new("/bin/sleep"),
+            &dir.path().join("plugins/polite/bin/run.sh"),
+        );
         member.manifest.run.args = vec!["30".into()];
         // The helper blocks the termination signals in every thread it starts (`sys::block_termination_signals`), and the thread
         // that starts a program is one of them: the program must not inherit that.

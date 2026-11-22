@@ -1389,10 +1389,7 @@ mod tests {
             (tools.join("sysbus.sh"), "#!/bin/sh\necho '{\"ok\":true,\"launcher\":\"ours\",\"loaded\":\"patched\"}'\n"),
             (tools.join("declutter.sh"), "#!/bin/sh\necho '{\"ok\":true,\"groups\":{\"lgextras\":{\"on\":true}}}'\n"),
         ] {
-            // a new file: a gateway running the old one keeps it
-            let _ = std::fs::remove_file(&path);
-            std::fs::write(&path, text).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::executable::write_executable(&path, text);
         }
         if !dir.join("boot_id").exists() {
             std::fs::write(dir.join("boot_id"), "boot-1\n").unwrap();

@@ -133,6 +133,11 @@ pub mod updateblock;
 pub mod voice_store;
 pub mod voice_ws;
 
+/// How the library's tests put a program on disk to run; the integration tests share the file (`tests/support`).
+#[cfg(test)]
+#[path = "../tests/support/executable.rs"]
+mod executable;
+
 /// The version of the API paths and documents: `/v1/...`. A change that breaks a client is `/v2`.
 pub const API_VERSION: u32 = 1;
 /// The helper's own version.

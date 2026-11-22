@@ -575,7 +575,6 @@ fn exchange(run: &mut Running, jpeg: &[u8], shift: u8, max_pixels: u32) -> io::R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     /// A 64x48 4:2:0 JPEG whose red rises down the picture and green across it (made with Pillow).
     const PICTURE: &[u8] = include_bytes!("../testdata/gradient-64x48.jpg");
@@ -638,12 +637,10 @@ mod tests {
         } else {
             String::new()
         };
-        std::fs::write(
+        crate::executable::write_executable(
             &path,
-            format!("#!/bin/sh\n{lib}exec {} \"$@\"\n", bin.display()),
-        )
-        .unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            &format!("#!/bin/sh\n{lib}exec {} \"$@\"\n", bin.display()),
+        );
         Some(path.display().to_string())
     }
 
@@ -890,8 +887,7 @@ mod tests {
     fn a_decoder_that_answers_nonsense_is_a_file_and_then_left_alone() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("dec-bad");
-        std::fs::write(&path, "#!/bin/sh\ncat > /dev/null\n").unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::executable::write_executable(&path, "#!/bin/sh\ncat > /dev/null\n");
         let r = rig(Some(path.display().to_string()), |_| {});
         let a = r.images.serve(&request(&[]), "images", "a.jpg");
         assert_eq!(header(&a, "X-Luma-Decoder"), Some("file"));

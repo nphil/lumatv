@@ -676,6 +676,18 @@ mod tests {
         assert_eq!(std::fs::read(dir.path().join("current.log")).unwrap(), b"replacement current");
         assert_eq!(std::fs::read(dir.path().join("previous.log")).unwrap(), b"unrelated previous");
     }
+    /// Starts over a collector socket nobody serves any more. The probe answers "still active" while a child another test forked holds a copy
+    /// of the socket until its exec, past the close here, so this waits for that copy to go.
+    fn prepare_dead_socket(path: &Path, signature: SocketSignature) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            match prepare_socket(path, Some(signature)) {
+                Ok(()) => return,
+                Err(error) => assert!(error.to_string() == "logging socket is still active" && std::time::Instant::now() < deadline, "the socket stays active: {error}"),
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
     #[test]
     fn socket_startup_preserves_unmarked_foreign_and_live_sockets() {
         let dir = ram_fixture();
@@ -691,7 +703,7 @@ mod tests {
         drop(guard);
         assert!(prepare_socket(&path, None).is_err());
         assert!(path.exists());
-        prepare_socket(&path, Some(signature)).unwrap();
+        prepare_dead_socket(&path, signature);
         assert!(!path.exists());
         let replacement = UnixDatagram::bind(&path).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();

@@ -319,7 +319,6 @@ mod tests {
 
     #[test]
     fn temporary_route_requires_native_audio_and_volume_confirmation_and_stays_cancelable() {
-        use std::os::unix::fs::PermissionsExt;
         for (audio, volume, cancel, expected) in [
             ("tv_speaker", "tv_speaker", false, true),
             ("external_arc", "tv_speaker", false, false),
@@ -347,8 +346,7 @@ esac
                     ":".into()
                 }
             );
-            std::fs::write(&script, body).unwrap();
-            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::executable::write_executable(&script, &body);
             assert_eq!(
                 set_temporary(script.to_str().unwrap(), "tv_speaker", &|| !cancelled
                     .exists()),
@@ -431,11 +429,10 @@ esac
 
     #[test]
     fn malformed_subscription_invalidates_the_live_state() {
-        use std::os::unix::fs::PermissionsExt;
         use std::time::Duration;
         let dir = tempfile::tempdir().unwrap();
         let script = dir.path().join("luna-send");
-        std::fs::write(
+        crate::executable::write_executable(
             &script,
             r##"#!/bin/sh
 echo '{"returnValue":true,"subscribed":true,"settings":{"soundOutput":"external_arc"}}'
@@ -443,9 +440,7 @@ sleep 0.2
 echo 'not-json'
 exec sleep 60
 "##,
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         let (tx, rx) = std::sync::mpsc::channel();
         let sub = Subscription::start(script.to_str().unwrap(), tx).unwrap();
         rx.recv_timeout(Duration::from_secs(2)).unwrap();

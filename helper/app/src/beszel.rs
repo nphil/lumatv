@@ -832,8 +832,7 @@ mod tests {
         std::fs::create_dir_all(&bin).unwrap();
         for (name, script) in [("beszel-native", native), ("beszel-agent", CONNECTS)] {
             let program = bin.join(name);
-            std::fs::write(&program, script).unwrap();
-            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::executable::write_executable(&program, script);
         }
         Files {
             bin,

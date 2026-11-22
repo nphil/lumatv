@@ -1538,9 +1538,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let args = dir.path().join("args");
         let script = dir.path().join("luna-send");
-        fs::write(&script, format!("#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\"; done > {}\necho '{{\"returnValue\":true,\"writtenBytes\":9}}'\n", args.display())).unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::executable::write_executable(&script, &format!("#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\"; done > {}\necho '{{\"returnValue\":true,\"writtenBytes\":9}}'\n", args.display()));
         let cam = LunaCamera::new(script.to_str().unwrap());
         let reply = cam
             .shoot(
@@ -1565,7 +1563,7 @@ mod tests {
             json!({"path": "/tmp/x.png", "method": "VIDEO", "format": "PNG", "width": 480, "height": 270})
         );
         // one that never answers is killed at the deadline
-        fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
+        crate::executable::write_executable(&script, "#!/bin/sh\nsleep 30\n");
         let started = Instant::now();
         let hung = cam.shoot(
             Path::new("/tmp/x.png"),

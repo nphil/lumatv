@@ -819,14 +819,12 @@ mod process_tests {
     //! `LunaBluetooth` against a `luna-send` that is a shell script speaking in the shapes LG documents and this set gave.
 
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
     use std::time::Instant;
 
     /// Answers the one-shot reads like the set did, and a scan like the documentation shows: the acknowledgement, then one reply
     /// a device (the second pretty-printed over several lines), then it stays until killed. Its arguments and process id are kept.
     const SCRIPT: &str = r#"
-[ "$1" = probe ] && exit 0
 printf '%s\n' "$*" >> "$DIR/args"
 case "$*" in
 *adapter/getStatus*)
@@ -846,15 +844,7 @@ esac
     fn install(dir: &Path, env: &str) -> String {
         let path = dir.join("luna-send");
         let body = format!("#!/bin/sh\nDIR={}\n{env}\n{SCRIPT}", dir.display());
-        std::fs::write(&path, body).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        // A script just written may be "text file busy" for a moment while another test forks.
-        for _ in 0..200 {
-            match Command::new(&path).arg("probe").status() {
-                Err(e) if e.raw_os_error() == Some(26) => thread::sleep(Duration::from_millis(10)),
-                _ => break,
-            }
-        }
+        crate::executable::write_executable(&path, &body);
         path.display().to_string()
     }
 

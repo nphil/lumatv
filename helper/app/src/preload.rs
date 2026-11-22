@@ -270,28 +270,9 @@ mod tests {
         assert!(read_list(&path).is_err());
     }
 
-    /// Runs a script that was just written until the system lets it run (exec of a file another thread's fork still holds open
-    /// for writing fails with "text file busy").
-    fn settle(program: &str) {
-        for _ in 0..300 {
-            match Command::new(program)
-                .args(["probe"])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-            {
-                Err(e) if e.raw_os_error() == Some(26) => thread::sleep(Duration::from_millis(10)),
-                _ => return,
-            }
-        }
-    }
-
     fn fake_luna(dir: &Path, body: &str) -> String {
-        use std::os::unix::fs::PermissionsExt;
         let path = dir.join("luna-send");
-        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::executable::write_executable(&path, &format!("#!/bin/sh\n{body}\n"));
         path.display().to_string()
     }
 
@@ -302,11 +283,10 @@ mod tests {
         let program = fake_luna(
             dir.path(),
             &format!(
-                "[ \"$1\" = probe ] && exit 0\nprintf '%s\\n' \"$*\" >> {}\ncase \"$4\" in *bad.app*) exit 1;; esac",
+                "printf '%s\\n' \"$*\" >> {}\ncase \"$4\" in *bad.app*) exit 1;; esac",
                 log.display()
             ),
         );
-        settle(&program);
         let paths = Paths::new(dir.path());
         std::fs::write(
             paths.preload_file(),
@@ -333,8 +313,7 @@ mod tests {
     #[test]
     fn a_luna_send_that_hangs_is_killed_at_the_deadline() {
         let dir = tempfile::tempdir().unwrap();
-        let program = fake_luna(dir.path(), "[ \"$1\" = probe ] && exit 0; exec sleep 30");
-        settle(&program);
+        let program = fake_luna(dir.path(), "exec sleep 30");
         let started = Instant::now();
         let result = call(&program, "{}");
         assert!(result.unwrap_err().contains("did not answer"));
