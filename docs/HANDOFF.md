@@ -13,6 +13,8 @@ and the standing rules; this file is the dated record behind it.
 
 Helper `e6dc3ace` → `75c2b611`; UI `b99c360c` → `b6e115b3`. Home was ready after 1 s without restarting the compositor. At handover Multi Link reported `enabled:false`, `active:false` and the Plex host route still used `wlan0`. The new brightness learning, video-app picture mode and Quick Settings layout were installed but not exercised in this check. Receipt: `cody-data-scratch/18172b987bff/lumatv-batch-20261122/joint-runtime-install.txt`.
 
+Multi Link remained enabled after the joint Marquee `ca33f3bdf` test. Marquee proved both links and used them together for a Dolby Vision 4K direct play. Combined receive rates were 144.7 and 105.8 Mbit/s in two 10 s windows and 97.1 Mbit/s over 226 s. Four minutes of steady playback had no buffering; three seeks held for 1.00–1.33 s each. Marquee reported eight stalled Ethernet requests and one Wi-Fi stall; neither interface's carrier-change count advanced. The samples do not establish the cause. Home was left in front, controls on Ethernet. Receipt: `/data/home/tmp/marquee-multilink-20261122/RESULTS.txt`. Audio, whole-film playback, physical link loss and standby recovery were not tested.
+
 ## Wallpaper ceiling removed, 2026-11-21 (main 67220627, 19:5x EST)
 
 Installed compositor `33af43c8` (replaces f9decb18) and ui `b99c360c` (replaces 96dd76a5); helper `e6dc3ace` and sm `65f6ca69` unchanged. Video check: picture after 1 s. Idle Home, 20 s windows: still wallpaper 11.5 flips/s, GPU 2.0 %, compositor 3.2 %; 60 fps 59.9 flips/s, GPU 36.6 %, compositor 15.5 %, the same as the ceiling-off run before it.
