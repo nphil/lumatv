@@ -59,6 +59,7 @@ use super::nvst_control::{
     frame_pacing_report, idr_request, nack_v2,
 };
 use super::nvst_cursor::{CursorCommand, NvstCursorCapture, valid_cursor_channel_message};
+use super::nvst_frame_prefix::FramePrefixLog;
 use super::nvst_haptics::NvstHaptics;
 use super::nvst_input::{
     GenericHidMessage, NvstEncodedInput, NvstInputChannelState, NvstInputChannels, NvstInputCodec,
@@ -675,6 +676,9 @@ pub struct NvstFeedbackState {
     video_startup: Mutex<VideoStartup>,
     /// RTCP sender reports seen by any transport thread. Diagnostics only: nothing reads it back.
     sender_reports: Mutex<SenderReportMonitor>,
+    /// The sender's per-picture prefix, recorded while a timing capture is armed. Diagnostics
+    /// only: nothing reads it back.
+    pub(crate) frame_prefixes: Arc<FramePrefixLog>,
 }
 
 impl Default for NvstFeedbackState {
@@ -707,6 +711,7 @@ impl Default for NvstFeedbackState {
             frame_stage_timings: Mutex::new(FrameStageTimingsAccumulator::default()),
             video_startup: Mutex::new(VideoStartup::Immediate),
             sender_reports: Mutex::new(SenderReportMonitor::default()),
+            frame_prefixes: Arc::new(FramePrefixLog::default()),
         }
     }
 }
@@ -1407,6 +1412,18 @@ impl NvstFeedbackState {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .to_json(Instant::now(), now_ns)
+    }
+
+    /// Starts recording the sender's prefix of every picture for the timing capture. Call it once,
+    /// before the stream runs; until then the receiver costs one atomic load per picture.
+    pub fn record_frame_prefixes(&self) {
+        self.frame_prefixes.arm();
+    }
+
+    /// The recorded prefixes for the timing capture. `now_ns` is the capture clock's reading at the
+    /// time of the call; arrival times are reported on that clock.
+    pub fn frame_prefixes_json(&self, now_ns: i64) -> Value {
+        self.frame_prefixes.to_json(Instant::now(), now_ns)
     }
 
     fn sender_reports_log_line(&self) -> String {
@@ -3405,6 +3422,8 @@ struct VideoAccessUnitAssembler {
     first_access_unit_logged: bool,
     bytes: Vec<u8>,
     max_access_unit_bytes: usize,
+    /// Records each picture's sender prefix for the timing capture. Diagnostics only.
+    prefix_log: Option<Arc<FramePrefixLog>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3439,7 +3458,13 @@ impl VideoAccessUnitAssembler {
             first_access_unit_logged: false,
             bytes: Vec::new(),
             max_access_unit_bytes,
+            prefix_log: None,
         }
+    }
+
+    fn recording_prefixes(mut self, log: Arc<FramePrefixLog>) -> Self {
+        self.prefix_log = Some(log);
+        self
     }
 
     fn reset(&mut self) {
@@ -3466,8 +3491,16 @@ impl VideoAccessUnitAssembler {
         let mut picture_payload = payload;
         if header.is_start_of_frame() {
             self.reset();
-            picture_payload = video_picture_payload(self.codec, payload)
-                .ok_or(NvstDropReason::MissingAnnexBStartCode)?;
+            let picture = video_picture_payload(self.codec, payload);
+            if let Some(log) = &self.prefix_log {
+                log.observe(
+                    header.frame_index,
+                    timestamp,
+                    payload,
+                    picture.map(|rest| payload.len() - rest.len()),
+                );
+            }
+            picture_payload = picture.ok_or(NvstDropReason::MissingAnnexBStartCode)?;
             frame_header_size = payload.len() - picture_payload.len();
             self.frame_type =
                 GsFrameHeader::parse(payload, frame_header_size).map(|header| header.frame_type);
@@ -4650,7 +4683,8 @@ impl NvstVideoReceiver {
             .flatten();
         let reorder = RtpReorderBuffer::new(config.reorder_window_packets);
         let fec_reorder = FecReorderBuffer::new(config.video_packet_size);
-        let assembler = VideoAccessUnitAssembler::new(config.codec, config.max_access_unit_bytes);
+        let assembler = VideoAccessUnitAssembler::new(config.codec, config.max_access_unit_bytes)
+            .recording_prefixes(Arc::clone(&config.feedback.frame_prefixes));
         Self {
             config,
             srtp,
@@ -9852,6 +9886,9 @@ mod tests {
     }
     mod sender_report_tests {
         include!("nvst_sender_report_tests.rs");
+    }
+    mod frame_prefix_tests {
+        include!("nvst_frame_prefix_tests.rs");
     }
     use super::*;
     use serde_json::json;

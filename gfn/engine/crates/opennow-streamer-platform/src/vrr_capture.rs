@@ -10,8 +10,9 @@
 //! The file's clock is the TV's CLOCK_MONOTONIC. The sender's RTP clock is a separate domain: the raw 32-bit stamps and the declared
 //! rate are recorded and unwrapped offline.
 //!
-//! The file also carries the transport's RTCP sender-report summary under `sender_reports` (`null` when none was attached). It only
-//! observes: it covers the whole transport session up to the write, not just the window, and nothing in the stream depends on it.
+//! The file also carries the transport's RTCP sender-report summary under `sender_reports` and its per-picture sender prefix rows under
+//! `frame_prefix` (each `null` when none was attached). Both only observe: the first covers the whole transport session up to the write,
+//! the second every picture from the first until a little past the window, and nothing in the stream depends on either.
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
@@ -64,8 +65,8 @@ pub(crate) struct Meta {
     pub(crate) pacing: &'static str,
 }
 
-/// The NVST transport's summary of the RTCP sender reports it saw, asked for with this file's clock reading at the time of the write.
-type SenderReports = Box<dyn Fn(i64) -> Value + Send + Sync>;
+/// A transport summary, asked for with this file's clock reading at the time of the write.
+type Summary = Box<dyn Fn(i64) -> Value + Send + Sync>;
 
 pub(crate) struct Capture {
     slots: Box<[Slot]>,
@@ -80,7 +81,8 @@ pub(crate) struct Capture {
     evicted: AtomicU64,
     unmatched: AtomicU64,
     resets: AtomicU64,
-    sender_reports: Mutex<Option<SenderReports>>,
+    sender_reports: Mutex<Option<Summary>>,
+    frame_prefixes: Mutex<Option<Summary>>,
 }
 
 /// What the UI wrote: the capture's name, where its files go, and the LumaGame build.
@@ -123,7 +125,7 @@ impl Capture {
         Capture {
             slots, next: AtomicU32::new(0), start_ns: AtomicI64::new(0), epoch, nonce, out, meta,
             clock_hz: AtomicU32::new(0), omitted: AtomicU64::new(0), evicted: AtomicU64::new(0), unmatched: AtomicU64::new(0),
-            resets: AtomicU64::new(0), sender_reports: Mutex::new(None),
+            resets: AtomicU64::new(0), sender_reports: Mutex::new(None), frame_prefixes: Mutex::new(None),
         }
     }
 
@@ -185,8 +187,13 @@ impl Capture {
     }
 
     /// The transport's sender-report summary, written into the file under `sender_reports`. A later source replaces an earlier one.
-    pub(crate) fn attach_sender_reports(&self, source: SenderReports) {
+    pub(crate) fn attach_sender_reports(&self, source: Summary) {
         *self.sender_reports.lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
+    }
+
+    /// The transport's per-picture sender prefix rows, written into the file under `frame_prefix`. A later source replaces an earlier one.
+    pub(crate) fn attach_frame_prefixes(&self, source: Summary) {
+        *self.frame_prefixes.lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
     }
 
     pub(crate) fn start_ns(&self) -> i64 {
@@ -232,6 +239,7 @@ impl Capture {
         if self.start_ns() == 0 { incomplete.push("no video frame reached the sink"); }
         if let Some(why) = ended { incomplete.push(why); }
         let sender_reports = self.sender_reports.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(Value::Null, |source| source(now_ns));
+        let frame_prefix = self.frame_prefixes.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(Value::Null, |source| source(now_ns));
         json!({
             "format": "lumagame-vrr-pts-capture", "version": 1, "producer": "streamer", "clock": "CLOCK_MONOTONIC",
             "nonce": self.nonce, "complete": incomplete.is_empty(), "incomplete": incomplete,
@@ -259,7 +267,7 @@ impl Capture {
                 "index_valid": F_INDEX_VALID, "contiguous": F_CONTIGUOUS, "keyframe": F_KEYFRAME, "resync": F_RESYNC,
                 "sent": F_SENT, "failed": F_FAILED, "handed": F_HANDED, "flushed": F_FLUSHED, "smooth": F_SMOOTH,
             },
-            "sender_reports": sender_reports, "records": records,
+            "sender_reports": sender_reports, "frame_prefix": frame_prefix, "records": records,
         })
     }
 
@@ -375,5 +383,15 @@ mod tests {
         assert!(c.to_json(None, 5)["sender_reports"].is_null(), "nothing attached");
         c.attach_sender_reports(Box::new(|now_ns| json!({ "asked_at_ns": now_ns })));
         assert_eq!(c.to_json(None, 42)["sender_reports"]["asked_at_ns"], 42);
+    }
+
+    #[test]
+    fn the_frame_prefix_rows_are_asked_for_when_the_file_is_written() {
+        let c = Capture::new(1, PathBuf::from("/nonexistent/x.json"), 1, meta());
+        assert!(c.to_json(None, 5)["frame_prefix"].is_null(), "nothing attached");
+        c.attach_frame_prefixes(Box::new(|now_ns| json!({ "asked_at_ns": now_ns })));
+        let v = c.to_json(None, 42);
+        assert_eq!(v["frame_prefix"]["asked_at_ns"], 42);
+        assert!(v["sender_reports"].is_null(), "the two sources are separate");
     }
 }

@@ -12,6 +12,7 @@ mod nvst_bandwidth;
 mod nvst_budget;
 mod nvst_control;
 mod nvst_cursor;
+mod nvst_frame_prefix;
 mod nvst_haptics;
 mod nvst_input;
 mod nvst_input_delivery;

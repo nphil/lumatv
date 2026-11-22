@@ -10,8 +10,16 @@ stay in the report; nothing is dropped from the counts. Both clocks are CLOCK_MO
 
 What this can and cannot show is stated in the output: a constant frame spacing, repeated frame ids or missing downstream events do not
 prove variable refresh. Decoder completion, the frame the decoder selects, release and optical times are not captured.
+
+The streamer file may also carry two sections of the transport's own observations, `sender_reports` (RTCP sender reports per track) and
+`frame_prefix` (the sender's prefix of each encoded picture). Each is `null` when not recorded and then reported as "not recorded", never as
+zero. They are kept as three separate outcomes: report headers heard; usable audio and video timestamp pairs; sender capture times and
+pacing flags per picture. A header, or a report body that could not be read, anchors no clock, and neither a capture time nor a pacing flag
+shows that pixels changed, that Cloud G-SYNC was accepted or that a panel scanned.
 """
+import collections
 import json
+import math
 import statistics
 import sys
 
@@ -24,6 +32,16 @@ CANNOT_PROVE = ("A constant frame spacing, repeated frame ids or missing downstr
 F_CONTIGUOUS = 2
 F_INDEX_VALID = 1
 WRAP = 1 << 32
+TRACKS = ("video", "audio")
+PREFIX_STATUSES = ("read", "absent", "malformed")
+PREFIX_FIELDS = ("frame_index", "rtp_timestamp", "arrival_ns", "status", "byte0", "header_size", "byte2", "byte3", "capture_time_us", "sender_paced",
+                 "presentation_time_us", "access_unit_length", "prefix_bytes", "stripped_bytes", "other_tags")
+BUCKET_MS = 0.25
+SENDER_NOTE = ("A sender-report header, or a report whose body could not be read, anchors no clock: only a read report with a known NTP time on each track "
+               "gives a usable pair, and that audio and video share one sender clock is assumed here, not verified.")
+PREFIX_NOTE = ("A capture time or the 0x200 sender-paced record alone does not show that the game's pixels changed, that Cloud G-SYNC was accepted (the "
+               "finalized answer is in the NVST cloud-gsync log line) or that the panel scanned a picture on its own clock. The field meanings are "
+               "OpenNOW's names, not proven.")
 
 
 class CaptureError(Exception):
@@ -190,6 +208,157 @@ def player_outcomes(feeder_rows):
     return out
 
 
+def _signed(step):
+    """A difference of two 32-bit counters as a signed step."""
+    step %= WRAP
+    return step - WRAP if step > WRAP // 2 else step
+
+
+def _count(value):
+    return "unknown" if value is None else str(value)
+
+
+def _yes(value):
+    return "unknown" if value is None else "yes" if value else "no"
+
+
+def _pair(sample):
+    """One (NTP, RTP) pair of a report: None when the report was not read or its NTP time is unknown."""
+    if not isinstance(sample, dict) or sample.get("ntp_us") is None or sample.get("rtp") is None:
+        return None
+    return {"ntp_us": sample["ntp_us"], "rtp": sample["rtp"], "arrival_ns": sample.get("arrival_ns")}
+
+
+def _rate_ratio(first, last, clock_hz):
+    """RTP time over NTP time between a track's first and last pairs: about 1.0 if the declared clock rate is the sender's."""
+    if first is None or last is None or not clock_hz:
+        return None
+    ntp_s = (last["ntp_us"] - first["ntp_us"]) / 1e6
+    return _signed(last["rtp"] - first["rtp"]) / clock_hz / ntp_s if ntp_s > 0 else None
+
+
+def report_headers(doc):
+    """Outcome 1: the RTCP sender-report headers heard, per track. A header names a sender and shows that a report arrived; its times are
+    encrypted, so on its own it is not a clock anchor."""
+    section = doc.get("sender_reports")
+    if not isinstance(section, dict):
+        return {"recorded": False}
+    tracks = {}
+    for name in ("video", "audio", "unmapped"):
+        track = section.get(name)
+        if not isinstance(track, dict):
+            continue
+        wire, read = track.get("wire") or {}, track.get("read") or {}
+        header_only, read_count = wire.get("count"), read.get("count")
+        every = read.get("every_us") if read.get("every_us") is not None else wire.get("every_us")
+        tracks[name] = {"heard": header_only + read_count if isinstance(header_only, int) and isinstance(read_count, int) else None,
+                        "header_only": header_only, "read": read_count, "ssrc": track.get("ssrc"), "clock_hz": track.get("clock_hz"), "every_us": every}
+    return {"recorded": True, "tracks": tracks, "both_heard": (section.get("coverage") or {}).get("both_heard")}
+
+
+def timestamp_pairs(doc):
+    """Outcome 2: usable timestamp pairs, a read report with a known NTP time and its RTP time, on both tracks. Only these can place a track's RTP
+    clock on a sender clock; that the two tracks share one is assumed, not checked."""
+    section = doc.get("sender_reports")
+    if not isinstance(section, dict):
+        return {"recorded": False}
+    tracks = {}
+    for name in TRACKS:
+        track = section.get(name) if isinstance(section.get(name), dict) else {}
+        read = track.get("read") or {}
+        first, last = _pair(read.get("first")), _pair(read.get("last"))
+        tracks[name] = {"read": read.get("count"), "usable": read.get("usable"), "clock_hz": track.get("clock_hz"), "via": read.get("via"),
+                        "first": first, "last": last, "rate_ratio": _rate_ratio(first, last, track.get("clock_hz"))}
+    coverage = section.get("coverage") or {}
+    return {"recorded": True, "both_read": coverage.get("both_read"), "both_usable": coverage.get("both_usable"), "tracks": tracks}
+
+
+def _histogram(values):
+    """The 12 fullest 0.25 ms buckets of a list of milliseconds, as [bucket start, count]."""
+    buckets = collections.Counter(math.floor(v / BUCKET_MS) for v in values)
+    return [[k * BUCKET_MS, n] for k, n in sorted(buckets.items(), key=lambda item: (-item[1], item[0]))[:12]]
+
+
+def frame_prefix(doc, srows, header):
+    """Outcome 3: what the sender wrote at the head of each encoded picture. The meanings are OpenNOW's names and not proven: capture_time_us is read
+    as microseconds on a clock of the server's own (only differences mean anything), sender_paced (record 0x200) as a pacing flag."""
+    section = doc.get("frame_prefix")
+    if not isinstance(section, dict):
+        return {"recorded": False}
+    where = "streamer file"
+    fields, raw = section.get("fields"), section.get("rows")
+    _need(isinstance(fields, list) and isinstance(raw, list), where, "frame_prefix has no field list or rows")
+    _need(set(PREFIX_FIELDS) <= set(fields), where, "frame_prefix lacks the columns " + ", ".join(sorted(set(PREFIX_FIELDS) - set(fields))))
+    for row in raw:
+        _need(isinstance(row, list) and len(row) == len(fields), where, "a frame_prefix row does not match its field list")
+    table = [dict(zip(fields, row)) for row in raw]
+    status = {name: sum(row["status"] == name for row in table) for name in PREFIX_STATUSES}
+    _need(sum(status.values()) == len(table), where, "a frame_prefix row has a status other than read, absent or malformed")
+    for row in table:
+        _need(isinstance(row["frame_index"], int) and isinstance(row["rtp_timestamp"], int), where, "a frame_prefix row lacks its frame index or RTP timestamp")
+        _need(row["status"] != "read" or isinstance(row["capture_time_us"], int), where, "a frame_prefix row that was read has no capture time")
+    read = [row for row in table if row["status"] == "read"]
+    hz, expected_ms = header["rtp_clock_hz"], 1000.0 / header["fps"]
+    # Consecutive pictures only: a repeated or skipped frame index is not an interval, and neither is a row without a prefix.
+    steps = [(a, b) for a, b in zip(table, table[1:]) if a["status"] == b["status"] == "read" and (b["frame_index"] - a["frame_index"]) % WRAP == 1]
+    capture_ms = [_signed(b["capture_time_us"] - a["capture_time_us"]) / 1000.0 for a, b in steps]
+    rtp_ms = [_signed(b["rtp_timestamp"] - a["rtp_timestamp"]) * 1000.0 / hz for a, b in steps]
+    interval = stats(capture_ms)
+    end_to_end = None
+    if len(read) >= 2:
+        capture_span = _signed(read[-1]["capture_time_us"] - read[0]["capture_time_us"]) / 1000.0
+        rtp_span = _signed(read[-1]["rtp_timestamp"] - read[0]["rtp_timestamp"]) * 1000.0 / hz
+        end_to_end = {"pictures": len(read), "capture_ms": capture_span, "rtp_ms": rtp_span, "drift_ms": capture_span - rtp_span,
+                      "drift_ppm": (capture_span - rtp_span) / rtp_span * 1e6 if rtp_span > 0 else None}
+    paced = sum(row["sender_paced"] is not None and row["sender_paced"] != 0 for row in table)
+    unpaced = sum(row["sender_paced"] == 0 for row in table)
+    known = paced + unpaced
+    presentation_ms = [(b["presentation_time_us"] - a["presentation_time_us"]) / 1000.0 for a, b in zip(table, table[1:])
+                       if a["presentation_time_us"] is not None and b["presentation_time_us"] is not None and (b["frame_index"] - a["frame_index"]) % WRAP == 1]
+    by_tag, other_rows, other_total = collections.Counter(), 0, 0
+    for row in table:
+        if row["other_tags"]:
+            other_rows += 1
+            other_total += row["other_tags"].get("total", 0)
+            by_tag.update(f"0x{record[0]:03x}" for record in row["other_tags"].get("records", []))
+    both_lengths = [row for row in table if row["prefix_bytes"] is not None and row["stripped_bytes"] is not None]
+    joinable = [r for r in srows if r["flags"] & F_INDEX_VALID]
+    row_keys = {(row["frame_index"], row["rtp_timestamp"]) for row in table}
+    record_keys = {(r["frame_index"], r["rtp_timestamp"]) for r in joinable}
+    return {
+        "recorded": True, "counts": section.get("counts"), "rows": len(table), "status": status,
+        "present": {name: sum(row[name] is not None for row in table)
+                    for name in ("capture_time_us", "sender_paced", "presentation_time_us", "access_unit_length")},
+        "capture_interval": {
+            "pairs": len(steps), "skipped": max(len(table) - 1, 0) - len(steps), "ms": interval, "constant": constant_rate(capture_ms),
+            "not_forward": sum(step <= 0 for step in capture_ms), "buckets_ms": _histogram(capture_ms), "expected_ms": expected_ms,
+            "median_vs_expected": interval["median"] / expected_ms if capture_ms else None,
+        },
+        "sender_paced": {
+            "paced": paced, "unpaced": unpaced, "unknown": len(table) - known, "unknown_without_prefix": sum(row["status"] != "read" for row in table),
+            "raw": dict(collections.Counter("unknown" if row["sender_paced"] is None else str(row["sender_paced"]) for row in table)),
+            "paced_share_of_known": paced / known if known else None,
+        },
+        "capture_vs_rtp": {"pairs": len(steps), "error_ms": stats([c - r for c, r in zip(capture_ms, rtp_ms)]), "end_to_end": end_to_end},
+        "presentation_interval": {"pairs": len(presentation_ms), "ms": stats(presentation_ms)},
+        "other_tags": {"rows": other_rows, "total": other_total, "kept_by_tag": dict(sorted(by_tag.items()))},
+        "shape": {
+            "byte0": dict(sorted(collections.Counter(f"0x{row['byte0']:02x}" for row in table if row["byte0"] is not None).items())),
+            "header_size": dict(sorted(collections.Counter(str(row["header_size"]) for row in table if row["header_size"] is not None).items())),
+            "byte2": dict(sorted(collections.Counter(f"0x{row['byte2']:02x}" for row in table if row["byte2"] is not None).items())),
+            "byte3": dict(sorted(collections.Counter(f"0x{row['byte3']:02x}" for row in table if row["byte3"] is not None).items())),
+        },
+        "lengths": {"compared": len(both_lengths), "differ": sum(row["prefix_bytes"] != row["stripped_bytes"] for row in both_lengths),
+                    "stripped_unknown": sum(row["stripped_bytes"] is None for row in table)},
+        "coverage": {
+            "streamer_records": len(srows), "without_index": len(srows) - len(joinable),
+            "with_prefix_row": sum((r["frame_index"], r["rtp_timestamp"]) in row_keys for r in joinable),
+            "without_prefix_row": sum((r["frame_index"], r["rtp_timestamp"]) not in row_keys for r in joinable),
+            "rows_without_record": sum((row["frame_index"], row["rtp_timestamp"]) not in record_keys for row in table),
+        },
+    }
+
+
 def analyse(streamer, feeder):
     sh, fh = validate(streamer, "streamer"), validate(feeder, "feeder")
     for key in ("build_id", "codec", "width", "height", "fps"):
@@ -208,6 +377,15 @@ def analyse(streamer, feeder):
         notes.append("Frame ids repeat: the id is not a per-frame identity on this stream.")
     if incomplete:
         notes.append("The capture is incomplete (" + "; ".join(incomplete) + "): the figures cover the stored records only.")
+    headers, anchors, prefix = report_headers(streamer), timestamp_pairs(streamer), frame_prefix(streamer, srows, sh)
+    if headers["recorded"]:
+        notes.append(SENDER_NOTE)
+    if prefix["recorded"]:
+        notes.append(PREFIX_NOTE)
+        if not prefix["present"]["sender_paced"]:
+            notes.append("No picture carried the 0x200 sender-paced record: the flag is unknown for every picture, not off.")
+        if (prefix["counts"] or {}).get("omitted"):
+            notes.append(f"The prefix log omitted {prefix['counts']['omitted']} pictures (ring full): its figures cover the stored rows only.")
     return {
         "header": {key: sh[key] for key in ("build_id", "codec", "width", "height", "fps", "rtp_clock_hz", "frame_pacing")},
         "producers": {
@@ -222,6 +400,7 @@ def analyse(streamer, feeder):
             "handed_that_reached_the_feeder": (len(pairs) / len(handed)) if handed else None,
         },
         "spacing": spacings, "latency": latencies(pairs), "player": player_outcomes(frows),
+        "report_headers": headers, "timestamp_pairs": anchors, "frame_prefix": prefix,
         "incomplete": incomplete, "unavailable": UNAVAILABLE, "notes": notes,
     }
 
@@ -230,6 +409,63 @@ def _fmt(s):
     if not s or not s.get("n"):
         return "none"
     return f"n={s['n']} min {s['min']:.3f} median {s['median']:.3f} p95 {s['p95']:.3f} max {s['max']:.3f} distinct {s['distinct']}"
+
+
+def _pairs_line(name, track):
+    def show(pair):
+        return "none" if pair is None else f"ntp_us={pair['ntp_us']} rtp={pair['rtp']}"
+    ratio = track["rate_ratio"]
+    return (f"  {name}: {_count(track['usable'])} usable of {_count(track['read'])} read, clock {_count(track['clock_hz'])} Hz; first {show(track['first'])}; "
+            f"last {show(track['last'])}; RTP over NTP {'unknown' if ratio is None else f'{ratio:.4f}'}")
+
+
+def _render_sender(report):
+    """The three sender outcomes, one block each: what is absent reads 'not recorded' or 'unknown', never zero."""
+    headers, anchors, prefix = report["report_headers"], report["timestamp_pairs"], report["frame_prefix"]
+    lines = []
+    if not headers["recorded"]:
+        lines.append("Sender-report headers heard: not recorded in this capture")
+    else:
+        lines.append(f"Sender-report headers heard (a header alone anchors nothing): audio and video both heard: {_yes(headers['both_heard'])}")
+        for name, t in headers["tracks"].items():
+            lines.append(f"  {name}: {_count(t['heard'])} heard ({_count(t['header_only'])} header only, {_count(t['read'])} read), ssrc {_count(t['ssrc'])}, "
+                         f"every {_count(t['every_us'])} us")
+    if not anchors["recorded"]:
+        lines.append("Usable audio and video timestamp pairs: not recorded in this capture")
+    else:
+        lines.append(f"Usable audio and video timestamp pairs: both tracks read: {_yes(anchors['both_read'])}, both usable: {_yes(anchors['both_usable'])}")
+        lines += [_pairs_line(name, t) for name, t in anchors["tracks"].items()]
+    if not prefix["recorded"]:
+        lines.append("Per-picture sender prefix: not recorded in this capture")
+        return lines
+    st, ci, pc, cv = prefix["status"], prefix["capture_interval"], prefix["sender_paced"], prefix["capture_vs_rtp"]
+    ratio = "unknown" if ci["median_vs_expected"] is None else f"{ci['median_vs_expected']:.3f}x"
+    share = "unknown" if pc["paced_share_of_known"] is None else f"{pc['paced_share_of_known'] * 100:.1f}%"
+    e2e = cv["end_to_end"]
+    drift = "not enough pictures" if e2e is None else (f"{e2e['drift_ms']:.3f} ms over {e2e['rtp_ms']:.1f} ms of RTP time ("
+                                                       + ("unknown" if e2e["drift_ppm"] is None else f"{e2e['drift_ppm']:.1f}") + " ppm)")
+    lines += [
+        f"Per-picture sender prefix: {prefix['rows']} rows ({st['read']} read, {st['absent']} absent, {st['malformed']} malformed); present: "
+        + ", ".join(f"{name} {n}" for name, n in prefix["present"].items()),
+        f"  Capture interval (ms), {ci['pairs']} consecutive pairs ({ci['skipped']} skipped): {_fmt(ci['ms'])}  constant={ci['constant']}, "
+        f"{ci['not_forward']} not forward, median {ratio} the {ci['expected_ms']:.3f} ms of the header fps",
+        "  Capture interval buckets (ms: count): " + ("none" if not ci["buckets_ms"] else ", ".join(f"{start:.2f}: {n}" for start, n in ci["buckets_ms"])),
+        f"  Sender-paced flag (0x200): {pc['paced']} paced, {pc['unpaced']} unpaced, {pc['unknown']} unknown ({pc['unknown_without_prefix']} without a prefix), "
+        f"paced share of the known {share}, raw {pc['raw']}",
+        f"  Capture time vs RTP time, per interval (ms, {cv['pairs']} pairs): {_fmt(cv['error_ms'])}",
+        f"  Capture time vs RTP time, end to end: {drift}",
+    ]
+    pi = prefix["presentation_interval"]
+    lines.append(f"  Presentation time (0x201) interval (ms): {_fmt(pi['ms'])}")
+    ot, ln, co = prefix["other_tags"], prefix["lengths"], prefix["coverage"]
+    lines += [
+        f"  Other extension tags: {ot['rows']} rows, {ot['total']} records, kept by tag {ot['kept_by_tag']}",
+        f"  Prefix shape: {prefix['shape']}",
+        f"  Declared prefix length vs what the receiver strips: {ln['differ']} of {ln['compared']} differ, {ln['stripped_unknown']} found no codec data",
+        f"  Rows against the capture's records: {co['with_prefix_row']} of {co['streamer_records'] - co['without_index']} records have a row, "
+        f"{co['without_prefix_row']} do not, {co['rows_without_record']} rows have no record",
+    ]
+    return lines
 
 
 def render(report):
@@ -257,6 +493,7 @@ def render(report):
     p = report["player"]
     lines.append(f"Player: {p['accepted']} accepted, {p['dropped']} dropped, {p['never_reached_play']} never reached play(), {p['retried']} retried, "
                  f"{p['play_rc_nonzero']} play() returns not 0, {p['player_ms_went_back']} timestamps went back")
+    lines += _render_sender(report)
     lines.append("Not captured: " + ", ".join(report["unavailable"]))
     lines += report["notes"]
     return "\n".join(lines)

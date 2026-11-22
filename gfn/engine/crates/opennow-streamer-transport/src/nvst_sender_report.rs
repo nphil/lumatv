@@ -30,9 +30,11 @@ pub(crate) const VIDEO_RTP_CLOCK_HZ: u32 = 90_000;
 /// The sender-info block of a report.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SenderInfo {
-    /// Microseconds since 1900-01-01. Whether the server's clock is wall time is for the reader to
-    /// judge.
-    pub(crate) ntp_us: u64,
+    /// Microseconds since 1900-01-01, or `None` when the report does not say: the sender wrote
+    /// zero (RFC 3550 section 4: no wall clock), or str0m read a time not after 1970, which it
+    /// cannot tell from a clamped one. Whether the server's clock is wall time is for the reader
+    /// to judge.
+    pub(crate) ntp_us: Option<u64>,
     /// The sender's RTP timestamp at that instant, as written (32 bits, wrapping).
     pub(crate) rtp: u32,
     pub(crate) packets: u32,
@@ -109,7 +111,7 @@ fn read_sender_report(packet: &[u8]) -> SenderReport {
     SenderReport {
         ssrc: word(4),
         info: SenderInfo {
-            ntp_us: ntp_to_micros(ntp),
+            ntp_us: (ntp != 0).then(|| ntp_to_micros(ntp)),
             rtp: word(16),
             packets: word(20),
             octets: word(24),
@@ -124,12 +126,15 @@ fn ntp_to_micros(ntp: u64) -> u64 {
 
 /// A `SystemTime` on the 1900 scale of [`SenderInfo::ntp_us`]. str0m hands over a report's NTP time
 /// as a `SystemTime`, that is minus the 1900-1970 offset, rounded to about half a microsecond and
-/// clamped at 1970 (a server clock that is not wall time reads as 1970).
-fn ntp_micros(time: SystemTime) -> u64 {
-    let since_unix = micros(time.duration_since(UNIX_EPOCH).unwrap_or_default());
-    NTP_UNIX_OFFSET_SECS
-        .saturating_mul(1_000_000)
-        .saturating_add(since_unix)
+/// clamped at 1970 (a server clock that is not wall time reads as 1970), so 1970 itself is
+/// unknown.
+fn ntp_micros(time: SystemTime) -> Option<u64> {
+    let since_unix = micros(time.duration_since(UNIX_EPOCH).ok()?);
+    (since_unix > 0).then(|| {
+        NTP_UNIX_OFFSET_SECS
+            .saturating_mul(1_000_000)
+            .saturating_add(since_unix)
+    })
 }
 
 /// The sender of a datagram's first RTCP packet when that packet is a sender report. Only the clear
@@ -225,7 +230,7 @@ impl Observation {
                     line,
                     " via={} ntp_us={} rtp={} packets={} octets={}",
                     via.name(),
-                    info.ntp_us,
+                    ntp_label(info.ntp_us),
                     info.rtp,
                     info.packets,
                     info.octets
@@ -299,6 +304,11 @@ fn micros(duration: Duration) -> u64 {
     u64::try_from(duration.as_micros()).unwrap_or(u64::MAX)
 }
 
+/// A report's NTP time for a trace line; `unknown` is never written as a number.
+fn ntp_label(ntp_us: Option<u64>) -> String {
+    ntp_us.map_or_else(|| "unknown".to_owned(), |us| us.to_string())
+}
+
 #[derive(Debug, Default)]
 struct TrackReports {
     clock_hz: u32,
@@ -308,6 +318,8 @@ struct TrackReports {
     wire: Cadence,
     /// Reports whose times were read.
     read: Cadence,
+    /// Of those, the ones that can anchor the track: a known NTP time on a known clock rate.
+    usable: u32,
     first: Option<Sample>,
     last: Option<Sample>,
 }
@@ -322,6 +334,9 @@ impl TrackReports {
             None => self.wire.record(observation.arrival),
             Some((info, via)) => {
                 self.read.record(observation.arrival);
+                if info.ntp_us.is_some() && self.clock_hz != 0 {
+                    self.usable = self.usable.saturating_add(1);
+                }
                 let sample = Sample {
                     ssrc: observation.ssrc,
                     info,
@@ -340,6 +355,7 @@ impl TrackReports {
 
     fn to_json(&self, at: &impl Fn(Instant) -> i64) -> Value {
         let mut read = self.read.to_json(at);
+        read["usable"] = json!(self.usable);
         read["via"] = json!(self.last.map(|sample| sample.via.name()));
         read["first"] = json!(self.first.map(|sample| sample.to_json(at)));
         read["last"] = json!(self.last.map(|sample| sample.to_json(at)));
@@ -352,7 +368,10 @@ impl TrackReports {
     }
 
     fn line(&self, name: &str) -> String {
-        let mut line = format!("{name}: heard={} read={}", self.wire.count, self.read.count);
+        let mut line = format!(
+            "{name}: heard={} read={} usable={}",
+            self.wire.count, self.read.count, self.usable
+        );
         if let Some(every) = self.read.every().or_else(|| self.wire.every()) {
             let _ = write!(line, " every_ms={}", every.as_millis());
         }
@@ -361,7 +380,9 @@ impl TrackReports {
                 let _ = write!(
                     line,
                     " ssrc={} ntp_us={} rtp={}",
-                    last.ssrc, last.info.ntp_us, last.info.rtp
+                    last.ssrc,
+                    ntp_label(last.info.ntp_us),
+                    last.info.rtp
                 );
             }
             None => {
@@ -371,6 +392,16 @@ impl TrackReports {
             }
         }
         line
+    }
+}
+
+/// Puts the engine's `Instant`s on a caller's clock: `now_ns` is that clock's reading at `now`, so
+/// an earlier instant lands that much before it.
+pub(crate) fn capture_clock(now: Instant, now_ns: i64) -> impl Fn(Instant) -> i64 {
+    move |when| {
+        now_ns.saturating_sub(
+            i64::try_from(now.saturating_duration_since(when).as_nanos()).unwrap_or(i64::MAX),
+        )
     }
 }
 
@@ -392,19 +423,21 @@ impl SenderReportMonitor {
         .record(&observation);
     }
 
-    /// Both tracks have reports whose times were read: the condition for anchoring audio to video.
+    /// Both tracks have reports whose times were read.
     fn both_read(&self) -> bool {
         self.video.read.count > 0 && self.audio.read.count > 0
+    }
+
+    /// Both tracks have a usable report: the condition for placing audio against video. Hearing a
+    /// report, or reading one whose NTP time is unknown, is not an anchor.
+    fn both_usable(&self) -> bool {
+        self.video.usable > 0 && self.audio.usable > 0
     }
 
     /// The summary for the timing capture. Arrivals are converted to the caller's clock: `now_ns`
     /// is that clock's reading at `now`.
     pub(crate) fn to_json(&self, now: Instant, now_ns: i64) -> Value {
-        let at = |when: Instant| {
-            now_ns.saturating_sub(
-                i64::try_from(now.saturating_duration_since(when).as_nanos()).unwrap_or(i64::MAX),
-            )
-        };
+        let at = capture_clock(now, now_ns);
         json!({
             "video": self.video.to_json(&at),
             "audio": self.audio.to_json(&at),
@@ -412,36 +445,46 @@ impl SenderReportMonitor {
             "coverage": {
                 "both_heard": self.video.heard() && self.audio.heard(),
                 "both_read": self.both_read(),
+                "both_usable": self.both_usable(),
             },
             "definitions": {
                 "scope": "every report since the transport started, up to the write; not limited \
                     to the capture window",
                 "wire": "reports whose clear RTCP header was seen on the bundle or video socket; \
-                    their times are encrypted",
+                    their times are encrypted, so a header alone anchors nothing",
                 "read": "reports whose NTP and RTP times were read: plaintext on the rtcp1 data \
                     channel, or decrypted by str0m",
+                "usable": "read reports whose NTP time is known (not null) on a track with a known \
+                    clock rate: the only pairs that can place a track's RTP time on a sender \
+                    clock",
                 "arrival_ns": "when the report reached the engine, on the capture's \
                     CLOCK_MONOTONIC (also first_ns and last_ns)",
                 "every_us": "mean gap between sightings of that kind; max_gap_us is the longest",
-                "ntp_us": "microseconds since 1900-01-01; str0m's reading is clamped at 1970",
+                "ntp_us": "microseconds since 1900-01-01; null when unknown: the sender wrote \
+                    zero (no wall clock, RFC 3550 section 4) or str0m read a time not after \
+                    1970 (it clamps those)",
                 "rtp": "the sender's 32-bit RTP timestamp, as written",
                 "clock_hz": "video: the fixed NVST 90 kHz; audio: audioTrack.clockRateHz from the \
-                    session handoff; the NVST DESCRIBE SDP has no rtpmap",
+                    session handoff; the NVST DESCRIBE SDP has no rtpmap; null for an SSRC that is \
+                    neither track's",
                 "unmapped": "SSRCs that are neither track's, counted and never attributed",
                 "coverage": "both_heard: audio and video each had a report in either form; \
-                    both_read: each had one whose times were read, the condition for placing \
-                    audio against video",
+                    both_read: each had one whose times were read; both_usable: each had a usable \
+                    one, the only condition under which audio and video RTP times can be placed \
+                    against each other through a sender clock (that the two share one clock is \
+                    assumed, not checked)",
             },
         })
     }
 
     pub(crate) fn log_line(&self) -> String {
         format!(
-            "{} | {} | {} | both_read={}",
+            "{} | {} | {} | both_read={} both_usable={}",
             self.video.line("video"),
             self.audio.line("audio"),
             self.unmapped.line("unmapped"),
-            self.both_read()
+            self.both_read(),
+            self.both_usable()
         )
     }
 }
@@ -485,10 +528,18 @@ mod tests {
 
     fn info(ntp_us: u64, rtp: u32) -> SenderInfo {
         SenderInfo {
-            ntp_us,
+            ntp_us: Some(ntp_us),
             rtp,
             packets: 1,
             octets: 2,
+        }
+    }
+
+    /// A report whose NTP time is not known.
+    fn info_without_ntp(rtp: u32) -> SenderInfo {
+        SenderInfo {
+            ntp_us: None,
+            ..info(0, rtp)
         }
     }
 
@@ -513,7 +564,7 @@ mod tests {
             [SenderReport {
                 ssrc: 0xaabb_ccdd,
                 info: SenderInfo {
-                    ntp_us,
+                    ntp_us: Some(ntp_us),
                     rtp: 123_456,
                     packets: 77,
                     octets: 9_999
@@ -532,7 +583,10 @@ mod tests {
         let found: Vec<_> = read_sender_reports(&compound)
             .map(|report| (report.ssrc, report.info.rtp, report.info.ntp_us))
             .collect();
-        assert_eq!(found, [(10, 1_000, 1_000_000), (20, 2_000, 2_000_000)]);
+        assert_eq!(
+            found,
+            [(10, 1_000, Some(1_000_000)), (20, 2_000, Some(2_000_000))]
+        );
     }
 
     #[test]
@@ -713,9 +767,10 @@ mod tests {
         assert_eq!(
             (
                 json["coverage"]["both_heard"].clone(),
-                json["coverage"]["both_read"].clone()
+                json["coverage"]["both_read"].clone(),
+                json["coverage"]["both_usable"].clone()
             ),
-            (json!(true), json!(false))
+            (json!(true), json!(false), json!(false))
         );
 
         monitor.record(observation(
@@ -723,15 +778,26 @@ mod tests {
             at(3_500),
             Some((info(8_500, 315_000), Via::DataChannel)),
         ));
-        assert_eq!(monitor.to_json(at(4_000), 0)["coverage"]["both_read"], true);
+        let coverage = monitor.to_json(at(4_000), 0)["coverage"].clone();
+        assert_eq!(
+            (
+                coverage["both_read"].clone(),
+                coverage["both_usable"].clone()
+            ),
+            (json!(true), json!(true))
+        );
         assert!(
-            monitor
-                .log_line()
-                .contains("audio: heard=0 read=3 every_ms=1500 ssrc=7 ntp_us=8000 rtp=144100"),
+            monitor.log_line().contains(
+                "audio: heard=0 read=3 usable=3 every_ms=1500 ssrc=7 ntp_us=8000 rtp=144100"
+            ),
             "{}",
             monitor.log_line()
         );
-        assert!(monitor.log_line().ends_with("both_read=true"));
+        assert!(
+            monitor
+                .log_line()
+                .ends_with("both_read=true both_usable=true")
+        );
     }
 
     #[test]
@@ -747,14 +813,15 @@ mod tests {
         assert_eq!(
             (
                 json["coverage"]["both_heard"].clone(),
-                json["coverage"]["both_read"].clone()
+                json["coverage"]["both_read"].clone(),
+                json["coverage"]["both_usable"].clone()
             ),
-            (json!(false), json!(false))
+            (json!(false), json!(false), json!(false))
         );
         assert_eq!(
             SenderReportMonitor::default().log_line(),
-            "video: heard=0 read=0 | audio: heard=0 read=0 | unmapped: heard=0 read=0 \
-                | both_read=false"
+            "video: heard=0 read=0 usable=0 | audio: heard=0 read=0 usable=0 \
+                | unmapped: heard=0 read=0 usable=0 | both_read=false both_usable=false"
         );
     }
 
@@ -764,13 +831,14 @@ mod tests {
         assert_eq!(ntp_to_micros(0x8000_0000), 500_000);
         assert_eq!(
             ntp_micros(UNIX_EPOCH + Duration::from_millis(1_500)),
-            2_208_988_801_500_000
+            Some(2_208_988_801_500_000)
         );
         assert_eq!(
-            ntp_micros(UNIX_EPOCH - Duration::from_secs(1)),
-            2_208_988_800_000_000,
-            "before 1970 reads as 1970"
+            ntp_micros(UNIX_EPOCH),
+            None,
+            "str0m clamps what is not wall time to 1970, so 1970 reads as unknown"
         );
+        assert_eq!(ntp_micros(UNIX_EPOCH - Duration::from_secs(1)), None);
     }
 
     #[test]
@@ -786,7 +854,7 @@ mod tests {
         assert_eq!(
             SenderInfo::from(&info),
             SenderInfo {
-                ntp_us: 2_208_988_801_500_000,
+                ntp_us: Some(2_208_988_801_500_000),
                 rtp: 5,
                 packets: 11,
                 octets: 22
@@ -803,7 +871,7 @@ mod tests {
                 now,
                 Some((
                     SenderInfo {
-                        ntp_us: 9,
+                        ntp_us: Some(9),
                         rtp: 8,
                         packets: 7,
                         octets: 6
@@ -814,9 +882,74 @@ mod tests {
             .trace_line(),
             "track=audio ssrc=7 clock_hz=48000 via=srtcp ntp_us=9 rtp=8 packets=7 octets=6"
         );
+        assert!(
+            observation(
+                Track::Video,
+                now,
+                Some((info_without_ntp(4), Via::DataChannel))
+            )
+            .trace_line()
+            .contains("ntp_us=unknown rtp=4")
+        );
         assert_eq!(
             observation(Track::Video, now, None).trace_line(),
             "track=video ssrc=7 clock_hz=90000 via=header times=encrypted"
         );
+    }
+
+    #[test]
+    fn a_report_without_a_known_ntp_time_is_read_but_never_an_anchor() {
+        use str0m::media::{Frequency, MediaTime};
+        let zero = sender_report(10, 0, 1_000, 5, 50, 0);
+        let report = read_sender_reports(&zero).next().expect("a report");
+        assert_eq!(report.info.ntp_us, None, "an NTP word of zero is unknown");
+        assert_eq!(report.info.rtp, 1_000, "the RTP word is still read");
+        let clamped = str0m::rtp::rtcp::SenderInfo {
+            ssrc: 7.into(),
+            ntp_time: UNIX_EPOCH,
+            rtp_time: MediaTime::new(5, Frequency::NINETY_KHZ),
+            sender_packet_count: 1,
+            sender_octet_count: 2,
+        };
+        assert_eq!(SenderInfo::from(&clamped).ntp_us, None);
+
+        let t0 = Instant::now();
+        let mut monitor = SenderReportMonitor::default();
+        monitor.record(observation(
+            Track::Video,
+            t0,
+            Some((info_without_ntp(1), Via::DataChannel)),
+        ));
+        monitor.record(observation(
+            Track::Audio,
+            t0,
+            Some((info(9_000, 2), Via::Srtcp)),
+        ));
+        let json = monitor.to_json(t0, 0);
+        assert_eq!(json["video"]["read"]["count"], 1);
+        assert_eq!(json["video"]["read"]["usable"], 0);
+        assert_eq!(json["video"]["read"]["last"]["ntp_us"], Value::Null);
+        assert_eq!(json["audio"]["read"]["usable"], 1);
+        assert_eq!(
+            (
+                json["coverage"]["both_read"].clone(),
+                json["coverage"]["both_usable"].clone()
+            ),
+            (json!(true), json!(false))
+        );
+        assert!(
+            monitor
+                .log_line()
+                .contains("video: heard=0 read=1 usable=0 ssrc=7 ntp_us=unknown rtp=1"),
+            "{}",
+            monitor.log_line()
+        );
+
+        monitor.record(observation(
+            Track::Video,
+            t0,
+            Some((info(9_100, 3), Via::DataChannel)),
+        ));
+        assert_eq!(monitor.to_json(t0, 0)["coverage"]["both_usable"], true);
     }
 }

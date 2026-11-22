@@ -727,6 +727,14 @@ impl MediaControl {
         }
     }
 
+    /// Adds the transport's per-picture sender prefix rows to the armed timing capture's file. Returns whether a capture is armed, which
+    /// is the caller's cue to start recording; with none armed nothing is attached.
+    pub fn frame_prefixes_from(&self, source: impl Fn(i64) -> serde_json::Value + Send + Sync + 'static) -> bool {
+        let Some(capture) = &self.shared.capture else { return false };
+        capture.attach_frame_prefixes(Box::new(source));
+        true
+    }
+
     pub fn start_replay(&self, _config: ReplayBufferConfig, _reserved: Arc<std::sync::atomic::AtomicUsize>) {}
 
     pub fn stop_replay(&self) {}

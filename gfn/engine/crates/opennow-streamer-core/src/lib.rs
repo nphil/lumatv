@@ -1015,6 +1015,10 @@ impl Engine {
             if let Some(media) = media.as_ref() {
                 let sender_reports = Arc::clone(&feedback);
                 media.sender_reports_from(move |now_ns| sender_reports.sender_reports_json(now_ns));
+                let prefixes = Arc::clone(&feedback);
+                if media.frame_prefixes_from(move |now_ns| prefixes.frame_prefixes_json(now_ns)) {
+                    feedback.record_frame_prefixes();
+                }
             }
             nvst_resources = Some(ActiveNvstResources {
                 bundle: bundle_control,

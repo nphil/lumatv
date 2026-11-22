@@ -55,6 +55,45 @@ def synthetic(count=30, constant=False):
 WRAP_START = (1 << 32) - 3000
 
 
+PREFIX_FIELDS = ["frame_index", "rtp_timestamp", "arrival_ns", "status", "byte0", "header_size", "byte2", "byte3", "capture_time_us", "sender_paced",
+                 "presentation_time_us", "access_unit_length", "prefix_bytes", "stripped_bytes", "other_tags"]
+
+
+def add_prefix(streamer, drift_ppm=0, paced=lambda i: None, missing=2):
+    """The transport's rows for the streamer's frames, each a TV prefix read in full (81 08 01 02, 20 bytes). The capture clock runs drift_ppm fast
+    against RTP, the last `missing` frames are not in the log, and one earlier picture has no streamer record. Returns the rows to edit."""
+    records = streamer["records"][:len(streamer["records"]) - missing]
+    table = [[records[0][3] - 1, (records[0][4] - 750) % ac.WRAP, 1, "read", 0x81, 8, 1, 2, 1_000_000 - round(750 * 1e6 / HZ * (1 + drift_ppm / 1e6)),
+              None, None, 7800, 20, 20, None]]
+    for i, record in enumerate(records):
+        capture_us = round(1_000_000 + (record[4] - records[0][4]) % ac.WRAP * 1e6 / HZ * (1 + drift_ppm / 1e6))
+        table.append([record[3], record[4], record[7], "read", 0x81, 8, 1, 2, capture_us, paced(i), None, 7800 + i, 20, 20, None])
+    streamer["frame_prefix"] = {"fields": list(PREFIX_FIELDS), "rows": table, "capacity": 2048, "window_ns": 12_000_000_000, "definitions": {},
+                                "counts": {"seen": len(table), "stored": len(table), "omitted": 0, "read": len(table), "absent": 0, "malformed": 0}}
+    return table
+
+
+def report_track(clock_hz=None, ssrc=None, header_only=0, read=0, usable=0, first=None, last=None):
+    """One track of the transport's sender_reports section."""
+    def cadence(count):
+        return {"count": count, "every_us": 5_000_000 if count > 1 else None, "max_gap_us": None, "first_ns": None, "last_ns": None}
+    return {"clock_hz": clock_hz, "ssrc": ssrc, "wire": cadence(header_only),
+            "read": dict(cadence(read), usable=usable, via="srtcp" if read else None, first=first, last=last)}
+
+
+def report_sample(ssrc, ntp_us, rtp):
+    return {"ssrc": ssrc, "ntp_us": ntp_us, "rtp": rtp, "packets": 10, "octets": 1000, "arrival_ns": 5, "via": "srtcp"}
+
+
+def add_reports(streamer, video, audio):
+    heard = video["wire"]["count"] + video["read"]["count"] > 0 and audio["wire"]["count"] + audio["read"]["count"] > 0
+    streamer["sender_reports"] = {
+        "video": video, "audio": audio, "unmapped": report_track(),
+        "coverage": {"both_heard": heard, "both_read": video["read"]["count"] > 0 and audio["read"]["count"] > 0,
+                     "both_usable": video["read"]["usable"] > 0 and audio["read"]["usable"] > 0},
+    }
+
+
 class AnalyseCaptureTests(unittest.TestCase):
     def test_the_join_keeps_unmatched_records_on_both_sides_and_maps_the_epochs_by_load_time(self):
         report = ac.analyse(*synthetic())
@@ -168,6 +207,151 @@ class AnalyseCaptureTests(unittest.TestCase):
             with contextlib.redirect_stderr(io.StringIO()) as err:
                 self.assertEqual(ac.main(paths), 2)
             self.assertIn("build id", err.getvalue())
+
+    def test_the_prefix_rows_give_the_capture_interval_the_paced_share_and_the_drift_against_rtp(self):
+        streamer, feeder = synthetic()
+        table = add_prefix(streamer, drift_ppm=500, paced=lambda i: [None, 0, 1][i % 3])
+        table[6][12] = 25
+        table[3][14] = {"total": 6, "records": [[0x203, 3, 0x03_0201], [0x204, 1, 7]]}
+        table[1][10], table[2][10] = 1_000_000, 1_016_667
+        table.append([200, 77, 9, "absent", 0x01, 0, None, None, None, None, None, None, None, None, None])
+        table.append([201, 78, 10, "malformed", 0x81, 3, None, None, None, None, None, None, None, None, None])
+        report = ac.analyse(streamer, feeder)
+        prefix = report["frame_prefix"]
+        self.assertEqual(prefix["status"], {"read": 29, "absent": 1, "malformed": 1})
+        self.assertEqual(prefix["present"], {"capture_time_us": 29, "sender_paced": 18, "presentation_time_us": 2, "access_unit_length": 29})
+        interval = prefix["capture_interval"]
+        self.assertEqual((interval["pairs"], interval["skipped"], interval["not_forward"], interval["constant"]), (26, 4, 0, False))
+        self.assertAlmostEqual(interval["ms"]["min"], 750 * 1000 / HZ * 1.0005, delta=0.002)
+        self.assertAlmostEqual(interval["ms"]["max"], 1500 * 1000 / HZ * 1.0005, delta=0.002)
+        self.assertEqual(interval["buckets_ms"], [[8.25, 13], [16.5, 13]])
+        self.assertAlmostEqual(interval["median_vs_expected"], 1.5, delta=0.01)
+        paced = prefix["sender_paced"]
+        self.assertEqual((paced["paced"], paced["unpaced"], paced["unknown"], paced["unknown_without_prefix"]), (9, 9, 13, 2))
+        self.assertEqual(paced["raw"], {"unknown": 13, "0": 9, "1": 9})
+        self.assertEqual(paced["paced_share_of_known"], 0.5)
+        drift = prefix["capture_vs_rtp"]
+        self.assertEqual(drift["error_ms"]["n"], 26)
+        self.assertGreater(drift["error_ms"]["min"], 0)
+        self.assertAlmostEqual(drift["error_ms"]["max"], 1500 * 1000 / HZ * 500e-6, delta=0.0015)
+        self.assertEqual(drift["end_to_end"]["pictures"], 29)
+        self.assertAlmostEqual(drift["end_to_end"]["rtp_ms"], 350.0, places=6)
+        self.assertAlmostEqual(drift["end_to_end"]["drift_ppm"], 500, delta=10)
+        self.assertEqual(prefix["presentation_interval"]["pairs"], 1)
+        self.assertAlmostEqual(prefix["presentation_interval"]["ms"]["median"], 16.667, places=3)
+        self.assertEqual(prefix["other_tags"], {"rows": 1, "total": 6, "kept_by_tag": {"0x203": 1, "0x204": 1}})
+        self.assertEqual(prefix["shape"], {"byte0": {"0x01": 1, "0x81": 30}, "header_size": {"0": 1, "3": 1, "8": 29}, "byte2": {"0x01": 29},
+                                           "byte3": {"0x02": 29}})
+        self.assertEqual(prefix["lengths"], {"compared": 29, "differ": 1, "stripped_unknown": 2})
+        self.assertEqual(prefix["coverage"], {"streamer_records": 30, "without_index": 0, "with_prefix_row": 28, "without_prefix_row": 2,
+                                              "rows_without_record": 3})
+        json.dumps(report)
+        text = ac.render(report)
+        for needle in ("29 read, 1 absent, 1 malformed", "26 consecutive pairs (4 skipped)", "9 paced, 9 unpaced, 13 unknown (2 without a prefix)",
+                       "paced share of the known 50.0%", "ppm)", "does not show that the game's pixels changed", "NVST cloud-gsync log line"):
+            self.assertIn(needle, text)
+        self.assertFalse(any("flag is unknown for every picture" in note for note in report["notes"]))
+
+    def test_a_stream_that_never_sends_the_paced_record_reports_the_flag_as_unknown_not_off(self):
+        streamer, feeder = synthetic()
+        add_prefix(streamer)
+        report = ac.analyse(streamer, feeder)
+        prefix = report["frame_prefix"]
+        paced = prefix["sender_paced"]
+        self.assertEqual((paced["paced"], paced["unpaced"], paced["unknown"], paced["paced_share_of_known"]), (0, 0, 29, None))
+        self.assertEqual(paced["raw"], {"unknown": 29})
+        self.assertIn("paced share of the known unknown", ac.render(report))
+        self.assertTrue(any("flag is unknown for every picture, not off" in note for note in report["notes"]))
+        self.assertLess(abs(prefix["capture_vs_rtp"]["end_to_end"]["drift_ppm"]), 10)
+        self.assertLess(abs(prefix["capture_vs_rtp"]["error_ms"]["max"]), 0.0015)
+
+    def test_pictures_the_prefix_log_omitted_are_named_in_the_notes(self):
+        streamer, feeder = synthetic()
+        add_prefix(streamer)
+        streamer["frame_prefix"]["counts"]["omitted"] = 7
+        self.assertTrue(any("omitted 7 pictures" in note for note in ac.analyse(streamer, feeder)["notes"]))
+
+    def test_a_capture_without_the_sender_sections_says_not_recorded_and_never_zero(self):
+        streamer, feeder = synthetic()
+        written_null = copy.deepcopy(streamer)
+        written_null["sender_reports"] = written_null["frame_prefix"] = None
+        for doc in (streamer, written_null):
+            report = ac.analyse(doc, feeder)
+            for key in ("report_headers", "timestamp_pairs", "frame_prefix"):
+                self.assertEqual(report[key], {"recorded": False})
+            text = ac.render(report)
+            for line in ("Sender-report headers heard: not recorded", "Usable audio and video timestamp pairs: not recorded",
+                         "Per-picture sender prefix: not recorded"):
+                self.assertIn(line, text)
+            self.assertFalse(any("anchors no clock" in note or "pixels changed" in note for note in report["notes"]))
+
+    def test_report_headers_alone_are_heard_but_make_no_pair(self):
+        streamer, feeder = synthetic()
+        video = report_track(90_000, 111, header_only=4)
+        audio = report_track(48_000, 222, read=3, first=report_sample(222, None, 7), last=report_sample(222, None, 9))
+        add_reports(streamer, video, audio)
+        report = ac.analyse(streamer, feeder)
+        headers, anchors = report["report_headers"], report["timestamp_pairs"]
+        self.assertEqual((headers["tracks"]["video"]["heard"], headers["tracks"]["video"]["header_only"], headers["tracks"]["video"]["read"]), (4, 4, 0))
+        self.assertEqual((headers["tracks"]["audio"]["heard"], headers["tracks"]["audio"]["read"]), (3, 3))
+        self.assertTrue(headers["both_heard"])
+        self.assertEqual((anchors["both_read"], anchors["both_usable"]), (False, False))
+        for name in ("video", "audio"):
+            track = anchors["tracks"][name]
+            self.assertEqual((track["first"], track["last"], track["rate_ratio"]), (None, None, None))
+        text = ac.render(report)
+        for needle in ("both heard: yes", "both usable: no", "0 usable of 3 read", "first none; last none", "RTP over NTP unknown"):
+            self.assertIn(needle, text)
+        self.assertTrue(any("anchors no clock" in note for note in report["notes"]))
+
+    def test_usable_pairs_on_both_tracks_are_listed_with_the_rate_of_each_clock(self):
+        streamer, feeder = synthetic()
+        t0, wrap = 3_900_000_000_000_000, ac.WRAP
+        video = report_track(90_000, 111, header_only=1, read=3, usable=3, first=report_sample(111, t0, 1000),
+                             last=report_sample(111, t0 + 2_000_000, 1000 + 180_000))
+        audio = report_track(48_000, 222, read=3, usable=3, first=report_sample(222, t0 + 100, wrap - 1000),
+                             last=report_sample(222, t0 + 100 + 2_000_000, (wrap - 1000 + 96_960) % wrap))
+        add_reports(streamer, video, audio)
+        report = ac.analyse(streamer, feeder)
+        anchors = report["timestamp_pairs"]
+        self.assertEqual((anchors["both_read"], anchors["both_usable"]), (True, True))
+        self.assertAlmostEqual(anchors["tracks"]["video"]["rate_ratio"], 1.0, places=9)
+        self.assertAlmostEqual(anchors["tracks"]["audio"]["rate_ratio"], 1.01, places=9)
+        self.assertEqual(anchors["tracks"]["audio"]["first"]["rtp"], wrap - 1000)
+        text = ac.render(report)
+        for needle in ("both tracks read: yes, both usable: yes", f"ntp_us={t0} rtp=1000", "RTP over NTP 1.0100"):
+            self.assertIn(needle, text)
+
+    def test_a_prefix_section_off_its_field_list_is_refused_by_name(self):
+        base, feeder = synthetic()
+        add_prefix(base)
+
+        def refused(edit):
+            streamer = copy.deepcopy(base)
+            edit(streamer["frame_prefix"])
+            with self.assertRaises(ac.CaptureError) as caught:
+                ac.analyse(streamer, feeder)
+            return str(caught.exception)
+
+        def short_row(section):
+            section["rows"][3].pop()
+
+        def no_paced_column(section):
+            index = section["fields"].index("sender_paced")
+            del section["fields"][index]
+            for row in section["rows"]:
+                del row[index]
+
+        def odd_status(section):
+            section["rows"][3][3] = "weird"
+
+        def read_without_capture_time(section):
+            section["rows"][3][8] = None
+
+        self.assertIn("frame_prefix row does not match its field list", refused(short_row))
+        self.assertIn("frame_prefix lacks the columns sender_paced", refused(no_paced_column))
+        self.assertIn("status other than read, absent or malformed", refused(odd_status))
+        self.assertIn("read has no capture time", refused(read_without_capture_time))
 
 
 if __name__ == "__main__":
