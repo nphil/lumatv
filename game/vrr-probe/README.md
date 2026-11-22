@@ -27,7 +27,11 @@ In the related LG O22 source (`core/vdec`), `vo_release` → `vdisp_close_instan
 
 On a **fresh, unshared** channel with a valid rate, `vds/vsync.c:183–199,267–298` selects the new owner's rate. `enable_vsync_dev` (`:144–160`) calls `vsync_hal_set_field` *before* `vsync_hal_enable`. `hal/vsync.c:243–285` writes both half-periods and changes the scan-type bit **if it differs**. Thus its value is established, not necessarily rewritten. This is not restoration of the old owner's values; shared and already-enabled paths do not provide that guarantee. A saved [retail playback trace](../../docs/research/framerate-result.md#round-11-when-the-return-to-120-hz-happened) records stale source timing at the next connection; it is not a raw timer-register dump.
 
-The read side of `hal/proc.c:203–207,298–303,518–524` dumps `/proc/lxvdec/reg/vsync`. For the O22 ARM layout the base is `0xCE020700`; `hal/vsync_reg.h` describes the field-selection bits at +0x04 and the six pairs starting at +0x10. This is not the software rate report `/proc/lxvo/vdisp/vsync`, which omits disabled channels. For two **saved** complete dumps:
+**The retail ARM host does not expose `/proc/lxvdec/reg/vsync`.** On kernel `5.4.268-329.ptl4tv.2` at awake idle, that path returned `ENOENT`; `/proc/lxvo/vdisp/vsync` returned only `#ENDOFREAD_0000`. Receipt: `vrr-idle-baseline-20261121T191449/capture.txt`, SHA-256 `8412e638689cbd68009be47576671e58d3798db1f90ab493c209320fa63535bf`.
+
+In the O22 build, `hal/proc.o` belongs to the decoder processor (`core/vdec/Makefile:53–101`), not the ARM host. The host forwards five named display reports, not the raw register dump (`ipc/local/proc.c:345–357`; `ipc/remote/driver.c:120–148`). Opening the host's `vsync` report takes a diagnostic-pipe mutex and sends a request to the decoder (`ipc/local/proc.c:243–274`). Disabled channels have no rows (`vds/vsync.c:668–680`): the end marker does not encode zero field counts. A playback capture through the same report cannot recover the idle tuple.
+
+`compare_timer.py` understands saved dumps in the O22 **ARM address layout** only; it does not acquire them. It cannot compare the retail receipt above. For two complete dumps independently obtained in that format:
 
 ```sh
 python3 -B compare_timer.py before.txt after.txt
