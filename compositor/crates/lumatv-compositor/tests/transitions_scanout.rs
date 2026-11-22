@@ -6,8 +6,8 @@ mod harness;
 
 use std::io;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 
 use harness::{Client, Server, Window};
 use lumatv_compositor::kms::frames::Frames;
@@ -24,6 +24,32 @@ const MESA: &str = "/usr/lib/x86_64-linux-gnu/libEGL.so.1";
 const MS: u64 = 1_000_000;
 const TILE: (i32, i32, i32, i32) = (287, 699, 120, 120);
 
+/// Mesa has one EGL display per process: every `Gl` here opens it, and dropping an `Egl` terminates it. A test still running then finds its pending
+/// warm fences answering `EGL_NOT_INITIALIZED` for good (Mesa 25.0.7), so its buffers count as warming until the 100 ms of wall clock of
+/// `WARM_LIMIT` have passed, which ticks on a fake clock do not wait for, and its frames show the old picture. The tests of this file take
+/// turns, a turn lasting until the `Gl` is dropped.
+struct Turn;
+
+static TURNS: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
+
+impl Turn {
+    fn take() -> Turn {
+        let mut taken = TURNS.0.lock().unwrap_or_else(|e| e.into_inner());
+        while *taken {
+            taken = TURNS.1.wait(taken).unwrap_or_else(|e| e.into_inner());
+        }
+        *taken = true;
+        Turn
+    }
+}
+
+impl Drop for Turn {
+    fn drop(&mut self) {
+        *TURNS.0.lock().unwrap_or_else(|e| e.into_inner()) = false;
+        TURNS.1.notify_one();
+    }
+}
+
 /// The KMS output without the device: the GL renderer, three pages of its own and the ring's frame logic. `hold_next` makes the next buffer a commit
 /// prepares count as one the driver is busy with, until `release`.
 struct ScanOut {
@@ -36,6 +62,8 @@ struct ScanOut {
     acknowledge: Arc<AtomicBool>,
     fail_present: Arc<AtomicBool>,
     pending_receipt: Option<lumatv_compositor::snapshot::Receipt>,
+    /// Last, so that the turn ends only once `gl` is dropped.
+    _turn: Turn,
 }
 
 impl Output for ScanOut {
@@ -123,13 +151,14 @@ fn scan_out(hold_next: Arc<AtomicBool>, release: Arc<AtomicBool>) -> Server {
 }
 
 fn scan_out_with_receipts(hold_next: Arc<AtomicBool>, release: Arc<AtomicBool>, acknowledge: Arc<AtomicBool>, fail_present: Arc<AtomicBool>) -> Server {
+    let turn = Turn::take();
     // SAFETY: nothing else in this process reads the environment while it is set.
     unsafe { std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1") };
     Server::start_with(Box::new(move || {
         let mut gl = Gl::new(MESA, Platform::Surfaceless, 1920, 1080, BufferPath::Own, None).unwrap();
         let pages: Vec<TargetId> = (0..3).map(|_| gl.add_target().unwrap()).collect();
         let frames = Frames::new(pages.clone(), 1920, 1080);
-        Box::new(ScanOut { gl, frames, pages, hold_next, release, held: None, acknowledge, fail_present, pending_receipt: None })
+        Box::new(ScanOut { gl, frames, pages, hold_next, release, held: None, acknowledge, fail_present, pending_receipt: None, _turn: turn })
     }))
 }
 
