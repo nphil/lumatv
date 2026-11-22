@@ -467,6 +467,8 @@ pub struct Engine {
     /// What was in front at the last pass, and since when it last changed.
     scene: Option<Scene>,
     scene_since: Option<Instant>,
+    /// The scene a pass was last started for, whether or not it succeeded: a failing read retries at the look pace, not every loop.
+    asked: Option<Scene>,
     held: Option<Held>,
     /// Set once a pass has run since this last stood idle: the first pass after the switch, the screen or the sensor comes back is
     /// not held back by the sample and look timers.
@@ -539,6 +541,7 @@ impl Engine {
             on: false,
             scene: None,
             scene_since: None,
+            asked: None,
             held: None,
             context: Value::Null,
             running: false,
@@ -567,6 +570,7 @@ impl Engine {
         self.target = None;
         self.scene = None;
         self.scene_since = None;
+        self.asked = None;
         self.context = Value::Null;
         self.fresh = true;
         self.sudden = false;
@@ -625,9 +629,9 @@ impl Engine {
             self.hold = Some("sensor");
             return;
         };
-        if self.scene.as_ref().is_none_or(|s| {
-            s.app != env.scene.app || s.playing != env.scene.playing || s.game != (env.scene.game || self.here.as_ref().is_some_and(Here::game))
-        }) {
+        let asked = Scene { game: env.scene.game || self.here.as_ref().is_some_and(Here::game), ..env.scene.clone() };
+        if self.asked.as_ref() != Some(&asked) {
+            self.asked = Some(asked);
             self.next_turn = now;
         }
         if env.context != self.context {
@@ -660,6 +664,7 @@ impl Engine {
         self.here = None;
         self.scene = None;
         self.scene_since = None;
+        self.asked = None;
         self.sudden = false;
         self.clear_drive();
         self.running = false;
@@ -882,7 +887,7 @@ impl Engine {
         }
         let Some(entry) = self.journal.modes.get(&p.key) else { return };
         let revision = self.journal.revision(&p.key);
-        self.learner.raise_ceiling(&p.key, entry.own, revision, p.value);
+        self.learner.fit_ceiling(&p.key, entry.own, revision, p.value, p.lux, p.epoch);
         let own = self.learner.ceiling(&p.key, entry.own, revision);
         if own > 0 {
             self.learner.add(&p.key, &p.scene, p.lux, f64::from(p.value) / f64::from(own), p.minute, p.epoch);

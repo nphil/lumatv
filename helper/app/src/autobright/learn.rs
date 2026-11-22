@@ -31,8 +31,11 @@ pub const OTHER_MODE: f64 = 0.1;
 /// Points count as near in [`super::reach`] (a lux factor of 1.3) and as agreeing within this share of the ceiling.
 pub const NEAR: f64 = 0.08;
 pub const AGREE: f64 = 0.04;
-/// What an older, nearby, disagreeing point keeps of its weight.
+/// What an older, nearby, disagreeing point keeps of its weight when replaced: in the same session, or both untimed.
 pub const SUPERSEDED: f64 = 0.02;
+/// What an older habit keeps when a later day disagrees at the same time of day: one outlier leaves it standing, three or four
+/// days of the new choice take over.
+pub const OUTLIVED: f64 = 0.6;
 /// A point whose weight, with age, falls below this is dropped (twice the default curve's pull: it no longer moves the curve).
 pub const NEGLIGIBLE: f64 = 1.0;
 const KNOTS: usize = 9;
@@ -41,6 +44,9 @@ const DAY_MINUTES: u32 = 24 * 60;
 const TIME_WINDOW: u32 = 3 * 60;
 // Two corrections across the same midnight are often one session, not a recurring habit.
 const REPEAT_GAP: u64 = 12 * 60 * 60;
+// Corrections this close together are one sitting: the later one is the choice, the earlier a pass on the way to it. Shorter
+// than the gap between an evening and the next morning, which are separate habits.
+const SESSION: u64 = 2 * 60 * 60;
 /// How hard a context's curve is held to its parent's, and how smooth its difference from it is: one point of [`NEW_WEIGHT`] takes
 /// the context about 44% of the way to the level chosen, two 61%, five 80%.
 pub const CONTEXT_PRIOR: f64 = 100.0;
@@ -69,7 +75,7 @@ pub struct Point {
     pub playing: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub game: bool,
-    /// What is left of [`NEW_WEIGHT`] after later untimed corrections near it that disagreed.
+    /// What is left of [`NEW_WEIGHT`] after later corrections near it that disagreed.
     pub weight: f64,
 }
 
@@ -92,11 +98,19 @@ impl Point {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 struct Ceiling {
     baseline: u32,
     generation: u64,
     value: u32,
+    /// The limit before this raise, and when (unix seconds) and in what light it was raised: a lower choice in the same sitting
+    /// and light takes it back.
+    #[serde(default)]
+    from: u32,
+    #[serde(default)]
+    at: u64,
+    #[serde(default)]
+    lux: f64,
 }
 
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -170,11 +184,12 @@ impl Learner {
     pub fn add(&mut self, key: &str, scene: &Scene, lux: f64, level: f64, minute: Option<u32>, now: u64) {
         let minute = minute.filter(|&m| m < DAY_MINUTES);
         let points = self.file.modes.entry(key.to_owned()).or_default();
-        if minute.is_none() {
-            let r = reach(lux);
-            // Untimed wishes can replace one another; a timed outlier must not erase a recurring habit.
-            for p in points.iter_mut().filter(|p| p.minute.is_none() && p.is_in(scene) && (reach(p.lux) - r).abs() <= NEAR && (p.level - level).abs() > AGREE) {
+        let r = reach(lux);
+        for p in points.iter_mut().filter(|p| p.is_in(scene) && (reach(p.lux) - r).abs() <= NEAR && (p.level - level).abs() > AGREE) {
+            if now.saturating_sub(p.at) < SESSION || (minute.is_none() && p.minute.is_none()) {
                 p.weight *= SUPERSEDED;
+            } else if minute.zip(p.minute).is_none_or(|(a, b)| apart(a, b) < TIME_WINDOW) {
+                p.weight *= OUTLIVED;
             }
         }
         points.retain(|p| p.worth(now) >= NEGLIGIBLE);
@@ -211,14 +226,30 @@ impl Learner {
             .map_or(baseline, |c| c.value)
     }
 
-    /// A settled manual raise changes this profile's limit, not the hardware baseline.
-    pub fn raise_ceiling(&mut self, key: &str, baseline: u32, generation: u64, value: u32) {
+    /// A settled manual value above the limit raises it for this profile, not the hardware baseline. A lower value settled in the
+    /// same sitting and light takes the raise back down to it: passing over the top on the way to a lower level must not stick.
+    pub fn fit_ceiling(&mut self, key: &str, baseline: u32, generation: u64, value: u32, lux: f64, now: u64) {
         let value = value.min(100);
-        if value <= self.ceiling(key, baseline, generation) {
+        let current = self.ceiling(key, baseline, generation);
+        let recent = self
+            .file
+            .ceilings
+            .get(key)
+            .copied()
+            .filter(|c| c.baseline == baseline && c.generation == generation && now.saturating_sub(c.at) < SESSION);
+        let next = if value > current {
+            Ceiling { baseline, generation, value, from: recent.map_or(current, |c| c.from), at: now, lux }
+        } else if let Some(c) = recent.filter(|c| value < c.value && (reach(c.lux) - reach(lux)).abs() <= NEAR) {
+            Ceiling { value: value.max(c.from), ..c }
+        } else {
             return;
+        };
+        if next.value <= baseline {
+            self.file.ceilings.remove(key);
+        } else {
+            self.file.ceilings.insert(key.to_owned(), next);
         }
-        let prev = self.file.ceilings.insert(key.to_owned(), Ceiling { baseline, generation, value });
-        self.rescale(key, prev.map_or(baseline, |c| c.value), value);
+        self.rescale(key, current, next.value.max(baseline));
         self.save();
     }
 
@@ -396,9 +427,7 @@ fn time_layer<'a>(
 ) -> [f64; KNOTS] {
     let nearby = points.filter_map(|p| {
         let m = p.minute.filter(|&m| m < DAY_MINUTES)?;
-        let d = m.abs_diff(minute);
-        let d = d.min(DAY_MINUTES - d);
-        let share = f64::from(TIME_WINDOW.saturating_sub(d)) / f64::from(TIME_WINDOW);
+        let share = f64::from(TIME_WINDOW.saturating_sub(apart(m, minute))) / f64::from(TIME_WINDOW);
         (share > 0.0).then(|| (p, p.worth(now) * share))
     });
     let Some((strongest, _)) = nearby.clone().max_by(|a, b| a.1.total_cmp(&b.1)) else { return base };
@@ -415,6 +444,12 @@ fn time_layer<'a>(
     // Only corroborated evidence gets here; it needs less blending with the shared curve than a single app point.
     let strength = 2.0 * repeat;
     layer(base, nearby.map(|(p, weight)| (p, weight * strength)))
+}
+
+/// Minutes between two times of day, the short way round midnight.
+fn apart(a: u32, b: u32) -> u32 {
+    let d = a.abs_diff(b);
+    d.min(DAY_MINUTES - d)
 }
 
 /// `base` moved toward the weighted points, without changing its unobserved bright endpoint.
@@ -549,7 +584,7 @@ mod tests {
         let path = dir.path().join(FILE);
         let mut learner = Learner::load(&path);
         learner.add(MODE, &Scene::default(), 1.0, 0.5, None, EPOCH);
-        learner.raise_ceiling(MODE, 60, 1, 80);
+        learner.fit_ceiling(MODE, 60, 1, 80, 1.0, EPOCH);
         assert_eq!(learner.ceiling(MODE, 60, 1), 80);
         assert_eq!(learner.file.modes[MODE][0].level * 80.0, 30.0);
         learner.reset();
@@ -560,5 +595,45 @@ mod tests {
         assert_eq!(learner.ceiling(MODE, 60, 3), 60);
         learner.rebase_ceiling(MODE, 60, 3);
         assert_eq!(Learner::load(&path).ceiling(MODE, 60, 1), 60);
+    }
+
+    #[test]
+    fn overshooting_on_the_way_down_leaves_no_raise_or_bright_point() {
+        let mut learner = Learner::default();
+        let scene = Scene::default();
+        let minute = Some(21 * 60);
+        for (value, at) in [(100, EPOCH), (40, EPOCH + 60)] {
+            learner.fit_ceiling(MODE, 50, 1, value, 2.0, at);
+            let own = learner.ceiling(MODE, 50, 1);
+            learner.add(MODE, &scene, 2.0, f64::from(value) / f64::from(own), minute, at);
+        }
+        assert_eq!(learner.ceiling(MODE, 50, 1), 50);
+        let later = Inputs { lux: 2.0, mode: MODE, scene: &scene, minute, epoch: EPOCH + 2 * DAY };
+        let got = learner.target(&later, 50.0);
+        assert!((got - 40.0).abs() < 3.0, "got {got}");
+
+        // A raise kept past the sitting stays.
+        learner.fit_ceiling(MODE, 50, 1, 70, 2.0, EPOCH + 3 * DAY);
+        learner.fit_ceiling(MODE, 50, 1, 45, 2.0, EPOCH + 3 * DAY + SESSION);
+        assert_eq!(learner.ceiling(MODE, 50, 1), 70);
+    }
+
+    #[test]
+    fn a_changed_evening_habit_takes_over_within_days() {
+        let mut learner = Learner::default();
+        let scene = Scene { app: "movie".into(), playing: true, game: false };
+        let minute = 21 * 60;
+        let at = |day: u64| EPOCH + day * DAY + u64::from(minute) * 60;
+        for day in 0..7 {
+            learner.add(MODE, &scene, 3.0, 0.3, Some(minute), at(day));
+        }
+        let predict_on = |l: &Learner, day| predict(l, &scene, 3.0, Some(minute), at(day)) / CEILING;
+        learner.add(MODE, &scene, 3.0, 0.5, Some(minute), at(7));
+        assert!(predict_on(&learner, 8) < 0.4, "one evening moved it to {}", predict_on(&learner, 8));
+        for day in 8..11 {
+            learner.add(MODE, &scene, 3.0, 0.5, Some(minute), at(day));
+        }
+        let got = predict_on(&learner, 11);
+        assert!((got - 0.5).abs() < 0.04, "after four evenings: {got}");
     }
 }
