@@ -1,0 +1,10 @@
+{
+  "id": "steam",
+  "name": "Steam",
+  "summary": "Brings last played, play time and genres from a Steam account into the library. Sign in by scanning the code on the TV with the Steam mobile app.",
+  "kind": "account",
+  "protocol": 1,
+  "exec": "bin/lumagame-engine-steam",
+  "license": "MIT",
+  "source": "https://github.com/nphil/lumatv/tree/main/game/engines/steam"
+}

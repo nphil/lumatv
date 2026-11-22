@@ -252,7 +252,7 @@ fn stream_info(client:&NativeClient,format:quic::VideoFormat)->Result<StreamInfo
     ensure!(format.chroma_format==quic::CHROMA_IDC_420,"The TV cannot decode 4:4:4 video.");
     let mode=client.mode();
     ensure!(!format.color.is_hdr() || (codec==Codec::H265 && format.color.transfer==16),"The TV supports HEVC HDR10 only.");
-    Ok(StreamInfo {codec,width:mode.width,height:mode.height,fps:mode.refresh_hz,hdr:format.color.is_hdr(),audio_channels:client.welcome().audio_channels,sdr_reason:None})
+    Ok(StreamInfo {codec,width:mode.width,height:mode.height,fps:mode.refresh_hz,hdr:format.color.is_hdr(),audio_channels:client.welcome().audio_channels,sdr_reason:None,vui:None})
 }
 fn load(info:&StreamInfo,hdr:Option<Hdr>)->Load {
     Load {codec:u32::from(codec_bit(info.codec)),width:info.width,height:info.height,fps:info.fps,audio:if info.audio_channels==0 {audio::NONE}else{audio::OPUS},channels:u32::from(info.audio_channels),sample_rate:48000,
@@ -285,7 +285,7 @@ fn metadata(m:quic::HdrMeta,c:quic::ColorInfo)->Hdr {
         p.event(Some(FeederMessage::Error {code:1,text:"decoder failed".into()}));assert!(p.check().is_err());
     }
     #[test] fn sdr_never_sets_hdr_even_with_queued_metadata() {
-        let s=StreamInfo {codec:Codec::H265,width:1920,height:1080,fps:120,hdr:false,audio_channels:2,sdr_reason:None};
+        let s=StreamInfo {codec:Codec::H265,width:1920,height:1080,fps:120,hdr:false,audio_channels:2,sdr_reason:None,vui:None};
         assert_eq!(load(&s,Some(Hdr::hdr10(1000,400))).hdr,0);
         assert_eq!(load(&s,None).audio,audio::OPUS);
     }

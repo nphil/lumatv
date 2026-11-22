@@ -62,6 +62,7 @@ pub fn profile(values: &Values, display: &Display) -> StreamInfo {
         hdr: boolean(values, "hdr") && display.hdr10 && codec != Codec::H264,
         audio_channels: 2,
         sdr_reason: None,
+        vui: None,
     }
 }
 

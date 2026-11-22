@@ -1,4 +1,5 @@
 //! Opt-in, bounded diagnostics. The sender child isolates DNS and can be killed on reconfiguration.
+use lumagame_core::ipc::Vui;
 use serde::{Deserialize, Serialize};
 use std::{collections::VecDeque, io::{Read, Write}, process::{Command, Stdio}, sync::{Arc, Condvar, Mutex, atomic::{AtomicU8, Ordering}}, thread, time::{Duration, Instant}};
 use std::os::unix::process::CommandExt;
@@ -65,7 +66,7 @@ pub enum Event {
     #[serde(rename = "level")]
     Setting { ms: u64, level: Level },
     Session { ms: u64, session: u64, engine: &'static str, phase: &'static str, after_ms: u64, #[serde(skip_serializing_if = "Option::is_none")] queue: Option<u32>, #[serde(skip_serializing_if = "Option::is_none")] eta_s: Option<u32> },
-    StreamFormat { ms: u64, session: u64, codec: &'static str, width: u32, height: u32, fps: u32, bit_depth: u8, hdr: bool, want_hdr: bool, sdr: &'static str, audio: u8, want_fps: u32, want_height: u32 },
+    StreamFormat { ms: u64, session: u64, codec: &'static str, width: u32, height: u32, fps: u32, bit_depth: u8, hdr: bool, want_hdr: bool, sdr: &'static str, audio: u8, want_fps: u32, want_height: u32, #[serde(skip_serializing_if = "Option::is_none")] vui: Option<Vui> },
     SessionEnd { ms: u64, session: u64, engine: &'static str, outcome: &'static str, reason: &'static str, by: &'static str, #[serde(skip_serializing_if = "Option::is_none")] ran_s: Option<u32>, #[serde(skip_serializing_if = "Option::is_none")] code: Option<String>, #[serde(skip)] level: Level },
     Display { ms: u64, at: &'static str, width: u32, height: u32, hdr_type: u8, #[serde(skip_serializing_if = "Option::is_none")] muted: Option<bool>, #[serde(skip_serializing_if = "Option::is_none")] hz: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] src_hz: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] vrr: Option<bool>, #[serde(skip_serializing_if = "Option::is_none")] low_delay: Option<bool> },
     /// The first reading with a picture: the video window sized and not muted, after the feeder took a frame. Times run from the session running and from that frame.
@@ -78,6 +79,9 @@ pub enum Event {
     NetLoss { ms: u64, loss_pct: f32, #[serde(skip_serializing_if = "Option::is_none")] rtt_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] jitter_ms: Option<f32> },
     EngineError { ms: u64, engine: &'static str, code: &'static str },
     Controller { ms: u64, slot: u8, connected: bool },
+    /// The in-stream menu's Steam overlay was asked for. `result` is `sent` (handed to the engine), `refused` (the engine was not
+    /// running to take it) or `no_session`; an engine that takes it and then cannot send the keys answers with an `engine_error`.
+    SteamOverlay { ms: u64, engine: &'static str, result: &'static str },
     /// Pacing over the last two seconds; `late` and `stalls` are left out while zero. `pacing_ms` and the host and arrival gaps
     /// (p50, p95) are GFN's playout pacer's latest second.
     Detail { ms: u64, fps: f32, gap_us: [u64; 4], feed_us: [u64; 4], queue: u32, #[serde(skip_serializing_if = "is_zero")] late: u32, #[serde(skip_serializing_if = "is_zero")] stalls: u32, #[serde(skip_serializing_if = "Option::is_none")] client_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] host_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] pacing_ms: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] host_gap_ms: Option<[f32; 2]>, #[serde(skip_serializing_if = "Option::is_none")] arrival_gap_ms: Option<[f32; 2]>, #[serde(skip_serializing_if = "Option::is_none")] pad_bursts: Option<u32>, #[serde(skip_serializing_if = "Option::is_none")] pad_gap_us: Option<u32>, #[serde(skip_serializing_if = "Option::is_none")] hz: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] min_hz: Option<f32>, #[serde(skip_serializing_if = "Option::is_none")] fewest: Option<u32> },
@@ -92,6 +96,7 @@ impl Event {
             Event::Error { .. } | Event::Test | Event::Setting { .. } => Level::Error,
             Event::HdrMissing { .. } | Event::FrameTrouble { .. } | Event::NetLoss { .. } | Event::EngineError { .. } | Event::NoPicture { .. } => Level::Warn,
             Event::Controller { connected, .. } => if *connected { Level::Info } else { Level::Warn },
+            Event::SteamOverlay { result, .. } => if *result == "sent" { Level::Info } else { Level::Warn },
             Event::SessionEnd { level, .. } => *level,
             Event::Lifecycle { .. } | Event::Draw { .. } | Event::Swap { .. } | Event::Render { .. } | Event::Stream { .. } | Event::Frames { .. } | Event::Session { .. } | Event::StreamFormat { .. } | Event::Display { .. } | Event::FirstPicture { .. } => Level::Info,
             Event::Detail { .. } => Level::Debug,
@@ -321,7 +326,7 @@ pub(crate) fn assert_allowlisted(line: &str) {
         "kind", "level", "session", "engine", "after_ms", "queue", "eta_s", "codec", "width", "height", "bit_depth", "hdr", "want_hdr", "sdr", "audio",
         "want_fps", "want_height", "outcome", "reason", "by", "ran_s", "at", "hdr_type", "hz", "src_hz", "vrr", "low_delay", "why", "stalls", "max_gap_us",
         "code", "slot", "connected", "gap_us", "feed_us", "late", "client_ms", "host_ms", "pacing_ms", "host_gap_ms", "arrival_gap_ms", "pad_bursts", "pad_gap_us",
-        "min_hz", "fewest", "span_ms",
+        "min_hz", "fewest", "span_ms", "vui", "primaries", "transfer", "matrix", "full_range",
         "gap", "feed", "presses", "press_p50_ms", "press_p99_ms", "network_ms", "arrival_p50_ms", "arrival_p95_ms", "muted", "after_running_ms", "after_frame_ms", "socket_drops",
     ];
     let value: serde_json::Value = serde_json::from_str(line).unwrap();
@@ -330,6 +335,11 @@ pub(crate) fn assert_allowlisted(line: &str) {
         match field {
             serde_json::Value::String(word) => assert!(word.len() <= 24 && word.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-')), "{word} in {line}"),
             serde_json::Value::Array(items) => assert!(items.iter().all(serde_json::Value::is_number), "{key} in {line}"),
+            // Only the stream's colour tags nest, and only as numbers and a flag.
+            serde_json::Value::Object(tags) => {
+                assert_eq!(key, "vui", "{key} in {line}");
+                assert!(tags.iter().all(|(tag, v)| KEYS.contains(&tag.as_str()) && (v.is_number() || v.is_boolean())), "{line}");
+            }
             other => assert!(other.is_number() || other.is_boolean() || other.is_null(), "{key} in {line}"),
         }
     }
@@ -355,7 +365,7 @@ mod tests {
             (Event::Test, Level::Error),
             (Event::Setting { ms: 1, level: Level::Debug }, Level::Error),
             (Event::Session { ms: 1, session: 1, engine: "gfn", phase: "queue", after_ms: 900, queue: Some(3), eta_s: Some(40) }, Level::Info),
-            (Event::StreamFormat { ms: 1, session: 1, codec: "h265", width: 3840, height: 2160, fps: 60, bit_depth: 10, hdr: true, want_hdr: true, sdr: "none", audio: 6, want_fps: 60, want_height: 2160 }, Level::Info),
+            (Event::StreamFormat { ms: 1, session: 1, codec: "h265", width: 3840, height: 2160, fps: 60, bit_depth: 10, hdr: true, want_hdr: true, sdr: "none", audio: 6, want_fps: 60, want_height: 2160, vui: Some(Vui { primaries: 9, transfer: 16, matrix: 9, full_range: false }) }, Level::Info),
             (Event::SessionEnd { ms: 1, session: 1, engine: "gfn", outcome: "failed", reason: "video", by: "engine", ran_s: Some(3), code: None, level: Level::Error }, Level::Error),
             (Event::SessionEnd { ms: 1, session: 1, engine: "gfn", outcome: "ended", reason: "remote", by: "engine", ran_s: Some(300), code: None, level: Level::Warn }, Level::Warn),
             (Event::SessionEnd { ms: 1, session: 1, engine: "gfn", outcome: "ended", reason: "stopped", by: "owner", ran_s: Some(300), code: None, level: Level::Info }, Level::Info),
@@ -572,6 +582,14 @@ mod tests {
             assert_eq!(event.level(), level, "{line}");
             assert_allowlisted(&line);
         }
+    }
+
+    #[test]
+    fn the_stream_colour_tags_nest_under_vui_and_are_left_out_without_them() {
+        let format = |vui| Event::StreamFormat { ms: 1, session: 1, codec: "h265", width: 3840, height: 2160, fps: 60, bit_depth: 10, hdr: true, want_hdr: true, sdr: "none", audio: 6, want_fps: 60, want_height: 2160, vui };
+        let with = serde_json::to_string(&format(Some(Vui { primaries: 9, transfer: 16, matrix: 9, full_range: false }))).unwrap();
+        assert!(with.ends_with(r#","vui":{"primaries":9,"transfer":16,"matrix":9,"full_range":false}}"#), "{with}");
+        assert!(!serde_json::to_string(&format(None)).unwrap().contains("vui"));
     }
 
     #[test]

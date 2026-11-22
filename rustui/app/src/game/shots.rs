@@ -279,6 +279,63 @@ fn fixture() -> Model {
     model.rebuild_navigation();
     model
 }
+/// A running stream whose overlay has been up for half a minute with the readings of `kind`: a healthy one, or one where the
+/// network, the host or the TV is at fault.
+fn hud_model(launched: &Model, mode: super::stats::Mode, kind: &str) -> Model {
+    let mut m = launched.clone();
+    let session = m.session().unwrap().id;
+    event(&mut m, "gfn", ipc::Event::Session { session, state: SessionState::Running { stream: Some(ipc::StreamInfo {
+        codec: lumagame_core::engine::Codec::H265, width: 3840, height: 2160, fps: 120, hdr: true, audio_channels: 6, sdr_reason: None, vui: None }) } });
+    m.step(Input::Tick { now_ms: 1000, unix_s: 1_800_000_001 });
+    m.step(Input::StatsSetting(super::stats::Overlay { mode, changed: 1 }));
+    let pad = |gap: u32, bursts: u32| ipc::PadStats { name: "DualShock 4 · Bluetooth".into(), reports: 250, rate_hz: 250.0, p99_us: gap, bursts, burst_gap_us: 0, age_ms: 0 };
+    let mut stats = ipc::Stats { rtt_ms: Some(11.3), jitter_ms: Some(0.8), loss_pct: Some(0.0), bitrate_kbps: Some(74_200), fps: Some(119.9), host_ms: Some(5.2),
+        client_ms: Some(1.1), pacing_ms: Some(2.4), host_gap_ms: Some([8.3, 9.1]), arrival_gap_ms: Some([8.3, 9.4]), pad: Some(pad(4900, 0)), ..Default::default() };
+    let mut display = serde_json::json!({"window":{"width":3840,"height":2160,"hdrType":2,"lowDelay":true},
+        "refresh":{"hz":120.0,"fewest":12},"firmware":{"sysVeri10":{"videoDelayUs":15816}}});
+    // The gap of each frame in µs for the sample `i`, and the drops that grow over the last eight seconds.
+    let mut gap: fn(usize) -> i64 = |i| if i % 400 == 41 { 16_800 } else { 8000 + (i % 10) as i64 * 70 };
+    let mut drops = [0u64; 5];
+    match kind {
+        "network" => {
+            stats.rtt_ms = Some(58.0); stats.jitter_ms = Some(11.5); stats.loss_pct = Some(1.4); stats.bitrate_kbps = Some(31_000);
+            stats.fps = Some(112.0); stats.arrival_gap_ms = Some([5.2, 19.0]); stats.dropped = Some(8);
+            gap = |i| if i % 7 == 3 { 17_500 + (i % 5) as i64 * 400 } else { 4_200 + (i % 11) as i64 * 300 };
+            drops = [0, 0, 0, 8, 0];
+        }
+        "host" => {
+            stats.host_ms = Some(7.4); stats.fps = Some(101.0); stats.host_gap_ms = Some([8.4, 17.8]); stats.arrival_gap_ms = Some([8.4, 17.9]);
+            gap = |i| if i % 5 == 2 { 17_000 + (i % 3) as i64 * 500 } else { 8_400 };
+        }
+        "tv" => {
+            stats.client_ms = Some(6.5); stats.pacing_ms = Some(12.0); stats.socket_drops = Some(12); stats.dropped = Some(20);
+            display["refresh"]["fewest"] = serde_json::json!(9);
+            gap = |i| if i % 9 == 4 { 21_000 } else { 8_300 + (i % 10) as i64 * 60 };
+            drops = [14, 6, 0, 0, 0];
+        }
+        _ => {}
+    }
+    let mut fed = 30_000;
+    for step in 0..440u64 {
+        let now = 1000 + step * 250;
+        // Readings wander a little so that the graphs have a shape.
+        let mut moved = stats.clone();
+        let by = stats.jitter_ms.unwrap_or(0.0) * 0.4;
+        moved.jitter_ms = stats.jitter_ms.map(|v| (v + by * ((step % 7) as f32 - 3.0) / 3.0).max(0.0));
+        moved.bitrate_kbps = stats.bitrate_kbps.map(|k| (k as f32 * (1.0 + 0.05 * ((step % 5) as f32 - 2.0) / 2.0)) as u32);
+        if kind == "network" && step % 3 == 0 { moved.loss_pct = Some(0.0); }
+        event(&mut m, "gfn", ipc::Event::Stats { session, stats: moved });
+        let grown = step.saturating_sub(400) * 1000 / 39;
+        let dropped = drops.map(|d| d * grown.min(1000) / 1000);
+        fed += 30;
+        m.step(Input::Frames(crate::lifecycle::Frames { fed, accepted: fed - dropped.iter().sum::<u64>(), dropped, omitted: 0,
+            samples: (0..30).map(|i| [gap(step as usize * 30 + i), 400 + (i % 10) as i64 * 20, 1, 0]).collect() }));
+        m.step(Input::Display(display.clone()));
+        m.step(Input::Tick { now_ms: now, unix_s: 1_800_000_001 + now / 1000 });
+    }
+    m
+}
+
 fn screens() -> Vec<(String, Model)> {
     let base = fixture();
     let mut out: Vec<(String, Model)> = Vec::new();
@@ -456,40 +513,35 @@ fn screens() -> Vec<(String, Model)> {
         },
     );
     add("40-running-transparent", launched.clone());
-    let mut hud = launched.clone();
-    hud.step(Input::Tick {now_ms:1000,unix_s:1_800_000_001});
-    hud.step(Input::StatsSetting(super::stats::Overlay {mode:super::stats::Mode::Full,changed:1}));
-    event(&mut hud,"gfn",ipc::Event::Stats {session,stats:ipc::Stats {
-        rtt_ms:Some(11.3),jitter_ms:Some(0.8),loss_pct:Some(0.0),bitrate_kbps:Some(74200),fps:Some(119.9),
-        pacing_ms:Some(2.4),host_gap_ms:Some([8.3,9.1]),arrival_gap_ms:Some([4.6,16.4]),
-        pad:Some(ipc::PadStats {name:"DualShock 4 · Bluetooth".into(),reports:250,rate_hz:250.0,p99_us:4900,bursts:0,burst_gap_us:0,age_ms:0}),
-        ..Default::default()
-    }});
-    hud.step(Input::Frames(crate::lifecycle::Frames {fed:31204,accepted:31204,dropped:[0;5],omitted:0,
-        samples:(0..240).map(|i| [if i==41 {16800} else {8000+i%10*70},400+i%10*20,1,0]).collect()}));
-    hud.step(Input::Display(serde_json::json!({"window":{"width":3840,"height":2160,"hdrType":2,"lowDelay":true},
-        "refresh":{"hz":120.0,"fewest":12},"firmware":{"sysVeri10":{"videoDelayUs":15816}}})));
-    hud.step(Input::Tick {now_ms:1250,unix_s:1_800_000_001});
-    for (name,mode) in [("48-stats-compact-bright",super::stats::Mode::Compact),("49-stats-full-bright",super::stats::Mode::Full)] {
-        hud.prefs.stats.mode=mode;
-        add(name,hud.clone());
+    // The idle prompt over a game frame (a dark and a bright one), then the Hub after the far side ended the session for it.
+    let mut idle = launched.clone();
+    event(&mut idle, "gfn", ipc::Event::IdleWarning { session, seconds: Some(59) });
+    let mut idle_light = idle.clone();
+    idle_light.prefs.light = true;
+    add("52-idle-warning", idle.clone());
+    add("52-idle-warning-light", idle_light);
+    add("52-idle-warning-bright", idle.clone());
+    event(&mut idle, "gfn", ipc::Event::Session { session, state: SessionState::Ended { reason: ipc::EndReason::Idle } });
+    let mut ended_light = idle.clone();
+    ended_light.prefs.light = true;
+    add("53-idle-ended", idle);
+    add("53-idle-ended-light", ended_light);
+    // The stats overlay in four situations, each over a bright and a dark game frame (the file name says which), as a strip and as
+    // the full panel, in the dark and light themes.
+    for kind in ["healthy","network","host","tv"] {
+        for (mode,word) in [(super::stats::Mode::Compact,"compact"),(super::stats::Mode::Full,"full")] {
+            let hud=hud_model(&launched,mode,kind);
+            for light in [false,true] {
+                let mut m=hud.clone();
+                m.prefs.light=light;
+                add(&format!("48-stats-{word}-{kind}{}",if light {"-light"} else {""}),m);
+            }
+            add(&format!("48-stats-{word}-{kind}-bright"),hud);
+        }
     }
-    let mut rough=hud.clone();
-    rough.telemetry.frames.dropped=[29,0,8,0,0];
-    rough.telemetry.frames.fed=18433;
-    rough.telemetry.frames.omitted=4;
-    rough.telemetry.stream.loss_pct=Some(1.4);
-    rough.telemetry.stream.host_ms=Some(5.2);
-    rough.telemetry.stream.host_gap_ms=Some([8.4,16.9]);
-    rough.telemetry.stream.dropped=Some(3);
-    rough.telemetry.stream.socket_drops=Some(12);
-    rough.telemetry.stream.pad=Some(ipc::PadStats {name:"Xbox Wireless · Bluetooth".into(),reports:250,rate_hz:125.0,p99_us:22400,bursts:6,burst_gap_us:22000,age_ms:0});
-    add("50-stats-full-dark",rough.clone());
-    rough.prefs.light=true;
-    add("50-stats-full-dark-light",rough);
-    let mut stale=hud.clone();
-    stale.step(Input::Tick {now_ms:4000,unix_s:1_800_000_004});
-    add("51-stats-stale-dark",stale);
+    let mut stale=hud_model(&launched,super::stats::Mode::Full,"healthy");
+    stale.step(Input::Tick {now_ms:40_000,unix_s:1_800_000_040});
+    add("51-stats-full-stale",stale);
     launched.step(Input::Tick { now_ms: 1_932_000, unix_s: 1_800_001_932 });
     launched.integrations.iter_mut().find(|e| e.manifest.id.as_str() == "gfn").unwrap()
         .descriptor.as_mut().unwrap().capabilities.features.insert(Feature::SteamOverlay);
@@ -679,7 +731,7 @@ fn screens() -> Vec<(String, Model)> {
         .iter()
         .filter(|(name, _)| {
             [
-                "48-stats-compact-bright", "49-stats-full-bright", "50-stats-full-dark", "50-stats-full-dark-light", "51-stats-stale-dark",
+                "51-stats-full-stale",
                 "14-settings-streaming", "15-overlay",
                 "11-pairing",
                 "12-signin",
@@ -697,6 +749,30 @@ fn screens() -> Vec<(String, Model)> {
                 "52-diagnostics-dark", "53-diagnostics-light",
                 "43-controller-lab",
                 "43-controller-lab-light",
+                "48-stats-compact-healthy",
+                "48-stats-compact-healthy-light",
+                "48-stats-compact-healthy-bright",
+                "48-stats-full-healthy",
+                "48-stats-full-healthy-light",
+                "48-stats-full-healthy-bright",
+                "48-stats-compact-network",
+                "48-stats-compact-network-light",
+                "48-stats-compact-network-bright",
+                "48-stats-full-network",
+                "48-stats-full-network-light",
+                "48-stats-full-network-bright",
+                "48-stats-compact-host",
+                "48-stats-compact-host-light",
+                "48-stats-compact-host-bright",
+                "48-stats-full-host",
+                "48-stats-full-host-light",
+                "48-stats-full-host-bright",
+                "48-stats-compact-tv",
+                "48-stats-compact-tv-light",
+                "48-stats-compact-tv-bright",
+                "48-stats-full-tv",
+                "48-stats-full-tv-light",
+                "48-stats-full-tv-bright",
                 "44-controller-flash",
                 "45-controller-lab-stream",
                 "46-gamesir-ready",
@@ -766,6 +842,44 @@ fn screens() -> Vec<(String, Model)> {
         })
         .collect::<Vec<_>>();
     out.extend(marked);
+    out.extend(steam_screens(&base));
+    out
+}
+/// The Steam integration's page signed out, with its QR sheet and signed in, and the Home and game pages its records feed, in both
+/// themes at 100% and 200% text.
+fn steam_screens(base: &Model) -> Vec<(String, Model)> {
+    use super::model::tests::{SteamShot, with_steam};
+    let mut out = Vec::new();
+    for (name, shot, page, title) in [
+        ("60-steam-signed-out", SteamShot::SignedOut, None, ""),
+        ("61-steam-qr", SteamShot::Qr, None, ""),
+        ("62-steam-signed-in", SteamShot::SignedIn, None, ""),
+        ("63-steam-home", SteamShot::SignedIn, Some(Page::Home), ""),
+        ("64-steam-hub", SteamShot::SignedIn, Some(Page::Hub), "Baldur's Gate 3"),
+        ("65-steam-home-favourites", SteamShot::SignedIn, Some(Page::Home), "Favourites"),
+    ] {
+        for (suffix, light, text) in [("", false, 100), ("-light", true, 100), ("-200", false, 200), ("-200-light", true, 200)] {
+            let mut m = with_steam(base.clone(), shot);
+            match page {
+                Some(Page::Hub) => {
+                    m.view.page = Page::Hub;
+                    m.view.selected = Some(id(&m, title));
+                    m.view.hub_tab = 0;
+                    m.view.focus = Focus::HubAction(0);
+                }
+                Some(page) => {
+                    m.view.page = page;
+                    let row = m.home_rows.iter().position(|r| r.title == title).unwrap_or(0);
+                    m.view.focus = Focus::Home(row, 0);
+                }
+                None => {}
+            }
+            m.prefs.light = light;
+            m.prefs.text_percent = text;
+            m.rebuild_navigation();
+            out.push((format!("{name}{suffix}"), m));
+        }
+    }
     out
 }
 fn png(path: &Path, w: u32, h: u32, bytes: &[u8]) -> io::Result<()> {
@@ -787,7 +901,7 @@ fn every_native_screen() -> io::Result<()> {
         if selection!="all" && !selection.split(',').any(|s| name.contains(s)) {continue;}
         let mut pixels = shots.shot(&model)?;
         if name.contains("-stats-") {assert!(!shots.page.show(&model)?, "unchanged HUD repainted");}
-        if name.contains("-stats-") {
+        if name.contains("-stats-") || name.contains("-idle-warning") {
             let app=if name.contains("bright") {1551360} else {1091500};
             let background=lumagame_meta::decode_image(&std::fs::read(assets().join(format!("{app}/frame.jpg")))?,
                 lumagame_meta::ImageSpec {width:1920,height:1080,contain:false,trim_alpha:false}).map_err(io::Error::other)?;
@@ -913,6 +1027,155 @@ fn all_stats_controls_share_one_setting_and_off_stops_frame_capture() {
     assert!(out.iter().any(|c| matches!(c,Command::Send {request:ipc::Request::Stats {on:false,..},..})));
     m.view.page=Page::Running;
     assert!(!m.hud_visible() && !m.wants_frames());
+}
+
+#[test]
+fn compact_stats_reach_the_screen_in_a_running_game_at_both_text_sizes() {
+    use super::stats::{Mode,Overlay};
+    let mut m=fixture();
+    m.view.page=Page::Hub;m.view.selected=Some(id(&m,"Cyberpunk 2077"));m.view.focus=Focus::HubAction(0);
+    activate(&mut m);
+    let session=m.session().unwrap().id;
+    event(&mut m,"gfn",ipc::Event::Session {session,state:SessionState::Running {stream:None}});
+    for (mode,changed) in [(Mode::Compact,1),(Mode::Full,2)] {
+        m.step(Input::StatsSetting(Overlay {mode,changed}));
+        for percent in [100,200] {
+            m.prefs.text_percent=percent;
+            let planned=super::screens::planned(&m);
+            let live=|n: u64| planned.iter().any(|(id,f)| *id==super::screens::HUD.start+n && f.w>0.0 && f.h>0.0);
+            assert!(live(0) && live(1),"{mode:?} at {percent}% drew no HUD layers: {planned:?}");
+        }
+    }
+}
+
+#[test]
+fn the_stats_hud_dims_and_steps_inside_the_safe_area_in_a_running_game() {
+    use super::stats::{DIM_AFTER_MS,DIM_TO,Mode,Overlay,SHIFT_EVERY_MS};
+    let mut m=fixture();
+    m.view.page=Page::Hub;m.view.selected=Some(id(&m,"Cyberpunk 2077"));m.view.focus=Focus::HubAction(0);
+    activate(&mut m);
+    let session=m.session().unwrap().id;
+    event(&mut m,"gfn",ipc::Event::Session {session,state:SessionState::Running {stream:None}});
+    for (mode,changed) in [(Mode::Compact,1),(Mode::Full,2)] {
+        m.step(Input::StatsSetting(Overlay {mode,changed}));
+        let hud=|m: &Model| super::screens::planned_with_opacity(m).into_iter().find(|(id,..)| *id==super::screens::HUD.start).unwrap();
+        m.step(Input::Tick {now_ms:1_000,unix_s:0});
+        let (_,corner,bright)=hud(&m);
+        assert_eq!(bright,1.0,"{mode:?} starts at the strength it always had");
+        let revision=m.revision();
+        m.step(Input::Tick {now_ms:1_000+DIM_AFTER_MS,unix_s:0});
+        assert_ne!(m.revision(),revision,"{mode:?} is drawn again when it dims");
+        let (_,dimmed,opacity)=hud(&m);
+        assert_eq!((opacity,dimmed),(DIM_TO,corner),"{mode:?} dims in place");
+        m.step(Input::Tick {now_ms:1_000+SHIFT_EVERY_MS,unix_s:0});
+        let (_,moved,opacity)=hud(&m);
+        assert_eq!(opacity,DIM_TO);
+        assert!(moved.x<corner.x && moved.y>corner.y && corner.x-moved.x<=12.0 && moved.y-corner.y<=12.0,"{mode:?} steps left and down: {corner:?} to {moved:?}");
+    }
+}
+
+#[test]
+fn in_the_light_theme_the_hubs_status_line_and_tabs_keep_clear_of_the_hero_arts_fade() {
+    use ui::lucent::palette::Mode;
+    let models=steam_screens(&fixture());
+    let hubs=models.iter().filter(|(name,_)| name.starts_with("64-steam-hub") && name.ends_with("light")).collect::<Vec<_>>();
+    assert_eq!(hubs.len(),2,"both text sizes");
+    for (name,m) in hubs {
+        let plan=super::screens::plan_in(m,Mode::Light);
+        for id in [150,200,201,203,204,206,207] {
+            let Some(node)=plan.nodes.iter().find(|n| n.id==id) else {continue};
+            assert!(node.frame.y+node.frame.h<=740.0 || node.frame.y>=800.0,"{name}: {id} sits across the hero's fade: {:?}",node.frame);
+        }
+        assert!(plan.nodes.iter().any(|n| n.id==201),"{name}: the tabs are drawn");
+    }
+}
+
+/// A cloud game running in `fixture()`, past its first tick.
+fn playing() -> (Model, lumagame_core::ids::SessionId) {
+    let mut m=fixture();
+    m.view.page=Page::Hub;m.view.selected=Some(id(&m,"Cyberpunk 2077"));m.view.focus=Focus::HubAction(0);
+    activate(&mut m);
+    let session=m.session().unwrap().id;
+    event(&mut m,"gfn",ipc::Event::Session {session,state:SessionState::Running {stream:None}});
+    m.step(Input::Tick {now_ms:1000,unix_s:0});
+    (m,session)
+}
+fn activity(commands:&[Command]) -> usize {
+    commands.iter().filter(|c| matches!(c,Command::Send {request:ipc::Request::Activity {..},..})).count()
+}
+
+#[test]
+fn the_idle_countdown_runs_on_the_model_clock_and_only_the_far_sides_clear_dismisses_it() {
+    let (mut m,session)=playing();
+    assert_eq!(m.idle_left(),None);
+    event(&mut m,"gfn",ipc::Event::IdleWarning {session,seconds:Some(59)});
+    assert_eq!((m.idle_left(),m.wants_frames()),(Some(59),true));
+    let revision=m.revision();
+    m.step(Input::Tick {now_ms:1500,unix_s:0});
+    assert_eq!(m.revision(),revision,"no repaint inside a second");
+    m.step(Input::Tick {now_ms:2000,unix_s:0});
+    assert_ne!(m.revision(),revision);
+    assert_eq!(m.idle_left(),Some(58));
+    m.step(Input::Tick {now_ms:90_000,unix_s:0});
+    assert_eq!(m.idle_left(),Some(0),"the countdown stops at zero");
+    // A press is not the answer: the far side's clear is, and until it arrives the prompt stays.
+    m.step(Input::Key {key:Key::Ok,down:true});
+    assert!(m.idle_left().is_some());
+    event(&mut m,"gfn",ipc::Event::IdleWarning {session,seconds:None});
+    assert_eq!((m.idle_left(),m.wants_frames()),(None,false));
+}
+
+#[test]
+fn a_key_during_the_countdown_tells_the_engine_at_most_once_a_second_and_never_without_one() {
+    let (mut m,session)=playing();
+    let press=|m:&mut Model,key| activity(&m.step(Input::Key {key,down:true}));
+    assert_eq!(press(&mut m,Key::Ok),0,"no warning, no message");
+    event(&mut m,"gfn",ipc::Event::IdleWarning {session,seconds:Some(30)});
+    assert_eq!(press(&mut m,Key::Ok),1,"the remote's key never reaches the stream, so the engine is asked to send one");
+    assert_eq!(press(&mut m,Key::Down),0,"held keys do not flood the link");
+    m.step(Input::Tick {now_ms:2100,unix_s:0});
+    assert_eq!(press(&mut m,Key::Ok),1);
+    // A key release is not a press.
+    m.step(Input::Tick {now_ms:4000,unix_s:0});
+    assert_eq!(activity(&m.step(Input::Key {key:Key::Ok,down:false})),0);
+    // The menu's pad keys count as well.
+    assert_eq!(activity(&m.step(Input::PadKey {slot:0,key:Key::Down,down:true})),1);
+}
+
+#[test]
+fn the_idle_prompt_is_planned_below_the_stats_strip_for_the_countdown_only() {
+    use super::stats::{Mode,Overlay};
+    let (mut m,session)=playing();
+    let layers=|m:&Model| super::screens::planned(m).into_iter().filter(|(id,_)| (90..92).contains(id)).collect::<Vec<_>>();
+    assert!(layers(&m).is_empty(),"nothing is drawn without a warning");
+    event(&mut m,"gfn",ipc::Event::IdleWarning {session,seconds:Some(59)});
+    for percent in [100,200] {
+        m.prefs.text_percent=percent;
+        m.step(Input::StatsSetting(Overlay {mode:Mode::Off,changed:1}));
+        let prompt=layers(&m);
+        assert_eq!(prompt.len(),2,"{percent}%: {prompt:?}");
+        assert!(prompt.iter().all(|(_,f)| f.w>0.0 && f.x>=0.0 && f.x+f.w<=1920.0 && f.y+f.h<=1080.0),"{percent}%: {prompt:?}");
+        m.step(Input::StatsSetting(Overlay {mode:Mode::Compact,changed:2}));
+        let hud=super::screens::planned(&m).into_iter().find(|(id,_)| *id==super::screens::HUD.start).unwrap().1;
+        assert!(layers(&m).iter().all(|(_,f)| f.y>=hud.y+hud.h),"{percent}%: the prompt does not cover the strip");
+    }
+    event(&mut m,"gfn",ipc::Event::IdleWarning {session,seconds:None});
+    assert!(layers(&m).is_empty(),"gone once the far side clears it");
+}
+
+#[test]
+fn an_idle_end_returns_to_the_hub_with_a_calm_notice_and_the_game_launches_again_at_once() {
+    let (mut m,session)=playing();
+    event(&mut m,"gfn",ipc::Event::IdleWarning {session,seconds:Some(5)});
+    event(&mut m,"gfn",ipc::Event::Session {session,state:SessionState::Ended {reason:ipc::EndReason::Idle}});
+    assert_eq!(m.view.page,Page::Hub);
+    assert_eq!(m.view.notice.as_deref(),Some("GeForce NOW ended the session after inactivity."));
+    assert!(!m.session_active() && m.idle_left().is_none() && m.view.idle.is_none());
+    assert!(super::screens::planned(&m).iter().all(|(id,_)| !(90..92).contains(id)),"no prompt left behind");
+    m.view.focus=Focus::HubAction(0);
+    let commands={m.step(Input::Key {key:Key::Ok,down:true});m.step(Input::Key {key:Key::Ok,down:false})};
+    assert!(commands.iter().any(|c| matches!(c,Command::Send {request:ipc::Request::Launch {..},..})),"{commands:?}");
+    assert!(m.session_active());
 }
 
 #[test]

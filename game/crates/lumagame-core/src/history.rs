@@ -65,20 +65,6 @@ impl History {
         self.recent.iter()
     }
 
-    /// Every game that was played, the last played first.
-    pub fn recently_played(&self) -> Vec<GameId> {
-        let mut games: Vec<(GameId, Total)> = self.totals.iter().map(|(g, t)| (*g, *t)).collect();
-        games.sort_by_key(|(game, total)| (std::cmp::Reverse(total.last), *game));
-        games.into_iter().map(|(game, _)| game).collect()
-    }
-
-    /// Every game that was played, the longest played first.
-    pub fn most_played(&self) -> Vec<GameId> {
-        let mut games: Vec<(GameId, Total)> = self.totals.iter().map(|(g, t)| (*g, *t)).collect();
-        games.sort_by_key(|(game, total)| (std::cmp::Reverse(total.seconds), *game));
-        games.into_iter().map(|(game, _)| game).collect()
-    }
-
     /// Two games turned out to be one.
     pub fn merge(&mut self, merge: Merge) {
         if let Some(from) = self.totals.remove(&merge.from) {
@@ -108,7 +94,7 @@ mod tests {
     }
 
     #[test]
-    fn sessions_add_up_per_game_and_order_the_two_rows() {
+    fn sessions_add_up_per_game() {
         let mut history = History::default();
         assert!(history.record(played(1, 1_000, 600)));
         assert!(history.record(played(2, 2_000, 7_200)));
@@ -116,8 +102,6 @@ mod tests {
         assert!(history.record(played(3, 10_000, 30)));
         assert_eq!(history.total(GameId(1)), Total { seconds: 660, sessions: 2, last: 20_060 });
         assert_eq!(history.total(GameId(9)), Total::default());
-        assert_eq!(history.recently_played(), [GameId(1), GameId(3), GameId(2)]);
-        assert_eq!(history.most_played(), [GameId(2), GameId(1), GameId(3)]);
         assert_eq!(serde_json::from_str::<History>(&serde_json::to_string(&history).unwrap()).unwrap(), history);
     }
 

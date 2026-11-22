@@ -318,6 +318,7 @@ fn integrations(p: &mut Paint<'_>, x: f32, w: f32) {
             let name = match e.manifest.kind {
                 EngineKind::Cloud => "Cloud",
                 EngineKind::Host => "The PCs",
+                EngineKind::Account => "Accounts",
                 _ => "On this TV",
             };
             p.text(200 + i as u64 * 30, name, Frame::new(x + 26.0, y, w - 52.0, p.line(Type::Body)), Type::Body, Role::Ink2, false, 10);
@@ -346,6 +347,7 @@ fn integrations(p: &mut Paint<'_>, x: f32, w: f32) {
         let icon = match e.manifest.kind {
             EngineKind::Cloud => Icon::CloudOutline,
             EngineKind::Host => Icon::Tiles,
+            EngineKind::Account => Icon::Person,
             _ => Icon::Package,
         };
         p.words(
@@ -568,7 +570,7 @@ pub fn integration(p: &mut Paint<'_>) {
                 p,
                 230,
                 Focus::Setting(1),
-                if e.manifest.kind == EngineKind::Cloud { "Sign in" } else { "Pair a PC" },
+                if e.manifest.kind == EngineKind::Host { "Pair a PC" } else if e.can_sign_out() { "Switch account" } else { "Sign in" },
                 None,
                 Control::Value("Connect"),
                 Frame::new(x, y, w, 0.0),
@@ -587,6 +589,9 @@ pub fn integration(p: &mut Paint<'_>) {
             _ => "Not linked",
         };
         y += row(p, 10_000 + i as u64 * 100, Focus::Target(i), &target.name, None, Control::Value(state), Frame::new(x, y, w, 0.0));
+    }
+    if e.can_sign_out() {
+        y += row(p, 9_000, Focus::Setting(3), "Sign out", Some("Removes the saved sign-in from this TV"), Control::Value("Sign out"), Frame::new(x, y, w, 0.0));
     }
     for (i, field) in e.schema.fields().enumerate() {
         let saved = m.state().engines.get(&e.manifest.id).and_then(|e| e.settings.get(&field.key)).cloned().or_else(|| field.kind.default());

@@ -4,11 +4,12 @@
 //! only the pads (`pause_pads_only`); `steam-overlay` types Shift+Tab into the game (`steam_overlay`). The binary keeps upstream's name because opennow-core looks for `opennow-streamer` beside
 //! itself.
 use std::io::{self, BufRead, Write};
-use std::sync::mpsc;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}, mpsc};
 use std::thread;
+use std::time::Duration;
 
 use opennow_streamer_core::Engine;
-use opennow_streamer_platform::{CapturedInput, MediaRuntime, controller_rumble, create_runtime, stream_ended, stream_telemetry};
+use opennow_streamer_platform::{CapturedInput, MediaRuntime, controller_rumble, create_runtime, stream_ended, stream_idle, stream_telemetry};
 use opennow_streamer_protocol::{Command, error, response};
 use serde_json::Value;
 
@@ -32,11 +33,14 @@ fn apply_rumble(message: &Value) {
     }
 }
 
-/// The core keeps only the frame rate and bitrate of the streamer's `telemetry` event, and a stream that ended on its own (a
-/// `stopped` status naming its `termination`) only as a status it reports when asked, so the engine gets both from here.
+/// The core keeps only the frame rate and bitrate of the streamer's `telemetry` event, a stream that ended on its own (a `stopped`
+/// status naming its `termination`) only as a status it reports when asked, and nothing of the far side's `session-timer` idle
+/// countdown, so the engine gets all three from here.
 fn forward_to_engine(message: &Value) {
     if message["type"] == "telemetry" {
         stream_telemetry(message);
+    } else if message["type"] == "session-timer" {
+        stream_idle(message);
     } else if message["type"] == "status" && message["status"] == "stopped" && message["termination"].is_object() {
         stream_ended(&message["termination"]);
     }
@@ -60,18 +64,39 @@ fn pause_pads_only(command: &Command, pause_pads: impl FnOnce(bool) -> Result<()
     })
 }
 
-/// The in-stream menu's "Steam overlay": Shift+Tab, the keys Steam opens its overlay on, sent as upstream's desktop streamer encodes a
-/// typed chord (the official client's Guide button never reaches the host: it sits on bit 0x10000, which the 16-bit button field drops).
-fn steam_overlay(command: &Command, mut push: impl FnMut(CapturedInput)) -> Option<Value> {
-    if command.kind != "steam-overlay" {
-        return None;
-    }
+/// Shift+Tab, the keys Steam opens its overlay on, as upstream's desktop streamer encodes a typed chord (the official client's Guide
+/// button never reaches the host: it sits on bit 0x10000, which the 16-bit button field drops). Each step waits `.0` after the one
+/// before: Shift stays down before Tab and Tab stays down for tens of milliseconds, as a typed chord does, because four events
+/// pushed in one instant opened the overlay only now and then (2026-11-22), which fits a host that samples keys once a frame.
+const OVERLAY_CHORD: [(Duration, u16, u16, bool); 4] = {
     const SHIFT: u16 = 0xa0;
     const TAB: u16 = 0x09;
     const SHIFT_MODIFIER: u16 = 0x01;
-    for (virtual_key, modifiers, pressed) in [(SHIFT, 0, true), (TAB, SHIFT_MODIFIER, true), (TAB, SHIFT_MODIFIER, false), (SHIFT, 0, false)] {
+    [
+        (Duration::ZERO, SHIFT, 0, true),
+        (Duration::from_millis(40), TAB, SHIFT_MODIFIER, true),
+        (Duration::from_millis(80), TAB, SHIFT_MODIFIER, false),
+        (Duration::from_millis(40), SHIFT, 0, false),
+    ]
+};
+
+fn play_overlay_chord(mut push: impl FnMut(CapturedInput), mut sleep: impl FnMut(Duration)) {
+    for (wait, virtual_key, modifiers, pressed) in OVERLAY_CHORD {
+        sleep(wait);
         push(CapturedInput::Key { virtual_key, modifiers, pressed });
     }
+}
+
+/// The in-stream menu's "Steam overlay". The chord plays on its own thread so the protocol loop keeps answering (a stop or a pause
+/// is never held for the chord's 160 ms); one chord at a time, and a second request during it is refused rather than interleaved.
+fn steam_overlay(command: &Command, playing: &Arc<AtomicBool>, play: impl FnOnce(Arc<AtomicBool>)) -> Option<Value> {
+    if command.kind != "steam-overlay" {
+        return None;
+    }
+    if playing.swap(true, Ordering::AcqRel) {
+        return Some(error(Some(&command.id), "steam-overlay-busy", "The Steam overlay keys are still being sent"));
+    }
+    play(Arc::clone(playing));
     Some(response(command.id.as_str(), "ok"))
 }
 
@@ -88,6 +113,7 @@ fn run_protocol(media_runtime: MediaRuntime) -> io::Result<()> {
     });
     let pads = media_runtime.clone();
     let keys = pads.captured_input();
+    let playing = Arc::new(AtomicBool::new(false));
     let mut engine = Engine::with_media_runtime(event_tx, media_runtime);
 
     for line in io::stdin().lock().lines() {
@@ -106,7 +132,14 @@ fn run_protocol(media_runtime: MediaRuntime) -> io::Result<()> {
             write_message(&reply)?;
             continue;
         }
-        if let Some(reply) = steam_overlay(&command, |key| keys.push(key)) {
+        let play = |done: Arc<AtomicBool>| {
+            let keys = Arc::clone(&keys);
+            thread::spawn(move || {
+                play_overlay_chord(|key| keys.push(key), thread::sleep);
+                done.store(false, Ordering::Release);
+            });
+        };
+        if let Some(reply) = steam_overlay(&command, &playing, play) {
             write_message(&reply)?;
             continue;
         }
@@ -166,12 +199,27 @@ mod tests {
     }
 
     #[test]
-    fn steam_overlay_types_shift_tab_and_other_commands_pass() {
-        let mut keys = Vec::new();
-        let reply = steam_overlay(&command(r#"{"id":"runtime-control","type":"steam-overlay"}"#), |key| keys.push(key));
+    fn the_overlay_chord_holds_shift_then_tab_with_a_hold_on_a_fake_clock() {
+        let clock = std::cell::Cell::new(Duration::ZERO);
+        let mut seen = Vec::new();
+        play_overlay_chord(|key| seen.push((clock.get(), key)), |wait| clock.set(clock.get() + wait));
+        let at = |ms, virtual_key, modifiers, pressed| (Duration::from_millis(ms), CapturedInput::Key { virtual_key, modifiers, pressed });
+        assert_eq!(seen, [at(0, 0xa0, 0, true), at(40, 0x09, 1, true), at(120, 0x09, 1, false), at(160, 0xa0, 0, false)]);
+    }
+
+    #[test]
+    fn one_chord_plays_at_a_time_and_other_commands_pass() {
+        let playing = Arc::new(AtomicBool::new(false));
+        let overlay = command(r#"{"id":"runtime-control","type":"steam-overlay"}"#);
+        let mut started = 0;
+        let reply = steam_overlay(&overlay, &playing, |_| started += 1);
         assert_eq!(reply, Some(response("runtime-control", "ok")));
-        let key = |virtual_key, modifiers, pressed| CapturedInput::Key { virtual_key, modifiers, pressed };
-        assert_eq!(keys, [key(0xa0, 0, true), key(0x09, 1, true), key(0x09, 1, false), key(0xa0, 0, false)]);
-        assert_eq!(steam_overlay(&command(r#"{"id":"stop","type":"stop"}"#), |_| unreachable!()), None);
+        let again = steam_overlay(&overlay, &playing, |_| started += 1).unwrap();
+        assert_eq!(again["code"], "steam-overlay-busy");
+        assert_eq!(started, 1);
+        playing.store(false, Ordering::Release);
+        assert!(steam_overlay(&overlay, &playing, |_| started += 1).is_some());
+        assert_eq!(started, 2);
+        assert_eq!(steam_overlay(&command(r#"{"id":"stop","type":"stop"}"#), &playing, |_| unreachable!()), None);
     }
 }

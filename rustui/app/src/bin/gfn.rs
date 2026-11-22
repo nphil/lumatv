@@ -201,7 +201,7 @@ impl PadSide {
         let mut buf = [0u8; 512];
         while let Ok(n) = self.sock.recv(&mut buf) {
             if let [MENU_DATAGRAM, i] = buf[..n] {
-                out.extend(MENU_KEYS.get(usize::from(i)).map(|k| Input::MenuPad(pad_key(*k))));
+                out.extend(MENU_KEYS.get(usize::from(i)).and_then(|k| pad_key(*k)).map(Input::MenuPad));
                 continue;
             }
             let Ok(v) = serde_json::from_slice::<Value>(&buf[..n]) else { continue };
@@ -217,7 +217,7 @@ impl PadSide {
                 Some("report") => {
                     let axis = |k: &str| v[k].as_i64().unwrap_or(0).clamp(-32_768, 32_767) as i16;
                     let state = PadState { buttons: v["buttons"].as_u64().unwrap_or(0) as u16, left_x: axis("lx"), left_y: axis("ly"), ..PadState::default() };
-                    self.engine_keys.feed(&state, |k| out.push(Input::Pad(pad_key(k))));
+                    self.engine_keys.feed(&state, |k| out.extend(pad_key(k).map(Input::Pad)));
                 }
                 _ => {}
             }
@@ -226,12 +226,13 @@ impl PadSide {
     }
 }
 
-/// A menu key of the app's own pads on the pad side's socket: this byte, then the key's place in [`MENU_KEYS`].
+/// A menu key of the app's own pads on the pad side's socket: this byte, then the key's place in [`MENU_KEYS`]. X (`MenuKey::Alt`) is
+/// not in it: this shell has nothing on it.
 const MENU_DATAGRAM: u8 = b'm';
 const MENU_KEYS: [MenuKey; 7] = [MenuKey::Up, MenuKey::Down, MenuKey::Left, MenuKey::Right, MenuKey::Ok, MenuKey::Back, MenuKey::Menu];
 
-fn pad_key(k: MenuKey) -> PadKey {
-    match k {
+fn pad_key(k: MenuKey) -> Option<PadKey> {
+    Some(match k {
         MenuKey::Up => PadKey::Up,
         MenuKey::Down => PadKey::Down,
         MenuKey::Left => PadKey::Left,
@@ -239,7 +240,8 @@ fn pad_key(k: MenuKey) -> PadKey {
         MenuKey::Ok => PadKey::Ok,
         MenuKey::Back => PadKey::Back,
         MenuKey::Menu => PadKey::Guide,
-    }
+        MenuKey::Alt => return None,
+    })
 }
 
 /// The pads as the menus' remote while no stream starts or runs ([`App::wants_pads`]): held exclusively, so that LG's compositor

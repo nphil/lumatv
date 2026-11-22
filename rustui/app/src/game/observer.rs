@@ -54,9 +54,17 @@ pub fn phase_word(phase: Option<&Phase>) -> &'static str {
     }
 }
 
+/// H.273 transfer characteristics that carry HDR: SMPTE ST 2084 (PQ) and ARIB STD-B67 (HLG).
+const TRANSFER_PQ: u8 = 16;
+const TRANSFER_HLG: u8 = 18;
+
 /// Why a stream is not HDR, from the stream and what was asked for. The engines' own wording never leaves the TV.
+/// A stream the engine declared HDR still reads `service_sent_sdr` when its own colour tags are neither PQ nor HLG: the tags are what the service really sent.
 pub fn sdr_kind(stream: &StreamInfo, wanted: bool) -> &'static str {
-    if stream.hdr { return "none"; }
+    if stream.hdr {
+        let sdr_tags = stream.vui.is_some_and(|vui| !matches!(vui.transfer, TRANSFER_PQ | TRANSFER_HLG));
+        return if wanted && sdr_tags { "service_sent_sdr" } else { "none" };
+    }
     if !wanted { return "not_requested"; }
     match stream.sdr_reason.as_deref() {
         Some(reason) if reason.contains("no HDR for this game") => "game_unsupported",
@@ -123,6 +131,8 @@ struct Tracked {
     queue: Option<u32>,
     began: u64,
     format: Option<StreamInfo>,
+    /// The `hdr_missing` reasons already sent, so a stream that is re-announced (its colour tags arrive after the first line) never repeats one.
+    missing: Vec<&'static str>,
     running: Option<u64>,
     left: Option<u64>,
     over: bool,
@@ -257,9 +267,13 @@ impl Observer {
                         ms: now, session: t.id, codec: stream.codec.as_str(), width: stream.width, height: stream.height, fps: stream.fps,
                         // The engines do not report depth: HDR streams are 10-bit and SDR ones 8-bit.
                         bit_depth: if stream.hdr { 10 } else { 8 }, hdr: stream.hdr, want_hdr: seen.want.hdr, sdr: sdr_kind(stream, seen.want.hdr),
-                        audio: stream.audio_channels, want_fps: seen.want.fps, want_height: seen.want.height,
+                        audio: stream.audio_channels, want_fps: seen.want.fps, want_height: seen.want.height, vui: stream.vui,
                     });
-                    if seen.want.hdr && !stream.hdr { out.push(Event::HdrMissing { ms: now, session: t.id, engine: t.engine, why: sdr_kind(stream, true) }); }
+                    let sdr = sdr_kind(stream, seen.want.hdr);
+                    if seen.want.hdr && sdr != "none" && !t.missing.contains(&sdr) {
+                        t.missing.push(sdr);
+                        out.push(Event::HdrMissing { ms: now, session: t.id, engine: t.engine, why: sdr });
+                    }
                 }
             }
             Phase::Stopping | Phase::Done(_) if t.running.is_some() && t.left.is_none() => {
@@ -274,7 +288,8 @@ impl Observer {
             let unexpected = matches!(by, "engine" | "engine_exit" | "timeout");
             let code = match outcome { Outcome::Failed { message, .. } => ipc::failure_code(message).map(str::to_owned), _ => None };
             let (outcome, reason, level) = match outcome {
-                Outcome::Ended(reason) => ("ended", reason.as_str(), if unexpected { Level::Warn } else { Level::Info }),
+                // An idle end is the far side's policy working as designed, even though the engine is what reported it.
+                Outcome::Ended(reason) => ("ended", reason.as_str(), if unexpected && !matches!(reason, ipc::EndReason::Idle) { Level::Warn } else { Level::Info }),
                 Outcome::Failed { reason, .. } => ("failed", reason.as_str(), Level::Error),
                 Outcome::Cancelled => ("cancelled", "none", Level::Info),
             };
@@ -442,7 +457,7 @@ mod tests {
     const WANT: Want = Want { hdr: true, fps: 60, height: 2160 };
 
     fn negotiated(hdr: bool, sdr_reason: Option<&str>) -> StreamInfo {
-        StreamInfo { codec: Codec::H265, width: 3840, height: 2160, fps: 60, hdr, audio_channels: 6, sdr_reason: sdr_reason.map(str::to_owned) }
+        StreamInfo { codec: Codec::H265, width: 3840, height: 2160, fps: 60, hdr, audio_channels: 6, sdr_reason: sdr_reason.map(str::to_owned), vui: None }
     }
     fn seen<'a>(phase: &'a Phase, stream: Option<&'a StreamInfo>, ended_by: Option<&'static str>) -> Seen<'a> {
         Seen { id: 7, engine: "gfn", phase, stream, ended_by, played_s: Some(95), want: WANT }
@@ -567,6 +582,7 @@ mod tests {
             (Outcome::Ended(EndReason::Remote), "engine", Level::Warn, "ended", "remote"),
             (Outcome::Ended(EndReason::Remote), "engine_exit", Level::Warn, "ended", "remote"),
             (Outcome::Ended(EndReason::Remote), "timeout", Level::Warn, "ended", "remote"),
+            (Outcome::Ended(EndReason::Idle), "engine", Level::Info, "ended", "idle"),
             (Outcome::Cancelled, "owner", Level::Info, "cancelled", "none"),
         ];
         for (outcome, by, level, word, reason) in cases {
@@ -633,6 +649,60 @@ mod tests {
         assert_eq!(sdr_kind(&negotiated(false, None), true), "unreported");
         assert_eq!([engine_word("gfn"), engine_word("punktfunk"), engine_word("Alice's Engine")], ["gfn", "punktfunk", "other"]);
         assert_eq!([phase_word(None), phase_word(Some(&Phase::SignIn)), phase_word(Some(&Phase::Queue { position: None, eta_s: None }))], ["none", "sign-in", "queue"]);
+    }
+
+    fn tagged(hdr: bool, sdr_reason: Option<&str>, [primaries, transfer, matrix]: [u8; 3]) -> StreamInfo {
+        StreamInfo { vui: Some(ipc::Vui { primaries, transfer, matrix, full_range: false }), ..negotiated(hdr, sdr_reason) }
+    }
+    /// What a session logs when it is shown these streams in turn, while HDR is or is not wanted.
+    fn shown(want_hdr: bool, streams: &[StreamInfo]) -> Vec<Event> {
+        let mut o = observer(Level::Info);
+        let mut out = Vec::new();
+        for (n, stream) in streams.iter().enumerate() {
+            o.session(1000 + n as u64, Some(Seen { want: Want { hdr: want_hdr, ..WANT }, ..seen(&Phase::Running, Some(stream), None) }), &mut out);
+        }
+        out
+    }
+    fn why(out: &[Event]) -> Vec<String> { only(out, "hdr_missing").iter().map(|v| v["why"].as_str().unwrap().to_owned()).collect() }
+
+    #[test]
+    fn the_streams_own_colour_tags_decide_whether_declared_hdr_arrived() {
+        let cases = [
+            ("PQ", true, tagged(true, None, [9, 16, 9]), "none", None),
+            ("HLG", true, tagged(true, None, [9, 18, 9]), "none", None),
+            ("BT.709", true, tagged(true, None, [1, 1, 1]), "service_sent_sdr", Some("service_sent_sdr")),
+            ("unspecified", true, tagged(true, None, [2, 2, 2]), "service_sent_sdr", Some("service_sent_sdr")),
+            ("not wanted", false, tagged(true, None, [1, 1, 1]), "none", None),
+            ("no tags", true, negotiated(true, None), "none", None),
+        ];
+        for (name, want, stream, sdr, missing) in cases {
+            let out = shown(want, std::slice::from_ref(&stream));
+            let [format] = only(&out, "stream_format").try_into().unwrap_or_else(|_| panic!("{name}: one stream_format"));
+            assert_eq!((format["sdr"].as_str(), format["hdr"].as_bool(), format["vui"] != Value::Null), (Some(sdr), Some(true), stream.vui.is_some()), "{name}");
+            assert_eq!(why(&out), missing.into_iter().collect::<Vec<_>>(), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_stream_format_with_tags_carries_them_and_the_warning_is_the_same_line_as_before() {
+        let out = shown(true, &[tagged(true, None, [9, 16, 9])]);
+        assert_eq!(json_of(&out)[1], json!({"event": "stream_format", "ms": 1000, "session": 7, "codec": "h265", "width": 3840, "height": 2160, "fps": 60, "bit_depth": 10, "hdr": true, "want_hdr": true, "sdr": "none", "audio": 6, "want_fps": 60, "want_height": 2160,
+            "vui": {"primaries": 9, "transfer": 16, "matrix": 9, "full_range": false}}));
+        let out = shown(true, &[tagged(true, None, [1, 1, 1])]);
+        assert_eq!(json_of(&out)[2], json!({"event": "hdr_missing", "ms": 1000, "session": 7, "engine": "gfn", "why": "service_sent_sdr"}));
+        assert_allowlisted(&serde_json::to_string(&out[1]).unwrap());
+    }
+
+    #[test]
+    fn colour_tags_that_arrive_after_the_first_line_never_repeat_a_warning() {
+        // Declared SDR for a service that sent none: the tags change nothing, the reason was already given.
+        let sdr = negotiated(false, Some("SDR: GeForce NOW sent no HDR"));
+        let out = shown(true, &[sdr.clone(), StreamInfo { vui: Some(ipc::Vui { primaries: 1, transfer: 1, matrix: 1, full_range: false }), ..sdr }]);
+        assert_eq!((only(&out, "stream_format").len(), why(&out)), (2, vec!["service_sent_sdr".to_owned()]));
+        // Declared HDR that the tags then contradict: warned once, when they arrive.
+        let out = shown(true, &[negotiated(true, None), tagged(true, None, [1, 1, 1]), tagged(true, None, [1, 1, 1])]);
+        assert_eq!((only(&out, "stream_format").len(), why(&out)), (2, vec!["service_sent_sdr".to_owned()]));
+        assert_eq!(names(&out).iter().position(|n| n.starts_with("hdr_missing")), Some(names(&out).len() - 1));
     }
 
     #[test]

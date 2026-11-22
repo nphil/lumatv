@@ -9,11 +9,12 @@
 #   gfn         lumagame-engine-gfn, OpenNOW's core and the stream engine; the core execs the stream engine by path with no loader of
 #               its own, so both are shell wrappers that run the real binaries through the package's loader
 #   punktfunk   lumagame-engine-punktfunk
+#   steam       lumagame-engine-steam
 #   gamestream  the GPL-3.0 release pinned in game/engines.lock, fetched and checked by game/tools/fetch-gamestream.sh
 #
 # Needs: GF_UI_GAME's feeder from sh gfn/feeder/build.sh; cd gfn/engine && cargo zigbuild --release --target
 # aarch64-unknown-linux-gnu.2.36 -p lumatv-gfn-streamer; sh gfn/engine/build-core.sh; sh rustui/tools/build-game.sh; cd game && cargo
-# zigbuild --locked --release --target aarch64-unknown-linux-gnu.2.36 -p lumagame-engine-gfn; game/engines/punktfunk/build.sh;
+# zigbuild --locked --release --target aarch64-unknown-linux-gnu.2.36 -p lumagame-engine-gfn; game/engines/punktfunk/build.sh; game/engines/steam/build.sh;
 # gfx64/fetch-blob.sh and gfx64/build.sh.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
@@ -27,16 +28,17 @@ core=$root/gfn/build/core/aarch64/opennow-core
 opennow_license=$root/gfn/build/OpenNOW/LICENSE
 streamer=$root/gfn/engine/target/aarch64-unknown-linux-gnu/release/opennow-streamer
 punktfunk=$here/engines/punktfunk
+steam=$here/engines/steam
 bundle=$root/gfx64/build/bundle/lib
 shim=$root/gfx64/build/out/heapshim.so
-for f in "$feeder" "$ui" "$gfn" "$core" "$opennow_license" "$streamer" "$punktfunk/bin/lumagame-engine-punktfunk" "$shim" \
+for f in "$feeder" "$ui" "$gfn" "$core" "$opennow_license" "$streamer" "$punktfunk/bin/lumagame-engine-punktfunk" "$steam/bin/lumagame-engine-steam" "$shim" \
   "$bundle/ld-linux-aarch64.so.1" "$root/gfx64/launch.sh"; do
   [ -e "$f" ] || { echo "missing $f (see the header of this script)" >&2; exit 1; }
 done
 build=$here/build/ipk
 data=$build/data/usr/palm/applications/$id
 rm -rf "$build"
-mkdir -p "$data/bin64" "$data/gfx64/bundle" "$data/engines/gfn/bin" "$data/engines/punktfunk/bin" "$build/control"
+mkdir -p "$data/bin64" "$data/gfx64/bundle" "$data/engines/gfn/bin" "$data/engines/punktfunk/bin" "$data/engines/steam/bin" "$build/control"
 cp "$here/package/appinfo.json" "$here/package/run64.sh" "$here/package/icon.png" "$here/package/largeIcon.png" \
   "$here/package/extraLargeIcon.png" "$data/"
 cp "$feeder" "$data/lumagame-main"
@@ -62,10 +64,13 @@ done
 cp "$punktfunk/engine.json" "$punktfunk/LICENSE-APACHE" "$punktfunk/THIRD-PARTY-NOTICES.txt" "$data/engines/punktfunk/"
 cp "$punktfunk/bin/lumagame-engine-punktfunk" "$data/engines/punktfunk/bin/"
 
+cp "$steam/engine.json" "$data/engines/steam/"
+cp "$steam/bin/lumagame-engine-steam" "$data/engines/steam/bin/"
+
 sh "$here/tools/fetch-gamestream.sh" "$data"
 
 chmod 755 "$data/lumagame-main" "$data/run64.sh" "$data/bin64/"* "$data/gfx64/launch.sh" "$data/gfx64/bundle/lib/ld-linux-aarch64.so.1" \
-  "$engine/bin/"* "$data/engines/punktfunk/bin/"*
+  "$engine/bin/"* "$data/engines/punktfunk/bin/"* "$data/engines/steam/bin/"*
 ( cd "$data" && find . -type f ! -name build-id -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16 ) > "$data/build-id"
 build_id=$(cat "$data/build-id")
 ( cd "$build/data" && tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='1970-01-01 00:00:00 UTC' -czf ../data.tar.gz . )

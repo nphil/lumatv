@@ -87,7 +87,7 @@ impl Library {
 
 fn desktop() -> LibraryEntry {
     LibraryEntry { id: ProviderGameId::new(DESKTOP).unwrap(), title: "Desktop".into(), role: Role::Launcher, external: Vec::new(), store: None,
-        store_account: None, art: Art::default(), readiness: Readiness::Ready, resumable: false }
+        store_account: None, art: Art::default(), readiness: Readiness::Ready, resumable: false, activity: Default::default() }
 }
 fn steam_id(t: &Title) -> Option<String> {
     let id = t.game.id.strip_prefix("steam:").map(str::to_owned).or_else(|| match t.steam_appid.as_ref()? {
@@ -111,7 +111,7 @@ fn convert(titles: Vec<Title>) -> Result<Vec<LibraryEntry>> {
         ensure!(t.game.store.len() <= 128, "Invalid host store name");
         Ok(LibraryEntry { id: ProviderGameId::new(t.game.id).context("Invalid host game id")?, title: t.game.title, role,
             external: if role == Role::Game { steam.map(|id| ExternalId::new("steam", id).unwrap()).into_iter().collect() } else { Vec::new() },
-            store: Some(t.game.store), store_account: None, art, readiness, resumable: false })
+            store: Some(t.game.store), store_account: None, art, readiness, resumable: false, activity: Default::default() })
     }).collect()
 }
 

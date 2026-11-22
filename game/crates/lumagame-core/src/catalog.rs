@@ -8,11 +8,14 @@
 //! - A title never merges anything. Two entries with the same title and no shared id stay two cards; the app may offer to link
 //!   them ([`same_title`]) and does nothing until the owner agrees.
 //! - A launcher (a desktop, Big Picture) is never a game and never merges, whatever ids it carries.
+//! - A record ([`Role::Record`]) is what an account knows about a game, not a game: it never makes a card or an id. It is put on the
+//!   game that has one of its ids ([`Game::reports`]), and on no game when none has one or two do.
 //! - An entry's own id means something only on its engine and target: `42` on one PC is not `42` on another.
 //!
 //! [`Identity`] is the saved half: it gives each game a [`GameId`] the first time it is seen and keeps it, so favourites, history
 //! and remembered targets survive an engine being switched off, a PC being asleep and a library being re-read.
 
+use crate::activity::Report;
 use crate::ids::{EngineId, ExternalId, GameId, ProviderGameId, SourceKey, TargetId};
 use crate::ipc::{LibraryEntry, Readiness, Role};
 use serde::{Deserialize, Serialize};
@@ -117,6 +120,8 @@ pub struct Game {
     pub title: String,
     /// In [`SourceKey`] order.
     pub sources: Vec<Source>,
+    /// What the services say about the game: its own sources', then the accounts' records that share one of its ids. By engine.
+    pub reports: Vec<Report>,
 }
 
 impl Game {
@@ -181,6 +186,7 @@ pub fn build(identity: &mut Identity, mut sources: Vec<Source>) -> (Vec<Game>, V
     // A game's id must not depend on which engine answered first.
     sources.sort_by_cached_key(Source::key);
     sources.dedup_by_key(|s| s.key());
+    let (records, sources): (Vec<Source>, Vec<Source>) = sources.into_iter().partition(|s| s.entry.role == Role::Record);
 
     let mut merges: Vec<Merge> = Vec::new();
     let mut placed: Vec<(GameId, Source)> = Vec::with_capacity(sources.len());
@@ -208,11 +214,41 @@ pub fn build(identity: &mut Identity, mut sources: Vec<Source>) -> (Vec<Game>, V
             // The source that identifies the game best names it: a store's entry carries the published title, where a host's own list
             // may carry whatever its owner typed.
             let named = sources.iter().rev().max_by_key(|s| s.entry.external.len()).expect("a game has a source");
-            Game { id, role: named.entry.role, title: named.entry.title.clone(), sources }
+            let reports = sources.iter().filter(|s| !s.entry.activity.is_empty()).map(|s| Report { engine: s.engine.clone(), activity: s.entry.activity.clone() }).collect();
+            Game { id, role: named.entry.role, title: named.entry.title.clone(), sources, reports }
         })
         .collect();
+    attach(&mut games, &records);
     games.sort_by_cached_key(|g| (sort_key(&g.title), g.id));
     (games, merges)
+}
+
+/// Puts each record's activity on the one game that has one of the record's ids. An id two games both have (the owner kept them
+/// apart) names neither, and a record whose ids name two different games belongs to neither: nothing is put on a game it may not
+/// be about. A record with no id, or none that a game has, is dropped. A launcher never takes a record, whatever ids it carries.
+fn attach(games: &mut [Game], records: &[Source]) {
+    let mut owner: BTreeMap<ExternalId, Option<usize>> = BTreeMap::new();
+    for (index, game) in games.iter().enumerate().filter(|(_, g)| g.role == Role::Game) {
+        for id in game.external() {
+            let slot = owner.entry(id.clone()).or_insert(Some(index));
+            if *slot != Some(index) {
+                *slot = None;
+            }
+        }
+    }
+    let mut touched = BTreeSet::new();
+    for record in records.iter().filter(|r| !r.entry.activity.is_empty()) {
+        let mut named = record.entry.external.iter().filter_map(|id| owner.get(id).copied().flatten());
+        let Some(game) = named.next() else { continue };
+        if named.any(|other| other != game) {
+            continue;
+        }
+        games[game].reports.push(Report { engine: record.engine.clone(), activity: record.entry.activity.clone() });
+        touched.insert(game);
+    }
+    for game in touched {
+        games[game].reports.sort_by(|a, b| a.engine.cmp(&b.engine));
+    }
 }
 
 /// A title as it sorts and compares: lowercase letters and digits, single spaces, no leading article.
@@ -271,7 +307,10 @@ impl Listing {
     /// Replaces what one target listed. An empty library is a fact too; a failed refresh must not call this.
     pub fn replace(&mut self, engine: &EngineId, target: &TargetId, entries: Vec<LibraryEntry>) {
         self.sources.retain(|s| !(&s.engine == engine && &s.target == target));
-        self.sources.extend(entries.into_iter().map(|entry| Source { engine: engine.clone(), target: target.clone(), entry }));
+        self.sources.extend(entries.into_iter().map(|mut entry| {
+            entry.activity.clamp();
+            Source { engine: engine.clone(), target: target.clone(), entry }
+        }));
     }
 
     /// Drops a target that was unlinked.
@@ -316,6 +355,7 @@ pub fn derived_id(parts: &[&str]) -> ProviderGameId {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::activity::Activity;
     use crate::ipc::Art;
 
     fn source(engine: &str, target: &str, id: &str, title: &str, external: &[&str]) -> Source {
@@ -332,6 +372,7 @@ mod tests {
                 art: Art::default(),
                 readiness: Readiness::Unknown,
                 resumable: false,
+                activity: Activity::default(),
             },
         }
     }
@@ -381,6 +422,68 @@ mod tests {
         );
         assert_eq!(titles(&games), [("Desktop", 1), ("Desktop", 1), ("Elden Ring", 1), ("Steam Big Picture", 1)]);
         assert!(!same_title(&games[0], &games[1]), "two desktops are not offered as one game either");
+    }
+
+    fn record(engine: &str, id: &str, external: &[&str], activity: Activity) -> Source {
+        let mut s = source(engine, "acct", id, id, external);
+        s.entry.role = Role::Record;
+        s.entry.activity = activity;
+        s
+    }
+
+    fn played(at: u64) -> Activity {
+        Activity { last_played: Some(at), playtime_s: Some(60), ..Activity::default() }
+    }
+
+    fn reports(game: &Game) -> Vec<(&str, Option<u64>, bool)> {
+        game.reports.iter().map(|r| (r.engine.as_str(), r.activity.last_played, r.activity.favourite)).collect()
+    }
+
+    #[test]
+    fn a_record_is_put_on_the_game_that_shares_its_id_and_is_never_a_card() {
+        let mut identity = Identity::default();
+        let mut cloud = source("gfn", "acct", "100", "Elden Ring", &["gfn:100", "steam:1245620"]);
+        cloud.entry.activity = Activity { favourite: true, ..Activity::default() };
+        let (games, merges) = build(
+            &mut identity,
+            vec![
+                record("steam", "620", &["steam:620"], played(5)),
+                record("steam", "1245620", &["steam:1245620"], played(9)),
+                record("steam", "no-id", &[], played(7)),
+                record("steam", "unowned", &["steam:999"], played(7)),
+                cloud,
+                source("punktfunk", "pc1", "620", "Portal 2", &["steam:620"]),
+                source("gamestream", "pc1", "881", "Hades", &[]),
+            ],
+        );
+        assert_eq!(titles(&games), [("Elden Ring", 1), ("Hades", 1), ("Portal 2", 1)], "a record makes no card");
+        assert!(merges.is_empty());
+        assert_eq!(reports(&games[0]), [("gfn", None, true), ("steam", Some(9), false)], "its own source's, then the account's");
+        assert!(games[1].reports.is_empty(), "a record with no id, or one no game has, goes nowhere");
+        assert_eq!(reports(&games[2]), [("steam", Some(5), false)]);
+        assert_eq!(identity.game_of(&record("steam", "620", &[], Activity::default()).key()), None, "a record is given no game id");
+    }
+
+    #[test]
+    fn a_record_that_two_games_could_own_goes_on_neither_and_a_launcher_takes_none() {
+        let mut identity = Identity::default();
+        let apart = source("punktfunk", "pc1", "elden", "Elden Ring", &["steam:1245620"]);
+        identity.unlink(apart.key());
+        let (games, _) = build(
+            &mut identity,
+            vec![
+                source("gfn", "acct", "100", "Elden Ring", &["steam:1245620"]),
+                apart,
+                launcher("punktfunk", "pc1", "bigpicture", "Steam Big Picture", &["steam:7"]),
+                source("gfn", "acct", "200", "Hades", &["steam:1145360"]),
+                source("gfn", "acct", "300", "Portal 2", &["steam:620"]),
+                record("steam", "1245620", &["steam:1245620"], played(9)),
+                record("steam", "7", &["steam:7"], played(9)),
+                record("steam", "two", &["steam:1145360", "steam:620"], played(9)),
+            ],
+        );
+        assert_eq!(games.len(), 5);
+        assert!(games.iter().all(|g| g.reports.is_empty()), "the owner kept two games apart, a record names two, a launcher is no game");
     }
 
     #[test]

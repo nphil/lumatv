@@ -20,6 +20,7 @@ use opennow_streamer_protocol::{
 };
 
 use lumagame_feeder::{self as feeder, FeederClient, FeederMessage, Hdr, Load};
+use crate::colour::ColourWatch;
 use crate::pacing::{self, Pacer, Report};
 use crate::pads::PadBridge;
 use crate::recording::{EncodedRecordingReceiver, ReplaySnapshot};
@@ -110,6 +111,14 @@ pub fn stream_telemetry(telemetry: &serde_json::Value) {
 pub fn stream_ended(termination: &serde_json::Value) {
     if let Some(rt) = RUNTIME.get() {
         rt.pads.stream_ended(termination);
+    }
+}
+
+/// The streamer's `session-timer` (the far side's idle countdown) goes to the engine's side socket; the core passes it on only as an
+/// event the engine never receives (the binary calls this before writing the event out).
+pub fn stream_idle(timer: &serde_json::Value) {
+    if let Some(rt) = RUNTIME.get() {
+        rt.pads.stream_idle(timer);
     }
 }
 
@@ -266,6 +275,7 @@ impl MediaRuntime {
             pace: Mutex::new(Pace { pacer, held: VecDeque::new(), sending: false }),
             pace_wake: Condvar::new(),
             capture,
+            colour: ColourWatch::default(),
         });
         let (loaded_tx, loaded_rx) = mpsc::channel::<Result<(), String>>();
         let reader_shared = Arc::clone(&shared);
@@ -392,6 +402,8 @@ struct Shared {
     pace_wake: Condvar,
     /// The armed diagnostics-only timing capture (vrr_capture.rs), `None` unless the UI armed one: the per-frame cost is this test.
     capture: Option<Arc<Capture>>,
+    /// What the stream's keyframes say about their colour (colour.rs). Observation only: nothing it reads changes what is forwarded.
+    colour: ColourWatch,
 }
 
 /// Video frames waiting for their release time, oldest first. `sending` covers a write in progress outside the lock, so no later
@@ -529,7 +541,11 @@ impl MediaSink {
             return PushOutcome::Closed;
         }
         match frame.codec {
-            MediaCodec::H264 | MediaCodec::H265 | MediaCodec::Av1 => self.pace(frame),
+            MediaCodec::H264 | MediaCodec::H265 | MediaCodec::Av1 => {
+                // Ahead of pace(), which consumes the frame: the colour is read whether the feeder gets the frame now, later or not at all.
+                self.shared.colour.observe(&frame, |line| self.shared.runtime.pads.stream_colour(line));
+                self.pace(frame)
+            }
             MediaCodec::Opus { .. } if self.shared.runtime.muted.load(Ordering::Acquire) => PushOutcome::Queued,
             MediaCodec::Opus { .. } => send(&self.shared, &self.client, &frame, false, NO_SLOT),
             MediaCodec::Unsupported(_) => PushOutcome::Unsupported,
@@ -815,6 +831,7 @@ mod feeder_feedback_tests {
             last_status: Mutex::new(None),
             pace: Mutex::new(Pace { pacer: Pacer::new(120, true), held: VecDeque::new(), sending: false }),
             pace_wake: Condvar::new(),
+            colour: ColourWatch::default(),
         };
         (shared, rx, loaded)
     }

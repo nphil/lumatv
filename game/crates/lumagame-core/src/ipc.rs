@@ -13,6 +13,7 @@
 //! - An engine whose standard input closes stops its session and exits. The app closing the pipe, or dying, is therefore the whole
 //!   shutdown path, and nothing an engine holds outlives the app.
 
+use crate::activity::Activity;
 use crate::engine::{AuthMethod, Codec, Descriptor};
 use crate::ids::{ExternalId, ProviderGameId, SessionId, TargetId};
 use crate::settings::{SettingsSchema, Values};
@@ -127,6 +128,11 @@ pub enum Request {
     SteamOverlay {
         session: SessionId,
     },
+    /// The viewer pressed a key the engine never sees (the remote's, a keyboard's) while an idle warning is up. The engine sends the
+    /// far side one input for that press, so it counts as the activity it is. Never sent without a warning.
+    Activity {
+        session: SessionId,
+    },
     /// An action field of the settings page was pressed.
     Action {
         key: String,
@@ -221,6 +227,13 @@ pub enum Event {
     Overlay {
         session: SessionId,
     },
+    /// The far side warns that the session ends for lack of input: `seconds` is what it left, and `None` clears the warning (input
+    /// arrived, or the far side called it off). The warning is the engine's to forward, never the app's to invent.
+    IdleWarning {
+        session: SessionId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seconds: Option<u32>,
+    },
     Error {
         code: ErrorCode,
         message: String,
@@ -298,6 +311,10 @@ word_enum! {
         Game => "game",
         /// Something that opens more than one game: a desktop, Steam Big Picture, a store client. Listed, never merged with a game.
         Launcher => "launcher",
+        /// What an account knows about a game that may be listed somewhere else: when it was played, for how long, what kind of game it
+        /// is. Never a card and never launched. The catalog puts it on the game that shares one of its `external` ids, and drops it
+        /// when there is none.
+        Record => "record",
     }
     unknown => Other
 }
@@ -325,6 +342,9 @@ pub struct LibraryEntry {
     /// A session of this game is still running on the far side and can be picked up.
     #[serde(default)]
     pub resumable: bool,
+    /// What the engine's account knows about this game besides owning it.
+    #[serde(default, skip_serializing_if = "Activity::is_empty")]
+    pub activity: Activity,
 }
 
 /// Artwork addresses: `https` URLs, or paths inside the engine's cache directory.
@@ -352,6 +372,12 @@ pub enum AuthState {
         /// What a QR code should hold, when it differs from `url`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         qr: Option<String>,
+        expires_s: u32,
+    },
+    /// A QR code for the service's phone app. `url` is what it holds; it is replaced by a new `auth` event when the service issues
+    /// another before the owner approves, and `expires_s` counts down to where the whole attempt ends.
+    Qr {
+        url: String,
         expires_s: u32,
     },
     ShowPin {
@@ -424,6 +450,19 @@ pub struct StreamInfo {
     /// Why a requested HDR picture was delivered as SDR, when the engine reports it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sdr_reason: Option<String>,
+    /// The colour tags the video stream itself carries, whatever the engine declared; absent until the first keyframe is read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vui: Option<Vui>,
+}
+
+/// The colour description in a stream's sequence parameters (H.273 code points: primaries 1 = BT.709, 9 = BT.2020; transfer 1 = BT.709,
+/// 16 = PQ, 18 = HLG; 2 = unspecified when the stream carries none).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Vui {
+    pub primaries: u8,
+    pub transfer: u8,
+    pub matrix: u8,
+    pub full_range: bool,
 }
 
 word_enum! {
@@ -434,6 +473,8 @@ word_enum! {
         Remote => "remote",
         /// The stream is closed and the game still runs there, to be picked up later.
         Suspended => "suspended",
+        /// The far side ended it for lack of input, after the idle warning went unanswered.
+        Idle => "idle",
     }
     unknown => Other
 }
@@ -549,6 +590,7 @@ word_enum! {
         Ok => "ok",
         Back => "back",
         Menu => "menu",
+        Alt => "alt",
         PageLeft => "page-left",
         PageRight => "page-right",
     }
@@ -667,6 +709,7 @@ mod tests {
             art: Art { cover: Some("https://example.invalid/cover.jpg".into()), ..Art::default() },
             readiness: Readiness::Ready,
             resumable: false,
+            activity: Activity::default(),
         }
     }
 
@@ -718,6 +761,7 @@ mod tests {
             Request::Forget { target: target() },
             Request::Wake { target: target() },
             Request::Auth { target: None, method: AuthMethod::DeviceCode },
+            Request::Auth { target: None, method: AuthMethod::Qr },
             Request::Auth { target: Some(target()), method: AuthMethod::EnterPin },
             Request::AuthPin { pin: "1234".into() },
             Request::AuthCancel,
@@ -729,6 +773,7 @@ mod tests {
             Request::Stats { session: SessionId(1), on: true, pad_timing: true },
             Request::RoundTrip { session: SessionId(1) },
             Request::SteamOverlay { session: SessionId(1) },
+            Request::Activity { session: SessionId(1) },
             Request::Action { key: "sign-out".into() },
         ];
         for (seq, request) in requests.into_iter().enumerate() {
@@ -751,7 +796,7 @@ mod tests {
                 video: None,
             },
         };
-        let stream = StreamInfo { codec: Codec::H265, width: 3840, height: 2160, fps: 120, hdr: true, audio_channels: 6, sdr_reason: None };
+        let stream = StreamInfo { codec: Codec::H265, width: 3840, height: 2160, fps: 120, hdr: true, audio_channels: 6, sdr_reason: None, vui: None };
         let session = |state| Event::Session { session: SessionId(1), state };
         let auth = |state| Event::Auth { state };
         let events = [
@@ -762,9 +807,19 @@ mod tests {
             auth(AuthState::ShowPin { pin: "4821".into() }),
             auth(AuthState::EnterPin { digits: 4 }),
             auth(AuthState::Approval { hint: None }),
+            auth(AuthState::Qr { url: "https://s.team/q/1/11860205094928508090".into(), expires_s: 300 }),
             auth(AuthState::Done { target: target() }),
             auth(AuthState::Failed { reason: AuthFail::WrongPin, message: "That PIN did not match.".into() }),
             Event::Library { target: target(), entries: vec![entry()], next: Some("p2".into()) },
+            Event::Library {
+                target: target(),
+                entries: vec![LibraryEntry {
+                    role: Role::Record,
+                    activity: Activity { last_played: Some(1_700_000_000), playtime_s: Some(7_200), genres: vec!["RPG".into()], ..Activity::default() },
+                    ..entry()
+                }],
+                next: None,
+            },
             Event::Readiness { target: target(), game: game(), readiness: Readiness::Install },
             session(SessionState::Checking),
             session(SessionState::SignIn),
@@ -781,6 +836,8 @@ mod tests {
             },
             Event::Key { key: PadKey::Back, down: true },
             Event::Overlay { session: SessionId(1) },
+            Event::IdleWarning { session: SessionId(1), seconds: Some(59) },
+            Event::IdleWarning { session: SessionId(1), seconds: None },
             Event::Error { code: ErrorCode::Unsupported, message: "wake".into() },
         ];
         for event in events {
@@ -797,6 +854,26 @@ mod tests {
         assert!(!encode(&stream).contains("sdr_reason"));
         stream.sdr_reason = Some("GeForce NOW sent no HDR".into());
         assert_eq!(decode::<StreamInfo>(&encode(&stream)).unwrap(), stream);
+    }
+
+    #[test]
+    fn stream_vui_is_optional_and_round_trips() {
+        let line = r#"{"codec":"h265","width":3840,"height":2160,"fps":60,"hdr":true,"audio_channels":2}"#;
+        let mut stream: StreamInfo = decode(line).unwrap();
+        assert_eq!(stream.vui, None);
+        assert!(!encode(&stream).contains("vui"));
+        stream.vui = Some(Vui { primaries: 9, transfer: 16, matrix: 9, full_range: false });
+        assert!(encode(&stream).contains(r#""vui":{"primaries":9,"transfer":16,"matrix":9,"full_range":false}"#));
+        assert_eq!(decode::<StreamInfo>(&encode(&stream)).unwrap(), stream);
+    }
+
+    #[test]
+    fn an_entry_carries_activity_only_when_it_has_some() {
+        assert!(!encode(&entry()).contains("activity"));
+        let page = r#"{"id":"steam:1245620","title":"Elden Ring","external":["steam:1245620"]}"#;
+        assert!(decode::<LibraryEntry>(page).unwrap().activity.is_empty(), "an engine that predates activity lists the same entries");
+        let with = LibraryEntry { activity: Activity { favourite: true, ..Activity::default() }, ..entry() };
+        assert!(encode(&with).contains(r#""activity":{"favourite":true}"#));
     }
 
     #[test]

@@ -55,7 +55,7 @@ Settings › Diagnostics also has a Log level, Info by default and for a `diagno
 |---|---|---|
 | Error | `error`: kind. `test`. `level`: level. `session_end`: session, engine, outcome, reason, by, seconds run, when the session failed, and the engine's error code (lowercase letters, digits and `_`, at most 24, read from the end of the failure message) when it gave one. | under 0.5 |
 | Warn | `hdr_missing`: session, engine, why. `frame_trouble`: drops by cause, stalls, longest gap, and the packets the TV's own network stack dropped since the last report where the engine counts them. `net_loss`: loss, RTT, jitter. `engine_error`: engine, code. `no_picture`: session, whether the video window is muted, its size, source rate and the engine's fps, when no sized, unmuted window shows five seconds after the stream ran. `controller`: slot, when a pad leaves. `session_end` when the engine, its exit or a timeout ended the session. | 2.0 |
-| Info | Unchanged: `lifecycle`, `draw`, `swap`, `render`, `stream`, `frames`. `session`: phase, milliseconds since the session began, queue position and estimate. `stream_format`: codec, size, fps, bit depth, HDR given and asked, why SDR, audio channels, fps and height asked. `display`: size, HDR type, whether the video window is muted, refresh, source rate, VRR, low delay, at stream start, on change, at its end and three seconds after. `first_picture`: session, milliseconds from the stream running and from the feeder's first frame to the first sized, unmuted video window. `controller` when a pad joins. Other `session_end`. | 22.7 |
+| Info | Unchanged: `lifecycle`, `draw`, `swap`, `render`, `stream`, `frames`. `session`: phase, milliseconds since the session began, queue position and estimate. `stream_format`: codec, size, fps, bit depth, HDR given and asked, why SDR (`service_sent_sdr` also when HDR was declared but the stream's own colour tags are not PQ or HLG), audio channels, fps and height asked, and `vui`, the colour tags the stream itself carries (primaries, transfer, matrix and full range as H.273 code points; absent until the first keyframe is read). `display`: size, HDR type, whether the video window is muted, refresh, source rate, VRR, low delay, at stream start, on change, at its end and three seconds after. `first_picture`: session, milliseconds from the stream running and from the feeder's first frame to the first sized, unmuted video window. `controller` when a pad joins. Other `session_end`. | 22.7 |
 | Debug | `detail` every two seconds: arrival rate, frame gap and arrival-to-feed time (p50, p95, p99, max), queue depth, late frames, stalls, client and host time, pad bursts and gap, panel refresh counters. | 29.3 |
 | Trace | `hist` every six seconds: counts of frame gaps (7 bins), feed times (8) and queue depths (5). `trip` after the Lab's round-trip test: press, network, host, arrival and client times. | 30.5 |
 
@@ -70,6 +70,7 @@ is a new directory and program.
 | Engine | id | Targets | Linking | Picture | Built from | Licence |
 |---|---|---|---|---|---|---|
 | GeForce NOW | `gfn` | accounts | device code | feeder | shim over `opennow-core` and `opennow-streamer` (`gfn/engine`) | MIT |
+| Steam | `steam` | account | QR scanned in the Steam phone app | none: adds play data to games other engines list | `ureq` over Steam's HTTPS interfaces (`game/engines/steam`, own workspace) | MIT |
 | Punktfunk | `punktfunk` | PCs | PIN typed on the TV, or approval on the PC | feeder | `punktfunk-core`, `pf-client-core`, client-webos session logic | MIT OR Apache-2.0 |
 | Sunshine, Apollo | `gamestream` | PCs | PIN typed on the PC | feeder | moonlight-common-c, in its own repository | GPL-3.0 |
 | TV games | `native` | this TV | none | the game's own app | inside the UI process | MIT |
@@ -98,6 +99,11 @@ Engine decisions:
 - **GeForce NOW:** `lumagame-engine-gfn` translates the IPC to OpenNOW's core protocol; `opennow-core` and `opennow-streamer` stay as
   they are. The protocol rules now in `rustui/app/src/gfn/` move into the shim. Its settings schema takes its defaults from a
   migrated `prefs.json` when one is present (see Migration).
+  `StreamInfo.vui` (primaries, transfer, matrix, full range as H.273 code points) is the colour the video stream itself carries,
+  absent until read; the engine declares `hdr`, and `vui` is what was observed, never fed back into it. The streamer sends it as the
+  pad-bridge line `{"stream":"colour","codec":"h265","primaries":9,"transfer":16,"matrix":9,"full_range":false}` once from the first
+  keyframe's parameter sets and again only on a change; the adapter repeats Running with the same stream plus `vui` (the app's
+  `stream_format` follows a changed stream), or attaches it to the first Running if it came earlier.
 - **Punktfunk:** a 64-bit engine on `punktfunk-core` and `pf-client-core`, with the session logic of client-webos ported, feeding
   the shared feeder. Rejected: running Punktfunk's own 32-bit client as a child (it is not `main`, so it has no NDL role, and it
   would be a second NDL path). Risks: the `aws-lc-rs` cross-build for aarch64 glibc 2.36; parity with the stock client, to be
@@ -153,6 +159,10 @@ drop (**measured**, `docs/research/round9-result.md`): that is throughput, not l
   unchecked: a saved "ready" is not a checked one.
 - Saves are called shared only when store, store account and the store's cloud-save support are all known; otherwise separate or
   unknown.
+- `Role::Record` entries carry an engine's own data about a game (Steam: last played, play time, genres, tags) by external id.
+  Each attaches to the one `Role::Game` game with that id and never becomes a card; a game's own entry may carry the same
+  `activity` (GeForce NOW). `activity` merges this TV's history and every service's report: latest last-played, longest play time
+  (never a sum), joined genres, own favourites plus services' marks.
 
 Artwork and metadata: Steam's own images by app id lead when a game has a Steam id (uniform sizes), then each source's own, then
 a drawn card. All of it is fetched and cached on the TV (`cache/art/`, bounded, least recently used first out) and never

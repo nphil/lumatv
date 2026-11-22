@@ -45,8 +45,17 @@ impl Bridge {
     /// it only as a status it reports when asked. Sent although the session is no longer live, because the streamer stops its media
     /// before it announces the end.
     fn ended(&self, termination: &serde_json::Value) {
-        self.aside(serde_json::json!({"stream":"ended", "source":termination["source"], "resumable":termination["resumable"]}).to_string());
+        self.aside(serde_json::json!({"stream":"ended", "source":termination["source"], "reason":termination["reason"], "resumable":termination["resumable"]}).to_string());
     }
+}
+
+/// The streamer's `session-timer` as the engine reads it: the seconds left while the far side's idle warning (timer type 4) is on, and
+/// null once it is off. Type 4 with `active` false is the transport confirming input was delivered; type 5 is the server's own clear.
+/// Other timers are not the idle warning.
+fn idle_line(timer: &serde_json::Value) -> Option<String> {
+    let kind = timer["timerType"].as_u64().filter(|k| matches!(k, 4 | 5))?;
+    let seconds = (kind == 4 && timer["active"] == true).then(|| timer["secondsLeft"].as_u64()).flatten();
+    Some(serde_json::json!({"stream":"idle", "seconds":seconds}).to_string())
 }
 
 fn stream_line(t: &serde_json::Value) -> String {
@@ -250,6 +259,18 @@ impl PadBridge {
         self.bridge.ended(termination);
     }
 
+    pub fn stream_idle(&self, timer: &serde_json::Value) {
+        if let Some(line) = idle_line(timer) {
+            self.bridge.aside(line);
+        }
+    }
+
+    /// The colour tags of the stream's keyframes (colour.rs), already a wire line. Sent whether or not the session is marked live: a
+    /// change is said once, so a drop would leave the engine without the stream's colour for the rest of the session.
+    pub fn stream_colour(&self, line: String) {
+        self.bridge.aside(line);
+    }
+
     pub fn set_paused(&self, paused: bool) {
         self.bridge.paused.store(paused, Ordering::Release);
     }
@@ -401,12 +422,40 @@ mod tests {
         app.set_nonblocking(true).unwrap();
         let side = UnixDatagram::unbound().unwrap();
         let b = Bridge { queue: Arc::new(CapturedInputQueue::default()), active: AtomicBool::new(false), paused: AtomicBool::new(false), side: Some((side, path)), timing: Mutex::new(std::array::from_fn(|_| TimedPad::default())), stats: AtomicBool::new(false), stats_due: AtomicU64::new(0) };
-        b.ended(&serde_json::json!({"source":"nvst-server","code":"server-terminated","resumable":false}));
+        b.ended(&serde_json::json!({"source":"nvst-server","code":"server-terminated","wireCode":0x8003_0023_u32,"reason":56,"resumable":false}));
         let mut buf = [0u8; 512];
         let n = app.recv(&mut buf).unwrap();
         let line: serde_json::Value = serde_json::from_slice(&buf[..n]).unwrap();
-        assert_eq!(line, serde_json::json!({"stream":"ended","source":"nvst-server","resumable":false}));
+        assert_eq!(line, serde_json::json!({"stream":"ended","source":"nvst-server","reason":56,"resumable":false}));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_streams_colour_reaches_the_side_socket_without_a_live_session() {
+        let dir = std::env::temp_dir().join(format!("gfn-stream-colour-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pad.sock");
+        let app = UnixDatagram::bind(&path).unwrap();
+        app.set_nonblocking(true).unwrap();
+        let side = UnixDatagram::unbound().unwrap();
+        let bridge = Bridge { queue: Arc::new(CapturedInputQueue::default()), active: AtomicBool::new(false), paused: AtomicBool::new(false), side: Some((side, path)), timing: Mutex::new(std::array::from_fn(|_| TimedPad::default())), stats: AtomicBool::new(false), stats_due: AtomicU64::new(0) };
+        let line = r#"{"stream":"colour","codec":"h265","primaries":9,"transfer":16,"matrix":9,"full_range":false}"#;
+        PadBridge { bridge: Arc::new(bridge), runtime: Mutex::new(None) }.stream_colour(line.to_owned());
+        let mut buf = [0u8; 512];
+        let n = app.recv(&mut buf).unwrap();
+        assert_eq!(&buf[..n], line.as_bytes());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_far_sides_idle_countdown_is_told_in_seconds_and_cleared_by_input_or_its_own_clear() {
+        let timer = |kind: u64, seconds: u64, active: bool| serde_json::json!({"type":"session-timer","timerType":kind,"secondsLeft":seconds,"active":active});
+        let line = |t: serde_json::Value| idle_line(&t).map(|l| serde_json::from_str::<serde_json::Value>(&l).unwrap());
+        assert_eq!(line(timer(4, 59, true)), Some(serde_json::json!({"stream":"idle","seconds":59})));
+        // Delivered input (type 4, inactive) and the server's own clear (type 5) both end the countdown.
+        assert_eq!(line(timer(4, 0, false)), Some(serde_json::json!({"stream":"idle","seconds":null})));
+        assert_eq!(line(timer(5, 0, false)), Some(serde_json::json!({"stream":"idle","seconds":null})));
+        assert_eq!(line(timer(1, 30, true)), None, "other timers are not the idle warning");
     }
 
     #[test]

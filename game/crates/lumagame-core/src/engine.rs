@@ -29,6 +29,8 @@ word_enum! {
         Native => "native",
         /// On this TV, inside the engine.
         Emulator => "emulator",
+        /// An account that keeps a library and a play history and plays nothing: it only reports what it knows (Steam).
+        Account => "account",
     }
     unknown => Other
 }
@@ -55,6 +57,8 @@ word_enum! {
         EnterPin => "enter-pin",
         /// The TV asks and the owner allows it on the host (Punktfunk's access request).
         Approval => "approval",
+        /// The TV shows a QR code; the owner scans it with the service's phone app and approves there (Steam).
+        Qr => "qr",
     }
     unknown => Other
 }
@@ -68,6 +72,8 @@ word_enum! {
         Frames => "frames",
         /// The game is an app of its own and the TV shows it; LumaGame leaves the screen until it ends.
         App => "app",
+        /// Nothing runs: the engine only reports what an account knows about games.
+        Nothing => "nothing",
     }
     unknown => Other
 }

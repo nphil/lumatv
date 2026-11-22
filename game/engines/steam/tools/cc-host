@@ -1,0 +1,9 @@
+#!/bin/bash
+args=()
+for arg in "$@"; do
+    case "$arg" in
+        --target=*-unknown-linux-gnu) arg="${arg/-unknown/}" ;;
+    esac
+    args+=("$arg")
+done
+exec zig cc "${args[@]}"

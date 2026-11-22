@@ -3,6 +3,7 @@ mod art;
 mod glyph;
 mod lab;
 mod launch;
+mod idle;
 mod pages;
 mod paint;
 mod settings;
@@ -16,6 +17,8 @@ use compositor_protocol::{Ease, GroupPose, PoseBinding, PoseProperties, Props};
 use lumagame_meta::Image;
 use lumatv_tokens::{Tokens, TypeRole};
 use paint::{Body, Node, Paint};
+#[cfg(test)]
+pub(super) use paint::HUD;
 use std::{
     collections::{BTreeMap, BTreeSet},
     io,
@@ -224,7 +227,7 @@ impl GameUi {
                 }
             }
         }
-        if model.view.page == Page::Running && !model.hud_visible() {
+        if model.view.page == Page::Running && !model.hud_visible() && model.idle_left().is_none() {
             let changed = !self.nodes.is_empty();
             self.nodes.clear();
             self.hits.clear();
@@ -257,34 +260,7 @@ impl GameUi {
         } else {
             BTreeMap::new()
         };
-        let mut p = Paint::new(&self.tokens, model, &mut self.ui.fonts);
-        p.scroll_positions = scroll_positions;
-        if model.view.page != Page::Running { pages::canvas(&mut p, model.view.page == Page::Launch); }
-        match model.view.page {
-            Page::Home => pages::home(&mut p),
-            Page::Library => pages::library(&mut p, false),
-            Page::Search => pages::library(&mut p, true),
-            Page::Hub => pages::hub(&mut p),
-            Page::Settings => settings::settings(&mut p),
-            Page::Integration => settings::integration(&mut p),
-            Page::Launch => launch::launch(&mut p),
-            Page::Overlay => sheets::overlay(&mut p),
-            Page::Media => sheets::media(&mut p),
-            Page::Lab => lab::lab(&mut p),
-            Page::GameSir => settings::gamesir(&mut p),
-            Page::Leadjoy => settings::leadjoy(&mut p),
-            Page::Running => stats::show(&mut p),
-        }
-        p.fit_focus();
-        let sheet_start = p.plan.nodes.len();
-        if model.view.sheet.is_some() {
-            p.plan.hits.clear();
-        }
-        sheets::sheet(&mut p);
-        for node in &mut p.plan.nodes[sheet_start..] {
-            node.z += 100;
-        }
-        let mut plan = p.plan;
+        let mut plan = plan_page(&self.tokens, model, &mut self.ui.fonts, scroll_positions);
         self.hits.clear();
         let scrolled = plan.shift != self.shift;
         self.shift = plan.shift;
@@ -531,6 +507,56 @@ fn draw_qr(layer: &mut ImageLayer, value: &str) -> io::Result<()> {
     Ok(())
 }
 
+/// Everything the page at `model.view.page` puts on screen, before layers are made for it.
+fn plan_page(tokens: &Tokens, model: &Model, fonts: &mut ui::Fonts, scroll_positions: BTreeMap<u32, f32>) -> paint::Plan {
+    let mut p = Paint::new(tokens, model, fonts);
+    p.scroll_positions = scroll_positions;
+    if model.view.page != Page::Running { pages::canvas(&mut p, model.view.page == Page::Launch); }
+    match model.view.page {
+        Page::Home => pages::home(&mut p),
+        Page::Library => pages::library(&mut p, false),
+        Page::Search => pages::library(&mut p, true),
+        Page::Hub => pages::hub(&mut p),
+        Page::Settings => settings::settings(&mut p),
+        Page::Integration => settings::integration(&mut p),
+        Page::Launch => launch::launch(&mut p),
+        Page::Overlay => sheets::overlay(&mut p),
+        Page::Media => sheets::media(&mut p),
+        Page::Lab => lab::lab(&mut p),
+        Page::GameSir => settings::gamesir(&mut p),
+        Page::Leadjoy => settings::leadjoy(&mut p),
+        Page::Running => stats::show(&mut p),
+    }
+    idle::show(&mut p);
+    p.fit_focus();
+    let sheet_start = p.plan.nodes.len();
+    if model.view.sheet.is_some() {
+        p.plan.hits.clear();
+    }
+    sheets::sheet(&mut p);
+    for node in &mut p.plan.nodes[sheet_start..] {
+        node.z += 100;
+    }
+    p.plan
+}
+/// The ids and frames of what the page would put on screen under the shipped theme.
+#[cfg(test)]
+pub(super) fn planned(model: &Model) -> Vec<(u64, ui::geometry::Frame)> {
+    planned_with_opacity(model).into_iter().map(|(id, frame, _)| (id, frame)).collect()
+}
+/// `planned`, with how opaque each node is drawn.
+#[cfg(test)]
+pub(super) fn planned_with_opacity(model: &Model) -> Vec<(u64, ui::geometry::Frame, f32)> {
+    plan_in(model, ui::lucent::palette::Mode::Dark).nodes.iter().map(|n| (n.id, n.frame, n.props.opacity)).collect()
+}
+/// The page's plan under the shipped theme in `mode`.
+#[cfg(test)]
+pub(super) fn plan_in(model: &Model, mode: ui::lucent::palette::Mode) -> paint::Plan {
+    let host = Tokens::shipped();
+    let tokens = lumatv_tokens::themes::game_tokens(&model.prefs.family, mode, &host).unwrap_or(host);
+    let mut fonts = ui::Fonts::new();
+    plan_page(&tokens, model, &mut fonts, BTreeMap::new())
+}
 #[cfg(test)]
 mod tests {
     use super::{Pass, paint::Sweep, scroll_settle};

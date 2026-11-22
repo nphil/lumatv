@@ -1,5 +1,5 @@
 //! The feeder launches this 64-bit card window; engine decisions stay in the model and media stays out of this loop.
-use lumagame_core::{catalog::ArtKind, engine::Codec, ids::GameId, ipc::Display};
+use lumagame_core::{catalog::ArtKind, engine::Codec, ids::GameId, ipc::{Display, Request}};
 use lumagame_meta::{Artwork, CacheLimits, Client, Http, Job, Kind, Loader, Metadata, secrets::Secrets};
 use lumatv_gfn_pad::{MAX_PADS, PadConfig, PadEvent, PadRuntime, PadSink, RawReport, menu::MenuKeys};
 use lumatv_render::{Demand, now_ns, host::{Engine, HostConfig}};
@@ -8,7 +8,7 @@ use lumatv_rustui::game::helper::{OverlayClient, Sample};
 use lumatv_rustui::game::diagnostics::{Diagnostics, Event as DiagnosticEvent, Level};
 use lumatv_rustui::game::input::Face;
 use lumatv_rustui::game::uplink;
-use lumatv_rustui::game::observer::{Observer, phase_word};
+use lumatv_rustui::game::observer::{Observer, engine_word, phase_word};
 use std::{collections::VecDeque, io, net::SocketAddr, os::fd::AsRawFd, os::unix::net::UnixDatagram, path::{Path, PathBuf}, sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering}, mpsc::{self, Receiver, SyncSender}}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 use ui::{SceneOptions, Ui};
 
@@ -300,6 +300,19 @@ impl Shell {
                         commands.extend(self.step(Input::EngineGone(engine), now_ms));
                         Err(e)
                     } else { Ok(()) }
+                }
+                Command::SteamOverlay(None) => {
+                    self.events.push(DiagnosticEvent::SteamOverlay { ms: now_ms, engine: "other", result: "no_session" });
+                    self.report();
+                    Ok(())
+                }
+                Command::SteamOverlay(Some((engine, session))) => {
+                    let sent = self.host.send(&engine, Request::SteamOverlay { session });
+                    let result = if sent.is_ok() { "sent" } else { "refused" };
+                    self.events.push(DiagnosticEvent::SteamOverlay { ms: now_ms, engine: engine_word(engine.as_str()), result });
+                    self.report();
+                    if sent.is_err() { commands.extend(self.step(Input::EngineGone(engine), now_ms)); }
+                    sent
                 }
                 Command::Enable { .. } => { self.host.sync(self.model.state(), self.model.foreground(), self.model.session_active(), now_ms); Ok(()) }
                 Command::KillEngine(id) => { self.host.kill(&id, now_ms); Ok(()) }

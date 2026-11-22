@@ -65,11 +65,15 @@ class Packed:
         os.makedirs(punktfunk)
         for name in ("engine.json", "LICENSE-APACHE", "THIRD-PARTY-NOTICES.txt"):
             shutil.copy(os.path.join(ROOT, "game", "engines", "punktfunk", name), punktfunk)
+        steam = os.path.join(game, "engines", "steam")
+        os.makedirs(steam)
+        shutil.copy(os.path.join(ROOT, "game", "engines", "steam", "engine.json"), steam)
         write(os.path.join(game, "tools", "fetch-gamestream.sh"), FETCH, 0o755)
         self.set_core("core v1")
         for rel in ("gfn/feeder/build/arm/lumagame-main", "rustui/build/game/bin64/lumagame-ui",
                     "game/target/aarch64-unknown-linux-gnu/release/lumagame-engine-gfn", "gfn/build/OpenNOW/LICENSE",
                     "gfn/engine/target/aarch64-unknown-linux-gnu/release/opennow-streamer", "game/engines/punktfunk/bin/lumagame-engine-punktfunk",
+                    "game/engines/steam/bin/lumagame-engine-steam",
                     "gfx64/build/out/heapshim.so", "gfx64/launch.sh", "gfx64/build/bundle/lib/ld-linux-aarch64.so.1"):
             write(os.path.join(self.root, rel), "stand-in " + rel + "\n")
 
@@ -131,9 +135,11 @@ class GameApp(unittest.TestCase):
         out = subprocess.run("ar p %s data.tar.gz | tar -tvz" % self.ipk, shell=True, capture_output=True, text=True, check=True).stdout
         modes = {line.split()[-1].split(APP + "/", 1)[-1]: line.split()[0] for line in out.splitlines()}
         for name in ("lumagame-main", "run64.sh", "bin64/lumagame-ui", "engines/gfn/bin/lumagame-engine-gfn", "engines/gfn/bin/opennow-core",
-                     "engines/gfn/bin/opennow-streamer", "engines/punktfunk/bin/lumagame-engine-punktfunk", "gfx64/launch.sh"):
+                     "engines/gfn/bin/opennow-streamer", "engines/punktfunk/bin/lumagame-engine-punktfunk", "engines/steam/bin/lumagame-engine-steam",
+                     "gfx64/launch.sh"):
             self.assertIn("x", modes[name], name)
-        for name in ("engines/gfn/engine.json", "engines/punktfunk/engine.json", "engines/gamestream/engine.json", "gfx64/heapshim.so"):
+        for name in ("engines/gfn/engine.json", "engines/punktfunk/engine.json", "engines/steam/engine.json", "engines/gamestream/engine.json",
+                     "gfx64/heapshim.so"):
             self.assertIn(name, modes)
         first = control(self.ipk)["Build-Id"]
         self.assertRegex(first, r"^[0-9a-f]{16}$")

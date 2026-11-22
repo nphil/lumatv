@@ -17,3 +17,9 @@ it, where the official client starts the game:
   Steam offers no sign-on.
 
 `streamer.control` also accepts `steam-overlay`, which the engine's streamer answers by typing Shift+Tab into the game.
+
+The accepted dynamic range is read from the response's own `monitorSettings[0].sdrHdrMode`, where the
+official client reads it (vendor.js `at()`, main.js `hdrStreamingMode`), before the echo of the request in
+`sessionRequestData`. The echo only shows what was asked, so a refused HDR request still read as accepted
+and the stream was declared HDR over SDR content. `enableHdrSource` is `server` for the response's own
+fields and `request` for the echo.

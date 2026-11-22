@@ -174,6 +174,7 @@ mod tests {
                 art: Art::default(),
                 readiness,
                 resumable: false,
+                activity: Default::default(),
             },
         };
         let target = |link, reach| Target { id: "pc1".to_owned().try_into().unwrap(), name: "Gaming PC".into(), detail: None, link, reach };

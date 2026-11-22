@@ -36,9 +36,11 @@ fn brand(face: Face, mode: Mode) -> Straight {
     let [r, g, b] = match (mode, face) {
         (Mode::Dark, Face::A) => [0x5B, 0xBF, 0x4A],
         (Mode::Dark, Face::B) => [0xF0, 0x5A, 0x4F],
+        (Mode::Dark, Face::X) => [0x4C, 0x9B, 0xEB],
         (Mode::Dark, Face::Y) => [0xF5, 0xC5, 0x23],
         (Mode::Light, Face::A) => [0x13, 0x7A, 0x1B],
         (Mode::Light, Face::B) => [0xC6, 0x2F, 0x34],
+        (Mode::Light, Face::X) => [0x1F, 0x5F, 0xBD],
         (Mode::Light, Face::Y) => [0x8A, 0x64, 0x00],
     };
     Straight::new(r, g, b, 255)
@@ -252,6 +254,25 @@ mod tests {
         assert_eq!(p.lead(Key::Left, Icon::Back), Lead::Icon(Icon::Back));
         assert_eq!(p.lead(Key::Back, Icon::Back), Lead::Pad(Face::B));
         assert_eq!(p.lead(Key::Menu, Icon::Sliders), Lead::Pad(Face::Y));
+    }
+
+    #[test]
+    fn the_steam_overlay_hint_is_x_in_the_active_style_and_the_remote_icon_otherwise() {
+        let tokens = themes::game_tokens("rose-pine", Mode::Dark, &Tokens::shipped()).unwrap();
+        let mut fonts = ui::Fonts::new();
+        let remote = model(false);
+        assert_eq!(Paint::new(&tokens, &remote, &mut fonts).lead(Key::Alt, Icon::Apps), Lead::Icon(Icon::Apps));
+        for kind in [PadKind::Xbox, PadKind::PlayStation, PadKind::GameSir, PadKind::Leadjoy] {
+            let mut m = model(true);
+            m.prefs.button_labels = Labels::Fixed(kind);
+            let mut p = Paint::new(&tokens, &m, &mut fonts);
+            let lead = p.lead(Key::Alt, Icon::Apps);
+            assert_eq!(lead, Lead::Pad(Face::X), "{kind:?}");
+            p.hint(10, "Steam overlay", lead, 0.0, 0.0, false, 1);
+            let marked = p.plan.nodes.iter().any(|n| matches!(n.body, Body::Symbol(Symbol::Face { kind: k, face: Face::X, .. }, _) if k == kind));
+            let lettered = p.plan.nodes.iter().any(|n| matches!(&n.body, Body::Text { words, .. } if words.iter().any(|w| w.text == "X")));
+            assert_eq!((marked, lettered), (kind != PadKind::Xbox, kind == PadKind::Xbox), "{kind:?}");
+        }
     }
 
     #[test]

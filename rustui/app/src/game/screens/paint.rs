@@ -22,6 +22,8 @@ pub const PAGE_EXTENT: f32 = 16384.0;
 pub const SHEET_GROUP: u32 = 3;
 /// Nodes that follow a live reading (a stick's dot, a trigger's fill) and so take each position as it comes, never easing to it.
 pub const LIVE: std::ops::Range<u64> = 50_000_000..51_000_000;
+/// The stats HUD's layers, inside the live range: surface, text and whatever the HUD adds.
+pub const HUD: std::ops::Range<u64> = LIVE.start + 10..LIVE.start + 20;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Word {
     pub text: String,
@@ -93,6 +95,8 @@ pub enum Fill {
     Sheet,
     Glass,
     Tint(f32),
+    /// The sheet's colour at this opacity, for a layer over the game that must leave it showing.
+    Veil(f32),
     Primary,
     Accent,
     Track,
@@ -218,8 +222,10 @@ impl<'a> Paint<'a> {
         let from = self.scroll_positions.get(&PAGE_GROUP).copied().unwrap_or(shift);
         let (lo, hi) = (from.min(shift), from.max(shift));
         let in_travel = |n: &Node| n.frame.y + shift + n.frame.h > lo + 150.0 && n.frame.y + shift < hi + H;
+        // The stats HUD sits wholly above y = 150 (Compact is about 60 px tall at y = 54): it is not page content, so the cull below
+        // that drops what scrolled behind the page's top edge must not take it.
         self.plan.nodes.retain(|n| {
-            if grouped.contains(&n.id) || n.id < 100 {
+            if grouped.contains(&n.id) || n.id < 100 || HUD.contains(&n.id) {
                 true
             } else if page_group && scrollable(n.id) {
                 in_travel(n)
@@ -253,6 +259,11 @@ impl<'a> Paint<'a> {
             Fill::Primary => self.primary(stage).0,
             Fill::Accent => self.ink(Role::Accent, stage),
             Fill::Track => self.ink(Role::TrackOff, stage),
+            Fill::Veil(a) => {
+                let mut c = self.straight(Role::Sheet, stage);
+                c.a = (a * 255.0).round() as u8;
+                c.premultiply(0.0)
+            }
             Fill::Tint(a) => {
                 let mut c = self.straight(Role::Ink, stage);
                 c.a = (a * 255.0).round() as u8;
@@ -266,7 +277,7 @@ impl<'a> Paint<'a> {
             corner_radius: self.tokens.radius(radius).min(frame.h / 2.0),
             tint: self.colour(if matches!(fill, Fill::Glass) && !cached { Fill::Tint(0.06) } else { fill }, stage),
             edge: self.ink(if focused { Role::EdgeRaised } else { Role::Edge }, stage),
-            edge_width: if matches!(fill, Fill::Canvas | Fill::Tint(_)) && !focused { 0.0 } else { f.edge_width },
+            edge_width: if matches!(fill, Fill::Canvas | Fill::Tint(_) | Fill::Veil(_)) && !focused { 0.0 } else { f.edge_width },
             highlight: if focused {
                 f.highlight_raised
             } else if cached {

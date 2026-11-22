@@ -113,7 +113,7 @@ fn keyless_steam_art_precedes_engine_art_and_supplies_header() {
             "readiness":"unknown"
         }
     })).unwrap();
-    let game = Game { id: GameId(1), role: lumagame_core::ipc::Role::Game, title: "The Witcher 3".into(), sources: vec![source] };
+    let game = Game { id: GameId(1), role: lumagame_core::ipc::Role::Game, title: "The Witcher 3".into(), sources: vec![source], reports: Vec::new() };
     let art = keyless_art(&game, Kind::Cover);
     assert!(art[0].url.ends_with("292030/library_600x900.jpg"));
     assert!(art[1].url.ends_with("292030/library_600x900_2x.jpg"));

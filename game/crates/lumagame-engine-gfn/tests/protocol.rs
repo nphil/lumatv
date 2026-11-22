@@ -147,7 +147,10 @@ fn launch_ack_queue_start_running_stats_and_remote_end() {
     assert_eq!(create["params"]["runtimeCapabilities"]["nativeHdrSupported"],true);
     assert_eq!(create["params"]["appLaunchMode"],"gamepadFriendly","what NVIDIA's own client asks for on a TV");
     assert!(create["params"].get("accountLinked").is_none(),"the core decides it from the store's sign-on link");
-    assert!(create["params"]["runtimeCapabilities"]["nativeHdrDisplay"].is_null(),"a luminance pair without primaries makes the core drop the frame average from the HDR display data");
+    let display=&create["params"]["runtimeCapabilities"]["nativeHdrDisplay"];
+    for key in ["minimumNits","maximumNits","maximumFullFrameNits","redX","redY","greenX","greenY","blueX","blueY","whiteX","whiteY"] {
+        assert!(display[key].as_f64().is_some(),"{key}: the core drops the whole group, and with it the frame average, unless every field is present");
+    }
     f.collect();assert_eq!(f.receipts.len(),1);
     f.event("session.changed",json!({"sessionId":"seat","status":1,"phase":"queued","queuePosition":3}));
     f.adapter.tick(1000);
@@ -243,6 +246,67 @@ fn the_seat_release_is_retried_while_the_handoff_completes_and_sent_only_for_an_
     f.adapter.pad_line(&json!({"stream":"ended","source":"nvst-transport","resumable":null}).to_string());
     f.reply("streamer.stop",json!({}));
     f.collect();assert!(f.requests.is_empty(),"a lost connection leaves the seat to be resumed");
+}
+
+fn running() -> FakeCore {
+    let mut f=FakeCore::new(true);f.launch();
+    f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));
+    f.reply("streamer.start",json!({"status":"running"}));
+    f
+}
+
+/// The termination reason the official client names `NVB_SN_EXITED_DUE_TO_USER_IDLE_TIMEOUT` is an idle end, not the game quitting. It
+/// frees the seat the same way, so the next launch is not refused with `session_update_busy`.
+#[test]
+fn an_idle_end_is_named_idle_and_releases_the_seat_for_the_next_launch() {
+    let mut f=running();
+    f.adapter.pad_line(&json!({"stream":"ended","source":"nvst-server","reason":56,"resumable":false}).to_string());
+    assert_eq!(f.session_states().last(),Some(&SessionState::Ended{reason:EndReason::Idle}));
+    let target=f.target();
+    f.send(21,Request::Launch{session:SessionId(10),target,game:provider()});
+    f.reply("streamer.stop",json!({}));
+    assert_eq!(f.reply("session.ended",json!({"sessionId":"seat","cleared":true}))["params"]["sessionId"],"seat");
+    f.inspect_reply();
+    f.reply("session.create",json!({"sessionId":"seat2","status":2,"rtspsEndpoints":["rtsp://server"]}));
+    f.reply("streamer.start",json!({"status":"running"}));
+    f.collect();
+    assert!(f.events.iter().any(|e| matches!(&e.event,Event::Session{session:SessionId(10),state:SessionState::Running{..}})));
+}
+
+/// A far side that closes the connection when the countdown runs out may name no reason; the countdown the engine saw is the proof.
+#[test]
+fn a_stream_that_ends_after_its_countdown_ran_out_is_an_idle_end_and_one_that_ends_early_is_not() {
+    let lost=json!({"stream":"ended","source":"nvst-transport","resumable":null}).to_string();
+    let warn=|f:&mut FakeCore,seconds:Value| f.adapter.pad_line(&json!({"stream":"idle","seconds":seconds}).to_string());
+    let mut f=running();
+    f.adapter.tick(1000);warn(&mut f,json!(10));
+    f.adapter.tick(11_000);f.adapter.pad_line(&lost);
+    assert_eq!(f.session_states().last(),Some(&SessionState::Ended{reason:EndReason::Idle}));
+    f.reply("streamer.stop",json!({}));
+    assert_eq!(f.reply("session.ended",json!({"sessionId":"seat","cleared":true}))["params"]["sessionId"],"seat");
+    let mut f=running();
+    f.adapter.tick(1000);warn(&mut f,json!(10));
+    f.adapter.tick(7000);f.adapter.pad_line(&lost);
+    assert!(matches!(f.session_states().last(),Some(SessionState::Failed{reason:FailReason::Network,..})),"seven seconds early is a lost connection");
+    let mut f=running();
+    f.adapter.tick(1000);warn(&mut f,json!(10));warn(&mut f,Value::Null);
+    f.adapter.tick(20_000);f.adapter.pad_line(&lost);
+    assert!(matches!(f.session_states().last(),Some(SessionState::Failed{reason:FailReason::Network,..})),"a cleared warning is no countdown");
+}
+
+#[test]
+fn the_idle_warning_is_forwarded_and_clears_and_a_press_sends_one_input_only_while_it_is_up() {
+    let mut f=running();
+    f.send(30,Request::Activity{session:SessionId(9)});
+    f.collect();assert!(f.requests.is_empty(),"no warning, nothing to answer");
+    f.adapter.pad_line(&json!({"stream":"idle","seconds":59}).to_string());
+    f.send(31,Request::Activity{session:SessionId(9)});
+    assert_eq!(f.next("streamer.control")["params"],json!({"action":"anti-afk-pulse"}));
+    f.adapter.pad_line(&json!({"stream":"idle","seconds":null}).to_string());
+    f.send(32,Request::Activity{session:SessionId(9)});
+    f.collect();assert!(f.requests.is_empty(),"the warning cleared");
+    let seen:Vec<_>=f.events.iter().filter_map(|e| match &e.event {Event::IdleWarning{session:SessionId(9),seconds}=>Some(*seconds),_=>None}).collect();
+    assert_eq!(seen,[Some(59),None]);
 }
 
 #[test]
@@ -454,4 +518,48 @@ fn stream_numbers_follow_the_stats_request_and_the_core_snapshot_ends_a_dead_str
     assert!(f.events.iter().any(|e| matches!(&e.event,Event::Stats{stats,..} if stats.fps==Some(59.9) && stats.rtt_ms==Some(9.5) && stats.jitter_ms.is_none())));
     f.event("streamer.changed",json!({"status":"error"}));
     assert!(matches!(f.session_states().last(),Some(SessionState::Failed{reason:FailReason::Video,..})),"the core's wrapped snapshot names a dead streamer");
+}
+
+fn colour(transfer:u8) -> String {
+    json!({"stream":"colour","codec":"h265","primaries":9,"transfer":transfer,"matrix":9,"full_range":false}).to_string()
+}
+fn running_streams(f:&mut FakeCore) -> Vec<StreamInfo> {
+    f.session_states().into_iter().filter_map(|s| if let SessionState::Running{stream:Some(p)}=s {Some(p)} else {None}).collect()
+}
+
+#[test]
+fn the_streams_colour_repeats_running_once_per_change_and_nothing_else_follows_it() {
+    let mut f=running();
+    let first=running_streams(&mut f).remove(0);
+    assert_eq!(first.vui,None);
+    f.adapter.pad_line(&colour(16));
+    let streams=running_streams(&mut f);
+    assert_eq!(streams.len(),2,"one more Running, carrying the colour");
+    assert_eq!(streams[1],StreamInfo{vui:Some(Vui{primaries:9,transfer:16,matrix:9,full_range:false}),..first.clone()},"hdr and sdr_reason are the engine's own");
+    f.adapter.pad_line(&colour(16));
+    assert_eq!(running_streams(&mut f).len(),2,"the same colour again says nothing new");
+    f.adapter.pad_line(&colour(18));
+    let streams=running_streams(&mut f);
+    assert_eq!(streams.len(),3);
+    assert_eq!(streams[2].vui.map(|v| v.transfer),Some(18));
+    f.adapter.pad_line(&json!({"stream":"colour","primaries":9,"transfer":999,"matrix":9,"full_range":false}).to_string());
+    f.adapter.pad_line(&json!({"stream":"colour","primaries":9,"transfer":16,"matrix":9,"full_range":"no"}).to_string());
+    f.adapter.pad_line(&json!({"stream":"colour","primaries":9,"transfer":16}).to_string());
+    assert_eq!(running_streams(&mut f).len(),3,"a malformed line changes nothing");
+}
+
+#[test]
+fn a_colour_that_arrives_before_running_is_attached_to_it_and_an_ended_session_ignores_one() {
+    let mut f=FakeCore::new(true);f.launch();
+    f.adapter.pad_line(&colour(18));
+    f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));
+    f.adapter.pad_line(&colour(16));
+    f.reply("streamer.start",json!({"status":"running"}));
+    let streams=running_streams(&mut f);
+    assert_eq!(streams.len(),1,"the colour adds no event of its own before Running");
+    assert_eq!(streams[0].vui.map(|v| v.transfer),Some(16),"a line from before the streamer was asked to start is not counted");
+    f.event("session.changed",json!({"sessionId":"seat","status":7,"phase":"finished"}));
+    f.reply("streamer.stop",json!({}));
+    f.adapter.pad_line(&colour(18));
+    assert_eq!(running_streams(&mut f).len(),1);
 }

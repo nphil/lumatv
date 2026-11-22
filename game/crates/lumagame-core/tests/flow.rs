@@ -146,8 +146,7 @@ fn play_asks_once_then_returns_to_the_last_target_and_never_switches_by_itself()
     assert_eq!(recorded.played.seconds, 540);
     recorded.played.seconds = 599;
     assert!(state.record(recorded));
-    assert_eq!(state.profile().history.recently_played(), [game.id]);
-    assert_eq!(state.profile().history.total(game.id).seconds, 599);
+    assert_eq!((state.profile().history.total(game.id).sessions, state.profile().history.total(game.id).seconds), (1, 599));
 
     // Play now goes straight back to the PC.
     let again = launch::resolve(&candidates(&game, &targets), state.profile().user.remembered(game.id));

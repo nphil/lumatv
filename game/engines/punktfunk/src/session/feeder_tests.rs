@@ -26,7 +26,7 @@ fn picture_ingest_precedes_load_completion_and_audio_then_flows_without_flush() 
     let (mut client,_)=FeederClient::connect(&path,Duration::from_millis(500)).unwrap();
     let player=Arc::new(Player::default());let p=Arc::clone(&player);let (tx,rx)=mpsc::channel();
     client.spawn_reader(move |event| {p.event(event);let _=tx.send(());}).unwrap();
-    let stream=StreamInfo {codec:Codec::H264,width:1920,height:1080,fps:60,hdr:false,audio_channels:2,sdr_reason:None};client.send_load(&load(&stream,None)).unwrap();
+    let stream=StreamInfo {codec:Codec::H264,width:1920,height:1080,fps:60,hdr:false,audio_channels:2,sdr_reason:None,vui:None};client.send_load(&load(&stream,None)).unwrap();
     rx.recv_timeout(Duration::from_millis(500)).unwrap();assert!(!player.loaded.load(Ordering::Acquire));
     let mut pacing=stage::Pacing::new(60,false,false);let stamp=pacing.map(1,monotonic_ns());
     client.send_media(msg::VIDEO,stamp as i64,true,&[0,0,0,1,0x65,0x80]).unwrap();

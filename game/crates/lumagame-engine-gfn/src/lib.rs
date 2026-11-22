@@ -14,6 +14,12 @@ use serde_json::{Value, json};
 use lumatv_gfn_pad::{PadState, menu::{MenuKey, MenuKeys}};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+/// A server termination's `reason` for a session ended after the idle countdown: `NVB_SN_EXITED_DUE_TO_USER_IDLE_TIMEOUT` (56) in the
+/// official web client's stream-notification enum; OpenNOW's transport gives it to wire code 0x8003_0023.
+const USER_IDLE_TIMEOUT: u64 = 56;
+/// How early a stream's end still counts as the end of an idle countdown, for the far side's clock against the engine's.
+const IDLE_GRACE_MS: u64 = 3000;
+
 #[derive(Debug, Clone)]
 enum Purpose {
     Hello,
@@ -88,6 +94,10 @@ struct Launch {
     /// The latest legs the streamer and the pads reported, for `round-trip`.
     trip: RoundTrip,
     pad: Option<(PadStats, u64)>,
+    /// When the far side's idle countdown ends, by the engine's clock, while one is running.
+    idle_until: Option<u64>,
+    /// The colour the streamer reported for this launch's video, as last shown to the app (or to be, once Running).
+    vui: Option<Vui>,
 }
 
 /// Output batches preserve ordering: session.create is acknowledged before its stream is started.
@@ -217,7 +227,7 @@ impl Adapter {
                 self.launch = Some(Launch {
                     id:session,seq:message.seq,selection,cloud:Value::Null,started:false,running:false,stale_retried:false,
                     busy_retried:false,claimed:false,retry_stopping:false,stopping:false,end_game:false,stats:false,pad_timing:false,poll_due:0,values:self.values.clone(),
-                    overlay:false,menus:BTreeMap::new(),trip:RoundTrip::default(),pad:None,
+                    overlay:false,menus:BTreeMap::new(),trip:RoundTrip::default(),pad:None,idle_until:None,vui:None,
                 });
                 self.session(SessionState::Checking);
                 if self.target.is_none() {
@@ -245,8 +255,16 @@ impl Adapter {
             Request::SteamOverlay { session } if self.launch.as_ref().is_some_and(|l| l.id == session && l.running) => {
                 self.enqueue("streamer.control",json!({"action":"steam-overlay"}),Purpose::Pause,seq);
             }
+            // The remote's and a keyboard's keys never reach the stream, so a press during the idle countdown is sent to the far side
+            // as the one input the streamer's anti-AFK pulse is (upstream's F13 tap). It answers a press that happened; nothing here
+            // sends one on a timer.
+            Request::Activity { session } if self.launch.as_ref().is_some_and(|l| l.id == session && l.running) => {
+                if self.launch.as_ref().is_some_and(|l| l.idle_until.is_some()) {
+                    self.enqueue("streamer.control",json!({"action":"anti-afk-pulse"}),Purpose::Pause,seq);
+                }
+            }
             Request::Library { .. } | Request::Check { .. } | Request::Forget { .. } | Request::Stop { .. } | Request::Route { .. } | Request::Stats { .. }
-            | Request::RoundTrip { .. } | Request::SteamOverlay { .. } => {
+            | Request::RoundTrip { .. } | Request::SteamOverlay { .. } | Request::Activity { .. } => {
                 self.error(seq,ErrorCode::BadRequest,"The target or session is not current");
             }
             _ => self.error(seq,ErrorCode::Unsupported,"This operation is not supported by GeForce NOW"),
@@ -261,7 +279,9 @@ impl Adapter {
     pub fn pad_line(&mut self, line: &str) {
         let Ok(v) = serde_json::from_str::<Value>(line) else { return };
         if v["stream"] == "telemetry" { self.telemetry(&v); return; }
+        if v["stream"] == "idle" { self.idle_warning(&v); return; }
         if v["stream"] == "ended" { self.stream_ended(&v); return; }
+        if v["stream"] == "colour" { self.stream_colour(&v); return; }
         let Some(l) = self.launch.as_mut().filter(|l| l.running && !l.stopping) else { return };
         let session = l.id;
         match v["pad"].as_str() {
@@ -275,7 +295,7 @@ impl Adapter {
                 let mut keys = Vec::new();
                 l.menus.entry(v["slot"].as_u64().unwrap_or(0)).or_default().feed(&state,|k| keys.push(k));
                 for key in keys {
-                    let key = match key {MenuKey::Up=>PadKey::Up,MenuKey::Down=>PadKey::Down,MenuKey::Left=>PadKey::Left,MenuKey::Right=>PadKey::Right,MenuKey::Ok=>PadKey::Ok,MenuKey::Back=>PadKey::Back,MenuKey::Menu=>PadKey::Menu};
+                    let key = match key {MenuKey::Up=>PadKey::Up,MenuKey::Down=>PadKey::Down,MenuKey::Left=>PadKey::Left,MenuKey::Right=>PadKey::Right,MenuKey::Ok=>PadKey::Ok,MenuKey::Back=>PadKey::Back,MenuKey::Menu=>PadKey::Menu,MenuKey::Alt=>PadKey::Alt};
                     for down in [true,false] { self.emit(None,Event::Key { key,down }); }
                 }
             }
@@ -489,8 +509,9 @@ impl Adapter {
                     self.core_gone("The GeForce NOW streamer is unavailable or incompatible"); return;
                 }
                 self.runtime = r["capabilities"].clone();
-                // No `nativeHdrDisplay`: without panel primaries the core would send the server only a max/min luminance pair and drop
-                // the 400-nit frame average that the HDR display data carries by default.
+                // The core only forwards a complete group (luminance, full-frame level, primaries, white point); a bare luminance
+                // pair would drop the 400-nit frame average from the display data the cloud PC reads.
+                if self.hello.display.hdr10 { self.runtime["nativeHdrDisplay"] = panel_hdr_display(); }
                 self.runtime["nativeHdrSupported"] = json!(self.hello.display.hdr10);
                 self.ready = true;
                 self.emit(Some(self.hello_seq),Event::Ready { descriptor:descriptor(),schema:self.schema.clone() });
@@ -716,7 +737,7 @@ impl Adapter {
         let status = value["status"].as_i64().unwrap_or(0);
         let phase = value["phase"].as_str().unwrap_or("");
         if status == 7 || phase == "finished" || phase == "failed" {
-            self.end_stream(SessionState::Ended { reason:EndReason::Remote },"the remote session ended");
+            self.end_stream(SessionState::Ended { reason:self.far_end() },"the remote session ended");
         } else if matches!(status,2|3) && value["rtspsEndpoints"].as_array().is_some_and(|a| !a.is_empty()) && value["resumePending"] != true {
             if !l.started {
                 l.started = true; l.poll_due = 0;
@@ -744,7 +765,21 @@ impl Adapter {
             p.sdr_reason = if l.cloud["hdrDowngrade"] == "game-unsupported" {Some("SDR: no HDR for this game".into())}
                 else if agreed["enableHdr"] == false {Some("SDR: GeForce NOW sent no HDR".into())} else {None};
         }
+        p.vui = l.vui;
         self.session(SessionState::Running { stream:Some(p) });
+    }
+    /// The colour tags the streamer read from the video's first keyframe (`{"stream":"colour",...}`, H.273 code points), kept for the
+    /// launch and shown to the app as `StreamInfo.vui`. Observation only: nothing else in the stream info follows it. Lines count only
+    /// once the streamer was asked to start, so a stop-and-retry or the previous launch's streamer cannot leave its colour here.
+    /// Before Running the colour waits for it; after, a changed value repeats Running with the same stream and the new colour.
+    fn stream_colour(&mut self, v: &Value) {
+        let code = |key: &str| v[key].as_u64().and_then(|n| u8::try_from(n).ok());
+        let (Some(primaries),Some(transfer),Some(matrix),Some(full_range)) = (code("primaries"),code("transfer"),code("matrix"),v["full_range"].as_bool()) else { return };
+        let Some(l) = self.launch.as_mut().filter(|l| l.started && !l.stopping && !l.retry_stopping) else { return };
+        let vui = Some(Vui { primaries,transfer,matrix,full_range });
+        if l.vui == vui { return; }
+        l.vui = vui;
+        if l.running { self.running(); }
     }
     /// The streamer's once-a-second telemetry, forwarded by its pad bridge (the core keeps only three of these numbers, and announces
     /// the streamer only as it starts and stops). `ping_ms` is the transport's own ping to the stream server (an ICE or stream ping),
@@ -769,15 +804,36 @@ impl Adapter {
     /// stream rides out never arrives here.
     fn stream_ended(&mut self, v: &Value) {
         if !self.launch.as_ref().is_some_and(|l| l.running && !l.stopping && !l.retry_stopping) { return; }
-        let state = if v["source"] == "nvst-server" && v["resumable"] != true {SessionState::Ended { reason:EndReason::Remote }}
+        let server = v["source"] == "nvst-server";
+        let state = if server && v["reason"] == USER_IDLE_TIMEOUT {SessionState::Ended { reason:EndReason::Idle }}
+            else if server && v["resumable"] != true {SessionState::Ended { reason:self.far_end() }}
+            else if self.idle_over() {SessionState::Ended { reason:EndReason::Idle }}
             else {SessionState::Failed { reason:FailReason::Network,message:"The connection to GeForce NOW was lost.".into() }};
         self.end_stream(state,"the stream ended");
+    }
+    /// The far side's idle countdown ran out without input: whatever ended the session afterwards, the cause is the idle policy.
+    /// The far side's termination code may not name it, and a connection it simply closed reaches here as a lost one.
+    fn idle_over(&self) -> bool {
+        self.launch.as_ref().is_some_and(|l| l.idle_until.is_some_and(|end| self.now + IDLE_GRACE_MS >= end))
+    }
+    /// How a session ended by the far side is named: idle when its countdown had run out, else the game or the host ending it.
+    fn far_end(&self) -> EndReason {
+        if self.idle_over() { EndReason::Idle } else { EndReason::Remote }
+    }
+    /// The far side's idle countdown, forwarded by the streamer (`seconds` is null once input cleared it).
+    fn idle_warning(&mut self, v: &Value) {
+        let now = self.now;
+        let Some(l) = self.launch.as_mut().filter(|l| l.running && !l.stopping) else { return };
+        let seconds = v["seconds"].as_u64().and_then(|n| u32::try_from(n).ok());
+        l.idle_until = seconds.map(|s| now + u64::from(s)*1000);
+        let session = l.id;
+        self.emit(None,Event::IdleWarning { session,seconds });
     }
     /// The game is over on the far side. The core keeps the seat as its active session until `session.ended` releases it, and
     /// refuses every create meanwhile (`session_update_busy`), so the release is queued behind the streamer's stop and ahead of
     /// whatever the next launch asks for. A failed stream may still be resumable, so only an end the far side made is released.
     fn end_stream(&mut self, state: SessionState, reason: &str) {
-        let seat = self.launch.as_ref().filter(|_| matches!(state,SessionState::Ended { reason:EndReason::Remote })).and_then(|l| {
+        let seat = self.launch.as_ref().filter(|_| matches!(state,SessionState::Ended { reason:EndReason::Remote|EndReason::Idle })).and_then(|l| {
             Some(json!({"sessionId":l.cloud["sessionId"].as_str()?,
                 "ownerScope":{"userId":self.scope["userId"].as_str()?,"providerIdpId":self.scope["providerIdpId"].as_str()?}}))
         });
@@ -793,7 +849,7 @@ impl Adapter {
                 if l.stopping || l.retry_stopping { return; }
                 let status = payload["streamer"]["status"].as_str().unwrap_or("");
                 if l.running && matches!(status,"error"|"stopped"|"exited") {
-                    let state = if status == "error" {SessionState::Failed { reason:FailReason::Video,message:"The stream stopped unexpectedly".into() }} else {SessionState::Ended { reason:EndReason::Remote }};
+                    let state = if status == "error" {SessionState::Failed { reason:FailReason::Video,message:"The stream stopped unexpectedly".into() }} else {SessionState::Ended { reason:self.far_end() }};
                     self.end_stream(state,"the stream ended");
                 }
             }
@@ -809,6 +865,15 @@ impl Adapter {
             _ => {}
         }
     }
+}
+
+/// The panel the cloud PC is told it is driving. Nothing here can read the TV's EDID and LG publishes no luminance for the C4, so
+/// these are reference values, not measurements: Tom's Guide measured 1148 nits at a 10% window, which rounds down to 1000; OLED
+/// black is above zero; the panel covers about 98% of DCI-P3 and 72% of Rec.2020, so the primaries are P3-D65 (Rec.2020 is the
+/// signal container, not the panel). The 200-nit frame average is an estimate for a full white field on an OLED, not a reading.
+fn panel_hdr_display() -> Value {
+    json!({"minimumNits":0.0005,"maximumNits":1000,"maximumFullFrameNits":200,
+        "redX":0.680,"redY":0.320,"greenX":0.265,"greenY":0.690,"blueX":0.150,"blueY":0.060,"whiteX":0.3127,"whiteY":0.3290})
 }
 
 pub fn descriptor() -> Descriptor {

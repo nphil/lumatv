@@ -53,6 +53,7 @@ fn gamesir(face: Face) -> Vec<Shape> {
             arc(&mut s, 12.3, 9.25, 2.7, 2.75, -90.0, 90.0);
             arc(&mut s, 12.6, 14.75, 3.0, 2.75, -90.0, 90.0);
         }
+        Face::X => s.extend([Line(7.3, 6.5, 16.7, 17.5), Line(16.7, 6.5, 7.3, 17.5)]),
         Face::Y => s.extend([Line(7.2, 6.5, 12.0, 12.2), Line(16.8, 6.5, 12.0, 12.2), Line(12.0, 12.2, 12.0, 17.5)]),
     }
     s
@@ -62,10 +63,12 @@ fn gamesir(face: Face) -> Vec<Shape> {
 fn leadjoy(face: Face) -> Vec<Shape> {
     const A: [&str; 8] = [".#####.", "#######", "##...##", "##...##", "#######", "#######", "##...##", "##...##"];
     const B: [&str; 8] = ["######.", "#######", "##...##", "######.", "#######", "##...##", "#######", "######."];
+    const X: [&str; 8] = ["##....##", "###..###", ".######.", "..####..", "..####..", ".######.", "###..###", "##....##"];
     const Y: [&str; 9] = ["##....##", "###..###", ".######.", "..####..", "...##...", "...##...", "...##...", "...##...", "...##..."];
     let rows: &[&str] = match face {
         Face::A => &A,
         Face::B => &B,
+        Face::X => &X,
         Face::Y => &Y,
     };
     // Dots are 0.8 of the pitch across, as printed; the pitch gives the letter about half the button's height.
@@ -88,6 +91,7 @@ fn playstation(face: Face) -> Vec<Shape> {
     match face {
         Face::A => vec![Line(7.8, 7.8, 16.2, 16.2), Line(16.2, 7.8, 7.8, 16.2)],
         Face::B => vec![Shape::Ring(12.0, 12.0, 4.6, STROKE)],
+        Face::X => vec![Line(7.6, 7.6, 16.4, 7.6), Line(16.4, 7.6, 16.4, 16.4), Line(16.4, 16.4, 7.6, 16.4), Line(7.6, 16.4, 7.6, 7.6)],
         Face::Y => vec![Line(12.0, 6.6, 17.0, 15.2), Line(17.0, 15.2, 7.0, 15.2), Line(7.0, 15.2, 12.0, 6.6)],
     }
 }

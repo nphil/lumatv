@@ -1,0 +1,33 @@
+[workspace]
+resolver = "3"
+
+[package]
+name = "lumagame-engine-steam"
+description = "LumaGame's Steam account engine: signs in by QR code and reports last played, play time, genres and tags"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "lumagame-engine-steam"
+path = "src/main.rs"
+
+[dependencies]
+lumagame-core = { path = "../../crates/lumagame-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# TLS with the bundled roots, as rustui's app uses it. No gzip, cookies or proxies.
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+lto = "thin"
+panic = "abort"
+strip = true

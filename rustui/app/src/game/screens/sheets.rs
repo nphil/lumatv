@@ -210,6 +210,28 @@ fn auth(p: &mut Paint<'_>) {
             let lead = p.lead(Key::Back, Icon::Back);
             p.button_lead(8040, Focus::SheetAction(0), "Cancel", Some(lead), f.x + 40.0, f.y + f.h - 104.0, false, false, 34);
         }
+        Some(AuthState::Qr { url, .. }) => {
+            // No address or code is shown: the phone's app scans the QR and asks for the approval itself.
+            let f = panel(p, if p.scale > 1.0 { 1728.0 } else { 1320.0 }, if p.scale > 1.0 { 972.0 } else { 660.0 });
+            p.text(8010, &format!("Sign in to {name}"), Frame::new(f.x + 40.0, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0), Type::Title, Role::Ink, false, 32);
+            let top = f.y + 66.0 + p.line(Type::Title);
+            let q = Frame::new(f.x + 40.0, top, 360.0, 360.0);
+            p.plan.nodes.push(Node { id: 8020, frame: q, props: compositor_protocol::Props::at(q.x, q.y), z: 33, body: Body::Qr(url.clone()) });
+            let x = q.x + 416.0;
+            let w = f.x + f.w - 40.0 - x;
+            let mut y = top;
+            y += p.wrapped(8021, &format!("Open the {name} app on a phone and scan this code."), Frame::new(x, y, w, 0.0), Type::Title, Role::Ink, false, 33) + 16.0;
+            y += p.wrapped(8022, "The app asks to confirm the sign-in. No password is entered on the TV.", Frame::new(x, y, w, 0.0), Type::Body, Role::Ink2, false, 33) + 24.0;
+            let remaining = p.model.auth_remaining().unwrap_or(0);
+            p.text(8025, &format!("Closes in {}:{:02}", remaining / 60, remaining % 60), Frame::new(x, y, w, p.line(Type::Caption)), Type::Caption, Role::Ink2, false, 33);
+            if p.scale > 1.0 {
+                p.wrapped(8030, "Waiting for sign-in", Frame::new(q.x, top + 384.0, q.w, 0.0), Type::Caption, Role::Ink2, false, 33);
+            } else {
+                p.hint(8030, "Waiting for sign-in", Icon::Hourglass, q.x, top + 384.0, false, 33);
+            }
+            let lead = p.lead(Key::Back, Icon::Back);
+            p.button_lead(8040, Focus::SheetAction(0), "Cancel", Some(lead), f.x + 40.0, f.y + f.h - 104.0, false, false, 34);
+        }
         Some(AuthState::ShowPin { pin: code }) => pin(p, name, code, false),
         Some(AuthState::EnterPin { digits }) => {
             let entered = format!("{}{}", flow.pin, "_".repeat(usize::from(*digits).saturating_sub(flow.pin.len())));
@@ -465,12 +487,14 @@ pub fn overlay(p: &mut Paint<'_>) {
     let stats_label = format!("Stats · {}", p.model.prefs.stats.mode.name());
     let mut y = actions_y;
     let stats = p.lead(Key::Menu, Icon::Gauge);
+    // X opens it from any item, so on a pad the button wears X's marking in the pad's own style.
+    let steam = p.lead(Key::Alt, Icon::Apps);
     for (i, action) in p.model.overlay_actions().enumerate() {
         let (label, lead) = match action {
             OverlayAction::Resume => ("Resume", Icon::Play.into()),
             OverlayAction::Settings => ("Stream settings", Icon::Sliders.into()),
             OverlayAction::Stats => (stats_label.as_str(), stats),
-            OverlayAction::SteamOverlay => ("Steam overlay", Icon::Apps.into()),
+            OverlayAction::SteamOverlay => ("Steam overlay", steam),
             OverlayAction::EndSession => ("End session", Icon::Stop.into()),
         };
         if p.scale >= 2.0 && i == 2 { x = p.x; y += button_h + 16.0; }

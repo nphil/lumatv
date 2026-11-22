@@ -1,5 +1,6 @@
-//! A pad as a remote for menus: the d-pad or the left stick moves, A chooses, B goes back. The edge of a press is one key, and a
-//! stick pushed past [`STICK`] is one key until it comes back, so a held stick is one step.
+//! A pad as a remote for menus: the d-pad or the left stick moves, A chooses, B goes back, Y is the menu's own action (Menu) and X its
+//! second (Alt). The edge of a press is one key, and a stick pushed past [`STICK`] is one key until it comes back, so a held stick is
+//! one step.
 use crate::{PadState, button};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11,6 +12,7 @@ pub enum MenuKey {
     Ok,
     Back,
     Menu,
+    Alt,
 }
 
 /// How far a stick goes before it counts as a direction: about 60 % of its travel.
@@ -36,6 +38,9 @@ impl MenuKeys {
         }
         if pressed & button::Y != 0 {
             key(MenuKey::Menu);
+        }
+        if pressed & button::X != 0 {
+            key(MenuKey::Alt);
         }
         let dir = if pressed & button::DPAD_UP != 0 || s.left_y > STICK {
             Some(MenuKey::Up)
@@ -77,6 +82,7 @@ mod tests {
         assert_eq!(keys(&mut m, down(button::B)), [MenuKey::Back]);
         assert_eq!(keys(&mut m, down(button::Y)), [MenuKey::Menu]);
         assert!(keys(&mut m, down(button::Y)).is_empty());
+        assert_eq!(keys(&mut m, down(button::X)), [MenuKey::Alt]);
         let stick = |left_x, left_y| PadState { left_x, left_y, ..Default::default() };
         assert_eq!(keys(&mut m, stick(0, STICK + 1)), [MenuKey::Up], "up is positive");
         assert!(keys(&mut m, stick(0, 32_767)).is_empty());

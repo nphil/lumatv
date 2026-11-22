@@ -82,7 +82,7 @@ impl Native {
         self.apps.iter().filter(|app| self.settings.get(&setting(&app.id)) == Some(&Value::Bool(true))).filter_map(|app| {
             Some(LibraryEntry { id: ProviderGameId::new(&app.id).ok()?, title: app.title.clone(), role: Role::Game,
                 external: vec![ExternalId::new(ExternalId::WEBOS, &app.id).ok()?], store: None, store_account: None,
-                art: Art { icon: app.icon.clone(), ..Art::default() }, readiness: Readiness::Ready, resumable: false })
+                art: Art { icon: app.icon.clone(), ..Art::default() }, readiness: Readiness::Ready, resumable: false, activity: Default::default() })
         }).collect()
     }
 

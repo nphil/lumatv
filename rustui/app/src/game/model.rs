@@ -1,5 +1,6 @@
 //! Pure navigation and application rules. Session decisions remain in lumagame-core; the shell only performs commands.
 use lumagame_core::{
+    activity::{self, LastPlayed, Place},
     catalog::{self, ArtKind, Game, Listing, SaveCompat},
     engine::{Codec, Descriptor, EngineKind, Feature, Manifest, Presentation},
     history::Played,
@@ -31,6 +32,8 @@ pub enum Key {
     Ok,
     Back,
     Menu,
+    /// The pad's X button: the menus' second action, which the remote has no key for.
+    Alt,
     Guide,
 }
 impl Key {
@@ -56,6 +59,7 @@ impl Key {
             ipc::PadKey::Ok => Self::Ok,
             ipc::PadKey::Back => Self::Back,
             ipc::PadKey::Menu => Self::Menu,
+            ipc::PadKey::Alt => Self::Alt,
             _ => return None,
         })
     }
@@ -140,6 +144,8 @@ pub enum Command {
     Leadjoy { view: LeadjoyView, change: Option<ControllerChange> },
     Diagnostics(DiagnosticsConfig),
     DiagnosticTest,
+    /// The in-stream menu's Steam overlay, for the shell to hand the engine and to note in diagnostics; `None` when no session is open.
+    SteamOverlay(Option<(EngineId, SessionId)>),
     Exit,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -431,6 +437,12 @@ pub struct Integration {
     pub targets: Vec<Target>,
     pub error: Option<String>,
 }
+impl Integration {
+    /// An account integration with an account linked has a "Sign out" row on its page.
+    pub fn can_sign_out(&self) -> bool {
+        self.manifest.kind == EngineKind::Account && !self.targets.is_empty()
+    }
+}
 #[derive(Clone, Debug)]
 pub struct LinkFlow {
     pub engine: EngineId,
@@ -444,6 +456,8 @@ pub struct LinkFlow {
 }
 /// How long "Pair a PC" waits for a PC engine to find one before offering an address and a retry.
 pub const PC_SEARCH_MS: u64 = 20_000;
+/// The longest "Continue" or "Most played" shelf on Home. A service can report hundreds of played games; the Library page lists them all.
+const HOME_ROW_MAX: usize = 40;
 impl LinkFlow {
     fn new(engine: EngineId, target: Option<TargetId>, now_ms: u64) -> Self {
         Self { engine, target, state: None, expires_ms: None, pin: String::new(), since_ms: now_ms, no_pcs: false }
@@ -457,6 +471,12 @@ pub fn play_time(seconds: u64) -> String {
         (h, 0) => format!("{h} h"),
         (h, m) => format!("{h} h {m} min"),
     }
+}
+/// The far side's idle countdown while it runs: when it ends by the model's clock, and when a press last told the engine.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct IdleWarning {
+    pub ends_ms: u64,
+    sent_ms: Option<u64>,
 }
 #[derive(Clone, Debug)]
 pub struct View {
@@ -483,6 +503,7 @@ pub struct View {
     pub address: String,
     pub edit_field: Option<usize>,
     pub keyboard_lower: bool,
+    pub idle: Option<IdleWarning>,
 }
 impl Default for View {
     fn default() -> Self {
@@ -510,6 +531,7 @@ impl Default for View {
             address: String::new(),
             edit_field: None,
             keyboard_lower: false,
+            idle: None,
         }
     }
 }
@@ -627,6 +649,8 @@ pub struct Model {
     pub art: BTreeMap<String, PathBuf>,
     pub home_rows: Vec<HomeRow>,
     pub filtered: Vec<GameId>,
+    /// Every genre by its one label, with the games under it: the metadata provider's and every service's, joined (see `activity`).
+    genre_games: BTreeMap<String, BTreeSet<GameId>>,
     pub navigation: Vec<Neighbours>,
     pub lab: Lab,
     pub gamesir: GameSir,
@@ -669,7 +693,8 @@ impl Model {
                 list.sort_by_key(|e| match e.manifest.kind {
                     EngineKind::Cloud => 0,
                     EngineKind::Host => 1,
-                    _ => 2,
+                    EngineKind::Account => 2,
+                    _ => 3,
                 });
                 list
             },
@@ -680,6 +705,7 @@ impl Model {
             art: BTreeMap::new(),
             home_rows: Vec::new(),
             filtered: Vec::new(),
+            genre_games: BTreeMap::new(),
             navigation: Vec::new(),
             lab: Lab::default(),
             gamesir: GameSir::default(),
@@ -772,10 +798,22 @@ impl Model {
         self.foreground && !self.session_active()
     }
     pub fn wants_frames(&self) -> bool {
-        self.foreground && (self.view.page != Page::Running || self.hud_visible())
+        self.foreground && (self.view.page != Page::Running || self.hud_visible() || self.idle_left().is_some())
+    }
+    /// What the running stream was asked for, which the HUD's diagnosis weighs the readings against.
+    fn asked(&self) -> super::stats::Asked {
+        let stream = self.view.stream.as_ref();
+        super::stats::Asked { fps: stream.map_or(self.prefs.fps, |s| s.fps), cap_mbps: self.stream_bitrate_mbps(), sdr_reason: stream.and_then(|s| s.sdr_reason.clone()) }
     }
     pub fn hud_visible(&self) -> bool {
         self.foreground && self.view.page == Page::Running && self.streaming() && self.prefs.stats.mode.on()
+    }
+    /// The seconds the far side's idle countdown has left, while its warning is up over a stream being watched. Counted from the
+    /// model's clock, so the prompt needs no event per second.
+    pub fn idle_left(&self) -> Option<u32> {
+        let warning = self.view.idle?;
+        (self.foreground && matches!(self.view.page, Page::Running | Page::Overlay) && self.streaming())
+            .then(|| warning.ends_ms.saturating_sub(self.now_ms).div_ceil(1000) as u32)
     }
     /// How the shell should read the pads: the lab's own modes while its page has them and no sheet covers it.
     pub fn pad_mode(&self) -> PadMode {
@@ -872,24 +910,67 @@ impl Model {
             ("Leave the stream?", format!("The stream will close. {body}"), "Leave stream")
         }
     }
+    /// The latest play of the game on this TV or on any service, and where it was (see `activity`).
+    pub fn last_played(&self, id: GameId) -> Option<LastPlayed> {
+        activity::last_played(self.game(id)?, &self.state.profile().history)
+    }
+    /// How long ago that was. A service that gives a date and no time is told by the day.
     pub fn since_played(&self, id: GameId) -> Option<String> {
-        let total = self.state.profile().history.total(id);
-        if total.sessions == 0 {
-            return None;
-        }
-        let seconds = self.unix_s.saturating_sub(total.last);
-        Some(if seconds < 60 {
+        let last = self.last_played(id)?;
+        let seconds = self.unix_s.saturating_sub(last.at);
+        let days = seconds / 86400;
+        Some(if last.day_only {
+            match days {
+                0 => "Today".into(),
+                1 => "Yesterday".into(),
+                _ => format!("{days} days ago"),
+            }
+        } else if seconds < 60 {
             "Just now".into()
         } else if seconds < 3600 {
             format!("{} min ago", seconds / 60)
         } else if seconds < 86400 {
             format!("{} h ago", seconds / 3600)
         } else {
-            format!("{} days ago", seconds / 86400)
+            format!("{days} days ago")
         })
     }
+    /// A place as a game's page names it: "this TV", or the service's own name.
+    pub fn place_name(&self, place: &Place) -> String {
+        match place {
+            Place::ThisTv => "this TV".into(),
+            Place::Service(id) => self.engine_name(id).to_owned(),
+        }
+    }
+    /// The longest play time of the game in any one place, in seconds, and which place. Never a sum (see `activity`).
+    pub fn play_time_of(&self, id: GameId) -> Option<(u64, Place)> {
+        activity::longest_play(self.game(id)?, &self.state.profile().history)
+    }
+    /// The game's genres: the metadata provider's and every service's, one label each.
+    pub fn game_genres(&self, id: GameId) -> Vec<String> {
+        let Some(game) = self.game(id) else { return Vec::new() };
+        activity::genres(game, self.details.get(&id).map_or(&[][..], |d| d.genres.as_slice()))
+    }
+    /// The finer tags services give the game, without its genres.
+    pub fn game_tags(&self, id: GameId) -> Vec<String> {
+        self.game(id).map(activity::tags).unwrap_or_default()
+    }
+    /// The games listed under one genre, in title order.
+    pub fn in_genre(&self, name: &str) -> Vec<GameId> {
+        let Some(ids) = self.genre_games.get(name) else { return Vec::new() };
+        self.games.iter().filter(|g| ids.contains(&g.id)).map(|g| g.id).collect()
+    }
+    /// The names of the services that mark the game a favourite.
+    pub fn favourite_on(&self, id: GameId) -> Vec<&str> {
+        self.game(id).map(|game| activity::favourite_on(game).into_iter().map(|engine| self.engine_name(engine)).collect()).unwrap_or_default()
+    }
+    /// Whether the owner or a service marks the game a favourite.
+    pub fn is_favourite(&self, id: GameId) -> bool {
+        self.game(id).is_some_and(|game| activity::is_favourite(game, &self.state.profile().user.favourites))
+    }
+    /// Every genre any game has, once each, in alphabetical order.
     pub fn genres(&self) -> Vec<String> {
-        self.details.values().flat_map(|d| d.genres.iter().cloned()).collect::<BTreeSet<_>>().into_iter().collect()
+        self.genre_games.keys().cloned().collect()
     }
     pub fn filter_count(&self, engine: Option<&EngineId>) -> usize {
         self.games
@@ -964,8 +1045,12 @@ impl Model {
                 self.now_ms = now_ms;
                 self.unix_s = unix_s;
                 self.session_input(session::Input::Tick, &mut out);
-                changed = second && (self.view.page == Page::Overlay || self.view.auth.as_ref().is_some_and(|a| a.expires_ms.is_some()));
-                if self.hud_visible() { changed |= self.telemetry.tick(now_ms); }
+                changed = second && (self.view.page == Page::Overlay || self.view.idle.is_some() || self.view.auth.as_ref().is_some_and(|a| a.expires_ms.is_some()));
+                if self.hud_visible() {
+                    let asked = self.asked();
+                    changed |= self.telemetry.tick(now_ms, &asked);
+                    changed |= self.telemetry.rest.tick(now_ms);
+                }
                 if self.view.auth.as_ref().is_some_and(|a| a.expires_ms.is_some_and(|end| now_ms >= end) && !matches!(a.state, Some(AuthState::Failed { .. })))
                 {
                     if let Some(auth) = &mut self.view.auth {
@@ -1183,25 +1268,37 @@ impl Model {
             game.sources.sort_by_key(|source| self.integrations.iter().position(|e| e.manifest.id == source.engine).unwrap_or(usize::MAX));
         }
         if self.view.featured.is_none_or(|id| self.game(id).is_none()) {
-            self.view.featured =
-                self.state.profile().history.recently_played().into_iter().find(|id| self.game(*id).is_some()).or_else(|| self.games.first().map(|g| g.id));
+            self.view.featured = activity::recently_played(&self.games, &self.state.profile().history).first().copied().or_else(|| self.games.first().map(|g| g.id));
         }
         self.rebuild_rows();
         self.rebuild_filter();
     }
+    /// Groups the games by genre from every source of genres, one label each.
+    fn rebuild_genres(&mut self) {
+        let mut by_genre: BTreeMap<String, BTreeSet<GameId>> = BTreeMap::new();
+        for game in &self.games {
+            for genre in activity::genres(game, self.details.get(&game.id).map_or(&[][..], |d| d.genres.as_slice())) {
+                by_genre.entry(genre).or_default().insert(game.id);
+            }
+        }
+        self.genre_games = by_genre;
+    }
     fn rebuild_rows(&mut self) {
+        self.rebuild_genres();
         let profile = self.state.profile();
         let valid = |id: &GameId| self.games.iter().any(|g| g.id == *id) && !profile.user.hidden.contains(id);
         let mut rows = Vec::new();
-        let recent = profile.history.recently_played().into_iter().filter(valid).map(HomeItem::Game).collect::<Vec<_>>();
+        // The shelves read this TV's history and every service's reports together (see `activity`).
+        let shelf = |ids: Vec<GameId>, most: usize| ids.into_iter().filter(|id| !profile.user.hidden.contains(id)).take(most).map(HomeItem::Game).collect::<Vec<_>>();
+        let recent = shelf(activity::recently_played(&self.games, &profile.history), HOME_ROW_MAX);
         if !recent.is_empty() {
             rows.push(HomeRow { title: "Continue".into(), items: recent });
         }
-        let most = profile.history.most_played().into_iter().filter(valid).map(HomeItem::Game).collect::<Vec<_>>();
+        let most = shelf(activity::most_played(&self.games, &profile.history), HOME_ROW_MAX);
         if !most.is_empty() {
             rows.push(HomeRow { title: "Most played".into(), items: most });
         }
-        let favourites = profile.user.favourites.iter().filter(|id| valid(id)).copied().map(HomeItem::Game).collect::<Vec<_>>();
+        let favourites = shelf(activity::favourites(&self.games, &profile.user.favourites), usize::MAX);
         if !favourites.is_empty() {
             rows.push(HomeRow { title: "Favourites".into(), items: favourites });
         }
@@ -1233,25 +1330,26 @@ impl Model {
         let p = self.state.profile();
         let f = &self.view.filter;
         let query = self.view.query.to_lowercase();
-        self.filtered = self
+        let mut shown: Vec<&Game> = self
             .games
             .iter()
             .filter(|g| {
                 !p.user.hidden.contains(&g.id)
                     && (self.view.page != Page::Search || g.title.to_lowercase().contains(&query))
                     && f.engine.as_ref().is_none_or(|id| g.sources.iter().any(|s| &s.engine == id))
-                    && (!f.favourites || p.user.favourites.contains(&g.id))
+                    && (!f.favourites || activity::is_favourite(g, &p.user.favourites))
                     && f.collection.is_none_or(|i| p.user.collections.get(i).is_some_and(|c| c.games.contains(&g.id)))
-                    && f.genre.as_ref().is_none_or(|genre| self.details.get(&g.id).is_some_and(|d| d.genres.contains(genre)))
+                    && f.genre.as_ref().is_none_or(|genre| self.genre_games.get(genre).is_some_and(|ids| ids.contains(&g.id)))
             })
-            .map(|g| g.id)
             .collect();
+        // A stable sort: games with equal keys, and the ones nothing was played of, stay in title order.
         match self.view.sort {
             Sort::Title => {}
-            Sort::Recent => self.filtered.sort_by_key(|id| std::cmp::Reverse(p.history.total(*id).last)),
-            Sort::MostPlayed => self.filtered.sort_by_key(|id| std::cmp::Reverse(p.history.total(*id).seconds)),
-            Sort::Added => self.filtered.sort_by_key(|id| std::cmp::Reverse(id.0)),
+            Sort::Recent => shown.sort_by_key(|g| std::cmp::Reverse(activity::last_played(g, &p.history).map_or(0, |last| last.at))),
+            Sort::MostPlayed => shown.sort_by_key(|g| std::cmp::Reverse(activity::play_seconds(g, &p.history))),
+            Sort::Added => shown.sort_by_key(|g| std::cmp::Reverse(g.id.0)),
         }
+        self.filtered = shown.into_iter().map(|g| g.id).collect();
         self.view.first_grid_row = self.view.first_grid_row.min(self.filtered.len().saturating_sub(1) / self.prefs.covers.columns());
     }
     fn show_page(&mut self, page: Page, focus: Focus) {
@@ -1292,9 +1390,23 @@ impl Model {
         self.view.notice = None;
         self.show_page(Page::Hub, Focus::HubAction(0));
     }
+    /// A key pressed while the far side's idle countdown runs. The remote and a keyboard never reach the stream, and an overlay
+    /// pad key is the menu's, so the engine sends the far side one input for that press: it is the activity the countdown asks for.
+    /// The prompt clears when the far side's own clear arrives, not on the press. At most one a second, whatever is held down.
+    fn idle_activity(&mut self, out: &mut Vec<Command>) {
+        let (Some(warning), Some(s)) = (self.view.idle.as_mut(), self.session.as_ref()) else { return };
+        if warning.sent_ms.is_some_and(|at| self.now_ms < at + 1000) {
+            return;
+        }
+        warning.sent_ms = Some(self.now_ms);
+        Self::send(out, &s.source.engine, Request::Activity { session: s.id });
+    }
     fn key(&mut self, key: Key, down: bool, out: &mut Vec<Command>) -> bool {
         if !self.foreground {
             return false;
+        }
+        if down && self.idle_left().is_some() {
+            self.idle_activity(out);
         }
         if self.pad_mode() == PadMode::Captured {
             // A lab test has every pad button; the remote's Back still leaves it.
@@ -1339,6 +1451,7 @@ impl Model {
                 self.open_sheet(Sheet::Sort, Focus::SheetRow(Sort::ALL.iter().position(|s| *s == self.view.sort).unwrap_or(0)))
             }
             Key::Menu if self.view.page == Page::Overlay && self.view.sheet.is_none() => self.set_stats(self.prefs.stats.mode.next(), out),
+            Key::Alt if self.view.page == Page::Overlay && self.view.sheet.is_none() && self.steam_overlay() => self.open_steam_overlay(out),
             _ => {}
         }
         true
@@ -1630,13 +1743,7 @@ impl Model {
                         self.show_page(Page::Settings, Focus::Setting(0));
                     }
                     Some(OverlayAction::Stats) => self.set_stats(self.prefs.stats.mode.next(), out),
-                    // The menu closes and the pad goes back to the game first, so Steam's overlay opens over the game and gets the pad.
-                    Some(OverlayAction::SteamOverlay) => {
-                        self.resume(out);
-                        if let Some(s) = &self.session {
-                            Self::send(out, &s.source.engine, Request::SteamOverlay { session: s.id });
-                        }
-                    }
+                    Some(OverlayAction::SteamOverlay) => self.open_steam_overlay(out),
                     Some(OverlayAction::EndSession) => self.open_sheet(Sheet::EndSession, Focus::SheetAction(0)),
                     None => {}
                 }
@@ -1757,6 +1864,21 @@ impl Model {
         out.push(Command::Leadjoy { view: profile.view.clone(), change: Some(ControllerChange { setting: field.key.clone().into(), value: serde_json::Value::Null }) });
         self.leadjoy.pending = true;
     }
+    /// Signs an account integration out: the engine forgets the account and what it saved, and the games it listed leave the catalog.
+    fn sign_out(&mut self, engine: EngineId, out: &mut Vec<Command>) {
+        let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == engine && e.manifest.kind == EngineKind::Account) else {
+            return;
+        };
+        for target in std::mem::take(&mut e.targets) {
+            Self::send(out, &engine, Request::Forget { target: target.id.clone() });
+            self.listing.forget(&engine, &target.id);
+            self.pages.remove(&(engine.clone(), target.id));
+        }
+        self.view.focus = Focus::Setting(1);
+        self.rebuild_catalog();
+        out.push(Command::SaveCatalog);
+        out.push(Command::SaveState);
+    }
     fn adjust(&mut self, right: bool, out: &mut Vec<Command>) -> bool {
         if let Focus::EngineField(i) = self.view.focus {
             self.change_engine_field(i, right, out);
@@ -1793,6 +1915,7 @@ impl Model {
                     self.view.address.clear();
                     self.open_sheet(Sheet::AddHost, Focus::Keyboard(0));
                 }
+                3 => self.sign_out(id, out),
                 _ => return false,
             }
             return true;
@@ -1894,7 +2017,7 @@ impl Model {
         if mode == self.prefs.stats.mode { return; }
         let unix_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |t| t.as_millis() as u64);
         self.prefs.stats = Overlay { mode, changed: unix_ms.max(self.prefs.stats.changed.saturating_add(1)) };
-        if !mode.on() { self.telemetry = Telemetry::default(); }
+        if !mode.on() { self.telemetry = Telemetry::default(); } else { self.telemetry.rest = Default::default(); }
         self.save_prefs(out);
         self.stats_request(out);
     }
@@ -2099,17 +2222,42 @@ impl Model {
                     self.view.sheet = None;
                     self.view.focus = Focus::HubAction(0);
                     self.view.hub_tab = 0;
+                    self.view.idle = None;
                     self.view.notice = match outcome {
                         session::Outcome::Failed { message, .. } => Some(message),
                         session::Outcome::Ended(ipc::EndReason::Remote) => Some("The game ended.".into()),
+                        // Calm and without a fault: the far side's own policy ended it, and playing again is one press away.
+                        session::Outcome::Ended(ipc::EndReason::Idle) => Some(format!("{} ended the session after inactivity.", self.engine_name(&s.source.engine))),
                         _ => None,
                     };
                     out.push(Command::ClearCheckpoint);
                     self.rebuild_rows();
                     if self.closing {
                         out.push(Command::Exit);
+                    } else {
+                        self.refresh_accounts(false, out);
                     }
                 }
+            }
+        }
+    }
+    /// Asks every signed-in account engine (Steam) for its library again; the one entry point for "refresh". After a stream it
+    /// shows the play that just ended on Home at once, and the engine serves its saved copy when it refreshed a moment ago. `force`
+    /// (the owner's Refresh) tells the engine to skip that saved copy first. A traversal already under way is left to finish.
+    pub(crate) fn refresh_accounts(&mut self, force: bool, out: &mut Vec<Command>) {
+        let linked: Vec<(EngineId, TargetId)> = self
+            .integrations
+            .iter()
+            .filter(|e| e.manifest.kind == EngineKind::Account && self.enabled(&e.manifest.id))
+            .flat_map(|e| e.targets.iter().filter(|t| t.link == ipc::Link::Linked).map(|t| (e.manifest.id.clone(), t.id.clone())))
+            .collect();
+        for (engine, target) in linked {
+            if let std::collections::btree_map::Entry::Vacant(slot) = self.pages.entry((engine.clone(), target.clone())) {
+                slot.insert(Vec::new());
+                if force {
+                    Self::send(out, &engine, Request::Action { key: "refresh".into() });
+                }
+                Self::send(out, &engine, Request::Library { target, cursor: None });
             }
         }
     }
@@ -2121,6 +2269,11 @@ impl Model {
             Self::send(out, &s.source.engine, Request::Route { session: s.id, input: ipc::InputRoute::App });
             self.stats_request(out);
         }
+    }
+    /// The menu closes and the pad goes back to the game first, so Steam's overlay opens over the game and gets the pad.
+    fn open_steam_overlay(&mut self, out: &mut Vec<Command>) {
+        self.resume(out);
+        out.push(Command::SteamOverlay(self.session.as_ref().map(|s| (s.source.engine.clone(), s.id))));
     }
     fn resume(&mut self, out: &mut Vec<Command>) {
         if let Some(s) = &self.session {
@@ -2456,7 +2609,7 @@ impl Model {
                     self.close_sheet();
                 } else if let Some(a) = &mut self.view.auth {
                     a.expires_ms = match state {
-                        AuthState::DeviceCode { expires_s, .. } => Some(self.now_ms + u64::from(expires_s) * 1000),
+                        AuthState::DeviceCode { expires_s, .. } | AuthState::Qr { expires_s, .. } => Some(self.now_ms + u64::from(expires_s) * 1000),
                         _ => None,
                     };
                     if matches!(state, AuthState::EnterPin { .. }) {
@@ -2485,6 +2638,12 @@ impl Model {
             ipc::Event::Overlay { session } => {
                 if self.session.as_ref().is_some_and(|s| s.id == session && s.source.engine == id) {
                     self.open_overlay(out);
+                }
+            }
+            ipc::Event::IdleWarning { session, seconds } => {
+                if self.session.as_ref().is_some_and(|s| s.id == session && s.source.engine == id) {
+                    let sent_ms = self.view.idle.and_then(|w| w.sent_ms);
+                    self.view.idle = seconds.map(|s| IdleWarning { ends_ms: self.now_ms + u64::from(s) * 1000, sent_ms });
                 }
             }
             ipc::Event::Key { key, down } => {
@@ -2564,9 +2723,7 @@ impl Model {
                                     }
                                 }
                             }
-                            HomeItem::Genre(name) => {
-                                ids.extend(self.games.iter().filter(|g| self.details.get(&g.id).is_some_and(|d| d.genres.contains(name))).take(3).map(|g| g.id))
-                            }
+                            HomeItem::Genre(name) => ids.extend(self.genre_games.get(name).into_iter().flatten().take(3).copied()),
                         }
                     }
                 }
@@ -2715,6 +2872,9 @@ impl Model {
                             rows.push(vec![Focus::Setting(2)]);
                         }
                         rows.extend((0..e.targets.len()).map(|i| vec![Focus::Target(i)]));
+                        if e.can_sign_out() {
+                            rows.push(vec![Focus::Setting(3)]);
+                        }
                         rows.extend(e.schema.fields().enumerate().filter(|(_, f)| f.kind != FieldKind::Note).map(|(i, _)| vec![Focus::EngineField(i)]));
                     }
                 }
@@ -2842,8 +3002,15 @@ pub(crate) mod tests {
             art: ipc::Art { hero: link("hero"), logo: link("logo"), ..Default::default() },
             readiness: Default::default(),
             resumable: false,
+            activity: Default::default(),
         };
-        m.games.push(Game { id: GameId(1), role: Default::default(), title: title.into(), sources: vec![catalog::Source { engine: source.engine.clone(), target: source.target.clone(), entry }] });
+        m.games.push(Game {
+            id: GameId(1),
+            role: Default::default(),
+            title: title.into(),
+            sources: vec![catalog::Source { engine: source.engine.clone(), target: source.target.clone(), entry }],
+            reports: Vec::new(),
+        });
         if art {
             m.art.extend(["hero", "logo"].map(|name| (name.to_string(), PathBuf::from(name))));
         }
@@ -3007,9 +3174,22 @@ pub(crate) mod tests {
         let out = key(&mut m, Key::Ok);
         let session = m.session().unwrap().id;
         assert_eq!(m.view.page, Page::Running);
-        let sent = sent(&out);
-        assert_eq!(sent.first(), Some(&&Request::Route { session, input: ipc::InputRoute::Game }));
-        assert_eq!(sent.last(), Some(&&Request::SteamOverlay { session }));
+        assert_eq!(sent(&out).first(), Some(&&Request::Route { session, input: ipc::InputRoute::Game }));
+        let overlay = Command::SteamOverlay(Some((EngineId::new("gfn").unwrap(), session)));
+        assert_eq!(out.last(), Some(&overlay), "the request follows the menu closing");
+        m.step(Input::Overlay);
+        m.view.focus = Focus::Overlay(0);
+        assert_eq!(key(&mut m, Key::Alt).last(), Some(&overlay), "X opens it from any item");
+        assert_eq!(m.view.page, Page::Running);
+    }
+    #[test]
+    fn x_opens_nothing_over_a_game_that_is_not_a_steam_copy() {
+        let mut m = launching("Game", false);
+        report(&mut m, SessionState::Running { stream: None });
+        m.step(Input::Overlay);
+        describe(&mut m, "gfn", vec![], &[Feature::EndGame, Feature::SteamOverlay]);
+        assert!(key(&mut m, Key::Alt).is_empty());
+        assert_eq!(m.view.page, Page::Overlay);
     }
     #[test]
     fn a_stream_page_never_outlives_its_session() {
@@ -3076,7 +3256,7 @@ pub(crate) mod tests {
         let targets = vec![target("main"), target("second")];
         let entry = ipc::LibraryEntry {
             id: lumagame_core::ids::ProviderGameId::new("1").unwrap(), title: "Game".into(), role: ipc::Role::Game,
-            external: vec![], store: None, store_account: None, art: ipc::Art::default(), readiness: Readiness::Ready, resumable: false,
+            external: vec![], store: None, store_account: None, art: ipc::Art::default(), readiness: Readiness::Ready, resumable: false, activity: Default::default(),
         };
         let deliver = |m: &mut Model, engine: &EngineId, event| {
             m.step(Input::Engine { engine: engine.clone(), message: FromEngine { re: None, event } })
@@ -3240,6 +3420,67 @@ pub(crate) mod tests {
         assert!(model.games().is_empty());
     }
 
+    /// The Steam integration as the screenshots show it.
+    #[derive(Clone, Copy)]
+    pub(crate) enum SteamShot {
+        SignedOut,
+        Qr,
+        /// An account linked, Steam's records and GeForce NOW's favourites merged into the shelves.
+        SignedIn,
+    }
+    /// The screenshot fixture with the Steam integration added to its Integrations page.
+    pub(crate) fn with_steam(mut m: Model, shot: SteamShot) -> Model {
+        use lumagame_core::activity::Activity;
+        let at = m.integrations.iter().rposition(|e| e.manifest.kind == EngineKind::Host).map_or(0, |i| i + 1);
+        let integration = Integration { manifest: manifest("steam", "Steam", EngineKind::Account), descriptor: None, schema: SettingsSchema::default(), targets: Vec::new(), error: None };
+        m.integrations.insert(at, integration);
+        m.view.page = Page::Integration;
+        m.view.selected_engine = Some(EngineId::new("steam").unwrap());
+        m.view.focus = Focus::Setting(0);
+        describe(&mut m, "steam", vec![lumagame_core::engine::AuthMethod::Qr], &[]);
+        m.view.focus = Focus::Setting(1);
+        match shot {
+            SteamShot::SignedOut => {}
+            SteamShot::Qr => {
+                let state = AuthState::Qr { url: "https://s.team/q/1/11860205094928508090".into(), expires_s: 252 };
+                engine_says(&mut m, "steam", ipc::Event::Auth { state });
+            }
+            SteamShot::SignedIn => {
+                let (now, day, account) = (m.unix_s, 86_400, "76561198000000000");
+                let gfn = EngineId::new("gfn").unwrap();
+                let mut entries: Vec<ipc::LibraryEntry> = m.listing.sources.iter().filter(|s| s.engine == gfn).map(|s| s.entry.clone()).collect();
+                for e in &mut entries {
+                    let favourite = ["Baldur's Gate 3", "Cyberpunk 2077", "Disco Elysium"].contains(&e.title.as_str());
+                    e.activity = Activity { favourite, ..Activity::default() };
+                }
+                engine_says(&mut m, "gfn", ipc::Event::Library { target: TargetId::new("main").unwrap(), entries, next: None });
+                let records = [
+                    ("1245620", 1_800, 412, &["Action", "RPG"][..], &["Souls-like", "Open World", "Difficult"][..]),
+                    ("1086940", 3 * day, 160, &["RPG", "Strategy"][..], &["Turn-Based", "Story Rich", "Co-op"][..]),
+                    ("367520", 3 * day, 81, &["Action", "Adventure"][..], &["Metroidvania", "Hand-drawn"][..]),
+                    ("2379780", day, 64, &["Strategy"][..], &["Card Game", "Roguelike"][..]),
+                    ("504230", 12 * day, 31, &["Platformer"][..], &["Precision Platformer", "Pixel Graphics"][..]),
+                    ("620", 40 * day, 9, &["Puzzle"][..], &["Co-op", "First-Person"][..]),
+                    ("632470", 20 * day, 38, &["RPG"][..], &["Story Rich", "Detective"][..]),
+                ];
+                let records = records
+                    .into_iter()
+                    .map(|(appid, ago, hours, genres, tags)| {
+                        let words = |w: &[&str]| w.iter().map(|s| s.to_string()).collect();
+                        let activity = Activity { last_played: Some(now - ago), playtime_s: Some(hours * 3600), genres: words(genres), tags: words(tags), ..Activity::default() };
+                        entry(appid, appid, ipc::Role::Record, &[&format!("steam:{appid}")], activity)
+                    })
+                    .collect();
+                let mut target = linked(account);
+                target.name = "Nitin".into();
+                engine_says(&mut m, "steam", ipc::Event::Targets { targets: vec![target] });
+                engine_says(&mut m, "steam", ipc::Event::Library { target: TargetId::new(account).unwrap(), entries: records, next: None });
+                m.view.page = Page::Integration;
+                m.view.focus = Focus::Setting(1);
+            }
+        }
+        m
+    }
     fn manifest(id: &str, name: &str, kind: EngineKind) -> Manifest {
         Manifest { id: EngineId::new(id).unwrap(), name: name.into(), summary: String::new(), kind, protocol: 1, exec: None, args: Vec::new(), license: "MIT".into(), source: None }
     }
@@ -3259,6 +3500,149 @@ pub(crate) mod tests {
                 video: None,
             },
         });
+    }
+    fn entry(id: &str, title: &str, role: ipc::Role, external: &[&str], activity: lumagame_core::activity::Activity) -> ipc::LibraryEntry {
+        ipc::LibraryEntry {
+            id: lumagame_core::ids::ProviderGameId::new(id).unwrap(),
+            title: title.into(),
+            role,
+            external: external.iter().map(|x| x.parse().unwrap()).collect(),
+            store: None,
+            store_account: None,
+            art: ipc::Art::default(),
+            readiness: Readiness::Ready,
+            resumable: false,
+            activity,
+        }
+    }
+    fn linked(id: &str) -> Target {
+        Target { id: TargetId::new(id).unwrap(), name: id.into(), detail: None, link: ipc::Link::Linked, reach: ipc::Reach::Online }
+    }
+    fn engine_says(m: &mut Model, engine: &str, event: ipc::Event) -> Vec<Command> {
+        m.step(Input::Engine { engine: EngineId::new(engine).unwrap(), message: FromEngine { re: None, event } })
+    }
+    fn id_of(m: &Model, title: &str) -> GameId {
+        m.games().iter().find(|g| g.title == title).unwrap().id
+    }
+    #[test]
+    fn steam_play_merges_with_this_tvs_history_for_the_shelf_the_sort_and_the_genre_filter() {
+        use lumagame_core::activity::{Activity, Place};
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("pc", "PC", EngineKind::Host), manifest("steam", "Steam", EngineKind::Account)]);
+        describe(&mut m, "pc", vec![], &[]);
+        describe(&mut m, "steam", vec![lumagame_core::engine::AuthMethod::Qr], &[]);
+        let account = "76561198000000000";
+        let asked = engine_says(&mut m, "steam", ipc::Event::Targets { targets: vec![linked(account)] });
+        assert!(matches!(sent(&asked)[..], [Request::Library { cursor: None, .. }]), "a linked account is asked for its library at once");
+        let record = |appid: &str, activity| entry(appid, appid, ipc::Role::Record, &[&format!("steam:{appid}")], activity);
+        let records = vec![
+            record("10", Activity { last_played: Some(5_000), playtime_s: Some(7_200), genres: vec!["Action".into(), "ROLE_PLAYING".into()], tags: vec!["Open World".into()], ..Activity::default() }),
+            record("20", Activity { last_played: Some(9_000), genres: vec!["Role-playing (RPG)".into()], ..Activity::default() }),
+            record("99", Activity { last_played: Some(99_000), ..Activity::default() }),
+        ];
+        engine_says(&mut m, "steam", ipc::Event::Library { target: TargetId::new(account).unwrap(), entries: records, next: None });
+        engine_says(&mut m, "pc", ipc::Event::Targets { targets: vec![linked("main")] });
+        let games = vec![
+            entry("a", "Alpha", ipc::Role::Game, &["steam:10"], Activity::default()),
+            entry("b", "Beta", ipc::Role::Game, &["steam:20"], Activity::default()),
+            entry("c", "Gamma", ipc::Role::Game, &[], Activity::default()),
+        ];
+        engine_says(&mut m, "pc", ipc::Event::Library { target: TargetId::new("main").unwrap(), entries: games, next: None });
+        let (alpha, beta, gamma) = (id_of(&m, "Alpha"), id_of(&m, "Beta"), id_of(&m, "Gamma"));
+        assert_eq!(m.games().len(), 3, "a Steam game the TV does not list is not a card");
+        m.state.profile_mut().history.record(Played { game: gamma, source: "pc|main|c".parse().unwrap(), start: 7_000, seconds: 60 });
+        m.unix_s = 9_000 + 3 * 86_400;
+        m.rebuild_rows();
+        m.rebuild_filter();
+
+        let shelf = |m: &Model, title: &str| m.home_rows.iter().find(|r| r.title == title).map(|r| r.items.clone());
+        assert_eq!(shelf(&m, "Continue"), Some(vec![HomeItem::Game(beta), HomeItem::Game(gamma), HomeItem::Game(alpha)]), "Steam's 9000 beats this TV's 7000 beats Steam's 5000");
+        assert_eq!(shelf(&m, "Most played"), Some(vec![HomeItem::Game(alpha), HomeItem::Game(gamma)]), "7200 s on Steam outranks 60 s here; unplayed Beta is absent");
+        assert_eq!(m.last_played(beta).map(|l| l.place), Some(Place::Service(EngineId::new("steam").unwrap())));
+        assert_eq!(m.since_played(beta).as_deref(), Some("3 days ago"));
+        assert_eq!(m.play_time_of(alpha), Some((7_200, Place::Service(EngineId::new("steam").unwrap()))));
+        assert_eq!(m.game_tags(alpha), ["Open World"]);
+        assert_eq!(m.genres(), ["Action", "RPG"], "two spellings of one genre are one label");
+        m.view.sort = Sort::Recent;
+        m.rebuild_filter();
+        assert_eq!(m.filtered, [beta, gamma, alpha]);
+        m.view.filter.genre = Some("RPG".into());
+        m.rebuild_filter();
+        assert_eq!(m.filtered, [beta, alpha], "both spellings fall under the one genre");
+        m.view.filter.genre = Some("Action".into());
+        m.rebuild_filter();
+        assert_eq!(m.filtered, [alpha]);
+    }
+    #[test]
+    fn a_service_favourite_joins_the_owners_favourites_without_becoming_one() {
+        use lumagame_core::activity::Activity;
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gfn", "GeForce NOW", EngineKind::Cloud)]);
+        describe(&mut m, "gfn", vec![], &[]);
+        engine_says(&mut m, "gfn", ipc::Event::Targets { targets: vec![linked("main")] });
+        let entries = vec![
+            entry("1", "Alpha", ipc::Role::Game, &[], Activity { favourite: true, ..Activity::default() }),
+            entry("2", "Beta", ipc::Role::Game, &[], Activity::default()),
+            entry("3", "Gamma", ipc::Role::Game, &[], Activity::default()),
+        ];
+        engine_says(&mut m, "gfn", ipc::Event::Library { target: TargetId::new("main").unwrap(), entries, next: None });
+        let (alpha, beta, gamma) = (id_of(&m, "Alpha"), id_of(&m, "Beta"), id_of(&m, "Gamma"));
+        m.state.profile_mut().user.favourites.insert(beta);
+        m.rebuild_rows();
+        m.view.filter.favourites = true;
+        m.rebuild_filter();
+        let favourites = m.home_rows.iter().find(|r| r.title == "Favourites").map(|r| r.items.clone());
+        assert_eq!(favourites, Some(vec![HomeItem::Game(beta), HomeItem::Game(alpha)]));
+        assert_eq!(m.filtered, [alpha, beta], "the filter takes both, in title order");
+        assert_eq!((m.is_favourite(alpha), m.is_favourite(gamma)), (true, false));
+        assert_eq!(m.favourite_on(alpha), ["GeForce NOW"]);
+        assert!(!m.state().profile().user.favourites.contains(&alpha), "the heart edits only the owner's own set");
+    }
+    #[test]
+    fn an_account_is_asked_again_after_a_stream_and_signing_out_clears_what_it_listed() {
+        use lumagame_core::activity::Activity;
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("steam", "Steam", EngineKind::Account)]);
+        describe(&mut m, "steam", vec![lumagame_core::engine::AuthMethod::Qr], &[]);
+        let steam = EngineId::new("steam").unwrap();
+        let account = TargetId::new("76561198000000000").unwrap();
+        engine_says(&mut m, "steam", ipc::Event::Targets { targets: vec![linked("76561198000000000")] });
+        let records = vec![entry("10", "10", ipc::Role::Record, &["steam:10"], Activity { last_played: Some(5), ..Activity::default() })];
+        engine_says(&mut m, "steam", ipc::Event::Library { target: account.clone(), entries: records.clone(), next: None });
+        let enabled = BTreeSet::from([steam.clone()]);
+        assert_eq!(m.listing.enabled(&enabled).len(), 1);
+
+        let mut out = Vec::new();
+        m.refresh_accounts(false, &mut out);
+        assert!(matches!(sent(&out)[..], [Request::Library { cursor: None, .. }]), "returning from a stream asks the signed-in account again");
+        let mut again = Vec::new();
+        m.refresh_accounts(true, &mut again);
+        assert!(sent(&again).is_empty(), "a traversal under way is left to finish, even when forced");
+        engine_says(&mut m, "steam", ipc::Event::Library { target: account.clone(), entries: records, next: None });
+        let mut forced = Vec::new();
+        m.refresh_accounts(true, &mut forced);
+        assert!(matches!(sent(&forced)[..], [Request::Action { .. }, Request::Library { cursor: None, .. }]), "a forced refresh first tells the engine to skip its saved copy");
+
+        let mut out = Vec::new();
+        m.sign_out(steam.clone(), &mut out);
+        assert!(matches!(sent(&out)[..], [Request::Forget { .. }]));
+        assert!(m.integration(&steam).unwrap().targets.is_empty() && !m.integration(&steam).unwrap().can_sign_out());
+        assert!(m.listing.enabled(&enabled).is_empty(), "what the account listed leaves the catalog");
+        let mut after = Vec::new();
+        m.refresh_accounts(true, &mut after);
+        assert!(sent(&after).is_empty(), "a signed-out account is not asked");
+    }
+    #[test]
+    fn a_qr_sign_in_lasts_as_long_as_the_whole_attempt_however_often_the_code_rotates() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("steam", "Steam", EngineKind::Account)]);
+        describe(&mut m, "steam", vec![lumagame_core::engine::AuthMethod::Qr], &[]);
+        let qr = |expires_s| ipc::Event::Auth { state: AuthState::Qr { url: "https://s.team/q/1/2".into(), expires_s } };
+        engine_says(&mut m, "steam", qr(300));
+        assert_eq!(m.view.auth.as_ref().and_then(|a| a.expires_ms), Some(300_000));
+        m.step(Input::Tick { now_ms: 100_000, unix_s: 0 });
+        engine_says(&mut m, "steam", qr(200));
+        assert_eq!(m.view.auth.as_ref().and_then(|a| a.expires_ms), Some(300_000), "a rotated code keeps the same end");
+        m.step(Input::Tick { now_ms: 299_999, unix_s: 0 });
+        assert!(matches!(m.view.auth.as_ref().and_then(|a| a.state.as_ref()), Some(AuthState::Qr { .. })));
+        m.step(Input::Tick { now_ms: 300_000, unix_s: 0 });
+        assert!(matches!(m.view.auth.as_ref().and_then(|a| a.state.as_ref()), Some(AuthState::Failed { reason: ipc::AuthFail::Expired, .. })));
     }
     fn sent(commands: &[Command]) -> Vec<&Request> {
         commands.iter().filter_map(|c| if let Command::Send { request, .. } = c { Some(request) } else { None }).collect()

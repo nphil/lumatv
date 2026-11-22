@@ -1,5 +1,5 @@
 diff --git a/native/opennow-core/src/cloudmatch.rs b/native/opennow-core/src/cloudmatch.rs
-index 74cc7946..5a20e4c3 100644
+index 74cc7946..87b10160 100644
 --- a/native/opennow-core/src/cloudmatch.rs
 +++ b/native/opennow-core/src/cloudmatch.rs
 @@ -1703,7 +1703,8 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id:
@@ -12,7 +12,147 @@ index 74cc7946..5a20e4c3 100644
          "availableSupportedControllers":[2],
          "preferredController":2,
          "networkTestSessionId":params["networkTestSessionId"].as_str(),
-@@ -5875,7 +5876,7 @@ mod tests {
+@@ -2061,11 +2062,8 @@ fn session_info(
+     });
+     let hdr = accepted_hdr_mode(session);
+     negotiated["enableHdr"] = json!(hdr.map(|mode| mode == 1));
+-    negotiated["enableHdrSource"] = json!(if hdr_mode_value(session).is_some() {
+-        "server"
+-    } else {
+-        "unreported"
+-    });
++    negotiated["enableHdrSource"] =
++        json!(hdr_mode_field(session).map_or("unreported", |(_, source)| source));
+     let ad_state = normalize_ad_state(session);
+     let mut info = json!({
+         "sessionId":session_id,
+@@ -2132,18 +2130,27 @@ fn normalize_ad_state(session: &Value) -> Value {
+ }
+ 
+ fn accepted_hdr_mode(session: &Value) -> Option<i64> {
+-    hdr_mode_value(session)
+-        .and_then(value_i64)
++    hdr_mode_field(session)
++        .and_then(|(mode, _)| value_i64(mode))
+         .map(|mode| i64::from(mode == 1))
+ }
+ 
+-fn hdr_mode_value(session: &Value) -> Option<&Value> {
++/// The accepted dynamic range and where it was read. The official client takes it from the
++/// response's own `monitorSettings[0]` (vendor.js `at()`; main.js `hdrStreamingMode`), the only
++/// place the service can say it dropped HDR. `sessionRequestData` merely echoes what was asked,
++/// so a refused request still reads as accepted there; it stays a last resort and is labelled
++/// `request` so diagnostics can tell the two apart.
++fn hdr_mode_field(session: &Value) -> Option<(&Value, &'static str)> {
+     session
+         .get("sdrHdrMode")
++        .or_else(|| session["monitorSettings"][0].get("sdrHdrMode"))
++        .map(|mode| (mode, "server"))
+         .or_else(|| {
+-            session["sessionRequestData"]["clientRequestMonitorSettings"][0].get("sdrHdrMode")
++            session["sessionRequestData"]["clientRequestMonitorSettings"][0]
++                .get("sdrHdrMode")
++                .or_else(|| session["sessionRequestData"].get("sdrHdrMode"))
++                .map(|mode| (mode, "request"))
+         })
+-        .or_else(|| session["sessionRequestData"].get("sdrHdrMode"))
+ }
+ 
+ fn preserve_session_profile(info: &mut Value, previous: &Value) {
+@@ -5747,6 +5754,92 @@ mod tests {
+         assert_eq!(accepted_hdr_mode(&json!({"sdrHdrMode":2})), Some(0));
+     }
+ 
++    #[test]
++    fn accepted_hdr_is_read_from_the_response_monitor_before_the_request_echo() {
++        let base = trusted_cloudmatch_base(DEFAULT_STREAMING_BASE).unwrap();
++        let profile = |session: Value| {
++            let info =
++                session_info(&json!({"session":session}), &base, "", "123", "device").unwrap();
++            info["negotiatedStreamProfile"].clone()
++        };
++        let echo = json!({"sdrHdrMode":1,"clientRequestMonitorSettings":[{"sdrHdrMode":1}]});
++        // The service dropped HDR: only its own monitor says so, the echo still shows the request.
++        let dropped = profile(json!({"sessionId":"seat","status":2,
++            "sessionRequestData":echo,"monitorSettings":[{"sdrHdrMode":0}]}));
++        assert_eq!(dropped["enableHdr"], false);
++        assert_eq!(dropped["enableHdrSource"], "server");
++        let kept = profile(json!({"sessionId":"seat","status":2,
++            "sessionRequestData":echo,"monitorSettings":[{"sdrHdrMode":1}]}));
++        assert_eq!(kept["enableHdr"], true);
++        assert_eq!(kept["enableHdrSource"], "server");
++        let echoed = profile(json!({"sessionId":"seat","status":2,"sessionRequestData":echo}));
++        assert_eq!(echoed["enableHdr"], true);
++        assert_eq!(echoed["enableHdrSource"], "request");
++        let silent = profile(json!({"sessionId":"seat","status":2}));
++        assert!(silent["enableHdr"].is_null());
++        assert_eq!(silent["enableHdrSource"], "unreported");
++        assert_eq!(
++            accepted_hdr_mode(&json!({"sdrHdrMode":0,"monitorSettings":[{"sdrHdrMode":1}]})),
++            Some(0)
++        );
++    }
++
++    #[test]
++    fn p3_and_rec2020_panel_primaries_reach_the_wire() {
++        // Rec.2020 red sits exactly on the x + y = 1 limit and must still count as valid.
++        for (primaries, wire) in [
++            (
++                [0.680, 0.320, 0.265, 0.690, 0.150, 0.060, 0.3127, 0.3290],
++                [34000, 16000, 13250, 34500, 7500, 3000, 15635, 16450],
++            ),
++            (
++                [0.708, 0.292, 0.170, 0.797, 0.131, 0.046, 0.3127, 0.3290],
++                [35400, 14600, 8500, 39850, 6550, 2300, 15635, 16450],
++            ),
++        ] {
++            let mut display =
++                json!({"minimumNits":0.0005,"maximumNits":1000,"maximumFullFrameNits":400});
++            for (key, value) in [
++                "redX", "redY", "greenX", "greenY", "blueX", "blueY", "whiteX", "whiteY",
++            ]
++            .into_iter()
++            .zip(primaries)
++            {
++                display[key] = json!(value);
++            }
++            let body = build_create_body(
++                "123",
++                &json!({}),
++                &json!({"codec":"h265","enableHdr":true,"nativeHdrSupported":true,
++                    "nativeHdrDisplay":display}),
++                "device",
++            );
++            let data =
++                &body["sessionRequestData"]["clientRequestMonitorSettings"][0]["displayData"];
++            assert_eq!(data["desiredContentMaxLuminance"].as_f64(), Some(1000.0));
++            assert_eq!(data["desiredContentMinLuminance"], 5);
++            assert_eq!(
++                data["desiredContentMaxFrameAverageLuminance"].as_f64(),
++                Some(400.0)
++            );
++            for (key, expected) in [
++                "displayPrimaryX0",
++                "displayPrimaryY0",
++                "displayPrimaryX1",
++                "displayPrimaryY1",
++                "displayPrimaryX2",
++                "displayPrimaryY2",
++                "displayWhitePointX",
++                "displayWhitePointY",
++            ]
++            .into_iter()
++            .zip(wire)
++            {
++                assert_eq!(data[key], expected, "{key}");
++            }
++        }
++    }
++
+     #[test]
+     fn in_game_settings_persistence_defaults_on_and_requires_game_support() {
+         for preference in [Value::Null, json!(false), json!(true)] {
+@@ -5875,7 +5968,7 @@ mod tests {
          );
          assert!(request.get("externalAppId").is_none());
          assert_eq!(request["enablePersistingInGameSettings"], true);
@@ -21,6 +161,47 @@ index 74cc7946..5a20e4c3 100644
          assert_eq!(request["accountLinked"], true);
          assert_eq!(request["appLaunchMode"], 2);
          assert_eq!(request["secureRTSPSupported"], true);
+@@ -6373,6 +6466,40 @@ mod tests {
+         })));
+     }
+ 
++    #[test]
++    fn the_session_request_carries_cloud_gsync_only_on_request_and_reflex_rides_along() {
++        let features = |settings: Value| {
++            let body = build_create_body(
++                "12345",
++                &json!({"title":"Portal 2"}),
++                &settings,
++                "device-id",
++            );
++            let features = body["sessionRequestData"]["requestedStreamingFeatures"].clone();
++            // vsync is a client presentation setting; the official request never carries it.
++            assert!(features.get("vsync").is_none());
++            (features["cloudGsync"].clone(), features["reflex"].clone())
++        };
++        assert_eq!(features(json!({"fps":60})), (json!(false), json!(false)));
++        assert_eq!(features(json!({"fps":120})), (json!(false), json!(true)));
++        assert_eq!(
++            features(json!({"fps":60,"enableCloudGsync":true})),
++            (json!(true), json!(true))
++        );
++        assert_eq!(
++            features(json!({"fps":60,"nativeCloudGsyncMode":"forced"})),
++            (json!(true), json!(true))
++        );
++        assert_eq!(
++            features(json!({
++                "fps":120,
++                "enableCloudGsync":true,
++                "nativeCloudGsyncMode":"disabled"
++            })),
++            (json!(false), json!(true))
++        );
++    }
++
+     #[test]
+     fn parses_pending_and_ready_session_responses() {
+         let base = trusted_cloudmatch_base(DEFAULT_STREAMING_BASE).unwrap();
 diff --git a/native/opennow-core/src/gfn.rs b/native/opennow-core/src/gfn.rs
 index 8fed7e15..51a55386 100644
 --- a/native/opennow-core/src/gfn.rs

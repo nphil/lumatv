@@ -127,19 +127,21 @@ impl Sources {
     }
 }
 
-/// The face buttons the menus use. X is bound to nothing there; the bumpers, View and Menu buttons are too.
+/// The face buttons the menus use. The bumpers, View and Menu buttons are bound to nothing there.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Face {
     A,
     B,
+    X,
     Y,
 }
 impl Face {
-    pub const ALL: [Self; 3] = [Self::A, Self::B, Self::Y];
+    pub const ALL: [Self; 4] = [Self::A, Self::B, Self::X, Self::Y];
     pub fn letter(self) -> &'static str {
         match self {
             Self::A => "A",
             Self::B => "B",
+            Self::X => "X",
             Self::Y => "Y",
         }
     }
@@ -148,14 +150,16 @@ impl Face {
         match self {
             Self::A => button::A,
             Self::B => button::B,
+            Self::X => button::X,
             Self::Y => button::Y,
         }
     }
-    /// The key the menus receive from it (the remote's OK, Back and Menu).
+    /// The key the menus receive from it (the remote's OK, Back and Menu; X is the second action, Alt, which the remote has no key for).
     pub fn key(self) -> Key {
         match self {
             Self::A => Key::Ok,
             Self::B => Key::Back,
+            Self::X => Key::Alt,
             Self::Y => Key::Menu,
         }
     }
@@ -176,6 +180,7 @@ impl Key {
             MenuKey::Ok => Self::Ok,
             MenuKey::Back => Self::Back,
             MenuKey::Menu => Self::Menu,
+            MenuKey::Alt => Self::Alt,
         }
     }
 }

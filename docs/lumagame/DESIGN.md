@@ -271,7 +271,7 @@ Manrope at three weights only: Regular 400, Medium 500, SemiBold 600.
 
 - **T0 by default**: canvas tints for fact tiles, ways-to-play tiles, title plates, notices and
   status chips. **Cached glass (T1)** only on the nav group, buttons over art, sheets and the toast.
-  The stats overlay is sheet material with its edge and no backdrop or shadow: nothing behind live
+  The stats overlay is a veil of sheet colour with no edge, backdrop or shadow: nothing behind live
   video can be captured.
 - **Shadows** are neutral and vertical: rest `0 24 60 / .28`, raised `0 34 80 / .55 + 0 10 24 /
   .30`, cover at rest `0 14 30 / .34`, focus `0 22 44 / .50` (light themes about half). One
@@ -315,11 +315,11 @@ knob.
   capabilities.
 - **Hint**: the key's glyph plus a verb (`Select`, `Close`, `Sort`); never the key's name. The glyph
   follows the last input used: the remote's icon, or on a controller the Xbox face button (A select,
-  B back/cancel/keep, Y menu: Sort in the library, Stats in the stream menu). A connected controller
+  B back/cancel/keep, Y menu: Sort in the library, Stats in the stream menu; X: Steam overlay in the stream menu, from any item). A connected controller
   with no key pressed yet counts as the last input; the first press of the other kind switches. A
   face glyph is a disc of the same size as the icon, in the button's colour if it holds 3:1 on the
-  canvas and sheet (letter 4.5:1), otherwise the theme's ink. X, the bumpers, View and Menu do
-  nothing in menus, so they get no glyph. A GameSir Cyclone 2 or Leadjoy Xeno Plus in use (told by
+  canvas and sheet (letter 4.5:1), otherwise the theme's ink. The bumpers, View and Menu do
+  nothing in menus, so they get no glyph; X only has one in the stream menu. A GameSir Cyclone 2 or Leadjoy Xeno Plus in use (told by
   the pad's name) draws its own black buttons with white letters, as ink on canvas in light mode and
   canvas with an ink rim and letters in dark; Settings › Controllers › Button labels overrides the
   pick (`docs/research/controller-glyphs.md`).
@@ -350,23 +350,97 @@ knob.
 - **In-stream overlay**: the curtain's composition over still art on an opaque stage: logo, where
   and how long, stream stats, then Resume, Stream settings, `Stats · Compact` and End session.
 - **Stats overlay**: off by default; one setting (Off, Compact, Full) shared by LumaTV's Quick
-  Settings, the in-stream menu (its button, or Menu / pad Y there), and Settings › Streaming. It sits
-  on the top-right safe corner in sheet material at the overlay floor (.96). Compact is a pill:
-  frame rate, panel refresh and the last second of frame times. Full is a 992-wide panel of four
-  groups: Frame timing and Controller on the left, Stream and Display on the right, so the columns
-  come out within a few rows of each other. Each group head carries a dot and a word (Good, Even,
-  Steady; Losing packets, Uneven, Stalling, Bursty). Rows put the label left in secondary ink and
+  Settings, the in-stream menu (its button, or Menu / pad Y there), and Settings › Streaming. Both
+  modes anchor on the top-right safe corner and are a veil of the sheet colour (.58 for Compact, .80
+  for Full), not the .96 sheet, so the game stays visible through them; ink stays the stage's dark
+  palette. Compact is one thin strip: a dot and one word naming the worst current bottleneck
+  (Good, Network, Host, TV, Controller), the frame rate, a 20-slot frame-time sparkline and the
+  end-to-end latency in ms. Full is two columns of about 900 x 750: a header (the same word, frame
+  rate, latency, one sentence) over Latency, Smoothness and Network on the left and Picture, TV and
+  Controller on the right, cut where the columns come out closest in height. Latency is a stacked
+  bar of the legs Controller, Network, Host, TV and Panel with a legend; Smoothness is the
+  frame-time graph with its target line; Network is a jitter graph, red in a second that lost
+  packets; Picture is bitrate against the requested cap. Each group head carries a dot and a word
+  (Good, Even, Steady; Loss, Jitter, Bunched, Stalling, Bursty) and each group ends with one plain
+  sentence ("Occasional packet loss, 0.8%"). Rows put the label left in secondary ink and
   the value right in ink, units in secondary ink, every figure tabular. Figures are measured; one
   that comes from the host or the panel says `reported`, and nothing shown is an estimate. A value
   older than 2 s shows `–` and its group reads `No data` with the outlined dot. Frame percentiles
   cover the last 10 s of feeder arrivals; the two Feed rows measure arrival to submission returning,
-  not decoding or scan-out. Accepted frames are not proof that a frame reached the panel.
+  not decoding or scan-out. Accepted frames are not proof that a frame reached the panel. Decode
+  time and scan-out are not measured, so the latency bar has no leg for them; the Panel leg is the
+  firmware's reported video delay.
+- **Stats overlay prior art**: MangoHud's one-line horizontal layout (fps, frame-time graph, a few
+  loads) is the model for Compact; the Steam Deck's performance overlay levels step from fps only
+  to everything, which is the Compact and Full split; NVIDIA's GeForce NOW stats (Ctrl+Alt+F6),
+  Moonlight's performance overlay and Xbox Cloud's stream stats all list network latency, packet
+  loss, bitrate and decode time as flat rows, so the reader must know which number matters. Here
+  the overlay names the cause itself and the rows are evidence.
+- **Bottleneck diagnosis** (`app/src/game/diagnosis.rs`): each cause scores 0 to 1 or more from
+  the readings, and a score of 1 means a threshold was met. Network: packet loss at 0.5% (2% is
+  heavy), jitter at 8 ms, round trip at 60 ms, frames lost to packet loss, or frames the host sent
+  evenly arriving bunched. Host: encode time at 75% of the frame interval, host frame gaps over
+  1.5 frame intervals, or a frame rate under 90% of the target (weighted .9 so that direct
+  evidence wins). TV: dropped frames, socket drops, client plus pacing hold of 16 ms, feed p99 over
+  half an interval, panel delay of 30 ms, fewer refreshes than expected in the worst 100 ms, or
+  uneven feed gaps while the host and the arrival were even. Controller: report gap p99 over
+  16 ms, or bursts. The shown word is the highest score at 1 or more; Good when none. A cause
+  must lead for 2 ticks to appear, keep 70% of its score to stay, lose it for 6 ticks before
+  leaving, and an incumbent is displaced only by a rival 1.25 times its score, so noisy readings do
+  not flicker.
 - **Frame-time graph**: one bar per slot, the longest frame of about 33 ms. A late frame rises
   from the target line (two targets of rise), an early one dips under it (one target), and a slot
   within a pixel of the target draws nothing, so a smooth stream is a quiet line. Past one and a
   half targets a bar is full ink. The target's value labels the line's right end.
 - **First run**: `Add a way to play` with four tiles (GeForce NOW, Gaming PC, Desk PC, This TV),
   each with its next step.
+
+## Steam account
+
+The Steam integration (`steam`, kind Account, switched on in Settings › Integrations › Accounts) adds Steam's own record of play to
+games that another engine lists: last played, play time, genres and tags, matched by Steam app id. It lists no game and launches
+nothing.
+
+**Sign-in: a QR code scanned in the Steam phone app.** The engine opens a Steam sign-in session
+(`IAuthenticationService/BeginAuthSessionViaQR`), the TV shows its code, the owner scans it and approves in the app, and the engine
+polls the session until Steam hands over a refresh token (about 200 days). Short-lived access tokens
+(`GenerateAccessTokenForApp`) then read `IPlayerService/GetOwnedGames`. The password and Steam Guard code never reach the TV and
+no key is typed on a remote. The token is stored like the GeForce NOW sign-in: `engines/steam/token.json`, 0600, read only by the
+engine and never logged. Steam rotates the code every 10 to 20 seconds; the sheet follows it and closes with the attempt, at
+300 seconds at most.
+
+Rejected: a Web API key with the SteamID64 (a 32-character key typed with a remote, game details readable only on a public
+profile, and a long-lived secret that works from anywhere); Steam OpenID (proves who the owner is and returns no token, so private
+play time stays unreadable, and it needs a browser redirect); signing in over Steam's own connection protocol (reads more, but
+needs the client protocol stack and can sign the owner out of other Steam sessions).
+
+**Not available: Favorites and other collections.** Steam keeps them in its cloud configuration store (namespace 1,
+`user-collections.*`), which only Steam's own connection protocol serves. Its HTTPS interface has no such service
+(`ICloudConfigStore/Download` answers 404, interface not found), so no sign-in route above reads them. They are left out and
+nothing stands in for them: the Favourites shelf holds LumaGame's own favourites and the games a service marks (GeForce NOW).
+
+**Merging.** A record attaches to the one game another engine lists with that Steam id; a record that matches no game, or an id
+two games share, attaches to none and is never a card.
+
+- Last played is the latest of this TV's history and every service's report; a service that gives a date only counts from the start
+  of that day and reads "Today", "Yesterday" or "N days ago". The game's page names the place ("Last played on Steam").
+- Play time is the longest single place's figure, never a sum, since Steam's total can include time streamed from this TV. The
+  page names whose figure it shows.
+- Home's Continue and Most played hold up to 40 games each; the Library's Recent and Most played sorts order all.
+- Genres from the metadata provider and every service join under one label per genre and feed the Genres row and the genre
+  filter. Up to three tags show in the game's meta line.
+- Favourites are one row and one filter over LumaGame's own favourites and the services' marks. The heart edits LumaGame's own set
+  only; a "Favourite on GeForce NOW" chip shows a service's mark.
+
+**Refresh and cache.** The engine fetches when enabled, at app start and on return from a stream, at most once in 300 seconds,
+and serves its cache (`cache/steam/`, at most 1500 games, genres and tags kept 30 days) when Steam cannot be reached. The app's
+one refresh entry point, `Model::refresh_accounts(force, out)`, asks every linked account engine again; `force` (an explicit
+Refresh) first sends the engine `Action refresh`, which skips the 300-second wait.
+
+**Sheet and page.** The QR sheet reuses the device-code layout without an address or code: instruction, QR on the white
+`qr-plate` that every theme uses, the time left, Cancel. It is interactive, lasts 300 seconds at most and closes at expiry, so
+its one bright element does not stay. The Steam page has Enable, Sign in (Switch account once linked), the account row and
+Sign out, which deletes the token and caches. Colours, radii and type come from the active theme's tokens.
 
 ## Do's and Don'ts
 
