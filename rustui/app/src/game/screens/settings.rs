@@ -335,7 +335,7 @@ fn integrations(p: &mut Paint<'_>, x: f32, w: f32) {
         let linked = e.targets.iter().filter(|t| t.link == Link::Linked).count();
         let subtitle = if !enabled {
             "Off".into()
-        } else if let Some(error) = &e.error {
+        } else if let Some((_, error)) = &e.error {
             error.clone()
         } else if linked > 0 {
             e.targets.iter().filter(|t| t.link == Link::Linked).map(|t| t.name.as_str()).collect::<Vec<_>>().join("  ·  ")
@@ -561,7 +561,7 @@ pub fn integration(p: &mut Paint<'_>) {
     if !enabled {
         return;
     }
-    if let Some(error) = &e.error {
+    if let Some((_, error)) = &e.error {
         y += p.wrapped(225, error, Frame::new(x + 26.0, y + 16.0, w - 52.0, 0.0), Type::Body, Role::Warning, false, 10) + 32.0;
     }
     if let Some(d) = &e.descriptor {

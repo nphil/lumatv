@@ -441,7 +441,7 @@ pub struct Integration {
     pub descriptor: Option<Descriptor>,
     pub schema: SettingsSchema,
     pub targets: Vec<Target>,
-    pub error: Option<String>,
+    pub error: Option<(ipc::ErrorCode, String)>,
 }
 impl Integration {
     /// An account integration with an account linked has a "Sign out" row on its page.
@@ -1027,7 +1027,7 @@ impl Model {
                 self.refresh_gone(&id);
                 if let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == id) {
                     e.descriptor = None;
-                    e.error = Some("Connection lost".into());
+                    e.error = Some((ipc::ErrorCode::Network, "Connection lost".into()));
                     for target in &mut e.targets {
                         target.reach = ipc::Reach::Offline;
                     }
@@ -2617,6 +2617,11 @@ impl Model {
                     self.open_sheet(Sheet::Auth, Focus::SheetAction(0));
                 }
                 if matches!(state, AuthState::Done { .. }) {
+                    if let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == id && e.manifest.kind == EngineKind::Account)
+                        && matches!(e.error, Some((ipc::ErrorCode::SignIn, _)))
+                    {
+                        e.error = None;
+                    }
                     // The Targets answer starts the library traversal; a second one here overlapped it, and the GeForce NOW
                     // engine rejected the shared first cursor as repeated.
                     Self::send(out, &id, Request::Targets);
@@ -2693,7 +2698,7 @@ impl Model {
                     self.view.notice = Some(message.clone());
                 }
                 if let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == id) {
-                    e.error = Some(message);
+                    e.error = Some((code, message));
                 }
             }
             ipc::Event::Refresh { step, note } => self.refresh_step(&id, step, note, out),
@@ -3263,6 +3268,19 @@ pub(crate) mod tests {
         let commands = m.step(Input::Engine { engine, message: FromEngine { re: None, event: done } });
         let sent: Vec<_> = commands.iter().filter_map(|c| if let Command::Send { request, .. } = c { Some(request) } else { None }).collect();
         assert!(matches!(sent.as_slice(), [Request::Targets]));
+    }
+    #[test]
+    fn account_approval_retires_only_the_sign_in_warning() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("steam", "Steam", EngineKind::Account)]);
+        let steam = EngineId::new("steam").unwrap();
+        for code in [ipc::ErrorCode::SignIn, ipc::ErrorCode::Network] {
+            engine_says(&mut m, "steam", ipc::Event::Error { code, message: "request refused".into() });
+            let target = linked("main");
+            engine_says(&mut m, "steam", ipc::Event::Targets { targets: vec![target.clone()] });
+            assert!(m.integration(&steam).unwrap().error.is_some(), "listing a saved account is not approval");
+            engine_says(&mut m, "steam", ipc::Event::Auth { state: AuthState::Done { target: target.id } });
+            assert_eq!(m.integration(&steam).unwrap().error.is_some(), code != ipc::ErrorCode::SignIn);
+        }
     }
     #[test]
     fn repeated_targets_leave_the_running_library_traversal_alone() {
@@ -4034,7 +4052,7 @@ pub(crate) mod tests {
             error(&mut m);
             assert_eq!(m.view.page, Page::Lab);
             assert_eq!(m.view.notice, None);
-            assert_eq!(m.integration(&engine).unwrap().error.as_deref(), Some("the installed app list exceeds the lifecycle limit"));
+            assert_eq!(m.integration(&engine).unwrap().error.as_ref().map(|(_, text)| text.as_str()), Some("the installed app list exceeds the lifecycle limit"));
             // Where the engine is what the screen is about, the same error is still shown.
             m.view.notice = Some("No controller is connected.".into());
             m.view.selected_engine = Some(engine.clone());

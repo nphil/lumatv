@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Steam QR sign-in uses the access token returned with approval and checks once more before declaring a code expired. A replacement polling ID no longer depends on receiving a new QR image at the same time.
+The Steam integration page clears an earlier sign-in warning after account approval. Unrelated errors remain visible.
 
 Helper tests inspect the plugin environment and broker socket without forking under the 64-process limit. The Hue test bridge drains the stream before checking its final colour, and tuner tests create executable fixtures without launch retries.
 
