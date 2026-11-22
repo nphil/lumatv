@@ -39,9 +39,9 @@ python3 -B compare_timer.py before.txt after.txt
 
 The comparator prints both field counts, field-selection and enable bits for each channel; unequal or malformed receipts fail. Equality does not establish the rest of the display state. No authenticated idle baseline for the selected retail channel, restoration receipt or safe crash-recovery path is available here. In particular a zero/zero idle pair cannot be recreated by any 24–120 Hz picture. A guardian holding only a PID cannot restore it by closing that process. No raw register writes, DE commands, ForceVRR, reboot, or guess at a free channel are part of the test.
 
-**Unblock condition:** identify the exclusively reserved channel through the media resource manager, validate the raw readback on that build, and establish an allowed way to leave the exact pre-run state after owner loss. A finite rate is not enough: the split fields and scan-type bit must match. A supported restoration scheme needs a separate supervisor retaining decoder/picture ownership until output is drained or safely released. No live run command is offered without that guarantee.
+**Parked, not awaiting a TV slot.** Functional handback to stock playback was accepted as a weaker alternative to exact register restoration. Neither would establish that the panel follows individual frames. The [4K feasibility gate](../../docs/research/decoded-vrr-4k.md) supersedes this 1080p experiment; there is no decoder runner to install.
 
-## Capture card for an approved slot (ten-minute ceiling)
+## Archived capture design (not a run sheet)
 
 1. **0–2 min, baseline.** Record firmware identity, the assigned decoder/window/channel, owner list, pre-run raw fields, output rate and normal UI state. Abort on another owner, missing readback or a baseline the runner cannot restore.
 2. **2–4 min, fixed 120.** Film the corner patch and adjacent number together. Use actual 240 fps or higher, tripod, fixed focus/exposure and short exposure (about 1/1000 s if available). No interpolation; keep the original file with capture timestamps. Start before ID 0 and stop after 719; allow about 12 seconds per clip.
