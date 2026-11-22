@@ -1729,7 +1729,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let seen = dir.path().join("seen");
         let script = format!(
-            "#!/bin/sh\necho \"${{SSGW_BROKER_FD:-none}} $(readlink /proc/$$/fd/${{SSGW_BROKER_FD:-none}})\" >> '{}'\n",
+            "#!/bin/sh\n{{ printf '%s' \"${{SSGW_BROKER_FD:-none}}\"; \
+             if [ -S \"/proc/self/fd/$SSGW_BROKER_FD\" ]; then printf ' socket'; fi; echo; }} >> '{}'\n",
             seen.display()
         );
         let (mut gw, _) = gateway(dir.path(), &script);
@@ -1737,12 +1738,12 @@ mod tests {
         for as_root in [false, true] {
             gw.as_root = as_root;
             let mut run = gw.spawn(Instant::now()).unwrap();
-            run.child.wait().unwrap();
+            assert!(run.child.wait().unwrap().success());
         }
         let seen = read(&seen);
         let lines: Vec<&str> = seen.lines().collect();
         let (fd, what) = lines[0].split_once(' ').unwrap();
-        assert!(fd.parse::<u32>().is_ok() && what.starts_with("socket:"), "{seen}");
+        assert!(fd.parse::<u32>().is_ok() && what == "socket", "{seen}");
         assert_eq!(lines[1].trim(), "none", "{seen}");
     }
 

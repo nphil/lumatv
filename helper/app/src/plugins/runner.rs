@@ -373,9 +373,8 @@ impl Runner {
     }
 }
 
-/// Confines a program the helper starts as a plugin's is: a session of its own, below the shell and the compositor, ceilings on files,
-/// processes and file size (and on the address space, when one is given), no core dumps, the user and group `ids` (when the helper is
-/// root), no new privileges, the termination signals unblocked, and SIGTERM when the helper dies.
+/// Confines a plugin to its own session, with resource ceilings, no new privileges and SIGTERM when the helper dies.
+/// When the helper is root, the plugin runs as the user and group `ids`.
 pub(crate) fn confine(command: &mut Command, ids: Option<(u32, u32)>, address_space: Option<u64>) {
     confine_files(command, ids, address_space, 64);
 }
@@ -533,7 +532,7 @@ mod tests {
         let member = plugin(
             dir.path(),
             "env-plugin",
-            "#!/bin/sh\nenv > env.out\npwd > pwd.out\nexec sleep 30\n",
+            "#!/bin/sh\npwd > pwd.out\nexec env > env.out\n",
             my_uid(),
         );
         let mut runner = Runner::new(dir.path().join("plugins"), shared(dir.path()));
@@ -742,7 +741,8 @@ mod tests {
         let member = plugin(
             dir.path(),
             "boxed",
-            "#!/bin/sh\n{ id -u; id -g; id -G; grep NoNewPrivs /proc/self/status; ulimit -n; } > who.out 2>&1\nexec sleep 30\n",
+            "#!/bin/sh\n{ id -u; id -g; id -G; grep NoNewPrivs /proc/self/status; ulimit -n\n\
+             while read -r l; do case $l in 'Max processes'*) echo \"$l\";; esac; done < /proc/self/limits; } > who.out 2>&1\nexec sleep 30\n",
             20007,
         );
         let mut runner = Runner::new(dir.path().join("plugins"), shared(dir.path()));
@@ -752,7 +752,7 @@ mod tests {
             "boxed",
             "who.out"
         ))
-        .is_ok_and(|t| t.lines().count() >= 5)));
+        .is_ok_and(|t| t.lines().count() >= 6)));
         let who = std::fs::read_to_string(data(dir.path(), "boxed", "who.out")).unwrap();
         let lines: Vec<&str> = who.lines().collect();
         assert_eq!(lines[0], "20007", "{who}");
@@ -760,6 +760,11 @@ mod tests {
         assert_eq!(lines[2], "2000", "no other group: {who}");
         assert!(lines[3].ends_with('1'), "no_new_privs: {who}");
         assert_eq!(lines[4], "64", "{who}");
+        assert_eq!(
+            lines[5].split_whitespace().skip(2).take(2).collect::<Vec<_>>(),
+            ["64", "64"],
+            "processes: {who}"
+        );
         runner.stop_all(Duration::from_secs(1));
     }
 }

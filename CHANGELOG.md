@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Helper tests inspect the plugin environment and broker socket without forking under the 64-process limit. The Hue test bridge drains the stream before checking its final colour, and tuner tests create executable fixtures without launch retries.
+
 The offline VRR rehearsal tools distinguish stock playback recovery from firmware-load evidence and exact display-routing readback. The host can replay the retail reference and timer routines through interrupted handback without changing the TV.
 
 Each connection `ssgw-accept` gives to LG's gateway instead of the Rust gateway on port 3001 is now recorded under `/var/lib/lumatv/ssgw/fallback/`: the reason (no run directory, nothing listening, no ready byte within 200 ms, closed without one, an untrusted socket or directory, a failed hand-over), the run directory's mode and owner, whether `accept.sock` and `control.sock` exist, the boot id and the time. Fall backs for the same reason within 5 minutes share one file with their first and last time and a count, so Home Assistant retrying against a stopped gateway leaves one record, and the newest 16 files are kept across helper restarts. The helper logs the newest as `ssgw: ...` when its count changes and the plugin's page shows it; nothing is sent to the phone. Connections the gateway takes leave no record. Tested with the real `ssgw-accept` binary; not yet checked on the TV.

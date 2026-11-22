@@ -816,7 +816,9 @@ mod tests {
     }
 
     /// An agent that notes what it was started with and says it connected.
-    const CONNECTS: &str = "#!/bin/sh\nenv > \"$DATA_DIR/env\"\necho $$ > \"$DATA_DIR/pid\"\n\
+    const CONNECTS: &str = "#!/bin/sh\nprintf '%s\\n' \"HUB_URL=$HUB_URL\" \"KEY=$KEY\" \"TOKEN=$TOKEN\" \
+                            \"DISABLE_SSH=$DISABLE_SSH\" \"SYS_SENSORS=$SYS_SENSORS\" \"GPU_SAMPLE_FILE=$GPU_SAMPLE_FILE\" \
+                            \"GPU_COLLECTOR=$GPU_COLLECTOR\" > \"$DATA_DIR/env\"\necho $$ > \"$DATA_DIR/pid\"\n\
                             echo '2026/11/11 21:16:03 INFO WebSocket connected host=hub.test' >&2\nexec sleep 30\n";
 
     /// A TV's sources, `beszel-native` as `native` has it, and a `beszel-agent` that connects.

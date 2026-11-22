@@ -79,7 +79,7 @@ def start_dtls():
     err = open(cfg["dir"] + "/dtls.err", "ab")
     p = subprocess.Popen(
         [
-            "openssl", "s_server", "-dtls1_2", "-accept", "127.0.0.1:%d" % cfg["udp_port"], "-nocert",
+            "openssl", "s_server", "-dtls1_2", "-naccept", "1", "-accept", "127.0.0.1:%d" % cfg["udp_port"], "-nocert",
             "-psk", cfg["client_key"], "-psk_identity", cfg["app_id"], "-cipher", "PSK-AES128-GCM-SHA256",
         ],
         stdin=subprocess.PIPE, stdout=out, stderr=err,
@@ -91,10 +91,17 @@ def start_dtls():
         time.sleep(0.01)
 
 
-def stop_dtls():
+def stop_dtls(*, client_closed=False):
     p = state["dtls"]
     state["dtls"] = None
     if p is not None:
+        if client_closed:
+            # HTTPS can overtake the queued DTLS records. Let s_server read through close_notify before collecting its output.
+            try:
+                p.wait(timeout=2)
+                return
+            except subprocess.TimeoutExpired:
+                pass
         p.kill()
         p.wait()
 
@@ -162,7 +169,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         start_dtls()
                         return self.reply(200, ok)
                     if action == "stop":
-                        stop_dtls()
+                        stop_dtls(client_closed=True)
                         state["active"], state["streamer"] = False, None
                         return self.reply(200, ok)
                 return self.reply(400, {"errors": [{"description": "unknown action"}]})
