@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+GeForce NOW's Stream settings have an experimental Cloud G-SYNC toggle, off by default. On, the session request asks the service for Cloud G-SYNC and Reflex and the stream setup leaves out the fixed 120 fps encode request (`fakeEncodeFps`, `fbcDynamicFpsGrabTimeoutMs`) the official TV app sends; a service that refuses the request gets the previous setup. Each stream logs one `NVST cloud-gsync` line: the setting, the request echo, the service's `finalizedStreamingFeatures` answer (`absent` when it sent none) and the pacing attributes of its offer and of the reply. NVIDIA offers Cloud G-SYNC only in its Windows and Mac apps, and the TV's decoder timer stays at 120 Hz, so an accepted variable cadence may judder. Untested on the TV.
+
 LumaGame's controller hints draw the face buttons as printed on the GameSir Cyclone 2 (thin white letters on black) and the Leadjoy Xeno Plus (dot-matrix letters), in the theme's ink and canvas, picked from the pad's kernel name; Settings › Controllers › Button labels overrides it, including a PlayStation set. The names the TV reports are not yet read, so detection is not yet checked on the TV.
 
 GeForce NOW starts a new game right after the game was ended from inside it. LumaGame never released the finished seat in OpenNOW's core, which refuses every new launch while it holds one (`session_update_busy`), so each play failed after 0.6 s until LumaGame was restarted (2026-11-22, Doom). The seat is now released when the far side ends the game, and a failed launch ends with the engine's error code in its message, which the screen shows and `session_end` logs as `code`. Not yet checked on the TV.

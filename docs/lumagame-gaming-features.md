@@ -1117,9 +1117,13 @@ OpenNOW (`a49b124`) requests it with `requestedStreamingFeatures.cloudGsync`
 The streamer acts only when the negotiated profile agrees, and its Linux
 pacer then presents the newest frame at once with no queue
 (`linux_frame_pacing.rs`). LumaGame's engine carries the field
-(`types.rs:244`, default false) and does nothing with it.
+(`types.rs:244`) and its platform does nothing with it. The Stream setting
+*Cloud G-SYNC (experimental)* (off by default) sends the request and drops the
+fixed 120 fps encode lines from the ANNOUNCE
+([request, answer and timing](research/decoded-vrr-4k.md#cloud-g-sync-request-server-answer-observed-timing)).
 
-Verdict: `cloud_gsync` stays false. NVIDIA does not support TV clients, and
+Verdict: off by default; the setting probes what the server does and is not a
+VRR path. NVIDIA does not support TV clients, and
 the C4's decoded path presents on a 120 Hz decoder timer (measured
 `fixed_frame_rate 1`, ±0.19 %), so a varying server cadence would show as
 8.33 ms-quantised judder rather than a varying refresh, while Reflex is

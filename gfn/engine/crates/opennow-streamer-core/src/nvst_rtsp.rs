@@ -1362,6 +1362,11 @@ fn prepare_on_endpoint(
         &mut handoff,
     )?;
     let announce_body = omit_server_announce_attributes(&effective_announce, &describe.body);
+    opennow_streamer_protocol::log::log_line(
+        "INFO",
+        "rtsp",
+        &cloud_gsync_summary(context, stream.cloud_gsync, &describe.body, &announce_body),
+    );
     Ok(PreparedNvstRtspSession {
         control_ping: NvstControlPing::default(),
         client: Some(client),
@@ -1656,7 +1661,12 @@ fn build_announce(context: &SessionContext, params: AnnounceParams<'_>) -> Strin
         lines.push("a=x-nv-mic.micSsrcConfig.senderSsrc:1".to_owned());
     }
     lines.extend(announce_color_lines(params.stream));
-    lines.extend(official_tv_lines(fps, dynamic_streaming_mode, ten_bit_hevc));
+    lines.extend(official_tv_lines(
+        fps,
+        dynamic_streaming_mode,
+        ten_bit_hevc,
+        !params.stream.cloud_gsync,
+    ));
     lines.extend([
         "t=0 0".to_owned(),
         format!("m=video {}", params.video_port),
@@ -1670,9 +1680,16 @@ fn build_announce(context: &SessionContext, params: AnnounceParams<'_>) -> Strin
 /// What the official client (play.geforcenow.com, which LG's app wraps) adds for a TV, beyond the lines above. `video.dx9EnableHdr`
 /// it always sends. Above 60 fps, frame-rate control replaces bitrate-driven resolution control (except in dynamic streaming mode
 /// 1), and a 120 fps stream keeps 100 fps or more under the v2 controller. At 120 fps on webOS and Tizen it asks for a fixed
-/// 120 fps encode whatever the game renders, with shorter capture and decode-time thresholds. 10-bit HEVC gets a QP floor of 14.
+/// 120 fps encode whatever the game renders, with shorter capture and decode-time thresholds; `fixed_rate` is false while Cloud
+/// G-SYNC is in force, which asks for a stream that follows the game, so the fixed-rate pair (`fakeEncodeFps`,
+/// `fbcDynamicFpsGrabTimeoutMs`) is left out and the decode-time threshold stays. 10-bit HEVC gets a QP floor of 14.
 /// The seat must honour them; nothing here changes what the client accepts.
-fn official_tv_lines(fps: u64, dynamic_streaming_mode: u8, ten_bit_hevc: bool) -> Vec<String> {
+fn official_tv_lines(
+    fps: u64,
+    dynamic_streaming_mode: u8,
+    ten_bit_hevc: bool,
+    fixed_rate: bool,
+) -> Vec<String> {
     let mut lines = vec!["a=x-nv-video[0].dx9EnableHdr:1".to_owned()];
     if fps > 60 || dynamic_streaming_mode == 2 {
         if dynamic_streaming_mode != 1 {
@@ -1688,16 +1705,101 @@ fn official_tv_lines(fps: u64, dynamic_streaming_mode: u8, ten_bit_hevc: bool) -
         ]);
     }
     if fps == 120 {
-        lines.extend([
-            "a=x-nv-video[0].fakeEncodeFps:120".to_owned(),
-            "a=x-nv-video[0].fbcDynamicFpsGrabTimeoutMs:6".to_owned(),
-            "a=x-nv-vqos[0].resControl.cpmRtc.decodeTimeThresholdMs:9".to_owned(),
-        ]);
+        if fixed_rate {
+            lines.extend([
+                "a=x-nv-video[0].fakeEncodeFps:120".to_owned(),
+                "a=x-nv-video[0].fbcDynamicFpsGrabTimeoutMs:6".to_owned(),
+            ]);
+        }
+        lines.push("a=x-nv-vqos[0].resControl.cpmRtc.decodeTimeThresholdMs:9".to_owned());
     }
     if ten_bit_hevc {
         lines.push("a=x-nv-video[0].minQp:14".to_owned());
     }
     lines
+}
+
+/// The log line that keeps Cloud G-SYNC's states apart: what the settings asked the core for, what the session response echoes
+/// of the request (an echo only repeats it) and what its `finalizedStreamingFeatures` decided (`absent`: the server said
+/// nothing). `inForce` is requested and not refused, so it is true while the answer is still `absent`. The pacing attributes of
+/// the server's DESCRIBE and of the ANNOUNCE follow, picked by name fragment because no document gives the server's own
+/// spelling of a variable-rate switch.
+fn cloud_gsync_summary(
+    context: &SessionContext,
+    in_force: bool,
+    describe: &str,
+    announce: &str,
+) -> String {
+    let setting = |key: &str| {
+        context.settings.get(key).map_or_else(
+            || "absent".to_owned(),
+            |value| value.to_string().trim_matches('"').to_owned(),
+        )
+    };
+    let feature = |section: &str, key: &str| {
+        match context
+            .session
+            .extra
+            .get(section)
+            .and_then(|features| features.get(key))
+            .and_then(Value::as_bool)
+        {
+            Some(true) => "true",
+            Some(false) => "false",
+            None => "absent",
+        }
+    };
+    format!(
+        "NVST cloud-gsync settings mode={} enable={} | echo cloudGsync={} reflex={} | finalized cloudGsync={} reflex={} | inForce={in_force} | offers: {} | announce: {}",
+        setting("nativeCloudGsyncMode"),
+        setting("enableCloudGsync"),
+        feature("requestedStreamingFeatures", "cloudGsync"),
+        feature("requestedStreamingFeatures", "reflex"),
+        feature("finalizedStreamingFeatures", "cloudGsync"),
+        feature("finalizedStreamingFeatures", "reflex"),
+        pacing_attributes(describe),
+        pacing_attributes(announce),
+    )
+}
+
+/// The attributes of an SDP whose names concern frame pacing or variable-rate streaming, as `name=value`. Names only match by
+/// fragment and values are cut short, so a key, password or fingerprint never reaches the log.
+fn pacing_attributes(sdp: &str) -> String {
+    const FRAGMENTS: &[&str] = &[
+        "gsync",
+        "vrr",
+        "vsync",
+        "reflex",
+        "framepacing",
+        "fakeencode",
+        "fbcdynamic",
+        "variable",
+        "dynamicfps",
+        "maxfps",
+        "targetfps",
+    ];
+    let found = sdp
+        .split("||")
+        .next()
+        .unwrap_or_default()
+        .split(";;")
+        .flat_map(str::lines)
+        .filter_map(|line| {
+            let (name, value) = line.trim().strip_prefix("a=")?.split_once(':')?;
+            let name = name.strip_prefix("x-nv-").unwrap_or(name);
+            let lower = name.to_ascii_lowercase();
+            FRAGMENTS
+                .iter()
+                .any(|fragment| lower.contains(fragment))
+                .then(|| format!("{name}={}", value.trim().chars().take(24).collect::<String>()))
+        })
+        .take(32)
+        .collect::<Vec<_>>();
+    if found.is_empty() {
+        "none".to_owned()
+    } else {
+        found.join(" ")
+    }
 }
 
 fn resolution(context: &SessionContext) -> (u64, u64) {
@@ -3008,6 +3110,80 @@ mod tests {
         }
         assert!(!sdp.contains("mapRtpTimestampsToFrames"), "the server's offer stands");
         assert!(!sdp.contains("minQp"), "AV1 has no QP floor");
+    }
+
+    fn announce_for(value: &SessionContext) -> String {
+        build_announce(
+            value,
+            AnnounceParams {
+                stream: stream_config(value),
+                key: &"01".repeat(32),
+                key_id: 7,
+                port: 49006,
+                address: "192.0.2.10",
+                ufrag: "abcd",
+                password: "abcdefghijklmnopqrstuv",
+                fingerprint: "AA:BB",
+                video_port: 5004,
+                video_packet_size: 1280,
+                rtcp_on_sctp: true,
+                microphone_available: false,
+                qos_timings_v5: false,
+                unified_socket: false,
+            },
+        )
+    }
+
+    #[test]
+    fn cloud_gsync_drops_only_the_fixed_120_fps_padding_and_a_refusal_restores_it() {
+        let padding = [
+            "a=x-nv-video[0].fakeEncodeFps:120\r\n",
+            "a=x-nv-video[0].fbcDynamicFpsGrabTimeoutMs:6\r\n",
+        ];
+        let mut value = context();
+        let off = announce_for(&value);
+        assert!(padding.iter().all(|line| off.contains(line)), "off keeps the fixed-rate request");
+
+        value.settings["nativeCloudGsyncMode"] = json!("forced");
+        let on = announce_for(&value);
+        assert_eq!(on, off.replace(padding[0], "").replace(padding[1], ""));
+        assert!(on.contains("a=x-nv-vqos[0].resControl.cpmRtc.decodeTimeThresholdMs:9\r\n"));
+
+        value.session.extra["negotiatedStreamProfile"]["enableCloudGsync"] = json!(false);
+        assert_eq!(announce_for(&value), off, "a refusal by the server restores the fixed rate");
+    }
+
+    #[test]
+    fn the_cloud_gsync_log_keeps_request_echo_and_answer_apart_and_leaks_no_secrets() {
+        let mut value = context();
+        value.settings["nativeCloudGsyncMode"] = json!("forced");
+        value.session.extra.insert(
+            "requestedStreamingFeatures".to_owned(),
+            json!({ "cloudGsync": true, "reflex": true }),
+        );
+        let describe = "v=0\r\na=x-nv-video[0].framePacing.mode:2\r\na=x-nv-sample.vrrHint:1\r\n\
+                        a=x-nv-runtime.encryptionKey:SECRET\r\na=ice-pwd:SECRET\r\na=fingerprint:sha-256 SECRET\r\n";
+        let announce = "a=x-nv-video[0].fakeEncodeFps:120\r\na=x-nv-runtime.encryptionKey:SECRET\r\n";
+        let line = cloud_gsync_summary(&value, true, describe, announce);
+        for part in [
+            "settings mode=forced enable=absent",
+            "echo cloudGsync=true reflex=true",
+            "finalized cloudGsync=absent reflex=absent",
+            "inForce=true",
+            "offers: video[0].framePacing.mode=2 sample.vrrHint=1",
+            "announce: video[0].fakeEncodeFps=120",
+        ] {
+            assert!(line.contains(part), "{part}: {line}");
+        }
+        assert!(!line.contains("SECRET"), "{line}");
+
+        value.session.extra.insert(
+            "finalizedStreamingFeatures".to_owned(),
+            json!({ "cloudGsync": false, "reflex": true }),
+        );
+        let line = cloud_gsync_summary(&value, false, "v=0\r\n", "");
+        assert!(line.contains("finalized cloudGsync=false reflex=true"), "{line}");
+        assert!(line.contains("offers: none | announce: none"), "{line}");
     }
 
     #[test]

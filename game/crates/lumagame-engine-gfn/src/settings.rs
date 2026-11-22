@@ -28,6 +28,8 @@ pub fn schema(prefs: &Value) -> SettingsSchema {
         {"key":"frame-pacing","label":"Frame pacing","type":"choice","default":"smooth","options":[
             {"id":"smooth","label":"Smooth"},{"id":"latency","label":"Lowest latency"}],
          "help":"Smooth evens out frames that arrive in bursts, holding a frame for at most 1.5 frame times."},
+        {"key":"cloud-gsync","label":"Cloud G-SYNC (experimental)","type":"toggle","default":false,
+         "help":"Asks the server for Cloud G-SYNC, a stream that follows the game's frame rate, and stops padding it to a fixed 120 fps. NVIDIA offers it only in its Windows and Mac apps, on an Ultimate plan; the TV's own refresh rate does not change. May judder."},
         {"key":"bitrate-mbps","label":"Bitrate cap","type":"number","min":5,"max":150,"step":5,"unit":"Mbit/s","default":bitrate},
         {"key":"deadzone","label":"Stick dead zone","type":"number","min":0,"max":20,"step":1,"unit":"%","default":deadzone},
         {"key":"anti-deadzone","label":"Stick anti-deadzone","type":"number","min":0,"max":30,"step":1,"unit":"%","default":0},
@@ -88,6 +90,9 @@ pub fn core_settings(values: &Values, display: &Display) -> Vec<(&'static str, V
         ("maxBitrateMbps", json!(integer(values, "bitrate-mbps", 80))),
         ("controllerLeftStickDeadzone", json!(integer(values, "deadzone", 8))),
         ("controllerRightStickDeadzone", json!(integer(values, "deadzone", 8))),
+        // `forced` asks for Cloud G-SYNC without the PC client's VRR-display check, which a TV cannot pass; `disabled` stops a
+        // value left in the core's own settings from asking for it. The core's session request and the streamer's ANNOUNCE read this one key.
+        ("nativeCloudGsyncMode", json!(if boolean(values, "cloud-gsync") { "forced" } else { "disabled" })),
     ]
 }
 
@@ -163,5 +168,19 @@ mod tests {
         assert!(s.check("stick-curve", &V::Text("wobbly".into())).is_err());
         assert_eq!(runtime_prefs(&s.resolve(&picked)), json!({"deadzone":4,"antiDeadzone":12,"curve":"quick","framePacing":"latency"}));
         assert_eq!(runtime_prefs(&s.defaults()), json!({"deadzone":8,"antiDeadzone":0,"curve":"linear","framePacing":"smooth"}));
+    }
+
+    #[test]
+    fn cloud_gsync_is_requested_only_when_the_viewer_turns_it_on() {
+        use lumagame_core::settings::Value as V;
+        let s = schema(&Value::Null);
+        s.validate().unwrap();
+        let d = Display { width:3840,height:2160,refresh_hz:120,hdr10:true,codecs:vec![Codec::H265] };
+        let mode = |v: &Values| core_settings(v, &d).into_iter().find(|(key, _)| *key == "nativeCloudGsyncMode").map(|(_, value)| value);
+        assert_eq!(s.check("cloud-gsync", &V::Bool(true)), Ok(()));
+        assert!(!boolean(&s.defaults(), "cloud-gsync"));
+        assert_eq!(mode(&s.defaults()), Some(json!("disabled")), "off pushes `disabled`, so a stale core setting cannot ask for it");
+        let on = s.resolve(&Values::from([("cloud-gsync".into(), V::Bool(true))]));
+        assert_eq!(mode(&on), Some(json!("forced")));
     }
 }
