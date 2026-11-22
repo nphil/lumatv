@@ -573,6 +573,17 @@
           "version": "1"
         },
         {
+          "approve": "038fc1d436b0408d169f43ef81dac3fb7b9dcf0fdc20869d8fd45ac2ba46aa40",
+          "class": "S",
+          "consent": "Keeps a saved Wi-Fi network connected beside Ethernet while the screen is on. Supported apps can receive downloads over several links while controls stay wired. USB Ethernet is supported too. Temporarily prepares each link and moves private Wi-Fi host routes to the wire; restores those changes when switched off, in standby or when the helper stops. Never keeps a Wi-Fi password or changes wake or screen-care settings. Other apps do not combine links.",
+          "firstParty": true,
+          "id": "multi-link",
+          "name": "Multi Link",
+          "registered": false,
+          "state": "off",
+          "version": "1"
+        },
+        {
           "class": "S",
           "firstParty": true,
           "id": "news",
