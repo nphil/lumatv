@@ -11,6 +11,7 @@ mod pads;
 mod recording;
 mod runtime;
 mod types;
+mod vrr_capture;
 
 pub use lumagame_feeder::{FeederClient, FeederMessage, Hdr, Load, Status as FeederStatus, decode as decode_feeder_message, msg as feeder_msg};
 pub use microphone::{EncodedMicrophoneFrame, MICROPHONE_FRAME_SAMPLES, MICROPHONE_SAMPLE_RATE, MicrophoneReceiver, MicrophoneSession, MicrophoneStatus};

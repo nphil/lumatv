@@ -72,6 +72,9 @@ extern const gf_pipe_ops gf_ndl_ops;
 extern const gf_pipe_ops gf_es_ops;
 extern const gf_pipe_ops gf_smp_ops;
 
+/* The last unit the NDL driver played: the exact millisecond argument and the library's return (the timing capture's record, gf_capture.h). */
+void gf_ndl_last_play(const gf_pipe *p, int64_t *ms, int32_t *rc);
+
 /* The driver named "ndl", "es" or "smp" ("" and NULL: ndl); NULL for any other word. */
 const gf_pipe_ops *gf_pipe_named(const char *name);
 

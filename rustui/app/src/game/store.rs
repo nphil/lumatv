@@ -125,7 +125,11 @@ impl Store {
         if !self.writable { return Err(io::Error::new(io::ErrorKind::PermissionDenied, "saved choices belong to a newer LumaGame")); }
         secrets.save(&self.root.join("secrets.json")).map_err(io::Error::other)
     }
-    pub fn save_diagnostics(&self, config: &DiagnosticsConfig) -> io::Result<()> { self.save("diagnostics.json", config, false) }
+    pub fn save_diagnostics(&self, config: &DiagnosticsConfig) -> io::Result<()> {
+        self.save("diagnostics.json", config, false)?;
+        super::capture::sync(&self.root, config);
+        Ok(())
+    }
 
     fn save<T: Serialize>(&self, name: &str, value: &T, backup: bool) -> io::Result<()> {
         if !self.writable { return Err(io::Error::new(io::ErrorKind::PermissionDenied, "saved choices belong to a newer LumaGame")); }

@@ -1,4 +1,5 @@
 //! LumaGame's process shell, pure model and token-driven screens.
+pub mod capture;
 pub mod diagnostics;
 pub mod helper;
 pub mod host;

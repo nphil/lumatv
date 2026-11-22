@@ -193,6 +193,105 @@ static void frame_records_are_opt_in_bounded_and_measured(void) {
     chan_close(&f);
     close(sv[1]);
 }
+
+static void send_video(int64_t pts, int key) {
+    uint8_t m[sizeof(gf_media_head) + sizeof picture];
+    gf_media_head h = {.pts_ns = pts, .key = (uint8_t)key};
+    memcpy(m, &h, sizeof h);
+    memcpy(m + sizeof h, picture, sizeof picture);
+    handle_message(&f, &client, GF_VIDEO, m, sizeof m);
+    client.out_len = 0;
+}
+
+static char *capture_file(const char *dir, unsigned nonce) {
+    char path[600];
+    snprintf(path, sizeof path, "%s/out/%u-feeder.json", dir, nonce);
+    for (int i = 0; i < 3000; i++) {            /* the writer is a detached thread; the rename makes the file appear whole */
+        FILE *fp = fopen(path, "re");
+        if (fp) {
+            fseek(fp, 0, SEEK_END);
+            long n = ftell(fp);
+            rewind(fp);
+            char *text = calloc((size_t)n + 1, 1);
+            assert(text && fread(text, 1, (size_t)n, fp) == (size_t)n);
+            fclose(fp);
+            return text;
+        }
+        usleep(1000);
+    }
+    return NULL;
+}
+
+static void arm(const char *dir, unsigned nonce) {
+    char path[600];
+    snprintf(path, sizeof path, "%s/arm", dir);
+    FILE *fp = fopen(path, "we");
+    assert(fp);
+    fprintf(fp, "vrr-capture 1\n%u\n%s/out\nbuild-abc123\n", nonce, dir);
+    fclose(fp);
+    snprintf(f.cap.arm_path, sizeof f.cap.arm_path, "%s", path);
+}
+
+static void the_timing_capture_is_armed_by_the_ui_bounded_and_written_off_the_frame_path(void) {
+    char dir[] = "/tmp/gfcapXXXXXX";
+    assert(mkdtemp(dir));
+    gf_load l = load_for(GF_AUDIO_NONE, 0);
+    reset();
+    f.cap.arm_path[0] = 0;
+    handle_message(&f, &client, GF_LOAD, (const uint8_t *)&l, sizeof l);
+    complete();
+    send_video(now, 1);
+    assert(!f.cap.on && !f.cap.ring);           /* no request: nothing allocated, nothing recorded */
+
+    /* A full ring omits and says the capture is incomplete; it never waits. */
+    arm(dir, 1);
+    handle_message(&f, &client, GF_LOAD, (const uint8_t *)&l, sizeof l);
+    complete();
+    assert(f.cap.on && f.cap.ring);
+    for (int i = 0; i < GF_CAP_CAPACITY + 5; i++) {
+        now += 1000000;
+        send_video(now, i == 0);
+    }
+    assert(f.cap.count == GF_CAP_CAPACITY && f.cap.omitted == 5);
+    const gf_cap_rec *r = &f.cap.ring[1];
+    assert(r->attempts == 1 && r->play_rc == 0 && r->player_ms >= 0 && r->first_call_ns && r->last_return_ns >= r->first_call_ns && r->reason == 0);
+    assert(r->wire_key == f.cap.ring[0].wire_key + 1000000 && r->seq == 1 && r->bytes == sizeof picture);
+    now += GF_CAP_WINDOW_NS;
+    gf_cap_tick(&f.cap, now);
+    assert(!f.cap.on && !f.cap.ring);
+    char *text = capture_file(dir, 1);
+    assert(text);
+    assert(strstr(text, "\"complete\":false") && strstr(text, "ring full: records omitted"));
+    assert(strstr(text, "\"build_id\":\"build-abc123\"") && strstr(text, "\"codec\":\"H265\"") && strstr(text, "\"width\":1280,\"height\":720,\"fps\":120"));
+    assert(strstr(text, "\"omitted\":5,\"evicted\":0,\"unmatched\":0,\"resets\":0,\"stored\":2048"));
+    free(text);
+
+    /* The request that has its file is not armed again; a new one is. A flush, a hold and a frame that never reached play() are counted. */
+    handle_message(&f, &client, GF_LOAD, (const uint8_t *)&l, sizeof l);
+    assert(!f.cap.on);
+    arm(dir, 2);
+    handle_message(&f, &client, GF_LOAD, (const uint8_t *)&l, sizeof l);
+    complete();
+    assert(f.cap.on);
+    now += 1000000;
+    send_video(now, 1);
+    handle_message(&f, &client, GF_FLUSH, NULL, 0);
+    now += 1000000;
+    send_video(now, 0);                         /* held until a key: refused before play() */
+    now += GF_CAP_WINDOW_NS;
+    send_video(now, 1);                         /* past the window: closes the capture, is not recorded */
+    assert(!f.cap.on);
+    text = capture_file(dir, 2);
+    assert(text);
+    assert(strstr(text, "\"complete\":true") && strstr(text, "\"unmatched\":1,\"resets\":2,\"stored\":2"));
+    assert(strstr(text, "\"codec\":\"H265\"") && strstr(text, "\"rtp_clock_hz\":null,\"frame_pacing\":null"));
+    free(text);
+    gf_cap_close(&f.cap, NULL);
+    f.cap.arm_path[0] = 0;
+    char cmd[700];
+    snprintf(cmd, sizeof cmd, "rm -rf %s", dir);
+    assert(system(cmd) == 0);
+}
 static void surround_header_and_load_validation(void) {
     stop_pipeline(&f);
     reset();
@@ -398,6 +497,7 @@ int main(int argc, char **argv) {
     identity_is_a_build_setting();
     a_released_load_is_not_queried();
     frame_records_are_opt_in_bounded_and_measured();
+    the_timing_capture_is_armed_by_the_ui_bounded_and_written_off_the_frame_path();
     surround_header_and_load_validation();
     picture_only_starfish_skips_audio_queries(argv[1]);
     surround_packets_preserve_speaker_identity();

@@ -57,6 +57,8 @@ struct gf_ndl {
     int (*quit)(void);
     const char *(*get_error)(void);
     int started, loaded;
+    long long last_play_ms;
+    int last_play_rc;
     char opus_header[37];
 
     int lock;                       /* spin lock: callbacks run on the library's threads */
@@ -261,8 +263,16 @@ static int ndl_start(gf_pipe *p, const char *app_id, const char *window_id, cons
 }
 
 static int ndl_feed_video(gf_pipe *p, const void *unit, unsigned size, long long pts_ns) {
-    int rc = N(p)->play((void *)unit, size, pts_ns / GF_PTS_MS);
+    long long ms = pts_ns / GF_PTS_MS;
+    int rc = N(p)->play((void *)unit, size, ms);
+    N(p)->last_play_ms = ms;       /* what the timing capture (gf_capture.h) reads back: the exact argument and NDL's own return */
+    N(p)->last_play_rc = rc;
     return rc == 0 ? 0 : 1;
+}
+
+void gf_ndl_last_play(const gf_pipe *p, int64_t *ms, int32_t *rc) {
+    *ms = N(p)->last_play_ms;
+    *rc = N(p)->last_play_rc;
 }
 
 static int ndl_feed_audio(gf_pipe *p, const void *data, unsigned size, long long pts_ns) {

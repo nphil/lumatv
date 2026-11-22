@@ -34,6 +34,7 @@
 
 #include "gf_annexb.h"
 #include "gf_log.h"
+#include "gf_capture.h"
 #include "gf_pipe.h"
 #include "gf_proto.h"
 #include "gf_identity.h"
@@ -140,6 +141,7 @@ struct feeder {
     FILE *stats;
     struct second sec;
     struct frames frames;
+    gf_cap cap;                 /* the diagnostics-only timing capture (gf_capture.h): idle unless the UI armed it */
     uint64_t total_fed, total_dropped, total_afed, total_adropped, total_retries;
     int64_t first_loaded_ns, first_playing_ns, t0_ns;
     unsigned ev_count[64];
@@ -205,6 +207,7 @@ static void apply_hdr(struct feeder *f) {
 static void hold_video(struct feeder *f) {
     if (f->hold_video || f->error) return;
     f->hold_video = f->request_key = 1;
+    if (f->cap.on) f->cap.resets++;
 }
 
 static void prime_audio(struct feeder *f) {
@@ -384,13 +387,21 @@ static int feed_video(struct feeder *f, const uint8_t *u, size_t n, int64_t pts_
     *queue = f->ops->queued(f->pipe);
     sample_q(&f->sec, *queue);
     long long pts = player_stamp(f, pts_ns, 0);
-    int rc, waited = 0;
+    int rc, waited = 0, tries = 0;
+    gf_cap_rec *rec = f->cap.cur;
+    if (rec) rec->first_call_ns = gf_ns();
     for (;;) {
+        tries++;
         rc = f->ops->feed_video(f->pipe, u, (unsigned)n, pts);
+        if (rec) rec->last_return_ns = gf_ns();
         if (rc <= 0) break;                 /* gf_pipe.h: only 1 (full) is offered again; -1 is a refusal that waiting does not change */
         if (gf_ns() - t0 >= (int64_t)f->full_wait_ms * 1000000) break;
         waited = 1;
         usleep(500);
+    }
+    if (rec) {
+        rec->attempts = (uint16_t)tries;
+        if (f->ops == &gf_ndl_ops) gf_ndl_last_play(f->pipe, &rec->player_ms, &rec->play_rc);
     }
     *wait_us = (int)((gf_ns() - t0) / 1000);
     sample_w(&f->sec, *wait_us);
@@ -1063,6 +1074,8 @@ static void make_base(const char *path) {
  * package's own loader, heap shim and Mali driver, in its own process group, gone with this process. What SAM gave this 32-bit
  * program (LD_PRELOAD, LD_LIBRARY_PATH) must not reach the 64-bit loader. `channel` is the UI's end of the socket pair (its
  * descriptor 3), -1 for none; `hidden` is a preload. */
+static char g_data_dir[460];    /* the data directory the UI was given (start_ui): where the UI's timing-capture request is */
+
 /* A directory this user can keep files in across a restart of the TV, for the account the core signs in and the app's preferences. SAM's
  * jail user cannot write /var/lib; the places webOS keeps an app's own data are tried in turn and every answer is logged, so the TV shows
  * which one the jail allows. Nothing found: an empty string, and the UI keeps its files under /tmp. */
@@ -1107,6 +1120,7 @@ static pid_t start_ui(const char *home, const char *app_id, const char *socket_p
     }
     char data[460] = "";
     persistent_dir(app_id, data, sizeof data);
+    snprintf(g_data_dir, sizeof g_data_dir, "%s", data);
     pid_t parent = getpid();
     pid_t pid = fork();
     if (pid < 0) {
@@ -1464,6 +1478,8 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
         memset(&f->sec, 0, sizeof f->sec);
         f->sec.start_ns = gf_ns();
         if (f->frames.on) { frames_set(f, 0); frames_set(f, 1); }
+        if (!f->cap.arm_path[0] && g_data_dir[0]) snprintf(f->cap.arm_path, sizeof f->cap.arm_path, "%s/vrr-capture.arm", g_data_dir);
+        gf_cap_load(&f->cap, &l, f->load_ns);
         send_text(c, GF_LOADED, 1, f->window_id);
         return;
     }
@@ -1471,15 +1487,22 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
         if (n < sizeof(gf_media_head)) return;
         gf_media_head h;
         memcpy(&h, p, sizeof h);
-        int64_t arrived = f->frames.on ? gf_ns() : 0;
+        int64_t arrived = f->frames.on || f->cap.on ? gf_ns() : 0;
+        f->cap.cur = f->cap.on ? gf_cap_begin(&f->cap, arrived, h.pts_ns, h.key, n - sizeof h) : NULL;
         int q, w;
         int res = feed_video(f, p + sizeof h, n - sizeof h, h.pts_ns, h.key, &q, &w);
+        int reason = res == 0 ? 0 : res == GF_FEED_REFUSED ? GF_DROP_REFUSED : res < 0 ? GF_DROP_NOT_LOADED : res == 1 ? GF_DROP_FULL : res;
+        if (f->cap.cur) {
+            f->cap.cur->queue = q;
+            f->cap.cur->wait_us = w;
+            f->cap.cur->reason = (uint8_t)reason;
+            f->cap.cur = NULL;
+        }
         if (res == 0) {
             gf_accept a = {h.pts_ns, q, w};
             push_out(c, GF_ACCEPT, &a, sizeof a, NULL, 0);
             frames_note(f, arrived, q, 0);
         } else {
-            int reason = res == GF_FEED_REFUSED ? GF_DROP_REFUSED : res < 0 ? GF_DROP_NOT_LOADED : res == 1 ? GF_DROP_FULL : res;
             gf_drop d = {h.pts_ns, reason, 0};
             push_out(c, GF_DROP, &d, sizeof d, NULL, 0);
             frames_note(f, arrived, q, reason);
@@ -1495,9 +1518,11 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
         return;
     }
     case GF_FLUSH:
+        if (f->cap.on) f->cap.resets++;
         if (f->pipe_ready || f->tex_on) hold_video(f);
         return;
     case GF_UNLOAD:
+        gf_cap_close(&f->cap, "the stream was unloaded before the capture window ended");
         stop_pipeline(f);
         gf_say("unloaded");
         return;
@@ -1687,6 +1712,7 @@ static int run_serve(struct feeder *f) {
             fds[nf++] = (struct pollfd){ls, POLLIN, 0};
             int64_t wake = next_status;
             if (f->frames.on && f->frames.due < wake) wake = f->frames.due;
+            if (f->cap.on && f->cap.start_ns && f->cap.start_ns + GF_CAP_WINDOW_NS < wake) wake = f->cap.start_ns + GF_CAP_WINDOW_NS;
             int64_t left = (player_deadline(f, wake) - gf_ns() + 999999) / 1000000;
             int nx = extras_add(f, fds + nf);
             int r = poll(fds, (nfds_t)(nf + nx), left < 0 ? 0 : (int)left);
@@ -1718,6 +1744,7 @@ static int run_serve(struct feeder *f) {
             maintain_pipeline(f, emit_event);
             report_player(f, &c);
             frames_send(f, gf_ns());
+            gf_cap_tick(&f->cap, gf_ns());
             if (gf_ns() >= next_status) {
                 if (f->tex_on) write_tex_stats(f);
                 if (f->pipe_ready || f->no_ndl || f->tex_on) {
@@ -1732,6 +1759,7 @@ static int run_serve(struct feeder *f) {
             flush_out(&c);
         }
         gf_say("engine gone");
+        gf_cap_close(&f->cap, "the engine disconnected before the capture window ended");
         g_client = NULL;
         close(c.fd);
         free(c.in);
