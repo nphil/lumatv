@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Profile OLED brightness learning staged, 2026-11-22 (main 454c72e75a)
+
+The next normal boot can activate helper `75c2b611` → `8c8f6783` and UI `b6e115b3` → `3cde477a`. The boot tool changed from `bdfa2f27` to `c5d33779`; the helper, shell and Marquee kept their process IDs during staging. Activation, live learning and fewer manual corrections have not been verified on the set. Receipt: `cody-data-scratch/18172b987bff/oled-learning-20261122/` (`stage.txt`, `staged-hashes.txt`, `pids-before`, `pids-after`).
+
 ## Picture preferences, Quick Settings and Multi Link installed, 2026-11-22 (main d3d4d6fd)
 
 Helper `e6dc3ace` → `75c2b611`; UI `b99c360c` → `b6e115b3`. Home was ready after 1 s without restarting the compositor. At handover Multi Link reported `enabled:false`, `active:false` and the Plex host route still used `wlan0`. The new brightness learning, video-app picture mode and Quick Settings layout were installed but not exercised in this check. Receipt: `cody-data-scratch/18172b987bff/lumatv-batch-20261122/joint-runtime-install.txt`.
