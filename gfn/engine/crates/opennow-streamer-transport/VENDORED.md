@@ -14,6 +14,12 @@ Upstream changes applied:
   function (`run_nvst_webrtc_bundle(.., send_keepalive)`), with the same names and tests as
   upstream. A failed keepalive no longer ends the stream until the failure budget
   (`NvstVideoConfig::timeout`) runs out.
+- [a9de957](https://github.com/OpenCloudGaming/OpenNOW/commit/a9de957a5902c54186e9d4b44b1562f0b6beb951)
+  (main, 2026-11-11): the reading of the sender's per-picture prefix in `assembled_video_payload`
+  (`nvst.rs`, lines 3311-3399) and its `SenderFrameTiming`, ported by hand as `nvst_frame_prefix.rs`
+  for observation only. It records the capture time and the `0x200`, `0x201` and `0x202` records;
+  the pin's own handling of the prefix (a fixed 20-byte skip for AV1) is untouched, and upstream's
+  use of the values is not ported.
 
 Local changes:
 
@@ -39,3 +45,8 @@ Local changes:
   receiver report and the bundle ICE burst, str0m datagrams and PONG are covered: a transient
   failure drops that datagram, and a persistent or permanent one stops the stream with the
   original cause. Both receive loops take a second send function (`send_datagram`) for tests.
+- Timing-capture recorders, observation only: no decision uses them. `nvst_sender_report.rs` counts
+  the RTCP sender reports heard on each track and keeps the first and last readable one.
+  `nvst_frame_prefix.rs` lists each video picture's sender prefix for 12 s (at most 2048 rows) once
+  a timing capture is armed, and costs one atomic load per picture before that. The capture reads
+  both through `NvstFeedbackState` (`sender_reports_json`, `frame_prefixes_json`).

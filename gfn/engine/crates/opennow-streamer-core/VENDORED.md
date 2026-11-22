@@ -26,8 +26,8 @@ Upstream changes applied:
   idc values, and the seat ended it with 0x800e8605. Touches `nvst_rtsp_color.rs`, its tests and
   the ANNOUNCE tests in `nvst_rtsp.rs`; applied as the commit has it.
 
-Local changes, all in `build_announce` (`nvst_rtsp.rs`) and taken from what the official web client
-(the 2026 play.geforcenow.com bundle LG's app wraps) sends from a TV, with ANNOUNCE tests for each:
+Local ANNOUNCE changes, all in `build_announce` (`nvst_rtsp.rs`) and taken from what the official web
+client (the 2026 play.geforcenow.com bundle LG's app wraps) sends from a TV, with ANNOUNCE tests for each:
 
 - `video[0].mapRtpTimestampsToFrames` is no longer forced to 0, so the server's offer stands and
   RTP timestamps can name frames for the platform's playout pacing. The handoff log records the
@@ -40,3 +40,7 @@ Local changes, all in `build_announce` (`nvst_rtsp.rs`) and taken from what the 
   `fbcDynamicFpsGrabTimeoutMs:6` and `resControl.cpmRtc.decodeTimeThresholdMs:9`. DLSS frame
   generation otherwise reaches the TV as bursts of two frames.
 - 10-bit HEVC gets `video[0].minQp:14`.
+
+Local diagnostics wiring, in `lib.rs` where the stream's feedback state is joined to the platform's
+media control: the timing capture is given the transport's recorders (`sender_reports_from`,
+`frame_prefixes_from`), and the prefix recorder is armed only when a capture is. Observation only.
