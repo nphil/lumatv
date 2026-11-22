@@ -233,13 +233,24 @@ The installed kernel's `DE_IO_FW_Download` (`0xffffffc01092e694`) calls
 (`0xffffffc01094f1f0`) installs no secure-load handler;
 `vsc_fw_hal_load` (`0xffffffc01094f710`) reaches `DE_HAL_FW_Download`.
 `DE_REG_O22_FW_Download` (`0xffffffc010969af4`) copies user/kernel/file
-bytes into MCU DDR, then controls boot mapping/stall/reset.
+bytes into MCU DDR and controls boot mapping and run-stall. In the published
+O22 MCU0 sequence the explicit soft-reset writes are commented out;
+releasing stall is not proof of reset (`de_reg_o22.c:2741–2751,2805–2821`).
 `DE_REG_O22_FW_Verify` (`0xffffffc01096a6b0`) compares DDR bytes with the
 source; **it is not a cryptographic signature check**.
 
 Live read-only `fw-status` agrees: `fwload handler:0000000000000000`.
 This establishes the installed loader's boundary, not successful execution
 of a modified image or safe hot replacement.
+
+In LG's published `core/de/vsc_fw.c:524–546,568–576`, the 16 MiB
+front-end check can select the embedded header on invalid buffer input;
+valid user data can be staged in kernel memory. Neither is the size of
+the TV's MCU0 region (4 MiB) or an assurance that an image will run.
+`vsc_fw.c:1217–1254` retries image 0 from retained data or header after
+100 unsuccessful polls and times out after 200. These are counts, not
+wall-clock guarantees. Neither IPC readiness nor the [intrusive byte
+comparison](decoded-vrr-attended.md#what-would-reopen-b) establishes playback recovery.
 
 ### VDEC: secure firmware load
 
@@ -299,13 +310,17 @@ interface; `bin_download` and `fw_dl_history` are write controls, not such
 an export. Active RAM identity must be resolved before any modified load;
 older firmware addresses must not be transplanted by name alone.
 
-The selected embedded payloads, hashed on the host from the captured kernel:
+The captured `Image.lz4-5.4.268-329.ptl4tv.2` (SHA-256 `3e13cfe557ad8037972c77f03bd4d8d226e2f58eee0127fd38a98ae23fa52ca8`) uses LG's `LZ4P` wrapper, not a standard LZ4 frame. A 32-byte header and 141 little-endian 32-bit compressed lengths precede the block data at `0x254`. The 256 KiB raw-block decode gives 36,837,888 bytes, SHA-256 `0fffb8b098be13810c188f2244458ff81136dbadcb1a97a97d90bf784d06dfe3`. The offsets below are in that **decompressed** image; the kernel addresses equal offset + `0xffffffc010088000`.
 
-| Index | Bytes | Kernel data VA | SHA-256 |
-|---|---:|---|---|
-| 0 | 1,821,632 | `0xffffffc011ff9028` | `bc5aa595f350a0dc89f6f314c8cfe6977863ab021f7cda133bdf0795bbefd6de` |
-| 1 | 569,616 | `0xffffffc011f6df18` | `025b2cfb1721ace729da259ccbdc205fb6741f8c9ae5485120152728d08af306` |
-| 2 | 4,466,688 | `0xffffffc011b2b718` | `66f001b5a31c3afe18a60cce1de57d0d448ead8c6932ef0f08f8383e202044d7` |
+| Index | Bytes | Raw offset | Kernel data VA | SHA-256 of payload |
+|---|---:|---|---|---|
+| 0 | 1,821,632 | `0x1f71028` | `0xffffffc011ff9028` | `bc5aa595f350a0dc89f6f314c8cfe6977863ab021f7cda133bdf0795bbefd6de` |
+| 1 | 569,616 | `0x1ee5f18` | `0xffffffc011f6df18` | `025b2cfb1721ace729da259ccbdc205fb6741f8c9ae5485120152728d08af306` |
+| 2 | 4,466,688 | `0x1aa3718` | `0xffffffc011b2b718` | `66f001b5a31c3afe18a60cce1de57d0d448ead8c6932ef0f08f8383e202044d7` |
+
+**Historical TV observations (Firmware Study, 2026-11-17).** Status reported build 7356 dated 2025-04-14; image 0 contains the matching date string at payload offset `0x1b8971`. Two historical embedded-load sequences were reported, with order 2 → 1 → 0 and physical destinations `0x97200000`, `0x96e00000`, `0x7ea80000` respectively. In the `0xcc080000` register bank, control read `0x00040004` and the two boot-map words for each core agreed: MCU0 `0x7ea80000`, MCU1 `0x96a00000` (4 MiB below its destination). Sampled MCU0 RAM matched entry bytes and diagnostic text, **not a whole-image hash**. Physical boot maps are not MCU virtual addresses. The O22 loader has no separate core start for index 2; its exact role remains unknown.
+
+The historical inspection included diagnostic command and logging-control writes. Logging controls were returned to presumed defaults, not verified pre-inspection values. That study performed no firmware reload, patch, forced VRR, HDMI on/off comparison, power-cycle recovery test or OLED-protection change. The observed `snapshot`/`resume` command line and two earlier loads do not assign those loads to specific boot branches. Loss of power clears volatile state; it does not prove what a subsequent snapshot, retained backup or embedded-load branch restores (`vsc_fw.c:447–488`). [Recovery remains unqualified](decoded-vrr-attended.md).
 
 ### What a modified DE image might unlock
 
