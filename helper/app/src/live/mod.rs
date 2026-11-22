@@ -2921,6 +2921,12 @@ mod tests {
         (feeder, peer)
     }
 
+    /// Closes a feeder's end of its socket for good, as a process that has gone does. Dropping it is not enough in a test run: a child another test
+    /// forked meanwhile holds a copy of the descriptor until its exec, the socket stays open, and the write that should find the feeder gone is taken.
+    fn hang_up(peer: std::os::unix::net::UnixStream) {
+        peer.shutdown(std::net::Shutdown::Both).unwrap();
+    }
+
     fn test_spec(dir: &Path) -> FeederSpec {
         FeederSpec {
             program: PathBuf::from("unused"),
@@ -2973,7 +2979,7 @@ mod tests {
             }),
         );
         let (gone, peer) = test_feeder(dir, Duration::from_secs(1));
-        drop(peer);
+        hang_up(peer);
         *pool.slot.lock() = Slot::Idle(Box::new(gone), Instant::now(), false);
         (pool, made)
     }
@@ -3141,7 +3147,7 @@ mod tests {
             for _ in 0..7 {
                 gf::read_frame(&mut first_peer).unwrap();
             }
-            drop(first_peer);
+            hang_up(first_peer);
             gone.send(()).unwrap();
         });
         went.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -3640,10 +3646,23 @@ mod tests {
     fn a_feeder_that_breaks_again_after_the_replacement_fails_the_session_with_the_cause() {
         let dir = tempfile::tempdir().unwrap();
         let (second, second_peer) = test_feeder(dir.path(), Duration::from_secs(1));
-        drop(second_peer);
+        hang_up(second_peer);
         let (pool, made) = pool_with_a_gone_feeder(dir.path(), vec![second]);
         let (inner, session) = test_inner();
-        write_session_with(&inner, &pool, &session, |_, _| Ok(quiet_answers()));
+        let (done, ended) = std::sync::mpsc::channel();
+        {
+            let (inner, pool, session) = (inner.clone(), pool.clone(), session.clone());
+            thread::spawn(move || {
+                write_session_with(&inner, &pool, &session, |_, _| Ok(quiet_answers()));
+                let _ = done.send(());
+            });
+        }
+        // a feeder that takes the writes would be fed for ever: the writer is stopped, and the test says what it had done
+        if ended.recv_timeout(Duration::from_secs(10)).is_err() {
+            session.end(true);
+            let view = inner.view.lock().1.clone();
+            panic!("the writer did not give up on the feeders: {} replacements, the view says {} ({:?})", made.load(Ordering::SeqCst), view.state, view.reason);
+        }
         assert_eq!(made.load(Ordering::SeqCst), 1, "one replacement, not a loop");
         let view = inner.view.lock().1.clone();
         assert_eq!(view.state, "failed");
@@ -3656,7 +3675,7 @@ mod tests {
     fn a_write_that_failed_says_which_one_in_the_sends_that_follow() {
         let dir = tempfile::tempdir().unwrap();
         let (mut feeder, peer) = test_feeder(dir.path(), Duration::from_secs(1));
-        drop(peer);
+        hang_up(peer);
         let first = feeder.client.send_ping(1).unwrap_err().to_string();
         let later = feeder.client.send_unload().unwrap_err().to_string();
         assert!(later.starts_with("an earlier write to the feeder failed") && later.contains(&first), "{later}");

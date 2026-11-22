@@ -498,6 +498,23 @@ mod tests {
         }
     }
 
+    /// Waits until nothing holds the directory's owner lock. The lock belongs to the open file description, so a child another test forked while a
+    /// collector ran keeps it until its exec, past the collector's own close. The probe unlocks explicitly: a child forked after it must not keep it.
+    #[allow(unsafe_code)]
+    fn wait_unlocked(directory: &LogDirectory) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            match directory.lock() {
+                Ok(lock) => {
+                    assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+                    return;
+                },
+                Err(error) => assert!(error.kind() == io::ErrorKind::WouldBlock && std::time::Instant::now() < deadline, "the owner lock is not released: {error}"),
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
     #[test]
     fn actual_host_udp_reroutes_and_stays_bounded_without_a_collector() {
         use std::sync::Arc;
@@ -545,6 +562,7 @@ mod tests {
         assert!(!socket_path.exists());
         println!("loopback tagged delivery and target change observed; retained bytes={bytes}");
         for _ in 0..2 {
+            wait_unlocked(&LogDirectory::open(&logs, false).unwrap());
             let target = UdpSocket::bind("127.0.0.1:0").unwrap();
             target.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
             settings.apply("base.logging", vec![change("port", Value::Integer(target.local_addr().unwrap().port().into()))], None).unwrap();
@@ -728,6 +746,7 @@ mod tests {
         let signature = guard.signature();
         drop(guard);
         drop(lock);
+        wait_unlocked(&directory);
         let mut lock = directory.lock().unwrap();
         prepare_socket(&path, read_socket_marker(&mut lock).unwrap()).unwrap();
         assert!(!path.exists());
