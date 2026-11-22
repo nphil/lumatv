@@ -102,12 +102,8 @@ def compare(paths, states=None):
     return 2
 
 
-def split(phase, original, observed=None):
-    """Check a single observed phase, never authorize a subsequent transition."""
-    b, a = original, observed
-    require(str(UUID(b['boot'])) == b['boot'] and b['boot'] != str(UUID(int=0)), 'invalid baseline boot')
-    require(isinstance(b['owner'], str) and b['owner'].strip(), 'missing owner')
-    require(type(b['time_ns']) is int and b['time_ns'] >= 0 and b['phase'] == 'original', 'invalid baseline snapshot')
+def split_words(phase, b):
+    require(phase in ('disconnected80','selected80','disconnected64','selected64','restored'), 'unknown split phase')
     require(word(b, 'cache') == 0x20 and word(b, 'pulse') & 0x73 == 1, 'baseline not in the qualified decoded configuration')
     require(word(b, 'pixel') & 0x3f == 1, 'baseline pixel selector not decoded MVI')
     n, d = word(b, 'timer_num'), word(b, 'timer_den')
@@ -116,7 +112,16 @@ def split(phase, original, observed=None):
     require(b['timer'] > 0, 'zero period')
     connected = phase.startswith('selected')
     timer = b['timer'] if phase == 'restored' else (5_000_000 if phase.endswith('80') else 6_250_000)
-    expected = dict(cache=0x50 if connected else 0x20, pulse=((b['pulse'] & ~0x73) | 3) if connected else b['pulse'], pixel=word(b, 'pixel'), timer=timer)
+    return dict(cache=0x50 if connected else 0x20, pulse=((b['pulse'] & ~0x73) | 3) if connected else b['pulse'], pixel=word(b, 'pixel'), timer=timer)
+
+
+def split(phase, original, observed=None):
+    """Check a single observed phase, never authorize a subsequent transition."""
+    b, a = original, observed
+    require(str(UUID(b['boot'])) == b['boot'] and b['boot'] != str(UUID(int=0)), 'invalid baseline boot')
+    require(isinstance(b['owner'], str) and b['owner'].strip(), 'missing owner')
+    require(type(b['time_ns']) is int and b['time_ns'] >= 0 and b['phase'] == 'original', 'invalid baseline snapshot')
+    expected = split_words(phase, b)
     print('EXPECTED', ' '.join(f'{k}=0x{v:08x}' for k,v in expected.items()))
     if a is None:
         print('NO SAMPLE: predictions only; STOP')
