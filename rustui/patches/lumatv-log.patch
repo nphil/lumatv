@@ -10,7 +10,7 @@
 -use std::sync::LazyLock;
 +use std::io::Write;
 +use std::sync::{LazyLock, OnceLock};
-+
+ 
 +type LogSink = fn(&dyn Display);
 +static SINK: OnceLock<LogSink> = OnceLock::new();
 +
@@ -18,7 +18,7 @@
 +pub fn set_log_sink(sink: LogSink) -> Result<(), LogSink> {
 +    SINK.set(sink)
 +}
- 
++
  pub fn log(message: impl Display) {
 -    static START: LazyLock<u64> = LazyLock::new(now_ns);
 -    let ms = now_ns().saturating_sub(*START) / 1_000_000;

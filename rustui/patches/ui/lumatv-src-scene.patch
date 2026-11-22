@@ -153,7 +153,7 @@
              } else {
                  inner.live_layers += 1;
                  inner.push(Request::Create {
-@@ -790,15 +838,55 @@
+@@ -790,17 +838,57 @@
          MAX_DRAWABLE_NODES.saturating_sub(self.live_layers())
      }
  
@@ -180,8 +180,8 @@
 +        inner.overflowed = true;
 +        inner.last_overflow = Some(Overflow::Picture);
 +        inner.refusals += 1;
-+    }
-+
+     }
+ 
 +    /// Every refusal so far (see [`Scene::came_through`]): a host that sees the count move draws again, so that whoever watches a
 +    /// build of theirs can make it again.
 +    pub fn refusals(&self) -> u64 {
@@ -210,9 +210,11 @@
 +        } else {
 +            None
 +        }
-     }
- 
++    }
++
      /// Runs `build` with every layer it makes hanging under `group` from the moment it is made, with the props it was made with
+     /// (in the group's space). The way to build a component inside a view that fades or hides as one: nothing is attached hidden
+     /// and posed afterwards, so no component has to know it is inside a group.
 @@ -957,12 +1045,19 @@
      }
  

@@ -46,7 +46,8 @@
 //! ceiling, with an account of their own in the renderer: a page draws the layers up to the wallpaper and one blended copy of the ceiling
 //! in each area it owes, and what the ceiling owes there is drawn into it first, so that a step costs the wallpaper and the copy. The
 //! blend rounds otherwise than the same layers drawn over the wallpaper one by one, so a page never holds Home composed both ways: all of
-//! stack 0 is drawn again when the ceiling comes into use or goes out of it. `LUMATV_CEILING=0` draws stack 0 straight.
+//! stack 0 is drawn again when the ceiling comes into use or goes out of it. Switched off (`LUMATV_CEILING=0`, or
+//! [`Engine::set_ceiling`] from the compositor's control socket), stack 0 is drawn straight.
 
 use crate::backdrop::Area;
 use crate::clock::now_ns;
@@ -211,8 +212,7 @@ pub struct Engine {
     /// Stack 0 kept whole (the module's notes), when the layers are drawn in two stacks and the floor is not switched off
     /// (`LUMATV_FLOOR=0`).
     floor: Option<Floor>,
-    /// The layers of stack 0 over Home's moving wallpaper kept whole (the module's notes), when the layers are drawn in two stacks and
-    /// the ceiling is not switched off (`LUMATV_CEILING=0`).
+    /// The layers of stack 0 over Home's moving wallpaper kept whole (the module's notes), when the layers are drawn in two stacks.
     ceiling: Option<Ceiling>,
     /// Copies a picture of the panel's size into a target: the floor into a page, and on the host's pages what a page owes from
     /// the frames before from the page drawn last.
@@ -396,6 +396,10 @@ struct Ceiling {
     here: TileSet,
     /// Frames planned since a page was last drawn through it.
     unused: u32,
+    /// Whether it is used ([`Engine::set_ceiling`]; `LUMATV_CEILING=0` starts it off): for comparing the two on the set.
+    on: bool,
+    /// The frames planned with stack 0 through it.
+    frames: u64,
 }
 
 /// Where the ceiling's layers begin in stack 0 (`layers`, as the renderer placed them on `panel`): after the topmost wallpaper of a base
@@ -660,14 +664,15 @@ impl Engine {
                 behind: false,
                 drawn_px: 0,
             });
-        // `LUMATV_CEILING=0` draws stack 0 straight into each page over a moving wallpaper too: for comparing the two on the set.
-        let ceiling = (copy.is_some() && std::env::var("LUMATV_CEILING").as_deref() != Ok("0")).then(|| Ceiling {
+        let ceiling = copy.is_some().then(|| Ceiling {
             target: None,
             whole: None,
             from: None,
             owed: TileSet::full(config.width, config.height),
             here: TileSet::new(config.width, config.height),
             unused: 0,
+            on: std::env::var("LUMATV_CEILING").as_deref() != Ok("0"),
+            frames: 0,
         });
         if let Some(saved) = &entered {
             renderer.gles().leave(saved);
@@ -1414,7 +1419,7 @@ impl Engine {
             // Stack 0 goes through the ceiling (the module's notes) with nothing over Home, while Home shows and its wallpaper steps.
             if let Some(ceiling) = engine.ceiling.as_mut() {
                 let panel = [0, 0, engine.window.0 as i32, engine.window.1 as i32];
-                let from = if engine.over_frames == 0 && engine.home_shown {
+                let from = if ceiling.on && engine.over_frames == 0 && engine.home_shown {
                     ceiling_from(&engine.renderer, &engine.drawn[..external.split], panel)
                 } else {
                     None
@@ -1428,6 +1433,7 @@ impl Engine {
                     ceiling.from = from;
                 }
                 ceiling.unused = ceiling.unused.saturating_add(1);
+                ceiling.frames += u64::from(ceiling.from.is_some());
             }
             for stack in 0..2 {
                 let surface = external.surface(stack, engine.drawn.len());
@@ -1477,6 +1483,51 @@ impl Engine {
     /// brought up to date only while it does.
     pub fn set_home_shown(&mut self, shown: bool) {
         self.home_shown = shown;
+    }
+
+    /// The panel's refresh period from now: a compositor's panel switches between 60 and 120 Hz, and the scene counts a wallpaper's
+    /// steps in refreshes. Left at the 60 Hz the engine was made with, 60 fps on the 120 Hz panel was a step at every refresh (119.9
+    /// flips a second on the set against 60 with the wallpaper still) and a step could come a whole refresh early.
+    pub fn set_refresh_period_ns(&mut self, period_ns: u64) {
+        self.scene.set_refresh_period_ns(period_ns);
+        if let Some(external) = self.external.as_mut() {
+            external.period_ns = period_ns;
+        }
+    }
+
+    /// Whether wallpapers take a step a refresh early in a frame drawn for something else (`wallpaper::Clock::advance`): on
+    /// unless switched off, for comparing on the set.
+    pub fn set_step_merging(&mut self, on: bool) {
+        self.scene.set_step_merging(on);
+    }
+
+    pub fn step_merging(&self) -> bool {
+        self.scene.step_merging()
+    }
+
+    /// The wallpapers' steps since the start, and how many of them came early in a frame drawn for something else.
+    pub fn steps(&self) -> (u64, u64) {
+        self.scene.steps()
+    }
+
+    /// When the scene next wants a frame for something other than a wallpaper's step (`Scene::paced_due`).
+    pub fn paced_due(&self) -> Option<u64> {
+        self.scene.paced_due()
+    }
+
+    /// Uses the ceiling (the module's notes) from the next frame, or draws stack 0 straight; `false` without one (the layers in
+    /// one stack).
+    pub fn set_ceiling(&mut self, on: bool) -> bool {
+        let Some(ceiling) = self.ceiling.as_mut() else {
+            return false;
+        };
+        ceiling.on = on;
+        true
+    }
+
+    /// Whether the ceiling is used, and the frames planned through it since the start; `None` without one.
+    pub fn ceiling(&self) -> Option<(bool, u64)> {
+        self.ceiling.as_ref().map(|ceiling| (ceiling.on, ceiling.frames))
     }
 
     /// `areas`, what a page owes, as the rectangles the planned frame is cheapest drawn in ([`Planned::merged`]): a pass draws every

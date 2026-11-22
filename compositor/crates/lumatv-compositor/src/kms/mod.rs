@@ -35,7 +35,7 @@ use wayland_server::protocol::wl_buffer::WlBuffer;
 
 use crate::Rect;
 use crate::afbc::{self, PageKind};
-use crate::output::{Image, Output, Presented, RenderStats, monotonic_ns as mono_ns};
+use crate::output::{FrameCause, Image, Output, Presented, RenderStats, monotonic_ns as mono_ns};
 use crate::render::gl::{Gl, TargetId};
 use crate::scanout::{self, Scanout};
 use crate::scene::Plan;
@@ -171,6 +171,8 @@ struct Frame {
     /// next refresh, so a flip that comes later than that is a refresh the motion missed (`refresh::Measure::motion`).
     animating: bool,
     snapshot: Option<crate::snapshot::Receipt>,
+    /// What it was drawn for: its flip is counted by it (`ui.flips` in `ctl status`).
+    cause: FrameCause,
     #[cfg(feature = "ui")]
     ui: Option<lumatv_render::host::FrameCost>,
 }
@@ -182,6 +184,7 @@ struct InFlight {
     fence: Option<OwnedFd>,
     animating: bool,
     snapshot: Option<crate::snapshot::Receipt>,
+    cause: FrameCause,
     #[cfg(feature = "ui")]
     ui: Option<lumatv_render::host::FrameCost>,
 }
@@ -264,6 +267,8 @@ pub struct Kms {
     flips_reached_late: u64,
     flips_reached_over_1ms: u64,
     reach_worst_ns: u64,
+    /// The flips that landed, by what their frames were drawn for ([`FrameCause`]).
+    flip_causes: [u64; FrameCause::COUNT],
     /// Flips left of the start-up trace: a new buffer prepared starts one (a client's first frames, the time the gates
     /// lose refreshes), and every tick, commit and flip until it runs out gets a `trace:` line.
     trace_left: u32,
@@ -672,6 +677,7 @@ impl Kms {
             flips_reached_late: 0,
             flips_reached_over_1ms: 0,
             reach_worst_ns: 0,
+            flip_causes: [0; FrameCause::COUNT],
             trace_left: 0,
             last_flip_animating: false,
             seq: 0,
@@ -861,6 +867,7 @@ impl Kms {
         let mut animating = false;
         let frame = self.in_flight.take().map(|flight| {
             animating = flight.animating;
+            self.flip_causes[flight.cause as usize] += 1;
             if presented_ns >= self.committed_ns {
                 self.snapshot_presented = flight.snapshot;
             }
@@ -980,6 +987,7 @@ impl Kms {
             fence: kept,
             animating: frame.animating,
             snapshot: frame.snapshot,
+            cause: frame.cause,
             #[cfg(feature = "ui")]
             ui: frame.ui,
         });
@@ -1524,6 +1532,18 @@ impl Output for Kms {
         self.gl.set_ui_calm(calm);
     }
 
+    fn ui_report(&self) -> Option<serde_json::Value> {
+        self.gl.ui_report_with(Some(&self.flip_causes))
+    }
+
+    fn ui_set_ceiling(&mut self, on: bool) -> bool {
+        self.gl.ui_set_ceiling(on)
+    }
+
+    fn ui_set_step_merging(&mut self, on: bool) -> bool {
+        self.gl.ui_set_step_merging(on)
+    }
+
     fn ui_set_exclusion(&mut self, area: Option<crate::Rect>) {
         self.gl.ui_set_exclusion(area);
     }
@@ -1535,7 +1555,7 @@ impl Output for Kms {
     /// The system UI's requests, and a frame owed to a surface a frame stood in for once its buffer is warm. A step of the UI's a
     /// half refresh away is due: the tick is on the panel's grid.
     fn ui_needs_frame(&mut self) -> io::Result<bool> {
-        self.gl.set_ui_slack(self.timing.period_ns() / 2);
+        self.gl.set_ui_refresh(self.timing.period_ns());
         // The page probe's time up: a frame puts the ring's page back (`pageprobe`).
         let wants = self.gl.ui_needs_frame()? || self.gl.standin_due() || self.page_probe_due();
         // Where a commit of the UI's lands against the flip in flight and the pacer's run: the first moving frame after a still
@@ -1773,6 +1793,7 @@ impl Output for Kms {
     /// decides), kicks the GPU. The commit is in `present`.
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
         let now = self.now_ns();
+        let cause = self.gl.take_ui_want().unwrap_or(if plan.damage.is_empty() && !plan.animating { FrameCause::Other } else { FrameCause::Windows });
         // Frees left over from the last flip's budget: on a still screen no flip is coming to carry them, nothing
         // is in flight, and this frame is unpaced (it draws on damage), so they cost no paced frame here.
         if !self.pending_flip && !self.flowing(now) {
@@ -1869,6 +1890,7 @@ impl Output for Kms {
             acquire,
             animating,
             snapshot: stats.snapshot,
+            cause,
             #[cfg(feature = "ui")]
             ui: self.gl.take_ui_frame(),
         });

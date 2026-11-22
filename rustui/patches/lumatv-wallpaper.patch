@@ -23,7 +23,8 @@
  impl Clock {
      /// Brings the clock to the frame time `slot_ns`. `interval_ns` is the time between steps, `None` when still;
      /// `speed` scales the phase (a mesh turning the other way has a negative one); `shown` is whether the layer is on
-     /// screen. Returns whether it stepped.
+-    /// screen. Returns whether it stepped.
++    /// screen; `merge` lets a step come early as below (off for comparing). Returns whether it stepped.
 +    ///
 +    /// A step of an even number of refreshes may come a refresh early, in a frame drawn for something else. Home's
 +    /// rain and cameras draw every second refresh, so from then on the wallpaper steps in their frames instead of in
@@ -33,7 +34,13 @@
      pub fn advance(
          &mut self,
          slot_ns: u64,
-@@ -77,26 +89,46 @@
+@@ -72,31 +84,52 @@
+         interval_ns: Option<u64>,
+         speed: f32,
+         half_refresh_ns: u64,
++        merge: bool,
+     ) -> bool {
+         let Some(interval) = interval_ns.filter(|_| shown && speed != 0.0) else {
              self.stamp = None;
              return false;
          };
@@ -60,9 +67,9 @@
 +        if interval != self.step {
 +            self.due = stamp + interval;
 +            self.step = interval;
-+        }
+         }
 +        let refresh = 2 * half_refresh_ns;
-+        let early = if refresh > 0 && (interval / refresh) % 2 == 0 {
++        let early = if merge && refresh > 0 && (interval / refresh) % 2 == 0 {
 +            refresh
 +        } else {
 +            0
@@ -79,7 +86,7 @@
 +        // After a stall the grid starts again from this step.
 +        if self.due <= slot_ns + half_refresh_ns {
 +            self.due = slot_ns + interval;
-         }
++        }
 +        true
      }
  
@@ -95,9 +102,12 @@
      }
  }
  
-@@ -150,7 +182,8 @@
+@@ -148,53 +181,80 @@
+         let interval = step_interval_ns(30, PERIOD);
+         let mut clock = Clock::default();
          let mut slot = 1_000_000_000u64;
-         assert!(!clock.advance(slot, true, interval, 1.0, HALF));
+-        assert!(!clock.advance(slot, true, interval, 1.0, HALF));
++        assert!(!clock.advance(slot, true, interval, 1.0, HALF, true));
          assert_eq!(clock.phase, 0.0);
 -        // Frames every refresh: it steps every second one, by exactly the time that passed.
 +        // Frames every refresh: it steps every second one (a refresh early, in the frames between its own), by exactly
@@ -105,7 +115,9 @@
          let mut steps = Vec::new();
          for frame in 1..=6 {
              slot += PERIOD;
-@@ -159,27 +192,50 @@
+-            steps.push((frame, clock.advance(slot, true, interval, 1.0, HALF)));
++            steps.push((frame, clock.advance(slot, true, interval, 1.0, HALF, true)));
+         }
          assert_eq!(
              steps,
              vec![
@@ -130,43 +142,126 @@
      #[test]
 -    fn a_frame_a_little_early_still_steps_but_one_a_whole_refresh_early_does_not() {
 -        let interval = step_interval_ns(30, PERIOD);
-+    fn a_frame_a_refresh_early_steps_on_an_even_grid_that_holds_and_not_on_an_odd_one() {
++    fn a_frame_a_refresh_early_steps_on_an_even_grid_that_holds_not_on_an_odd_one_nor_with_merging_off() {
 +        let even = step_interval_ns(30, PERIOD);
          let mut clock = Clock::default();
 -        clock.advance(0, true, interval, 1.0, HALF);
 -        assert!(!clock.advance(PERIOD, true, interval, 1.0, HALF));
 -        assert!(clock.advance(2 * PERIOD - HALF + 1, true, interval, 1.0, HALF));
-+        clock.advance(0, true, even, 1.0, HALF);
-+        assert!(!clock.advance(PERIOD - HALF - 1, true, even, 1.0, HALF));
-+        assert!(clock.advance(PERIOD, true, even, 1.0, HALF));
++        clock.advance(0, true, even, 1.0, HALF, true);
++        assert!(!clock.advance(PERIOD - HALF - 1, true, even, 1.0, HALF, true));
++        assert!(clock.advance(PERIOD, true, even, 1.0, HALF, true));
 +        assert_eq!(clock.next_step(even), Some(4 * PERIOD), "the grid holds");
-+        let odd = step_interval_ns(20, PERIOD);
-+        let mut clock = Clock::default();
-+        clock.advance(0, true, odd, 1.0, HALF);
-+        assert!(!clock.advance(2 * PERIOD, true, odd, 1.0, HALF));
-+        assert!(!clock.advance(3 * PERIOD - HALF - 1, true, odd, 1.0, HALF));
-+        assert!(clock.advance(3 * PERIOD - HALF + 1, true, odd, 1.0, HALF));
-+    }
-+
-+    #[test]
-+    fn steps_move_into_the_frames_of_other_motion_and_stay_there_a_whole_interval_apart() {
-+        // 15 fps on the panel: four refreshes a step; rain draws every second refresh, on the odd ones.
-+        let interval = step_interval_ns(15, PERIOD);
          let mut clock = Clock::default();
 -        clock.advance(0, true, interval, 1.0, HALF);
 -        assert!(!clock.advance(2 * PERIOD - HALF - 1, true, interval, 1.0, HALF));
++        clock.advance(0, true, even, 1.0, HALF, false);
++        assert!(!clock.advance(PERIOD, true, even, 1.0, HALF, false));
++        let odd = step_interval_ns(20, PERIOD);
++        let mut clock = Clock::default();
++        clock.advance(0, true, odd, 1.0, HALF, true);
++        assert!(!clock.advance(2 * PERIOD, true, odd, 1.0, HALF, true));
++        assert!(!clock.advance(3 * PERIOD - HALF - 1, true, odd, 1.0, HALF, true));
++        assert!(clock.advance(3 * PERIOD - HALF + 1, true, odd, 1.0, HALF, true));
+     }
+ 
+     #[test]
++    fn steps_move_into_the_frames_of_other_motion_and_stay_there_a_whole_interval_apart() {
++        // 15 fps on the panel: four refreshes a step; rain draws every second refresh, on the odd ones.
++        let interval = step_interval_ns(15, PERIOD);
++        let mut clock = Clock::default();
 +        let (mut steps, mut own) = (Vec::new(), 0);
 +        for k in 0..40u64 {
 +            let slot = k * PERIOD;
 +            let rain = k % 2 == 1;
 +            let asked = clock.next_step(interval) == Some(slot);
-+            if (rain || asked || k == 0) && clock.advance(slot, true, interval, 1.0, HALF) {
++            if (rain || asked || k == 0) && clock.advance(slot, true, interval, 1.0, HALF, true) {
 +                steps.push(k);
 +                own += u32::from(!rain);
 +            }
 +        }
 +        assert_eq!(own, 0, "every step shares a rain frame: {steps:?}");
 +        assert!(steps.windows(2).all(|w| w[1] - w[0] == 4), "{steps:?}");
++    }
++
++    #[test]
+     fn a_still_wallpaper_has_no_next_step_and_never_moves() {
+         let mut clock = Clock::default();
+         for slot in 0..5 {
+-            assert!(!clock.advance(slot * PERIOD, true, None, 1.0, HALF));
++            assert!(!clock.advance(slot * PERIOD, true, None, 1.0, HALF, true));
+         }
+         assert_eq!((clock.phase, clock.next_step(None)), (0.0, None));
+         // Nor does one with no speed, or one that is not shown.
+         let interval = step_interval_ns(30, PERIOD);
+         for (shown, speed) in [(true, 0.0), (false, 1.0)] {
+             let mut clock = Clock::default();
+-            clock.advance(0, shown, interval, speed, HALF);
+-            assert!(!clock.advance(10 * PERIOD, shown, interval, speed, HALF));
++            clock.advance(0, shown, interval, speed, HALF, true);
++            assert!(!clock.advance(10 * PERIOD, shown, interval, speed, HALF, true));
+             assert_eq!(clock.next_step(interval), None);
+         }
+     }
+@@ -204,9 +264,9 @@
+         let interval = step_interval_ns(30, PERIOD);
+         let mut clock = Clock::default();
+         assert_eq!(clock.next_step(interval), None, "not started");
+-        clock.advance(5_000, true, interval, 1.0, HALF);
++        clock.advance(5_000, true, interval, 1.0, HALF, true);
+         assert_eq!(clock.next_step(interval), Some(5_000 + 2 * PERIOD));
+-        clock.advance(5_000 + 2 * PERIOD, true, interval, 1.0, HALF);
++        clock.advance(5_000 + 2 * PERIOD, true, interval, 1.0, HALF, true);
+         assert_eq!(clock.next_step(interval), Some(5_000 + 4 * PERIOD));
      }
  
-     #[test]
+@@ -214,12 +274,12 @@
+     fn the_speed_scales_how_far_a_step_goes_and_a_change_of_it_never_jumps() {
+         let interval = step_interval_ns(30, PERIOD);
+         let mut clock = Clock::default();
+-        clock.advance(0, true, interval, 2.0, HALF);
+-        clock.advance(2 * PERIOD, true, interval, 2.0, HALF);
++        clock.advance(0, true, interval, 2.0, HALF, true);
++        clock.advance(2 * PERIOD, true, interval, 2.0, HALF, true);
+         let fast = clock.phase;
+         assert!((fast - 2.0 * (2 * PERIOD) as f64 / 1e9).abs() < 1e-9);
+         // Halving the speed does not move the phase back or forward on its own; the next step goes half as far.
+-        clock.advance(4 * PERIOD, true, interval, 1.0, HALF);
++        clock.advance(4 * PERIOD, true, interval, 1.0, HALF, true);
+         assert!((clock.phase - fast - (2 * PERIOD) as f64 / 1e9).abs() < 1e-9);
+     }
+ 
+@@ -227,16 +287,16 @@
+     fn hiding_a_wallpaper_stops_its_time_and_showing_it_carries_on_from_where_it_was() {
+         let interval = step_interval_ns(30, PERIOD);
+         let mut clock = Clock::default();
+-        clock.advance(0, true, interval, 1.0, HALF);
+-        clock.advance(2 * PERIOD, true, interval, 1.0, HALF);
++        clock.advance(0, true, interval, 1.0, HALF, true);
++        clock.advance(2 * PERIOD, true, interval, 1.0, HALF, true);
+         let before = clock.phase;
+         // Hidden for a minute.
+-        clock.advance(3 * PERIOD, false, interval, 1.0, HALF);
++        clock.advance(3 * PERIOD, false, interval, 1.0, HALF, true);
+         let minute = 60_000_000_000u64;
+         // Shown again: the first frame restarts the clock and the phase has not moved.
+-        assert!(!clock.advance(minute, true, interval, 1.0, HALF));
++        assert!(!clock.advance(minute, true, interval, 1.0, HALF, true));
+         assert_eq!(clock.phase, before);
+-        assert!(clock.advance(minute + 2 * PERIOD, true, interval, 1.0, HALF));
++        assert!(clock.advance(minute + 2 * PERIOD, true, interval, 1.0, HALF, true));
+         assert!((clock.phase - before - (2 * PERIOD) as f64 / 1e9).abs() < 1e-9);
+     }
+ 
+@@ -244,9 +304,9 @@
+     fn a_stall_does_not_make_the_wallpaper_jump() {
+         let interval = step_interval_ns(30, PERIOD);
+         let mut clock = Clock::default();
+-        clock.advance(0, true, interval, 1.0, HALF);
++        clock.advance(0, true, interval, 1.0, HALF, true);
+         // Frames stopped for three seconds (the compositor was starved), then one came.
+-        assert!(clock.advance(3_000_000_000, true, interval, 1.0, HALF));
++        assert!(clock.advance(3_000_000_000, true, interval, 1.0, HALF, true));
+         let cap = (MAX_STEPS_PER_STEP * interval.unwrap()) as f64 / 1e9;
+         assert!((clock.phase - cap).abs() < 1e-9, "{} vs {cap}", clock.phase);
+     }

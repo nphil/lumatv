@@ -538,6 +538,25 @@ fn a_page_over_a_moving_wallpaper_comes_from_the_ceiling_and_matches_the_layers_
         }
     }
     assert!(ceiling_frames >= 10 && compared >= 25, "{ceiling_frames} frames counted, {compared} compared");
+    let (on, through) = engine.ceiling().expect("a ceiling");
+    assert!(on && through as usize >= ceiling_frames, "{through} frames planned through the ceiling");
+    // Switched off while running (the compositor's `ctl ceiling off`), the next frame draws Home's layers straight.
+    assert!(engine.set_ceiling(false));
+    now += REFRESH_NS;
+    engine.plan(now).expect("plan");
+    engine.draw_stack(0, page.framebuffer, &full).expect("stack 0");
+    let cost = engine.finish().expect("finish");
+    engine.frame_done(now, &cost);
+    assert!((cost.layers as usize) * 4 >= layers_of_home, "{} layers drawn straight", cost.layers);
+    assert_eq!(engine.ceiling(), Some((false, through)));
+    // At its 60 fps the wallpaper stepped in every frame of a 60 Hz panel, none of them early; told the panel runs at 120 Hz (the compositor
+    // tells the engine the panel's refresh at every tick), it asks for every second refresh, not every one (to the nanoseconds a frame here
+    // drifts from the engine's 16 666 666 ns grid).
+    let (steps, merged) = engine.steps();
+    assert!(steps >= 55 && merged == 0, "{steps} steps, {merged} of them early");
+    assert_eq!(engine.demand(), Demand::EveryRefresh);
+    engine.set_refresh_period_ns(REFRESH_NS / 2);
+    assert!(matches!(engine.demand(), Demand::At(at) if at.abs_diff(now + REFRESH_NS) < 1_000), "{:?} after a step at {now}", engine.demand());
     eprintln!("ceiling: worst channel difference {worst}");
     let _ = std::fs::remove_dir_all(&shm);
 }

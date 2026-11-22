@@ -99,6 +99,7 @@ pub struct Scene {
     last_now: u64,
     next_version: u64,
     screen: Rect,
+    /// The panel's refresh, which a compositor's panel changes (60 and 120 Hz: [`Scene::set_refresh_period_ns`]).
     refresh_period_ns: u64,
     /// The renderer is bringing a glass surface's refraction back (`Renderer::adapt`) as of the frame just drawn: the frame that does
     /// it is wanted ([`Scene::demand`]).
@@ -106,6 +107,12 @@ pub struct Scene {
     /// What the Full ladder lets the wallpapers and the orbiting meshes do (`ladder::Ambient`): all that they ask for, unless a
     /// step is in force.
     ambient: Ambient,
+    /// Whether a wallpaper may take a step a refresh early in a frame drawn for something else (`wallpaper::Clock::advance`):
+    /// on unless switched off for comparing.
+    merge_steps: bool,
+    /// The wallpapers' steps since the start, and how many of them came early in a frame drawn for something else.
+    steps: u64,
+    merged_steps: u64,
 }
 
 /// The frame just drawn moved glass ([`Scene::fade`]): the refresh it was drawn for, and whether it took what the app had sent
@@ -162,7 +169,30 @@ impl Scene {
             refresh_period_ns,
             fading: None,
             ambient: Ambient::Asked,
+            merge_steps: true,
+            steps: 0,
+            merged_steps: 0,
         }
+    }
+
+    /// The panel's refresh period from now: a compositor's panel switches between 60 and 120 Hz, and a wallpaper's steps and
+    /// glass standing still are counted in refreshes.
+    pub fn set_refresh_period_ns(&mut self, refresh_period_ns: u64) {
+        self.refresh_period_ns = refresh_period_ns;
+    }
+
+    /// Whether wallpapers take a step a refresh early in a frame drawn for something else ([`wallpaper::Clock::advance`]).
+    pub fn set_step_merging(&mut self, on: bool) {
+        self.merge_steps = on;
+    }
+
+    pub fn step_merging(&self) -> bool {
+        self.merge_steps
+    }
+
+    /// The wallpapers' steps since the start, and how many of them came early in a frame drawn for something else.
+    pub fn steps(&self) -> (u64, u64) {
+        (self.steps, self.merged_steps)
     }
 
     pub fn len(&self) -> usize {
@@ -475,10 +505,22 @@ impl Scene {
             match layer.content {
                 Content::Wallpaper(w) => {
                     let interval = wallpaper::step_interval_ns(ambient.fps(w.fps), period);
-                    if layer
+                    // A step before its time, less the half refresh a frame may come early by, is in a
+                    // frame drawn for something else.
+                    let early = layer
                         .clock
-                        .advance(now_ns, shown, interval, w.speed, period / 2)
-                    {
+                        .next_step(interval)
+                        .is_some_and(|due| now_ns + period / 2 < due);
+                    if layer.clock.advance(
+                        now_ns,
+                        shown,
+                        interval,
+                        w.speed,
+                        period / 2,
+                        self.merge_steps,
+                    ) {
+                        self.steps += 1;
+                        self.merged_steps += u64::from(early);
                         let phase = layer.clock.phase;
                         layer
                             .ripples
@@ -496,6 +538,7 @@ impl Scene {
                             0.0
                         },
                         period / 2,
+                        false,
                     );
                 }
                 _ => {}
@@ -589,18 +632,7 @@ impl Scene {
         if self.animating() || self.fading.is_some_and(|f| !f.driven) {
             return Demand::EveryRefresh;
         }
-        let mut next: Option<u64> = self
-            .fading
-            .map(|f| f.slot_ns + GLASS_STILL_REFRESHES * self.refresh_period_ns);
-        for animation in self.layers.values().filter_map(|l| l.animation) {
-            if animation.is_paced() {
-                let due = self
-                    .last_now
-                    .saturating_add(animation.step_ns())
-                    .min(animation.ends_at());
-                next = Some(next.map_or(due, |n| n.min(due)));
-            }
-        }
+        let mut next = self.paced_due();
         for layer in self.layers.values().filter(|l| !l.unseen) {
             let Content::Wallpaper(w) = layer.content else {
                 continue;
@@ -616,6 +648,24 @@ impl Scene {
             next = Some(next.map_or(due, |n| n.min(due)));
         }
         next.map_or(Demand::Idle, Demand::At)
+    }
+
+    /// When glass standing still or an ambient motion next wants a frame: [`Scene::demand`] without the wallpapers' steps, so
+    /// that a compositor can tell a frame drawn for a step alone.
+    pub fn paced_due(&self) -> Option<u64> {
+        let mut next: Option<u64> = self
+            .fading
+            .map(|f| f.slot_ns + GLASS_STILL_REFRESHES * self.refresh_period_ns);
+        for animation in self.layers.values().filter_map(|l| l.animation) {
+            if animation.is_paced() {
+                let due = self
+                    .last_now
+                    .saturating_add(animation.step_ns())
+                    .min(animation.ends_at());
+                next = Some(next.map_or(due, |n| n.min(due)));
+            }
+        }
+        next
     }
 
     /// The layers to draw at `now_ns`, back to front. Layers that are hidden, transparent or scaled to nothing
@@ -1182,7 +1232,8 @@ mod tests {
         assert_eq!(s.demand(), Demand::Idle);
         s.advance(1_000 * MS);
         assert_eq!(s.demand(), Demand::At(1_000 * MS + 2 * PERIOD));
-        // Frames at every refresh: it steps on every second one and its phase follows.
+        // Frames at every refresh: it steps on every second one, a refresh early in the frame before its own, and its phase
+        // follows.
         let mut out = Vec::new();
         let mut phases = Vec::new();
         for frame in 1..=4u64 {
@@ -1191,8 +1242,13 @@ mod tests {
             s.resolve(now, &mut out);
             phases.push(out[0].phase);
         }
-        assert_eq!(phases[0], 0.0);
-        assert!(phases[1] > 0.0 && phases[2] == phases[1] && phases[3] > phases[2]);
+        assert!(phases[0] > 0.0 && phases[1] == phases[0] && phases[2] > phases[1] && phases[3] == phases[2]);
+        assert_eq!(s.steps(), (2, 2), "both in the frame before their own");
+        // Switched off, a step waits for its own frame.
+        s.set_step_merging(false);
+        s.advance(1_000 * MS + 5 * PERIOD);
+        s.advance(1_000 * MS + 6 * PERIOD);
+        assert_eq!(s.steps(), (3, 2));
         // At the panel's own rate it wants every refresh; at fps 0 it wants nothing.
         let mut fast = scene();
         fast.apply(
@@ -1201,6 +1257,9 @@ mod tests {
         );
         fast.advance(0);
         assert_eq!(fast.demand(), Demand::EveryRefresh);
+        // Told the panel now refreshes twice as fast, it wants every second refresh.
+        fast.set_refresh_period_ns(PERIOD / 2);
+        assert_eq!(fast.demand(), Demand::At(PERIOD));
         let mut still = scene();
         still.apply(
             &create_content(1, wallpaper(WallpaperKind::Starfield, 0, 1.0)),

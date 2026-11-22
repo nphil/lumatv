@@ -19,7 +19,7 @@ mod snapshots;
 use super::egl::{self, EGLImage, EGLSync, Egl, GLint, GLuint, Platform};
 use crate::Rect;
 use crate::buffer::{BufferKindRef, kind_of};
-use crate::output::{FrameClock, Image, Output, Presented, RenderStats};
+use crate::output::{FrameCause, FrameClock, Image, Output, Presented, RenderStats};
 use crate::scene::{HoleVeil, Plan, Posed};
 use crate::surface::{SurfaceId, Surfaces};
 use crate::transition::{FRect, VEIL_RGB};
@@ -166,13 +166,16 @@ pub struct Gl {
     ui_frame: Option<lumatv_render::host::FrameCost>,
     #[cfg(feature = "ui")]
     ui_stats: UiStats,
-    /// How early a tick may come for a step of the engine's that is due (`Ui::wants_frame`): half a refresh, set by the output that knows the
-    /// panel's rate ([`Gl::set_ui_slack`]).
+    /// How early a tick may come for a step of the engine's that is due: half a refresh, set by the output that knows the panel's rate
+    /// ([`Gl::set_ui_refresh`], `Ui::wants`).
     #[cfg(feature = "ui")]
     ui_slack_ns: u64,
     /// What the last pump took in: commits, and the ops and motions then waiting ([`Gl::take_ui_arrival`]).
     #[cfg(feature = "ui")]
     ui_arrival: Option<(u32, usize, usize)>,
+    /// What the UI wanted a frame for at the last [`Output::ui_needs_frame`], for the frame drawn next ([`Gl::take_ui_want`]).
+    #[cfg(feature = "ui")]
+    ui_want: Option<FrameCause>,
     /// The engine's programs, linked once and handed from one engine to the next (`lumatv_render::programs`).
     #[cfg(feature = "ui")]
     ui_programs: std::sync::Arc<lumatv_render::programs::Cache>,
@@ -365,6 +368,8 @@ impl Gl {
             ui_slack_ns: 0,
             #[cfg(feature = "ui")]
             ui_arrival: None,
+            #[cfg(feature = "ui")]
+            ui_want: None,
             #[cfg(feature = "ui")]
             ui_programs: lumatv_render::programs::Cache::new(),
         })
@@ -560,11 +565,45 @@ impl Gl {
         }
     }
 
-    /// Says how early a tick may come for a step of the engine's that is due: half of the panel's refresh (`Ui::wants_frame`).
-    pub fn set_ui_slack(&mut self, _ns: u64) {
+    /// Tells the engine the panel's refresh period (it counts a wallpaper's steps in it: `Ui::set_refresh_period`) and how early a tick
+    /// may come for a step that is due: half of it (`Ui::wants`).
+    pub fn set_ui_refresh(&mut self, _period_ns: u64) {
         #[cfg(feature = "ui")]
         {
-            self.ui_slack_ns = _ns;
+            self.ui_slack_ns = _period_ns / 2;
+            if let Some(ui) = &mut self.ui {
+                ui.set_refresh_period(_period_ns);
+            }
+        }
+    }
+
+    /// What the UI wanted the frame being drawn for ([`crate::output::FrameCause`]), once; `None` when it wanted none.
+    pub fn take_ui_want(&mut self) -> Option<FrameCause> {
+        #[cfg(feature = "ui")]
+        {
+            self.ui_want.take()
+        }
+        #[cfg(not(feature = "ui"))]
+        {
+            None
+        }
+    }
+
+    /// `ctl status`'s `ui` ([`Output::ui_report`]): the engine's part (`Ui::report`), the refresh it counts in, and `flips`, an output's
+    /// count of its flips by [`FrameCause`]. `None` without a UI.
+    pub fn ui_report_with(&self, _flips: Option<&[u64; FrameCause::COUNT]>) -> Option<serde_json::Value> {
+        #[cfg(feature = "ui")]
+        {
+            let mut report = self.ui.as_ref()?.report();
+            report["refreshMs"] = serde_json::json!(((self.ui_slack_ns * 2) as f64 / 1e4).round() / 100.0);
+            if let Some(counts) = _flips {
+                report["flips"] = FrameCause::NAMES.iter().zip(counts).map(|(name, n)| (*name, *n)).collect();
+            }
+            Some(report)
+        }
+        #[cfg(not(feature = "ui"))]
+        {
+            None
         }
     }
 
@@ -2173,6 +2212,10 @@ impl Output for Gl {
     }
 
     fn ui_needs_frame(&mut self) -> io::Result<bool> {
+        #[cfg(feature = "ui")]
+        {
+            self.ui_want = None;
+        }
         // A redraw the UI's going left owed is a frame whoever asks (the wake that saw the hang-up may not have drawn).
         if self.redraw_all {
             return Ok(true);
@@ -2194,13 +2237,38 @@ impl Output for Gl {
             }
             // With `LUMATV_AHEAD=1`, a large commit (a screen made) is taken in now, in the time to the frame's latch, not in the frame.
             ui.engine().take_in_ahead(now);
-            if ui.wants_frame(now, self.ui_slack_ns) {
-                return Ok(true);
+            self.ui_want = ui.wants(now, self.ui_slack_ns);
+            if self.ui_want.is_none() {
+                ui.idle(now);
+                self.ui_want = ui.wants(now, self.ui_slack_ns);
             }
-            ui.idle(now);
-            return Ok(ui.wants_frame(now, self.ui_slack_ns));
+            return Ok(self.ui_want.is_some());
         }
         Ok(false)
+    }
+
+    fn ui_report(&self) -> Option<serde_json::Value> {
+        self.ui_report_with(None)
+    }
+
+    fn ui_set_ceiling(&mut self, _on: bool) -> bool {
+        #[cfg(feature = "ui")]
+        {
+            self.ui.as_mut().is_some_and(|ui| ui.engine().set_ceiling(_on))
+        }
+        #[cfg(not(feature = "ui"))]
+        {
+            false
+        }
+    }
+
+    fn ui_set_step_merging(&mut self, _on: bool) -> bool {
+        #[cfg(feature = "ui")]
+        if let Some(ui) = &mut self.ui {
+            ui.engine().set_step_merging(_on);
+            return true;
+        }
+        false
     }
 
     fn ui_fd(&self) -> Option<std::os::fd::RawFd> {

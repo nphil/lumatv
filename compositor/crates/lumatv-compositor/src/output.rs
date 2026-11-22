@@ -93,6 +93,25 @@ pub struct RenderStats {
     pub snapshot: Option<crate::snapshot::Receipt>,
 }
 
+/// What a frame was drawn for, which `ctl status` counts the flips by (`ui.flips`): the windows (the compositor's own scene changed),
+/// the UI engine (`Ui::wants`: its commits, a redraw, an animation, an ambient motion's step or glass standing still, a wallpaper's
+/// step alone), or none of them (a redraw of everything, a stand-in's or the page probe's frame).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameCause {
+    Windows,
+    Commit,
+    Redraw,
+    Motion,
+    Paced,
+    Step,
+    Other,
+}
+
+impl FrameCause {
+    pub const COUNT: usize = 7;
+    pub const NAMES: [&'static str; Self::COUNT] = ["windows", "commit", "redraw", "motion", "paced", "step", "other"];
+}
+
 pub trait Output {
     fn name(&self) -> &'static str;
 
@@ -242,6 +261,23 @@ pub trait Output {
     /// Takes in system UI requests, including changes that do not damage any application window.
     fn ui_needs_frame(&mut self) -> io::Result<bool> {
         Ok(false)
+    }
+
+    /// The UI engine's account for `ctl status` (`ui`): the refresh it counts in, the ceiling, the wallpapers' steps and the flips by
+    /// what they were drawn for. `None` without a UI.
+    fn ui_report(&self) -> Option<serde_json::Value> {
+        None
+    }
+
+    /// Switches the ceiling over Home's moving wallpaper (`ctl ceiling`, `Engine::set_ceiling`): false without one.
+    fn ui_set_ceiling(&mut self, _on: bool) -> bool {
+        false
+    }
+
+    /// Switches a wallpaper's step a refresh early in a frame drawn for something else (`ctl merge`, `Engine::set_step_merging`): false
+    /// without a UI.
+    fn ui_set_step_merging(&mut self, _on: bool) -> bool {
+        false
     }
 
     /// The system UI app's socket, for the main loop to poll: readable means requests wait (`State::ui_wake`). `None`

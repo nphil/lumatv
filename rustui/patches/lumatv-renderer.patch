@@ -551,7 +551,7 @@
                  {
                      for &u in *users {
                          grew |= !std::mem::replace(&mut forced[u], true);
-@@ -2347,13 +2485,22 @@
+@@ -2347,45 +2485,53 @@
                  break;
              }
          }
@@ -565,7 +565,7 @@
 -                total.add_damage(seen[i]);
 +                dirt[i].seen = [true, true];
 +                dirt[i].within = None;
-+            }
+             }
 +            let Dirt {
 +                seen: asked,
 +                within,
@@ -577,10 +577,10 @@
 +                    Some(area) => total.union_within(set, area),
 +                    None => total.union(set),
 +                }
-             }
++            }
          }
          total
-@@ -2361,31 +2508,30 @@
+     }
  
      /// What a layer changes from the frame before: in the frame (where it was seen and where it is seen now) and in the
      /// pictures behind the glass above it (everywhere it was drawn and is). `now` is where it is drawn now, and what the
@@ -767,7 +767,14 @@
 -            let mut report = if n == 0 { first } else { DrawReport::default() };
 -            self.draw_surface(&frame, draw, &mut done, &mut report);
 -            reports.push(report);
--        }
++        Planned {
++            frame,
++            first,
++            done: Done::default(),
++            changed: Vec::new(),
++            backdrops: 0,
++            uploaded: 0,
+         }
 -        if let Some(first) = reports.first_mut() {
 -            first.gl = self.gl.take_calls();
 -        }
@@ -776,14 +783,6 @@
 -        self.revisions = revisions;
 -        self.revised = revised;
 -        let opened = done.opened;
-+        Planned {
-+            frame,
-+            first,
-+            done: Done::default(),
-+            changed: Vec::new(),
-+            backdrops: 0,
-+            uploaded: 0,
-+        }
 +    }
 +
 +    /// Draws the frame `planned` into one render target: what of its layers can be seen, what of the target is owed, the
@@ -1026,6 +1025,8 @@
 -                    extents: &frame.extents[..to],
 -                    asks: &asks,
 -                    revisions: &frame.revisions[..to],
+-                };
+-                self.frame_damage(stack, facts, &stale_layers, &sharing)
 +        // What the frame has to draw: all of it, or the part of it that this render target owes (the renderer's account of
 +        // the ring) or that the caller asks for. The plane's account covers the layers it shows and the ones below them,
 +        // which show through the glass above.
@@ -1034,23 +1035,7 @@
 +                report.damage = Region::of(panel_area);
 +                report.damage_px = damage::pixels(&panel_area);
 +                Region::of(panel_area)
-+            }
-+            (slot, areas) => {
-+                let accounting = Instant::now();
-+                self.account(frame, draw.surface, changed);
-+                let changed = changed[stack].as_ref().expect("the plane was accounted");
-+                report.damage = changed.region();
-+                report.damage_px = changed.pixels();
-+                let region = match (slot, areas) {
-+                    (Some(slot), _) => {
-+                        let mut owed = TileSet::new(width, height);
-+                        self.accounts[stack].ring.frame(slot, changed, &mut owed);
-+                        owed.region()
-+                    }
-+                    (None, areas) => areas.unwrap_or(Region::of(panel_area)),
-                 };
--                self.frame_damage(stack, facts, &stale_layers, &sharing)
--            }
+             }
 -        };
 -        report.damage = changed;
 -        let region = match draw.slot {
@@ -1065,6 +1050,20 @@
 -                    &frame.extents[..to],
 -                    &frame.revisions[..to],
 -                );
++            (slot, areas) => {
++                let accounting = Instant::now();
++                self.account(frame, draw.surface, changed);
++                let changed = changed[stack].as_ref().expect("the plane was accounted");
++                report.damage = changed.region();
++                report.damage_px = changed.pixels();
++                let region = match (slot, areas) {
++                    (Some(slot), _) => {
++                        let mut owed = TileSet::new(width, height);
++                        self.accounts[stack].ring.frame(slot, changed, &mut owed);
++                        owed.region()
++                    }
++                    (None, areas) => areas.unwrap_or(Region::of(panel_area)),
++                };
 +                report.damage_ns += nanos(accounting);
                  region
              }

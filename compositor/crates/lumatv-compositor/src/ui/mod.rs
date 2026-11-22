@@ -43,6 +43,7 @@ pub mod demo;
 
 use crate::Rect;
 use crate::damage::Tiles;
+use crate::output::FrameCause;
 use lumatv_render::host::{Engine, Exclusion, FrameCost, HostConfig};
 use lumatv_render::programs::Cache;
 use lumatv_render::tiles::TileSet;
@@ -94,6 +95,7 @@ impl Ui {
             HostConfig {
                 width,
                 height,
+                // (the output tells it the panel's own refresh at every tick: `set_refresh_period`)
                 refresh_hz: 60.0,
                 shm_dir,
                 direct: false,
@@ -126,6 +128,18 @@ impl Ui {
     /// The engine, for what this module does not wrap (housekeeping, the idle moments, a test's reads).
     pub fn engine(&mut self) -> &mut Engine {
         &mut self.engine
+    }
+
+    /// The engine's part of `ctl status`'s `ui`: whether the ceiling is used and the frames planned through it (`null` without one),
+    /// whether a wallpaper's step may come a refresh early, and the steps since the start and those that came early.
+    pub fn report(&self) -> serde_json::Value {
+        let (steps, merged) = self.engine.steps();
+        serde_json::json!({
+            "ceiling": self.engine.ceiling().map(|(on, frames)| serde_json::json!({"on": on, "frames": frames})),
+            "merge": self.engine.step_merging(),
+            "steps": steps,
+            "mergedSteps": merged,
+        })
     }
 
     /// Gives back what the engine holds on the GPU ([`Engine::release`]), before the engine is dropped for a client that has gone, and
@@ -169,18 +183,41 @@ impl Ui {
         self.calm = calm;
     }
 
-    /// Whether a frame is due at `now_ns`: commits wait (and are not held for the next step, `set_calm`), work between frames changed
-    /// the picture, an animation runs, or a wallpaper's or an ambient motion's step is due. A step due within `slack_ns` after `now_ns`
-    /// is due: the tick is on the panel's grid, and a step is drawn by the refresh nearest it.
+    /// The panel's refresh period, which the engine counts a wallpaper's steps in (`Engine::set_refresh_period_ns`): told at every
+    /// tick, as the panel switches between 60 and 120 Hz.
+    pub fn set_refresh_period(&mut self, period_ns: u64) {
+        self.engine.set_refresh_period_ns(period_ns);
+    }
+
+    /// Whether a frame is due at `now_ns` ([`Ui::wants`]).
     pub fn wants_frame(&self, now_ns: u64, slack_ns: u64) -> bool {
+        self.wants(now_ns, slack_ns).is_some()
+    }
+
+    /// What a frame is due at `now_ns` for, if one is: commits wait (and are not held for the next step, `set_calm`), work between
+    /// frames changed the picture, an animation runs, or an ambient motion's or a wallpaper's step is due. A step due within `slack_ns`
+    /// after `now_ns` is due: the tick is on the panel's grid, and a step is drawn by the refresh nearest it.
+    pub fn wants(&self, now_ns: u64, slack_ns: u64) -> Option<FrameCause> {
         let demand = self.engine.demand();
-        (self.engine.has_commits() && !Self::holds_commits(self.calm, demand, now_ns, slack_ns))
-            || self.engine.redraw_wanted()
-            || match demand {
-                Demand::EveryRefresh => true,
-                Demand::At(at) => now_ns.saturating_add(slack_ns) >= at,
-                Demand::Idle => false,
-            }
+        let commits = self.engine.has_commits() && !Self::holds_commits(self.calm, demand, now_ns, slack_ns);
+        Self::want(commits, self.engine.redraw_wanted(), demand, || self.engine.paced_due(), now_ns.saturating_add(slack_ns))
+    }
+
+    /// [`Ui::wants`] from what it reads: a frame at every refresh is an animation's (or a wallpaper's as fast as the panel), and a step
+    /// due by `by_ns` is a wallpaper's alone unless glass standing still or an ambient motion is due by then too (`paced`, read only
+    /// then).
+    fn want(commits: bool, redraw: bool, demand: Demand, paced: impl FnOnce() -> Option<u64>, by_ns: u64) -> Option<FrameCause> {
+        if commits {
+            return Some(FrameCause::Commit);
+        }
+        if redraw {
+            return Some(FrameCause::Redraw);
+        }
+        match demand {
+            Demand::EveryRefresh => Some(FrameCause::Motion),
+            Demand::At(at) if at <= by_ns => Some(if paced().is_some_and(|due| due <= by_ns) { FrameCause::Paced } else { FrameCause::Step }),
+            Demand::At(_) | Demand::Idle => None,
+        }
     }
 
     /// Whether commits wait for the engine's next step: calm, and a step at most `COMMIT_HOLD_NS` ahead (a step due now draws them).
@@ -318,5 +355,18 @@ mod tests {
         assert!(!Ui::holds_commits(true, Demand::At(now + 200_000_000), now, slack), "the clock's next second is too far");
         assert!(!Ui::holds_commits(true, Demand::Idle, now, slack), "nothing moves: drawn at once");
         assert!(!Ui::holds_commits(true, Demand::EveryRefresh, now, slack));
+    }
+
+    #[test]
+    fn a_frame_for_a_step_alone_is_told_from_one_a_paced_motion_shares() {
+        let by = 1_000_000_000;
+        let want = |demand, paced: Option<u64>| Ui::want(false, false, demand, || paced, by);
+        assert_eq!(want(Demand::At(by), None), Some(FrameCause::Step));
+        assert_eq!(want(Demand::At(by - 1), Some(by + 1)), Some(FrameCause::Step), "the rain's next is after this refresh");
+        assert_eq!(want(Demand::At(by - 1), Some(by - 1)), Some(FrameCause::Paced));
+        assert_eq!(want(Demand::At(by + 1), Some(by + 1)), None);
+        assert_eq!(want(Demand::EveryRefresh, None), Some(FrameCause::Motion));
+        assert_eq!(Ui::want(true, true, Demand::Idle, || None, by), Some(FrameCause::Commit));
+        assert_eq!(Ui::want(false, true, Demand::At(by), || None, by), Some(FrameCause::Redraw));
     }
 }
