@@ -1011,11 +1011,16 @@ impl Engine {
                 mjolnir_control = Some(mjolnir.control());
                 self.nvst_mjolnir_transport = Some(mjolnir);
             }
+            let media = self.media_session.as_ref().map(MediaSession::control);
+            if let Some(media) = media.as_ref() {
+                let sender_reports = Arc::clone(&feedback);
+                media.sender_reports_from(move |now_ns| sender_reports.sender_reports_json(now_ns));
+            }
             nvst_resources = Some(ActiveNvstResources {
                 bundle: bundle_control,
                 mjolnir: mjolnir_control,
                 feedback,
-                media: self.media_session.as_ref().map(MediaSession::control),
+                media,
             });
             nvst_events = Some(event_receiver);
             nvst_upstream_ready = upstream_ready;

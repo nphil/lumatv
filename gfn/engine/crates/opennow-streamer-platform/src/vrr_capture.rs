@@ -9,11 +9,15 @@
 //!
 //! The file's clock is the TV's CLOCK_MONOTONIC. The sender's RTP clock is a separate domain: the raw 32-bit stamps and the declared
 //! rate are recorded and unwrapped offline.
+//!
+//! The file also carries the transport's RTCP sender-report summary under `sender_reports` (`null` when none was attached). It only
+//! observes: it covers the whole transport session up to the write, not just the window, and nothing in the stream depends on it.
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, Ordering::{Acquire, Relaxed, Release}};
+use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
@@ -60,6 +64,9 @@ pub(crate) struct Meta {
     pub(crate) pacing: &'static str,
 }
 
+/// The NVST transport's summary of the RTCP sender reports it saw, asked for with this file's clock reading at the time of the write.
+type SenderReports = Box<dyn Fn(i64) -> Value + Send + Sync>;
+
 pub(crate) struct Capture {
     slots: Box<[Slot]>,
     next: AtomicU32,
@@ -73,6 +80,7 @@ pub(crate) struct Capture {
     evicted: AtomicU64,
     unmatched: AtomicU64,
     resets: AtomicU64,
+    sender_reports: Mutex<Option<SenderReports>>,
 }
 
 /// What the UI wrote: the capture's name, where its files go, and the LumaGame build.
@@ -115,7 +123,7 @@ impl Capture {
         Capture {
             slots, next: AtomicU32::new(0), start_ns: AtomicI64::new(0), epoch, nonce, out, meta,
             clock_hz: AtomicU32::new(0), omitted: AtomicU64::new(0), evicted: AtomicU64::new(0), unmatched: AtomicU64::new(0),
-            resets: AtomicU64::new(0),
+            resets: AtomicU64::new(0), sender_reports: Mutex::new(None),
         }
     }
 
@@ -176,6 +184,11 @@ impl Capture {
         self.unmatched.fetch_add(1, Relaxed);
     }
 
+    /// The transport's sender-report summary, written into the file under `sender_reports`. A later source replaces an earlier one.
+    pub(crate) fn attach_sender_reports(&self, source: SenderReports) {
+        *self.sender_reports.lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
+    }
+
     pub(crate) fn start_ns(&self) -> i64 {
         self.start_ns.load(Relaxed)
     }
@@ -186,8 +199,8 @@ impl Capture {
         start != 0 && now_ns - start >= WINDOW_NS + GRACE_NS
     }
 
-    /// The whole file. `ended` names why the stream stopped before the window was over, if it did.
-    pub(crate) fn to_json(&self, ended: Option<&'static str>) -> Value {
+    /// The whole file. `ended` names why the stream stopped before the window was over, if it did. `now_ns` is this file's clock now.
+    pub(crate) fn to_json(&self, ended: Option<&'static str>, now_ns: i64) -> Value {
         let taken = (self.next.load(Relaxed) as usize).min(CAPACITY);
         let mut records = Vec::with_capacity(taken);
         let mut uncommitted = 0u64;
@@ -218,6 +231,7 @@ impl Capture {
         if uncommitted > 0 { incomplete.push("records still being written"); }
         if self.start_ns() == 0 { incomplete.push("no video frame reached the sink"); }
         if let Some(why) = ended { incomplete.push(why); }
+        let sender_reports = self.sender_reports.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(Value::Null, |source| source(now_ns));
         json!({
             "format": "lumagame-vrr-pts-capture", "version": 1, "producer": "streamer", "clock": "CLOCK_MONOTONIC",
             "nonce": self.nonce, "complete": incomplete.is_empty(), "incomplete": incomplete,
@@ -245,19 +259,19 @@ impl Capture {
                 "index_valid": F_INDEX_VALID, "contiguous": F_CONTIGUOUS, "keyframe": F_KEYFRAME, "resync": F_RESYNC,
                 "sent": F_SENT, "failed": F_FAILED, "handed": F_HANDED, "flushed": F_FLUSHED, "smooth": F_SMOOTH,
             },
-            "records": records,
+            "sender_reports": sender_reports, "records": records,
         })
     }
 
     /// Writes `<nonce>-streamer.json` once, atomically, readable by its owner only. Never overwrites.
-    pub(crate) fn write(&self, ended: Option<&'static str>) -> std::io::Result<()> {
+    pub(crate) fn write(&self, ended: Option<&'static str>, now_ns: i64) -> std::io::Result<()> {
         if let Some(dir) = self.out.parent() {
             fs::create_dir_all(dir)?;
         }
         let tmp = self.out.with_extension("json.tmp");
         {
             let mut file = OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?;
-            serde_json::to_writer(&mut file, &self.to_json(ended))?;
+            serde_json::to_writer(&mut file, &self.to_json(ended, now_ns))?;
             file.write_all(b"\n")?;
             file.sync_all()?;
         }
@@ -296,7 +310,7 @@ mod tests {
             }
         }
         assert_eq!(slots, CAPACITY);
-        let v = c.to_json(None);
+        let v = c.to_json(None, 0);
         assert_eq!(v["header"]["counts"]["omitted"], 5);
         assert_eq!(v["header"]["counts"]["stored"], CAPACITY);
         assert_eq!(v["complete"], false);
@@ -311,7 +325,7 @@ mod tests {
         assert_eq!(c.enter(t0 + WINDOW_NS, &frame(Some(2), 2), 0, false, t0, true), NO_SLOT);
         assert!(!c.finished(t0 + WINDOW_NS));
         assert!(c.finished(t0 + WINDOW_NS + GRACE_NS));
-        let v = c.to_json(None);
+        let v = c.to_json(None, 0);
         assert_eq!(v["complete"], true);
         assert_eq!(v["header"]["counts"]["omitted"], 0);
     }
@@ -323,7 +337,7 @@ mod tests {
         c.handed(slot, 25, 30, true, false, 4);
         c.evicted(2);
         c.unmatched();
-        let v = c.to_json(Some("the stream stopped"));
+        let v = c.to_json(Some("the stream stopped"), 0);
         let r = &v["records"][0];
         assert_eq!(r[0], 3);
         assert!(r[3].is_null(), "an unset index is absent, not zero");
@@ -347,11 +361,19 @@ mod tests {
         fs::write(dir.join("vrr-capture.arm"), format!("vrr-capture 1\n9\n{}\nbuild-9\n", dir.join("out").display())).unwrap();
         let c = Capture::arm(Some(&prefs), 1, meta()).expect("armed");
         assert_eq!(c.out(), dir.join("out/9-streamer.json"));
-        c.write(None).unwrap();
+        c.write(None, 0).unwrap();
         assert!(Capture::arm(Some(&prefs), 2, meta()).is_none());
         let written: Value = serde_json::from_slice(&fs::read(dir.join("out/9-streamer.json")).unwrap()).unwrap();
         assert_eq!(written["header"]["build_id"], "build-9");
         assert!(Capture::arm(None, 1, meta()).is_none());
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_sender_report_summary_is_asked_for_when_the_file_is_written() {
+        let c = Capture::new(1, PathBuf::from("/nonexistent/x.json"), 1, meta());
+        assert!(c.to_json(None, 5)["sender_reports"].is_null(), "nothing attached");
+        c.attach_sender_reports(Box::new(|now_ns| json!({ "asked_at_ns": now_ns })));
+        assert_eq!(c.to_json(None, 42)["sender_reports"]["asked_at_ns"], 42);
     }
 }

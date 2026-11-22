@@ -673,7 +673,7 @@ fn capture_writer(shared: &Shared, capture: &Capture) {
     let line = if capture.start_ns() == 0 {
         "the timing capture saw no video frame: nothing written".to_owned()
     } else {
-        match capture.write(ended) {
+        match capture.write(ended, now_ns()) {
             Ok(()) => format!("the timing capture is in {}", capture.out().display()),
             Err(e) => format!("the timing capture could not be written: {e}"),
         }
@@ -720,6 +720,13 @@ impl MediaSession {
 }
 
 impl MediaControl {
+    /// Adds the transport's RTCP sender-report summary to the armed timing capture's file; with no capture armed it does nothing.
+    pub fn sender_reports_from(&self, source: impl Fn(i64) -> serde_json::Value + Send + Sync + 'static) {
+        if let Some(capture) = &self.shared.capture {
+            capture.attach_sender_reports(Box::new(source));
+        }
+    }
+
     pub fn start_replay(&self, _config: ReplayBufferConfig, _reserved: Arc<std::sync::atomic::AtomicUsize>) {}
 
     pub fn stop_replay(&self) {}

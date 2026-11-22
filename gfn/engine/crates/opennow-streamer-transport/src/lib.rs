@@ -19,6 +19,7 @@ mod nvst_invalidation;
 mod nvst_microphone;
 mod nvst_network;
 mod nvst_recovery_policy;
+mod nvst_sender_report;
 mod nvst_server_control;
 pub mod webrtc;
 

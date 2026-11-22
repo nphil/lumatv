@@ -32,6 +32,10 @@ use super::nvst_microphone::{
     MICROPHONE_QUEUE_CAPACITY, MicrophonePacketizer, MicrophoneQueue, MicrophoneRtpConfig,
 };
 use super::nvst_network::is_vpn_interface;
+use super::nvst_sender_report::{
+    Observation, SenderInfo, SenderReportMonitor, VIDEO_RTP_CLOCK_HZ, Via,
+    peeked_sender_report_ssrc, read_sender_reports, track_of,
+};
 use super::nvst_server_control::{
     ControlKeepaliveHealth, FramePacingFeedbackMode, NvstServerTermination, NvstSessionTimer,
     ServerControlDiagnostics, ServerControlMessage, server_control_messages,
@@ -669,6 +673,8 @@ pub struct NvstFeedbackState {
     frame_packet_timings: Mutex<VecDeque<FramePacketTiming>>,
     frame_stage_timings: Mutex<FrameStageTimingsAccumulator>,
     video_startup: Mutex<VideoStartup>,
+    /// RTCP sender reports seen by any transport thread. Diagnostics only: nothing reads it back.
+    sender_reports: Mutex<SenderReportMonitor>,
 }
 
 impl Default for NvstFeedbackState {
@@ -700,6 +706,7 @@ impl Default for NvstFeedbackState {
             frame_packet_timings: Mutex::new(VecDeque::new()),
             frame_stage_timings: Mutex::new(FrameStageTimingsAccumulator::default()),
             video_startup: Mutex::new(VideoStartup::Immediate),
+            sender_reports: Mutex::new(SenderReportMonitor::default()),
         }
     }
 }
@@ -1361,6 +1368,52 @@ impl NvstFeedbackState {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         *pending = pending.split_off(&last_abandoned_index.saturating_add(1));
+    }
+
+    /// Records one sender report seen by a transport thread. The video SSRC is the handoff's, else
+    /// the one the video path bound; `audio_clock_hz` is `Some` when the SSRC is the audio track's.
+    /// `read` is `None` when only the clear RTCP header could be seen.
+    fn observe_sender_report(
+        &self,
+        expected_video_ssrc: Option<u32>,
+        audio_clock_hz: Option<u32>,
+        ssrc: u32,
+        read: Option<(SenderInfo, Via)>,
+        arrival: Instant,
+    ) {
+        let bound = self.video_ssrc.load(Ordering::Acquire);
+        let video_ssrc = expected_video_ssrc.or((bound != 0).then_some(bound));
+        let track = track_of(ssrc, video_ssrc, audio_clock_hz.is_some());
+        let observation = Observation {
+            track,
+            ssrc,
+            clock_hz: track.clock_hz(audio_clock_hz.unwrap_or_default()),
+            arrival,
+            read,
+        };
+        if verbose_diagnostics_enabled() {
+            eprintln!("NVST rtcp-sr {}", observation.trace_line());
+        }
+        self.sender_reports
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .record(observation);
+    }
+
+    /// The sender-report summary for the timing capture. `now_ns` is the capture clock's reading
+    /// at the time of the call; sighting times are reported on that clock.
+    pub fn sender_reports_json(&self, now_ns: i64) -> Value {
+        self.sender_reports
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .to_json(Instant::now(), now_ns)
+    }
+
+    fn sender_reports_log_line(&self) -> String {
+        self.sender_reports
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .log_line()
     }
 }
 
@@ -6663,6 +6716,22 @@ impl NvstAudioStreams {
             rtc.direct_api().remove_stream_rx(Ssrc::from(rejected));
         }
     }
+
+    /// Whether `ssrc` is a stream this registry admitted, authenticated or not yet.
+    fn knows(&self, ssrc: u32) -> bool {
+        self.provisional == Some(ssrc) || self.authenticated.contains(&ssrc)
+    }
+}
+
+/// The audio clock rate when `ssrc` belongs to the audio track, for naming a sender report's track.
+fn audio_clock_of(
+    track: Option<&NvstAudioTrack>,
+    streams: &NvstAudioStreams,
+    ssrc: u32,
+) -> Option<u32> {
+    track
+        .filter(|track| track.ssrc == Some(ssrc) || streams.knows(ssrc))
+        .map(|track| track.clock_rate_hz)
 }
 
 #[derive(Default)]
@@ -8305,6 +8374,7 @@ fn run_nvst_webrtc_bundle(
                 "NVST frame-stage-timings {}",
                 feedback.frame_stage_timings().log_line()
             );
+            eprintln!("NVST rtcp-sr {}", feedback.sender_reports_log_line());
             last_control_stats_log = now;
         }
 
@@ -8673,6 +8743,19 @@ fn run_nvst_webrtc_bundle(
                                 data.binary,
                                 data.data.len(),
                             );
+                            for report in read_sender_reports(&data.data) {
+                                feedback.observe_sender_report(
+                                    receiver.config.expected_ssrc,
+                                    audio_clock_of(
+                                        audio_track.as_ref(),
+                                        &audio_streams,
+                                        report.ssrc,
+                                    ),
+                                    report.ssrc,
+                                    Some((report.info, Via::DataChannel)),
+                                    Instant::now(),
+                                );
+                            }
                         }
                     }
                     Event::ChannelClose(id) => {
@@ -8759,6 +8842,20 @@ fn run_nvst_webrtc_bundle(
                                 }
                             }
                         }
+                    }
+                    Event::SenderFeedback(report) => {
+                        let info = &report.sender_info;
+                        let audio_clock_hz = audio_track
+                            .as_ref()
+                            .filter(|audio| Mid::from(audio.mid.as_str()) == report.mid)
+                            .map(|audio| audio.clock_rate_hz);
+                        feedback.observe_sender_report(
+                            receiver.config.expected_ssrc,
+                            audio_clock_hz,
+                            *info.ssrc,
+                            Some((SenderInfo::from(info), Via::Srtcp)),
+                            report.received_at,
+                        );
                     }
                     _ => {}
                 },
@@ -8892,6 +8989,17 @@ fn run_nvst_webrtc_bundle(
                             break 'bundle;
                         }
                         continue;
+                    }
+                    // SRTCP keeps its first 8 bytes clear, which is enough to see that a sender
+                    // report arrived and from whom. The datagram goes on to str0m untouched.
+                    if let Some(ssrc) = peeked_sender_report_ssrc(&datagram[..length]) {
+                        feedback.observe_sender_report(
+                            receiver.config.expected_ssrc,
+                            audio_clock_of(audio_track.as_ref(), &audio_streams, ssrc),
+                            ssrc,
+                            None,
+                            Instant::now(),
+                        );
                     }
                     if looks_like_rtp(&datagram[..length])
                         && (!dtls_ready
@@ -9289,6 +9397,17 @@ fn run_nvst_video_receiver(
                     }
                 }
                 let received_at = Instant::now();
+                if expected_source
+                    && let Some(ssrc) = peeked_sender_report_ssrc(&datagram[..length])
+                {
+                    feedback.observe_sender_report(
+                        receiver.config.expected_ssrc,
+                        None,
+                        ssrc,
+                        None,
+                        received_at,
+                    );
+                }
                 let events = receiver.process_datagram(source, &datagram[..length], received_at);
                 if !authenticated_before {
                     feedback.record_socket_receive(
@@ -9495,7 +9614,7 @@ fn forward_receive_event(
             payload: Arc::from(frame.bytes),
             frame_index: Some(frame.frame_index),
             rtp_timestamp: u64::from(frame.timestamp),
-            clock_rate_hz: 90_000,
+            clock_rate_hz: VIDEO_RTP_CLOCK_HZ,
             channels: None,
             received_at_us: transport_origin
                 .elapsed()
@@ -9730,6 +9849,9 @@ mod tests {
     }
     mod nack_tests {
         include!("nvst_nack_tests.rs");
+    }
+    mod sender_report_tests {
+        include!("nvst_sender_report_tests.rs");
     }
     use super::*;
     use serde_json::json;
