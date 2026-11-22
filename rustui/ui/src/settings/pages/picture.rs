@@ -229,7 +229,7 @@ fn preset_send(path: &str, body: Value) -> Op {
 
 /// OLED pixel brightness and the auto brightness switch beside it. While auto brightness drives the picture, the slider shows the
 /// value on the panel and sends the owner's value to the helper, which takes it as the level wanted in this light.
-fn brightness_rows(c: &Ctx) -> [Row; 2] {
+fn brightness_rows(c: &Ctx) -> [Row; 3] {
     let ab = crate::autobright::state(crate::autobright::switched_on(c.theme_at(crate::autobright::SWITCH)), c.helper(crate::autobright::TOPIC));
     let mut oled = c.slider(Spec::new("picture.backlight").tab(0).icon("sun").label("OLED pixel brightness").range(0.0, 100.0, 1.0));
     if ab.active {
@@ -254,7 +254,24 @@ fn brightness_rows(c: &Ctx) -> [Row; 2] {
             Arg::Toggle(v) => vec![Op::Patch(crate::autobright::patch(v)), Op::RefreshIn(2_500)],
             _ => Vec::new(),
         });
-    [oled, switch]
+    let learned = ab.learned.unwrap_or(0);
+    let learning = Row::action("autobrightlearned", "Reset learning")
+        .tab(0)
+        .icon("rotate-ccw")
+        .label(&crate::autobright::learned_line(learned, ab.apps))
+        .help("Auto brightness learns from the levels you set by hand, for each app and for playing against browsing. Resetting goes back to its own curve.")
+        .visible(ab.learned.is_some())
+        .enabled(learned > 0)
+        .does(ask(
+            "rotate-ccw",
+            "Reset learning?",
+            "Auto brightness forgets the levels you set by hand, in every app, and follows its own curve again.",
+            "Reset",
+            "Cancel",
+            false,
+            vec![preset_send(crate::autobright::RESET, json!({})), Op::RefreshIn(1_000)],
+        ));
+    [oled, switch, learning]
 }
 
 /// The switch for separate LumaTV and video modes, the two modes, and putting back a mode a preset changed.
@@ -825,14 +842,21 @@ mod tests {
         let at = |r: &[Row], id: &str| r.iter().position(|x| x.id == id).unwrap();
         assert_eq!(at(&r, "autobrightness"), at(&r, "picture.backlight") + 1);
         assert!(!by_id(&r, "autobrightness").on);
+        assert!(!by_id(&r, "autobrightlearned").visible, "nothing to say while it is off");
         assert!(matches!(&(by_id(&r, "autobrightness").act.as_ref().unwrap())(Arg::Toggle(true))[..], [Op::Patch(p), Op::RefreshIn(_)] if p["system"]["autoBrightness"] == true));
 
         w.theme = crate::autobright::patch(true);
-        w.topics.set_helper(crate::autobright::TOPIC, json!({"on": true, "active": true, "level": 33}));
+        w.topics.set_helper(crate::autobright::TOPIC, json!({"on": true, "active": true, "level": 33, "learned": 4, "apps": 2}));
         let r = rows(&w.ctx());
         let oled = by_id(&r, "picture.backlight");
         assert_eq!((oled.num, oled.value_text.as_deref()), (33.0, Some("33")));
         assert!(matches!(&(oled.act.as_ref().unwrap())(Arg::Value(50.0))[..], [Op::Send { path, body: Some(b), .. }] if path == crate::autobright::LEVEL && b["value"] == 50.0));
+        let learned = by_id(&r, "autobrightlearned");
+        assert_eq!((learned.visible, learned.enabled, learned.label.as_str(), learned.button.as_str()), (true, true, "Learned from 4 adjustments across 2 apps", "Reset learning"));
+        let asked = (learned.act.as_ref().unwrap())(Arg::Press);
+        assert!(matches!(&asked[..], [Op::Ask(a)] if a.answers.iter().any(|x| matches!(&x.then[..], [Op::Send { path, .. }, Op::RefreshIn(_)] if path == crate::autobright::RESET))));
+        w.topics.set_helper(crate::autobright::TOPIC, json!({"on": true, "active": true, "level": 33, "learned": 0}));
+        assert!(!by_id(&rows(&w.ctx()), "autobrightlearned").enabled, "nothing to reset yet");
     }
 
     #[test]

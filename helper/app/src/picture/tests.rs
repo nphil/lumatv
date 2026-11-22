@@ -277,3 +277,125 @@ fn reads_videooutput_and_the_picture_subscription() {
     let picture = json!({"settings": {"pictureMode": "filmMaker"}, "dimension": {"input": "default", "dynamicRange": "sdr"}, "subscribed": true});
     assert_eq!(Context::parse(&picture), Some(ctx("filmMaker")));
 }
+
+const NETFLIX: &str = "netflix";
+const HOME: &str = "com.webos.app.home";
+
+#[test]
+fn a_video_app_in_front_uses_the_video_slot_until_it_leaves() {
+    let mut r = Rig::new("eco", Some("eco"), Some("filmMaker"));
+    r.tick(0);
+    r.e.set_front(r.at(10_000), Some(NETFLIX.into()));
+    r.tick(10_900);
+    assert!(r.writes().is_empty(), "under APP");
+    r.tick(11_000);
+    r.echo(11_100);
+    assert_eq!(r.writes(), ["filmMaker"], "no playback needed");
+    assert_eq!(r.e.active(), Some(Slot::Video));
+    r.e.set_front(r.at(20_000), Some(HOME.into()));
+    r.tick(22_900);
+    assert_eq!(r.writes().len(), 1, "under STOP");
+    r.tick(23_000);
+    assert_eq!(r.writes(), ["filmMaker", "eco"]);
+}
+
+#[test]
+fn a_quick_pass_through_another_app_writes_nothing() {
+    let mut r = Rig::new("eco", Some("eco"), Some("filmMaker"));
+    r.tick(0);
+    r.e.set_front(r.at(10_000), Some(NETFLIX.into()));
+    r.e.set_front(r.at(10_500), Some(HOME.into()));
+    r.e.set_front(r.at(10_800), Some(NETFLIX.into()));
+    r.tick(11_700);
+    assert!(r.writes().is_empty(), "the debounce restarted");
+    r.tick(11_800);
+    r.echo(11_900);
+    assert_eq!(r.writes(), ["filmMaker"]);
+    // Home for 1 s and back: neither switch back nor a second write
+    r.e.set_front(r.at(20_000), Some(HOME.into()));
+    r.e.set_front(r.at(21_000), Some(NETFLIX.into()));
+    for ms in [20_500, 21_500, 22_500, 24_000, 30_000] {
+        r.tick(ms);
+    }
+    assert_eq!(r.writes(), ["filmMaker"]);
+}
+
+#[test]
+fn other_apps_still_switch_on_full_screen_video() {
+    let mut r = Rig::new("eco", Some("eco"), Some("filmMaker"));
+    r.tick(0);
+    r.e.set_front(r.at(1_000), Some("com.example.player".into()));
+    r.e.video(r.at(10_000), film("com.example.player"));
+    r.tick(11_900);
+    assert!(r.writes().is_empty());
+    r.tick(12_000);
+    assert_eq!(r.writes(), ["filmMaker"]);
+}
+
+#[test]
+fn a_game_never_switches() {
+    let mut r = Rig::new("eco", Some("eco"), Some("filmMaker"));
+    r.tick(0);
+    let game = crate::app_priority::game::GAMES[0];
+    r.e.set_game(true);
+    r.e.set_front(r.at(1_000), Some(game.into()));
+    r.e.video(r.at(2_000), film(game));
+    r.tick(10_000);
+    assert!(r.writes().is_empty());
+    // not even when the owner lists it
+    r.e.set_video_apps(r.at(11_000), vec![game.into()], vec![]);
+    r.tick(20_000);
+    assert!(r.writes().is_empty());
+    assert_eq!(r.e.status()["front"]["video"], false);
+    r.e.set_front(r.at(21_000), Some(NETFLIX.into()));
+    r.tick(30_000);
+    assert!(r.writes().is_empty(), "game mode holds the picture");
+}
+
+#[test]
+fn the_owner_adds_and_removes_video_apps() {
+    let mut r = Rig::new("eco", Some("eco"), Some("filmMaker"));
+    r.tick(0);
+    r.e.set_video_apps(r.at(500), vec!["com.example.player".into()], vec![NETFLIX.into()]);
+    r.e.set_front(r.at(1_000), Some(NETFLIX.into()));
+    r.tick(10_000);
+    assert!(r.writes().is_empty(), "removed");
+    r.e.set_front(r.at(11_000), Some("com.example.player".into()));
+    r.tick(12_000);
+    assert_eq!(r.writes(), ["filmMaker"], "added");
+    // LumaTV's own apps cannot be listed
+    r.e.set_video_apps(r.at(13_000), vec![HOME.into()], vec![]);
+    assert_eq!(r.e.status()["front"]["video"], false);
+}
+
+#[test]
+fn theme_json_lists_video_apps_per_profile() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("theme.json");
+    std::fs::write(&file, r#"{"apps": {"video": {"add": ["a.b", 7], "remove": ["netflix"]}}, "system": {"separatePicture": false}}"#).unwrap();
+    let t = Theme::read(&file);
+    assert_eq!((t.video_add, t.video_remove, t.separate), (vec!["a.b".to_owned()], vec!["netflix".to_owned()], false));
+    let t = Theme::read(&dir.path().join("none.json"));
+    assert!(t.separate && t.video_add.is_empty() && t.video_remove.is_empty());
+}
+
+#[test]
+fn a_film_scaled_to_fit_is_full_screen_at_any_aspect_ratio() {
+    let full = |x: u64, y: u64, w: u64, h: u64| {
+        let reply = json!({"video": [{"sink": "MAIN", "connected": true, "muted": false, "appId": "com.example.player", "fullScreen": false,
+            "displayOutput": {"x": x, "y": y, "width": w, "height": h}, "videoInfo": {"hdrType": "none"}}]});
+        Video::parse(&reply).unwrap().unwrap().full
+    };
+    assert!(full(480, 0, 2880, 2160), "4:3 pillarboxed");
+    assert!(full(0, 276, 3840, 1607), "2.39:1 letterboxed");
+    assert!(full(0, 120, 3840, 1920), "2:1 as the set reported it");
+    assert!(full(1312, 0, 1215, 2160), "portrait");
+    assert!(!full(0, 0, 3840, 1000), "a billboard across the top");
+    assert!(!full(1420, 580, 1000, 1000), "a small preview in the middle");
+    assert!(!full(0, 880, 3840, 400), "a thin strip in the middle");
+    assert!(!full(2560, 1440, 1280, 720), "a corner");
+    assert!(!full(24, 546, 1888, 1062), "half of a side-by-side");
+    assert!(!full(0, 0, 0, 0), "nothing reported");
+    let flagged = json!({"video": [{"sink": "MAIN", "connected": true, "muted": false, "appId": "x", "fullScreen": true, "displayOutput": {}}]});
+    assert!(Video::parse(&flagged).unwrap().unwrap().full, "LG's own word counts");
+}

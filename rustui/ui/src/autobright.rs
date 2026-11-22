@@ -26,6 +26,8 @@ pub struct State {
     pub level: Option<f64>,
     /// What a row says under its name.
     pub detail: &'static str,
+    /// The apps among them.
+    pub apps: u64,
 }
 
 /// The owner's switch as the theme holds it (at [`SWITCH`]): off unless it says `true`.

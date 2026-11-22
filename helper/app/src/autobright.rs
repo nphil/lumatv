@@ -8,13 +8,14 @@
 //!   more), and the accepted room light moves only when both cross a band around it (up [`BRIGHTEN_BAND`], down [`DARKEN_BAND`], at
 //!   least [`MIN_BAND_LUX`]) and every sample since has stayed past it for the debounce ([`BRIGHTEN_DEBOUNCE`], [`DARKEN_DEBOUNCE`]). The
 //!   screen's own light reaches the sensor, so the darkening side is the slow one.
-//! - **The decision** is a [`Decide`]: the accepted lux, the recent samples, the time of day and (when known) the picture's level in,
-//!   a level out. [`Curve`] is the one in use: from the owner's floor in the dark ([`DARK_LUX`] and below) to his level at
-//!   [`BRIGHT_LUX`], on a log scale, shaped by a gamma as Android's adjustment is.
+//! - **The decision** is a level as a share of the owner's ceiling for the accepted lux and the picture mode: [`learn::Learner`], the
+//!   owner's own curve fitted through his corrections and starting from a default one ([`learn::prior`]: from half the ceiling in the
+//!   dark ([`DARK_LUX`] and below) to the ceiling at [`BRIGHT_LUX`], on a log scale).
 //! - **The owner's level is the ceiling.** Nothing here writes a value above the one the picture mode had when auto brightness took it
-//!   over, or a value the owner chose since. Moving the slider while auto brightness is on is read as Android reads it: the value
-//!   chosen is the level wanted in this light, and the curve is fitted through it (the gamma, then the floor); a value above the level
-//!   becomes the new level.
+//!   over, or a value the owner chose since. Moving the slider while auto brightness is on is read as Android and iOS read it: the
+//!   value chosen is the level wanted in this light. A run of changes (20, 25, 30, 25, 20 in 19 s) is one correction, taken once the
+//!   value has been left alone for [`SETTLE`]; nothing is written over the value meanwhile, and the curve follows it afterwards. A
+//!   value above the level becomes the new level at once; one chosen in a lit room ([`BRIGHT_LUX`]) sets it, up or down.
 //! - **The ramp.** One unit a write toward the target, never more: a unit is the smallest step the panel takes, 2% of a level of 50,
 //!   so what keeps a step unseen is the time between steps. A drift goes at most [`DARKEN_RATE`] (down) or [`BRIGHTEN_RATE`] (up) of
 //!   the level a second, never closer than [`MIN_GAP`], and starts only for a target [`START_DEADBAND`] units away. A sudden shift (a
@@ -30,11 +31,12 @@
 //! - **Journal.** `autobright.json` in the data directory holds, per mode, the owner's level, the value last written and the Energy
 //!   saving value replaced, before any write. Switching it off, the helper's stop, the sensor failing [`FAILS`] times in a row and the
 //!   next start after a crash with the switch off all put every mode back: the owner's level where the value is still the one written
-//!   (a value someone changed since stays), and Energy saving as it was. The curve's fit stays in the file.
+//!   (a value someone changed since stays), and Energy saving as it was. The learned points are a file of their own
+//!   ([`learn::FILE`]) that a put-back leaves alone.
 //!
 //! The switch is `system.autoBrightness` of theme.json (off unless `true`). Topic `autobright`. LumaTV's sliders send the owner's
-//! brightness through `POST /v1/autobright/level` while it is on, so the value is written and learned at once and the topic's
-//! `level`, which they show, never lags the slider.
+//! brightness through `POST /v1/autobright/level` while it is on, so the value is written at once and the topic's `level`, which they
+//! show, never lags the slider. `POST /v1/autobright/reset` forgets what was learned.
 
 use crate::ctx::Ctx;
 use crate::paneldim::{self, Settings};
@@ -49,7 +51,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 pub const TOPIC: &str = "autobright";
-/// The journal and the curve's fit, in the data directory.
+/// The journal, in the data directory.
 pub const STATE: &str = "autobright.json";
 const SENSOR_URI: &str = "luna://com.webos.service.pqcontroller/getInfo";
 const READ_URI: &str = "luna://com.webos.service.settings/getSystemSettings";
@@ -105,103 +107,34 @@ pub const LATCH: Duration = Duration::from_secs(10 * 60);
 pub const DARK_LUX: f64 = 1.0;
 /// At this lux and above the room is lit: the owner's level. A lamp-lit room at night reads 6 to 8.
 pub const BRIGHT_LUX: f64 = 30.0;
-/// The gamma's range (Android's `config_autoBrightnessAdjustmentMaxGamma`).
-pub const MAX_GAMMA: f64 = 3.0;
+/// How long a hand-set value is left alone before it counts as a correction (a slider's run of steps is one).
+pub const SETTLE: Duration = Duration::from_secs(5);
+/// A hand change this soon after the scene in front changed is probably a reaction to the scene before.
+pub const SWITCH_GRACE: Duration = Duration::from_secs(3);
+/// The look interval while that is in doubt.
+const WATCH: Duration = Duration::from_secs(1);
 
 /// What a decision is made from.
 pub struct Inputs<'a> {
     /// The accepted room light, in lux.
     pub lux: f64,
-    /// The samples of the long horizon: seconds ago and lux, oldest first.
-    pub history: &'a [(f64, f64)],
-    /// Minutes since local midnight, when the clock can say.
-    pub minute: Option<u32>,
-    /// The picture's average level, 0 to 1, when something measures it.
-    pub content: Option<f64>,
+    /// The picture mode in force, as the journal names it.
+    pub mode: &'a str,
+    /// Unix seconds: what the learned points' age is counted from.
+    pub epoch: u64,
+    pub scene: &'a Scene,
 }
 
-/// A decision: a level for the inputs, and what to follow after the owner chose a level himself.
-pub trait Decide: Send {
-    /// The level wanted, between 0 and `ceiling`.
-    fn target(&self, inputs: &Inputs, ceiling: f64) -> f64;
-    /// The owner chose `chosen` in these inputs; afterwards [`Decide::target`] gives it for them. Returns the new ceiling, which is
-    /// above `ceiling` only when `chosen` is.
-    fn learn(&mut self, inputs: &Inputs, ceiling: f64, chosen: f64) -> f64;
-    /// What is kept in the journal.
-    fn save(&self) -> Value;
+/// How far the room is from dark (0) to lit (1), on a log scale.
+pub fn reach(lux: f64) -> f64 {
+    let x = (lux - DARK_LUX).max(0.0);
+    ((1.0 + x).ln() / (1.0 + BRIGHT_LUX - DARK_LUX).ln()).min(1.0)
 }
 
-/// The level from the floor to the ceiling over the log of the room's light, shaped by a gamma.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Curve {
-    /// The level in the dark, as a fraction of the ceiling.
-    pub floor: f64,
-    pub gamma: f64,
-}
-
-impl Default for Curve {
-    fn default() -> Self {
-        Curve { floor: 0.5, gamma: 1.0 }
-    }
-}
-
-impl Curve {
-    pub fn load(v: &Value) -> Curve {
-        serde_json::from_value::<Curve>(v.clone())
-            .ok()
-            .filter(|c| (0.0..=1.0).contains(&c.floor) && (1.0 / MAX_GAMMA..=MAX_GAMMA).contains(&c.gamma))
-            .unwrap_or_default()
-    }
-
-    /// How far the room is from dark (0) to lit (1).
-    pub fn reach(lux: f64) -> f64 {
-        let x = (lux - DARK_LUX).max(0.0);
-        ((1.0 + x).ln() / (1.0 + BRIGHT_LUX - DARK_LUX).ln()).min(1.0)
-    }
-
-    fn level(&self, reach: f64, ceiling: f64) -> f64 {
-        let floor = self.floor * ceiling;
-        floor + (ceiling - floor) * reach.powf(self.gamma)
-    }
-}
-
-impl Decide for Curve {
-    fn target(&self, inputs: &Inputs, ceiling: f64) -> f64 {
-        self.level(Curve::reach(inputs.lux), ceiling).clamp(0.0, ceiling)
-    }
-
-    fn learn(&mut self, inputs: &Inputs, ceiling: f64, chosen: f64) -> f64 {
-        let g = Curve::reach(inputs.lux);
-        let x = chosen.clamp(0.0, 100.0);
-        if x >= ceiling {
-            // the most he wants is what he wants here: brighter rooms cannot go above it, darker ones keep their share of it
-            if g < 1.0 {
-                self.floor = 1.0;
-            }
-            return x;
-        }
-        if ceiling <= 0.0 {
-            return x;
-        }
-        if g <= 0.0 {
-            self.floor = x / ceiling;
-            return ceiling;
-        }
-        if g >= 1.0 {
-            return x;
-        }
-        let floor = self.floor * ceiling;
-        let p = if ceiling - floor > f64::EPSILON { (x - floor) / (ceiling - floor) } else { 0.0 };
-        self.gamma = if p > 0.0 && p < 1.0 { (p.ln() / g.ln()).clamp(1.0 / MAX_GAMMA, MAX_GAMMA) } else { MAX_GAMMA };
-        // the gamma alone may not reach `x` (its range is bounded): the floor makes up the rest, so the level here is exactly `x`
-        let q = g.powf(self.gamma);
-        self.floor = ((x - ceiling * q) / (1.0 - q)).clamp(0.0, x) / ceiling;
-        ceiling
-    }
-
-    fn save(&self) -> Value {
-        json!(self)
-    }
+/// Writes `body` to `path` through a temporary file beside it, so a crash leaves the old file or the new, never half of one.
+fn write_atomic(path: &Path, body: &[u8]) -> std::io::Result<()> {
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, body).and_then(|()| std::fs::rename(&tmp, path))
 }
 
 /// What [`Ambient::update`] did to the accepted light.
@@ -242,11 +175,6 @@ impl Ambient {
 
     pub fn last(&self) -> Option<f64> {
         self.samples.back().map(|s| s.1)
-    }
-
-    /// The samples of the long horizon as seconds ago and lux.
-    pub fn history(&self, now: Instant) -> Vec<(f64, f64)> {
-        self.samples.iter().filter(|(t, _)| *t + LONG >= now).map(|(t, l)| (now.saturating_duration_since(*t).as_secs_f64(), *l)).collect()
     }
 
     /// Android's `calculateAmbientLux`: each sample weighs the integral of `x + LONG` over the time it held (x in seconds, negative
@@ -341,8 +269,6 @@ pub struct Entry {
 pub struct Journal {
     #[serde(default)]
     pub modes: BTreeMap<String, Entry>,
-    #[serde(default)]
-    pub curve: Value,
 }
 
 pub fn load(path: &Path) -> Journal {
@@ -376,6 +302,13 @@ impl Here {
     }
 }
 
+/// What was in front: the app, and whether it was playing full-screen video in it (browsing otherwise).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Scene {
+    pub app: String,
+    pub playing: bool,
+}
+
 /// What the rest of the helper says about now.
 #[derive(Clone, Debug, Default)]
 pub struct Env {
@@ -387,12 +320,16 @@ pub struct Env {
     /// The compositor's panel dim holds the value.
     pub panel_dim: bool,
     pub minute: Option<u32>,
+    /// Unix seconds, from the helper's clock.
+    pub epoch: u64,
     /// The picture in force as the picture module last heard it (mode, input, range): a change is looked at at once, so a mode
     /// coming into force goes to its target with the mode change.
     pub context: String,
     /// The picture's dynamic range from the same place (`sdr`, `hdr10`, `dolbyVision`...); empty while it is not known. Only SDR is
     /// written.
     pub range: String,
+    /// The app in front and whether it plays full-screen video: the owner may want each at its own level.
+    pub scene: Scene,
 }
 
 /// LG's Game mode: its low-latency picture is left alone.
@@ -402,7 +339,9 @@ pub struct Engine {
     tv: Box<dyn Settings + Send>,
     path: Option<PathBuf>,
     journal: Journal,
-    decide: Box<dyn Decide>,
+    learner: Learner,
+    /// A run of hand changes not yet settled.
+    pending: Option<Pending>,
     ambient: Ambient,
     here: Option<Here>,
     /// The mode driven at the last turn.
@@ -421,6 +360,10 @@ pub struct Engine {
     error: Option<String>,
     on: bool,
     context: String,
+    /// What was in front at the last pass, and since when it last changed.
+    scene: Option<Scene>,
+    scene_since: Option<Instant>,
+    held: Option<Held>,
     /// Set once a pass has run since this last stood idle: the first pass after the switch, the screen or the sensor comes back is
     /// not held back by the sample and look timers.
     running: bool,
@@ -440,14 +383,40 @@ struct Ramp {
     fast: bool,
 }
 
+/// A run of hand changes in one mode, counted as one correction once it has been left alone for [`SETTLE`].
+#[derive(Clone, Debug, PartialEq)]
+struct Pending {
+    key: String,
+    /// The value the run has reached.
+    value: u32,
+    /// The mode's level when the run began: the ceiling the run's early values were chosen under.
+    own: u32,
+    /// The latest change.
+    at: Instant,
+    /// What was in front at the latest change.
+    scene: Scene,
+    /// Begun right after a scene change, or already under way at one, and not added to since: not counted.
+    suspect: bool,
+}
+
+/// The value the owner chose at the light and in the scene it was learned in: the target while they hold, whatever the curve says
+/// (it may meet a new app's first correction only partway).
+struct Held {
+    key: String,
+    scene: Scene,
+    lux: f64,
+    value: u32,
+}
+
 impl Engine {
     pub fn new(tv: Box<dyn Settings + Send>, journal: Journal, path: Option<PathBuf>, now: Instant) -> Engine {
-        let decide = Box::new(Curve::load(&journal.curve));
+        let learner = path.as_deref().map_or_else(Learner::default, |p| Learner::load(&p.with_file_name(learn::FILE)));
         Engine {
             tv,
             path,
             journal,
-            decide,
+            learner,
+            pending: None,
             ambient: Ambient::default(),
             here: None,
             key: None,
@@ -461,6 +430,9 @@ impl Engine {
             hold: None,
             error: None,
             on: false,
+            scene: None,
+            scene_since: None,
+            held: None,
             context: String::new(),
             running: false,
             fresh: false,
@@ -522,6 +494,7 @@ impl Engine {
             self.hold = Some("sensor");
             return;
         };
+        self.see(now, &env.scene);
         if env.context != self.context {
             self.context.clone_from(&env.context);
             self.next_turn = now;
@@ -530,12 +503,16 @@ impl Engine {
             self.hold = Some(if env.game { "game" } else { "panel dim" });
             // the mode is snapped to its target when this takes it back
             self.key = None;
+            self.pending = None;
+            self.held = None;
             return;
         }
         if now < self.next_turn {
             return;
         }
-        self.next_turn = now + LOOK;
+        // a scene just changed: look every second, so a hand change is seen about when it was made
+        let watching = self.scene_since.is_some_and(|t| now.saturating_duration_since(t) < SWITCH_GRACE);
+        self.next_turn = now + if watching { WATCH } else { LOOK };
         if let Err(e) = self.turn(now, lux, env) {
             self.failed(now, e, false);
         }
@@ -547,6 +524,8 @@ impl Engine {
         self.key = None;
         self.target = None;
         self.ramp = None;
+        self.pending = None;
+        self.held = None;
         self.running = false;
         self.next_sample = now + SAMPLE;
     }
@@ -568,10 +547,6 @@ impl Engine {
         r.get("eyeQLux").and_then(Value::as_f64).filter(|l| l.is_finite() && *l >= 0.0).ok_or_else(|| format!("no reading: {r}"))
     }
 
-    fn inputs<'a>(&self, lux: f64, history: &'a [(f64, f64)], env: &Env) -> Inputs<'a> {
-        Inputs { lux, history, minute: env.minute, content: None }
-    }
-
     fn turn(&mut self, now: Instant, lux: f64, env: &Env) -> Result<(), String> {
         let reply = self.tv.call(READ_URI, &json!({"category": "picture", "keys": ["backlight", "energySaving"]}))?;
         let here = Here::parse(&reply).ok_or_else(|| format!("no picture setting: {reply}"))?;
@@ -589,15 +564,16 @@ impl Engine {
         if !env.range.eq_ignore_ascii_case("sdr") || LG_GAME.contains(&here.mode.as_str()) {
             self.hold = Some(if LG_GAME.contains(&here.mode.as_str()) { "game" } else { "hdr" });
             self.key = None;
-            self.target = None;
             self.ramp = None;
+            self.pending = None;
+            self.held = None;
             self.fresh = false;
             return Ok(());
         }
         self.hold = None;
         let key = here.key();
-        let history = self.ambient.history(now);
-        let inputs = self.inputs(lux, &history, env);
+        let inputs = Inputs { lux, mode: &key, scene: &env.scene, minute: env.minute, epoch: env.epoch };
+        self.settle(now, &key, &inputs);
         let dimension = json!({"pictureMode": here.mode, "input": here.input});
         let fresh = std::mem::take(&mut self.fresh);
         let mut entered = self.key.as_deref() != Some(key.as_str());
@@ -620,7 +596,7 @@ impl Engine {
                 energy: here.energy.clone().filter(|e| e == "auto"),
             };
             if !fresh {
-                let target = self.decide.target(&inputs, f64::from(here.value)).round() as u32;
+                let target = self.learner.target(&inputs, f64::from(here.value)).round() as u32;
                 entry.written = target.min(here.value);
             }
             crate::log_info!("auto brightness: {key} taken over at {} (level {}), lux {lux:.1}", entry.written, entry.own);
@@ -661,11 +637,19 @@ impl Engine {
             }
         } else if !ours {
             // set by hand elsewhere (LG's own menu): the value chosen is the level wanted in this light
-            self.ramp = None;
-            self.learned(&inputs, &key, entry, here.value);
+            self.hand(now, &key, entry, here.value);
             return Ok(());
         }
-        let target = (self.decide.target(&inputs, f64::from(entry.own)).round() as u32).min(entry.own);
+        if let Some(p) = &self.pending {
+            // a run of changes not yet left alone: the value stays as it is until it counts
+            self.next_turn = p.at + SETTLE;
+            return Ok(());
+        }
+        if self.held.as_ref().is_some_and(|h| h.key != key || h.scene != env.scene || h.lux != lux) {
+            self.held = None;
+        }
+        let wanted = self.held.as_ref().map_or_else(|| self.learner.target(&inputs, f64::from(entry.own)), |h| f64::from(h.value));
+        let target = (wanted.round() as u32).min(entry.own);
         self.target = Some(target);
         self.key = Some(key.clone());
         if std::mem::take(&mut self.sudden) {
@@ -714,18 +698,82 @@ impl Engine {
         Ok(())
     }
 
-    /// The owner chose `value` in this light: the decision is fitted through it and the mode's level rises only to it.
-    fn learned(&mut self, inputs: &Inputs, key: &str, mut entry: Entry, value: u32) {
-        let ceiling = self.decide.learn(inputs, f64::from(entry.own), f64::from(value));
-        entry.own = (ceiling.round() as u32).max(value).min(100);
+    /// The scene in front changed (or is first seen): the target follows at once, and a run of hand changes already under way
+    /// is as likely meant for the scene just left.
+    fn see(&mut self, now: Instant, scene: &Scene) {
+        if self.scene.as_ref() == Some(scene) {
+            return;
+        }
+        if self.scene.is_some() {
+            self.scene_since = Some(now);
+            if let Some(p) = &mut self.pending {
+                p.suspect = true;
+            }
+        }
+        self.scene = Some(scene.clone());
+        self.next_turn = now;
+    }
+
+    /// The owner chose `value`: it stays as it is, the mode's level rises to it when it is above, and it counts as a correction once
+    /// left alone for [`SETTLE`] (what a run of changes has reached by then is the one that counts). A run that began within
+    /// [`SWITCH_GRACE`] of a scene change, and has not been added to since, is probably about the scene before and does not count.
+    fn hand(&mut self, now: Instant, key: &str, mut entry: Entry, value: u32) {
+        let prev = self.pending.as_ref().filter(|p| p.key == key);
+        let own = prev.map_or(entry.own, |p| p.own);
+        let suspect = self.scene_since.is_some_and(|t| now.saturating_duration_since(t) < SWITCH_GRACE) && prev.is_none_or(|p| p.suspect);
+        entry.own = entry.own.max(value).min(100);
         entry.written = value;
-        crate::log_info!("auto brightness: {key} set to {value} by hand at lux {:.1}; level {}", inputs.lux, entry.own);
-        self.journal.curve = self.decide.save();
+        crate::log_info!("auto brightness: {key} set to {value} by hand; level {}", entry.own);
         self.journal.modes.insert(key.to_owned(), entry);
         self.save();
+        self.pending = Some(Pending { key: key.to_owned(), value, own, at: now, scene: self.scene.clone().unwrap_or_default(), suspect });
+        self.held = None;
         self.recent = VecDeque::from([value]);
         self.target = Some(value);
         self.ramp = None;
+        self.next_turn = now + SETTLE;
+    }
+
+    /// Counts a run of hand changes once it has been left alone for [`SETTLE`], or at once when the mode in force is no longer its.
+    /// The correction belongs to the scene in force when it settles, or, when the mode changed under it, to the one it was made in.
+    fn settle(&mut self, now: Instant, key: &str, inputs: &Inputs) {
+        let Some(p) = self.pending.take_if(|p| p.key != key || now >= p.at + SETTLE) else { return };
+        let Some(mut entry) = self.journal.modes.get(&p.key).cloned() else { return };
+        // in a lit room the value chosen is the level, up or down; elsewhere it only raises it
+        let lit = reach(inputs.lux) >= 1.0;
+        let own = if lit || p.value > p.own { p.value } else { p.own }.min(100);
+        let scene = if p.key == key { inputs.scene.clone() } else { p.scene.clone() };
+        if own > 0 {
+            if own != p.own {
+                self.learner.rescale(&p.key, f64::from(p.own), f64::from(own));
+            }
+            if !lit && !p.suspect {
+                self.learner.add(&p.key, &scene, inputs.lux, f64::from(p.value) / f64::from(own), inputs.minute, inputs.epoch);
+                // the curve may meet it only partway (a new app's first point): it stays as chosen while the light and the scene do
+                if p.key == key {
+                    self.held = Some(Held { key: p.key.clone(), scene, lux: inputs.lux, value: p.value.min(own) });
+                }
+            }
+        }
+        if p.suspect {
+            crate::log_info!("auto brightness: {} set to {} by hand within {} s of a scene change; not learned", p.key, p.value, SWITCH_GRACE.as_secs());
+        } else {
+            crate::log_info!("auto brightness: {} set to {} by hand at lux {:.1}, level {own}; learned from {} adjustments", p.key, p.value, inputs.lux, self.learner.adjustments());
+        }
+        if entry.own != own {
+            entry.own = own;
+            self.journal.modes.insert(p.key, entry);
+            self.save();
+        }
+    }
+
+    /// Forgets what was learned: the default curve again.
+    pub fn reset_learning(&mut self, now: Instant) -> Value {
+        self.learner.reset();
+        self.pending = None;
+        self.held = None;
+        self.next_turn = now;
+        self.status()
     }
 
     /// The owner's slider (`POST /v1/autobright/level`): written at once, and while this drives the mode in force, learned as
@@ -735,11 +783,13 @@ impl Engine {
         let reply = self.tv.call(READ_URI, &json!({"category": "picture", "keys": ["backlight", "energySaving"]}))?;
         let mut here = Here::parse(&reply).ok_or_else(|| format!("no picture setting: {reply}"))?;
         let key = here.key();
+        self.see(now, &env.scene);
         let driving = self.on && self.hold.is_none() && self.key.as_deref() == Some(key.as_str());
-        if let (true, Some(lux), Some(entry)) = (driving, self.ambient.lux(), self.journal.modes.get(&key).cloned()) {
-            let history = self.ambient.history(now);
-            self.learned(&self.inputs(lux, &history, env), &key, entry, value);
-            self.next_turn = now + LOOK;
+        if let (true, Some(lux)) = (driving, self.ambient.lux()) {
+            self.settle(now, &key, &Inputs { lux, mode: &key, scene: &env.scene, minute: env.minute, epoch: env.epoch });
+            if let Some(entry) = self.journal.modes.get(&key).cloned() {
+                self.hand(now, &key, entry, value);
+            }
         }
         self.write(&json!({"pictureMode": here.mode, "input": here.input}), json!({"backlight": value.to_string()}))?;
         here.value = value;
@@ -788,8 +838,7 @@ impl Engine {
     fn save(&self) {
         let Some(path) = &self.path else { return };
         let body = serde_json::to_vec_pretty(&self.journal).unwrap_or_default();
-        let tmp = path.with_extension("json.tmp");
-        if let Err(e) = std::fs::write(&tmp, body).and_then(|()| std::fs::rename(&tmp, path)) {
+        if let Err(e) = write_atomic(path, &body) {
             crate::log_warn!("auto brightness: saving {}: {e}", path.display());
         }
     }
@@ -806,7 +855,8 @@ impl Engine {
             "ceiling": entry.map(|e| e.own),
             "mode": self.here.as_ref().map(|h| h.mode.clone()),
             "energySaving": entry.and_then(|e| e.energy.clone()),
-            "curve": self.decide.save(),
+            "learned": self.learner.adjustments(),
+            "apps": self.learner.apps(),
             "error": self.error,
         })
     }
@@ -844,9 +894,10 @@ fn minute_now() -> Option<u32> {
 enum Msg {
     Stop,
     Level(u32, mpsc::Sender<Result<Value, String>>),
+    Reset(mpsc::Sender<Value>),
 }
 
-/// The door to the thread for `POST /v1/autobright/level`.
+/// The door to the thread for `POST /v1/autobright/level` and `/reset`.
 #[derive(Default)]
 pub struct Remote(Mutex<Option<mpsc::Sender<Msg>>>);
 
@@ -856,6 +907,13 @@ impl Remote {
         let (tx, rx) = mpsc::channel();
         self.0.lock().as_ref()?.send(Msg::Level(value, tx)).ok()?;
         // a read and a write, each up to luna-send's deadline
+        rx.recv_timeout(Duration::from_secs(10)).ok()
+    }
+
+    /// Forgets what was learned; the new status. `None` while the thread is not running.
+    pub fn reset(&self) -> Option<Value> {
+        let (tx, rx) = mpsc::channel();
+        self.0.lock().as_ref()?.send(Msg::Reset(tx)).ok()?;
         rx.recv_timeout(Duration::from_secs(10)).ok()
     }
 }
@@ -883,6 +941,17 @@ impl Switch {
     }
 }
 
+/// What is in front: the app playing full-screen video (the picture module's reading of videooutputd) or else the app first on
+/// screen. Without the app priority topic every app is one.
+fn scene(hub: &crate::hub::Hub, picture: Option<&Value>) -> Scene {
+    let playing = picture.and_then(|p| p.get("playing")).filter(|v| v.get("full").and_then(Value::as_bool) == Some(true));
+    let app = playing
+        .and_then(|v| v.get("app").and_then(Value::as_str).map(str::to_owned))
+        .or_else(|| hub.get(crate::app_priority::TOPIC).and_then(|a| a.pointer("/front/0").and_then(Value::as_str).map(str::to_owned)))
+        .unwrap_or_default();
+    Scene { app, playing: playing.is_some() }
+}
+
 fn run(ctx: &Ctx, remote: &Remote) {
     let (tx, rx) = mpsc::channel();
     {
@@ -904,8 +973,10 @@ fn run(ctx: &Ctx, remote: &Remote) {
             game: crate::picture::game_in_front(&ctx.hub),
             panel_dim: dim.exists(),
             minute: minute_now(),
+            epoch: crate::timeutil::now_ms() / 1000,
             context: picture.as_ref().and_then(|p| p.get("context").map(Value::to_string)).unwrap_or_default(),
             range: picture.as_ref().and_then(|p| p.pointer("/context/range").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default(),
+            scene: scene(&ctx.hub, picture.as_ref()),
         }
     };
     loop {

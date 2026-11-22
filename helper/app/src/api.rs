@@ -17,7 +17,7 @@
 //! | `POST /v1/refresh` | fetch weather and news now |
 //! | `GET /v1/gamemode`, `POST /v1/gamemode` | game mode: `{"on": bool, "appId"}`, a 30 s lease while that app is in front (`app_priority/game.rs`) |
 //! | `GET /v1/picture`, `POST /v1/picture/{preset,slot,restore}` | picture presets and the LumaTV and video picture modes (`picture.rs`) |
-//! | `GET /v1/autobright`, `POST /v1/autobright/level` | auto brightness and the owner's brightness while it is on (`autobright.rs`) |
+//! | `GET /v1/autobright`, `POST /v1/autobright/level`, `POST /v1/autobright/reset` | auto brightness, the owner's brightness while it is on, and forgetting what it learned from his corrections (`autobright.rs`) |
 //! | `GET /v1/settings`, `GET /v1/settings/{owner}`, `POST /v1/settings/{owner}` | the settings layer |
 //! | `GET /v1/voice`, `POST /v1/voice/{listen,stop,cancel,refresh}` | voice search (`voice.rs`) |
 //! | `GET /v1/profiles`, `POST /v1/profiles/switch`, `POST|DELETE /v1/profiles/{id}`, `/v1/profiles/{id}/pin`, `/{id}/avatar`, `/options`, `/gallery` | local profiles (`profiles.rs`) |
@@ -149,6 +149,7 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     ("POST", "/v1/picture/restore", "put back the values presets replaced in a mode: {\"mode\"}"),
     ("GET", "/v1/autobright", "auto brightness: the room's light, the level, its target and the owner's level"),
     ("POST", "/v1/autobright/level", "OLED pixel brightness set by hand: {\"value\": 0 to 100}, learned as the level wanted in this light while auto brightness is on"),
+    ("POST", "/v1/autobright/reset", "forget what auto brightness learned from the owner's corrections: the default curve again"),
 ];
 
 /// The API's handler.
@@ -685,6 +686,13 @@ impl Api {
         }
     }
 
+    fn autobright_reset(&self) -> Response {
+        match self.autobright.reset() {
+            Some(status) => self.ok(json!({"autobright": status})),
+            None => error_response(503, "autobright_unavailable", "the auto brightness thread is not running"),
+        }
+    }
+
     fn weather_entities(&self) -> Response {
         if !self.plugins.shared().switched_on(crate::ha_plugin::ID) {
             return error_response(409, "off", crate::ha_plugin::off_words());
@@ -818,6 +826,7 @@ impl Handler for Api {
                 None => error_response(503, "autobright_unavailable", "the auto brightness thread has not started"),
             },
             ["v1", "autobright", "level"] if post => self.autobright_level(request),
+            ["v1", "autobright", "reset"] if post => self.autobright_reset(),
             ["v1", "wx", rest @ ..] => self.wx.handle(request, rest),
             ["v1", "onhome", rest @ ..] => {
                 // which of the shared things Home shows is the owner's, as the rest of Home's layout is

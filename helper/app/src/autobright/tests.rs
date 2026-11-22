@@ -71,7 +71,7 @@ impl Settings for Tv {
 
 /// The switch on, the picture SDR: the picture module's answer is the range, the read of the setting names none.
 fn on() -> Env {
-    Env { on: true, screen: true, game: false, panel_dim: false, minute: None, context: String::new(), range: "sdr".into() }
+    Env { on: true, screen: true, game: false, panel_dim: false, minute: None, epoch: T0, context: String::new(), range: "sdr".into(), scene: Scene::default() }
 }
 
 fn engine(tv: &Tv, journal: Journal, path: Option<PathBuf>, t0: Instant) -> Engine {
@@ -88,8 +88,31 @@ fn run(e: &mut Engine, env: &Env, from: Instant, secs: u64) -> Instant {
     now
 }
 
-fn inputs(lux: f64) -> Inputs<'static> {
-    Inputs { lux, history: &[], minute: None, content: None }
+const DAY: u64 = 86_400;
+const T0: u64 = 1_800_000_000;
+const ECO: &str = "default/eco";
+const MARQUEE: &str = "com.beb.plxnative";
+
+/// The default curve's level, before anything is learned.
+fn prior_target(lux: f64, ceiling: f64) -> f64 {
+    learn::prior(reach(lux)) * ceiling
+}
+
+/// The lux whose [`reach`] is `r`.
+fn lux_at(r: f64) -> f64 {
+    BRIGHT_LUX.powf(r)
+}
+
+fn level(l: &Learner, key: &str, lux: f64, epoch: u64) -> f64 {
+    l.level(key, &Scene::default(), lux, epoch)
+}
+
+fn level_in(l: &Learner, scene: &Scene, lux: f64, epoch: u64) -> f64 {
+    l.level(ECO, scene, lux, epoch)
+}
+
+fn scene(app: &str, playing: bool) -> Scene {
+    Scene { app: app.into(), playing }
 }
 
 #[test]
@@ -140,31 +163,262 @@ fn the_room_light_drifts_past_the_bands_and_after_the_debounce_and_a_big_lasting
 }
 
 #[test]
-fn the_curve_runs_from_the_floor_to_the_level_and_a_hand_set_value_is_met_exactly() {
-    let c = Curve::default();
-    assert_eq!(c.target(&inputs(0.0), 80.0), 40.0);
-    assert_eq!(c.target(&inputs(BRIGHT_LUX * 10.0), 80.0), 80.0);
-    let lamp = c.target(&inputs(7.0), 80.0);
-    assert!((40.0..80.0).contains(&lamp), "{lamp}");
+fn the_default_curve_runs_from_half_the_ceiling_to_the_ceiling() {
+    let l = Learner::default();
+    let s = Scene::default();
+    let at = |lux: f64| l.target(&Inputs { lux, mode: ECO, scene: &s, minute: None, epoch: T0 }, 80.0);
+    assert_eq!((at(0.0), at(DARK_LUX), at(BRIGHT_LUX), at(BRIGHT_LUX * 10.0)), (40.0, 40.0, 80.0, 80.0));
+    assert!((at(7.0) - prior_target(7.0, 80.0)).abs() < 1e-9);
+}
 
-    // set by hand in the lamp's light, below the level: met there, the level unchanged
-    for chosen in [45.0, 70.0, 20.0] {
-        let mut c = Curve::default();
-        assert_eq!(c.learn(&inputs(7.0), 80.0, chosen), 80.0);
-        assert!((c.target(&inputs(7.0), 80.0) - chosen).abs() < 1e-6, "{chosen}: {c:?}");
-        assert_eq!(c.target(&inputs(BRIGHT_LUX), 80.0), 80.0);
-        let back = Curve::load(&c.save());
-        assert!((back.floor - c.floor).abs() < 1e-9 && (back.gamma - c.gamma).abs() < 1e-9);
+#[test]
+fn a_correction_moves_the_curve_near_its_light_and_barely_the_far_part() {
+    // the owner's 20 of a level of 75 at 1 lux, where the default gives 37.5
+    let mut l = Learner::default();
+    let s = Scene::default();
+    l.add(ECO, &s, 1.0, 20.0 / 75.0, None, T0);
+    let at = |lux: f64| l.target(&Inputs { lux, mode: ECO, scene: &s, minute: None, epoch: T0 }, 75.0);
+    assert!((at(1.0) - 20.0).abs() < 1.0, "met where it was made: {}", at(1.0));
+    let step = |lux: f64| prior_target(lux, 75.0) - at(lux);
+    assert!(step(1.0) > 17.0 && step(2.0) > 5.0, "still lower a lux or two up: {} {}", step(1.0), step(2.0));
+    assert!(step(6.0) < 3.0 && step(12.0) < 1.5 && step(BRIGHT_LUX) < 1e-3, "the lit part is left alone: {} {}", step(6.0), step(12.0));
+    let mut last = 0.0;
+    for i in 0..400 {
+        let v = at(f64::from(i) * 0.1);
+        assert!(v >= last - 1e-9 && v <= 75.0, "non-decreasing and under the ceiling at {i}: {last} then {v}");
+        last = v;
     }
-    // above the level: that is the new level, and no light goes above it
-    let mut c = Curve::default();
-    assert_eq!(c.learn(&inputs(7.0), 80.0, 90.0), 90.0);
-    assert_eq!(c.target(&inputs(7.0), 90.0), 90.0);
-    assert_eq!(c.target(&inputs(1000.0), 90.0), 90.0);
-    // in the dark it is the floor
-    let mut c = Curve::default();
-    assert_eq!(c.learn(&inputs(0.5), 80.0, 30.0), 80.0);
-    assert_eq!(c.target(&inputs(0.0), 80.0), 30.0);
+}
+
+#[test]
+fn consistent_corrections_across_days_converge_on_the_owners_curve_and_beat_the_default() {
+    // what the owner wants: 20% of the ceiling in the dark, rising to all of it
+    let wanted = |r: f64| 0.2 + 0.8 * r;
+    let mut l = Learner::default();
+    for day in 0..8_u64 {
+        for (i, r) in [0.0, 0.25, 0.5, 0.75].into_iter().enumerate() {
+            let noise = if (day + i as u64) % 2 == 0 { 0.01 } else { -0.01 };
+            l.add(ECO, &Scene::default(), lux_at(r), wanted(r) + noise, Some(21 * 60), T0 + day * DAY);
+        }
+    }
+    let now = T0 + 8 * DAY;
+    for r in [0.0, 0.125, 0.375, 0.5, 0.625, 0.875] {
+        let got = level(&l, ECO, lux_at(r), now);
+        assert!((got - wanted(r)).abs() < 0.04, "r {r}: wanted {} got {got}", wanted(r));
+        assert!((learn::prior(r) - wanted(r)).abs() > 0.1 || r > 0.8, "the default was far from it at r {r}");
+    }
+    assert_eq!(l.adjustments(), 32);
+}
+
+#[test]
+fn a_newer_correction_replaces_an_older_nearby_one_it_contradicts_and_agreeing_ones_add_up() {
+    let s = Scene::default();
+    let mut l = Learner::default();
+    l.add(ECO, &s, 5.0, 0.30, None, T0);
+    l.add(ECO, &s, 5.0, 0.65, None, T0 + DAY);
+    assert!((level(&l, ECO, 5.0, T0 + DAY) - 0.65).abs() < 0.02, "not averaged: {}", level(&l, ECO, 5.0, T0 + DAY));
+    // a third wish, again different: the second is replaced as well
+    l.add(ECO, &s, 5.3, 0.45, None, T0 + 2 * DAY);
+    assert!((level(&l, ECO, 5.3, T0 + 2 * DAY) - 0.45).abs() < 0.02);
+    // far from it, an older correction is not contradicted
+    let mut l = Learner::default();
+    l.add(ECO, &s, lux_at(0.9), 0.95, None, T0);
+    l.add(ECO, &s, 1.0, 0.2, None, T0 + DAY);
+    assert!((level(&l, ECO, lux_at(0.9), T0 + DAY) - 0.95).abs() < 0.02);
+    // agreeing corrections do not cancel each other
+    let mut l = Learner::default();
+    l.add(ECO, &s, 5.0, 0.30, None, T0);
+    l.add(ECO, &s, 5.0, 0.31, None, T0 + DAY);
+    assert!((level(&l, ECO, 5.0, T0 + DAY) - 0.305).abs() < 0.01);
+    // another app's wish at the same light is not a contradiction: both are kept
+    let mut l = Learner::default();
+    l.add(ECO, &scene("home", false), 5.0, 0.8, None, T0);
+    l.add(ECO, &scene(MARQUEE, false), 5.0, 0.4, None, T0 + DAY);
+    assert_eq!((l.held_in(ECO, &scene("home", false)), l.held_in(ECO, &scene(MARQUEE, false))), (1, 1));
+    assert!(level_in(&l, &scene("home", false), 5.0, T0 + DAY) > level_in(&l, &scene(MARQUEE, false), 5.0, T0 + DAY) + 0.1);
+}
+
+#[test]
+fn corrections_fade_with_a_half_life_of_two_weeks_back_to_the_default() {
+    let mut l = Learner::default();
+    l.add(ECO, &Scene::default(), 1.0, 0.2, None, T0);
+    let gap = |days: u64| learn::prior(0.0) - level(&l, ECO, 1.0, T0 + days * DAY);
+    let full = gap(0);
+    assert!((full - 0.3).abs() < 0.01, "{full}");
+    assert!(gap(14) < full && gap(56) < gap(14) && gap(112) < 0.5 * full && gap(365) < 0.05 * full, "{} {} {} {}", gap(14), gap(56), gap(112), gap(365));
+    // an old correction is dropped when the next one is added, and never counted again
+    l.add(ECO, &Scene::default(), lux_at(0.9), 0.95, None, T0 + 200 * DAY);
+    assert_eq!(l.held(ECO), 1);
+}
+
+#[test]
+fn at_most_two_hundred_points_a_mode_are_kept_and_the_least_weighty_go_first() {
+    let mut l = Learner::default();
+    for i in 0..260_u64 {
+        let r = (i % 9) as f64 / 8.0;
+        l.add(ECO, &Scene::default(), lux_at(r), (0.3 + 0.7 * r).min(1.0), None, T0 + i * 3_600);
+    }
+    assert_eq!(l.held(ECO), learn::MAX_POINTS);
+    assert_eq!(l.adjustments(), 260);
+}
+
+#[test]
+fn a_mode_with_no_points_follows_the_others_and_one_with_its_own_follows_those() {
+    let s = Scene::default();
+    let mut l = Learner::default();
+    l.add("default/cinema", &s, 1.0, 0.2, None, T0);
+    let other = level(&l, ECO, 1.0, T0);
+    assert!(other < learn::prior(0.0) - 0.15 && other > 0.2, "shared, not as strong as its own: {other}");
+    for _ in 0..3 {
+        l.add(ECO, &s, 1.0, 0.45, None, T0);
+    }
+    assert!((level(&l, ECO, 1.0, T0) - 0.45).abs() < 0.02);
+    assert!((level(&l, "default/cinema", 1.0, T0) - 0.2).abs() < 0.08, "its own point still leads: {}", level(&l, "default/cinema", 1.0, T0));
+}
+
+#[test]
+fn home_and_an_app_learn_different_levels_at_the_same_light_and_playing_differs_from_browsing() {
+    let (home, marquee, film) = (scene("home", false), scene(MARQUEE, false), scene(MARQUEE, true));
+    let mut l = Learner::default();
+    for day in 0..4 {
+        l.add(ECO, &home, 5.0, 0.8, None, T0 + day * DAY);
+        l.add(ECO, &marquee, 5.0, 0.55, None, T0 + day * DAY);
+        l.add(ECO, &film, 5.0, 0.3, None, T0 + day * DAY);
+    }
+    let now = T0 + 4 * DAY;
+    let at = |s: &Scene| level_in(&l, s, 5.0, now);
+    assert!(at(&home) > 0.7 && at(&home) > at(&marquee) + 0.1, "home {} marquee {}", at(&home), at(&marquee));
+    assert!(at(&marquee) > at(&film) + 0.15 && at(&film) < 0.4, "browsing {} playing {}", at(&marquee), at(&film));
+    // an app never seen follows the others of its kind: browsing between home's and the app's, playing like the app's film
+    let new = |playing| level_in(&l, &scene("com.netflix", playing), 5.0, now);
+    assert!(new(false) > at(&marquee) && new(false) < at(&home), "{}", new(false));
+    assert!((new(true) - at(&film)).abs() < 0.1, "{}", new(true));
+}
+
+#[test]
+fn a_new_app_with_one_point_is_pulled_only_partway_and_a_few_consistent_ones_make_it_its_own() {
+    let (home, marquee) = (scene("home", false), scene(MARQUEE, false));
+    let mut l = Learner::default();
+    for day in 0..5 {
+        l.add(ECO, &home, 5.0, 0.8, None, T0 + day * DAY);
+    }
+    let shared = level_in(&l, &marquee, 5.0, T0 + 5 * DAY);
+    l.add(ECO, &marquee, 5.0, 0.4, None, T0 + 5 * DAY);
+    let one = level_in(&l, &marquee, 5.0, T0 + 5 * DAY);
+    assert!(one < shared - 0.1 && one > 0.5, "partway from {shared}: {one}");
+    assert!(level_in(&l, &home, 5.0, T0 + 5 * DAY) > 0.72, "home hardly moves for one point elsewhere");
+    for day in 6..10 {
+        l.add(ECO, &marquee, 5.0, 0.4, None, T0 + day * DAY);
+    }
+    let five = level_in(&l, &marquee, 5.0, T0 + 9 * DAY);
+    assert!(five < one - 0.05 && five < 0.5, "its own now: {five}");
+    assert!(level_in(&l, &home, 5.0, T0 + 9 * DAY) > 0.7);
+}
+
+#[test]
+fn corrections_and_their_contexts_survive_a_restart_and_a_damaged_file_is_the_default_curve() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(learn::FILE);
+    let (home, film) = (scene("home", false), scene(MARQUEE, true));
+    let mut l = Learner::load(&path);
+    l.add(ECO, &home, 1.0, 0.2, Some(60), T0);
+    l.add(ECO, &film, 1.0, 0.5, Some(61), T0);
+    assert!(!path.with_extension("json.tmp").exists());
+    let back = Learner::load(&path);
+    assert_eq!((back.adjustments(), back.held(ECO), back.apps()), (2, 2, 2));
+    for s in [&home, &film] {
+        assert!((level_in(&back, s, 1.0, T0) - level_in(&l, s, 1.0, T0)).abs() < 1e-12);
+    }
+    assert!(level_in(&back, &film, 1.0, T0) > level_in(&back, &home, 1.0, T0) + 0.1);
+
+    std::fs::write(&path, b"{\"modes\": {\"default/eco\": [").unwrap();
+    let damaged = Learner::load(&path);
+    assert_eq!((damaged.adjustments(), damaged.held(ECO)), (0, 0));
+    assert_eq!(level(&damaged, ECO, 1.0, T0), learn::prior(0.0));
+    // one unusable point is dropped and the rest kept
+    std::fs::write(
+        &path,
+        br#"{"adjustments": 2, "modes": {"default/eco": [{"lux": 1.0, "level": 7.0, "at": 1, "weight": 50.0}, {"lux": 1.0, "level": 0.2, "at": 1800000000, "weight": 50.0}]}}"#,
+    )
+    .unwrap();
+    assert_eq!(Learner::load(&path).held(ECO), 1);
+    // an engine over a damaged file starts from the default curve
+    std::fs::write(&path, b"\0\0 not json").unwrap();
+    let tv = Tv::new("eco", 75, None);
+    tv.0.lock().lux = 1.0;
+    let t0 = Instant::now();
+    let mut e = engine(&tv, Journal::default(), Some(dir.path().join(STATE)), t0);
+    run(&mut e, &on(), t0, 1);
+    assert_eq!(e.status()["learned"], 0);
+}
+
+#[test]
+fn a_run_of_hand_changes_is_one_correction_taken_once_it_is_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let tv = Tv::new("eco", 75, None);
+    tv.0.lock().lux = 1.0;
+    let t0 = Instant::now();
+    let mut e = engine(&tv, Journal::default(), Some(dir.path().join(STATE)), t0);
+    let mut now = run(&mut e, &on(), t0, 400);
+    assert_eq!(tv.value("eco"), 38, "the default curve's floor");
+    // 20, 25, 30, 25, 20 within 19 s, as on the TV
+    for v in [20, 25, 30, 25, 20] {
+        e.by_hand(now, v, &on()).unwrap();
+        now = run(&mut e, &on(), now, 4);
+        assert_eq!((tv.value("eco"), e.status()["learned"].as_u64()), (v, Some(0)), "not a correction yet at {v}");
+    }
+    let writes = tv.backlight_writes().len();
+    now = run(&mut e, &on(), now, 2);
+    assert_eq!(e.status()["learned"], 1, "one point for the run");
+    assert_eq!(e.status()["target"], 20);
+    run(&mut e, &on(), now, 120);
+    assert_eq!((tv.value("eco"), tv.backlight_writes().len()), (20, writes), "nothing pulls it back toward the old automatic level");
+    let saved = Learner::load(&dir.path().join(learn::FILE));
+    assert_eq!((saved.adjustments(), saved.held(ECO)), (1, 1));
+    assert!((level(&saved, ECO, 1.0, T0) - 20.0 / 75.0).abs() < 0.015);
+}
+
+#[test]
+fn a_level_chosen_above_the_ceiling_raises_it_and_nothing_is_ever_written_above_it_and_a_lit_room_sets_it() {
+    let tv = Tv::new("eco", 80, None);
+    tv.0.lock().lux = 7.0;
+    let t0 = Instant::now();
+    let mut e = engine(&tv, Journal::default(), None, t0);
+    let mut now = run(&mut e, &on(), t0, 30);
+    e.by_hand(now, 95, &on()).unwrap();
+    assert_eq!(e.status()["ceiling"], 95, "raised at once");
+    now = run(&mut e, &on(), now, 20);
+    for lux in [0.0, 3.0, 7.0, 25.0, 500.0] {
+        tv.0.lock().lux = lux;
+        now = run(&mut e, &on(), now, 400);
+        assert!(tv.backlight_writes().iter().all(|v| *v <= 95), "{lux}");
+        assert!(tv.value("eco") <= 95);
+    }
+    // in a lit room the value chosen is the level, down as well as up
+    e.by_hand(now, 60, &on()).unwrap();
+    run(&mut e, &on(), now, 20);
+    assert_eq!((e.status()["ceiling"].as_u64(), tv.value("eco")), (Some(60), 60));
+    assert_eq!(e.status()["learned"], 1, "only the first correction was a point");
+}
+
+#[test]
+fn resetting_forgets_the_points_in_the_file_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let tv = Tv::new("eco", 75, None);
+    tv.0.lock().lux = 1.0;
+    let t0 = Instant::now();
+    let mut e = engine(&tv, Journal::default(), Some(dir.path().join(STATE)), t0);
+    let mut now = run(&mut e, &on(), t0, 10);
+    e.by_hand(now, 20, &on()).unwrap();
+    now = run(&mut e, &on(), now, 8);
+    assert_eq!(e.status()["learned"], 1);
+    assert_eq!(e.reset_learning(now)["learned"], 0);
+    let saved = Learner::load(&dir.path().join(learn::FILE));
+    assert_eq!((saved.adjustments(), saved.held(ECO)), (0, 0));
+    assert_eq!(level(&saved, ECO, 1.0, T0), learn::prior(0.0));
+    // the default curve is followed again, a unit at a time
+    run(&mut e, &on(), now, 300);
+    assert_eq!(tv.value("eco"), 38);
 }
 
 #[test]
@@ -183,7 +437,7 @@ fn taking_over_journals_first_ramps_from_the_value_turns_lg_auto_off_then_steps_
 
     // it goes to the lamp's level a unit at a time, no faster than the rate
     let now = run(&mut e, &on(), now, 120);
-    let target = Curve::default().target(&inputs(7.0), 75.0).round() as u32;
+    let target = prior_target(7.0, 75.0).round() as u32;
     assert_eq!(tv.value("filmMaker"), target);
     assert!(tv.backlight_writes().windows(2).all(|w| w[0] == w[1] + 1), "{:?}", tv.backlight_writes());
 
@@ -376,7 +630,7 @@ fn a_slow_drift_of_the_daylight_moves_one_unit_at_a_time_no_faster_than_the_rate
 #[test]
 fn a_lamp_on_and_off_is_a_confirmed_eased_ramp_in_seconds_and_dimming_is_the_slower() {
     let (tv, mut e, now) = settled_in_the_dark();
-    let target = |lux: f64| Curve::default().target(&inputs(lux), 80.0).round() as u32;
+    let target = |lux: f64| prior_target(lux, 80.0).round() as u32;
     tv.0.lock().lux = 8.0;
     let (now, up) = run_log(&mut e, &tv, &on(), now, 20);
     let first = up.first().expect("it follows the lamp").0;
@@ -436,4 +690,68 @@ fn flicker_a_passing_shadow_and_the_screens_own_light_change_nothing() {
         now = run(&mut e, &on(), now, 2);
     }
     assert_eq!(tv.backlight_writes().len(), writes);
+}
+
+fn in_app(app: &str, playing: bool) -> Env {
+    Env { scene: scene(app, playing), ..on() }
+}
+
+#[test]
+fn a_correction_right_after_a_scene_change_is_not_counted_unless_repeated_and_belongs_to_the_scene_it_settled_in() {
+    let dir = tempfile::tempdir().unwrap();
+    let tv = Tv::new("eco", 75, None);
+    tv.0.lock().lux = 1.0;
+    let t0 = Instant::now();
+    let mut e = engine(&tv, Journal::default(), Some(dir.path().join(STATE)), t0);
+    let (home, app) = (in_app("home", false), in_app(MARQUEE, false));
+    let mut now = run(&mut e, &home, t0, 400);
+    let file = dir.path().join(learn::FILE);
+
+    // the app comes to the front and 2 s later the slider moves: that was meant for the home screen it left
+    now = run(&mut e, &app, now, 2);
+    e.by_hand(now, 20, &app).unwrap();
+    now = run(&mut e, &app, now, 12);
+    assert_eq!((e.status()["learned"].as_u64(), Learner::load(&file).held(ECO)), (Some(0), 0));
+
+    // once the switch is more than 3 s old a change is meant for the app, and is added to its context
+    now = run(&mut e, &app, now, 20);
+    e.by_hand(now, 22, &app).unwrap();
+    now = run(&mut e, &app, now, 8);
+    let l = Learner::load(&file);
+    assert_eq!((e.status()["learned"].as_u64(), l.held_in(ECO, &scene(MARQUEE, false)), l.held_in(ECO, &scene("home", false))), (Some(1), 1, 0));
+
+    // back at home: a first change, then another 4 s later, is a repeated one and counts
+    now = run(&mut e, &home, now, 1);
+    e.by_hand(now, 30, &home).unwrap();
+    now = run(&mut e, &home, now, 4);
+    e.by_hand(now, 26, &home).unwrap();
+    run(&mut e, &home, now, 8);
+    let l = Learner::load(&file);
+    assert_eq!((e.status()["learned"].as_u64(), l.held_in(ECO, &scene("home", false)), e.status()["apps"].as_u64()), (Some(2), 1, Some(2)));
+}
+
+#[test]
+fn changing_scene_changes_the_target_and_the_value_ramps_there_a_unit_at_a_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let tv = Tv::new("eco", 75, None);
+    tv.0.lock().lux = 1.0;
+    let t0 = Instant::now();
+    let mut e = engine(&tv, Journal::default(), Some(dir.path().join(STATE)), t0);
+    let (home, app) = (in_app("home", false), in_app(MARQUEE, false));
+    let mut now = run(&mut e, &home, t0, 400);
+    e.by_hand(now, 20, &home).unwrap();
+    now = run(&mut e, &home, now, 20);
+    // the app has no habits yet: it follows what was learned at home
+    now = run(&mut e, &app, now, 30);
+    assert_eq!(tv.value("eco"), 20);
+    e.by_hand(now, 40, &app).unwrap();
+    now = run(&mut e, &app, now, 20);
+    assert_eq!((tv.value("eco"), e.status()["learned"].as_u64()), (40, Some(2)), "held as chosen in the app");
+    // home again: its own level, between what it was and what the app was given, reached by a unit a write
+    let before = tv.backlight_writes().len();
+    run(&mut e, &home, now, 200);
+    let writes = tv.backlight_writes();
+    let got = tv.value("eco");
+    assert!((20..35).contains(&got), "{got}");
+    assert!(writes[before..].windows(2).all(|w| w[0] == w[1] + 1), "{writes:?}");
 }

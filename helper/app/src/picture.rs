@@ -3,10 +3,11 @@
 //!
 //! LG keeps one picture mode per input and dynamic range (`pictureMode`'s dimension is `[input, dynamicRange]`), and LumaTV, Home
 //! and every app share the input `default`. So the colourful shell and a film in Marquee or Netflix get the same mode unless
-//! something switches it. This module does: SDR video playing full screen in an app for [`PLAY`] switches to the `video` slot's
-//! mode, and [`STOP`] without it switches back to the `ui` slot's. HDMI inputs and Live TV have inputs of their own and keep LG's
-//! memory; HDR and Dolby Vision have their own range and are LG's; nothing is switched while a game is in front or LG's Game mode
-//! is in force. A mode the owner picks while a slot is in force (LG's menu, Quick Settings, Settings) becomes that slot's.
+//! something switches it. This module does: a video app in front ([`VIDEO_APPS`] with theme.json's `apps.video`, for [`APP`]) or
+//! SDR video playing full screen in any other app (for [`PLAY`]) switches to the `video` slot's mode, and [`STOP`] without either
+//! switches back to the `ui` slot's. HDMI inputs and Live TV have inputs of their own and keep LG's memory; HDR and Dolby Vision
+//! have their own range and are LG's; nothing is switched while a game is in front or LG's Game mode is in force. A mode the
+//! owner picks while a slot is in force (LG's menu, Quick Settings, Settings) becomes that slot's.
 //!
 //! A preset is a mode and the keys LumaTV writes into it ([`PRESETS`]); each preset has a mode of its own, so a switch is one
 //! `pictureMode` write and keys the owner changes later stay. Every value a preset replaces is journalled in `picture.json` of
@@ -44,6 +45,41 @@ const LG_GAME: &str = "game";
 pub const PLAY: Duration = Duration::from_secs(2);
 /// No playback this long switches back: a seek, a rebuffer or the gap to the next episode does not.
 pub const STOP: Duration = Duration::from_secs(3);
+/// A video app in front this long switches to the video slot: a quick pass through it to another app changes nothing.
+pub const APP: Duration = Duration::from_secs(1);
+/// The streaming and player apps whose whole time in front, menus included, belongs to the video slot. Ids are from the TV's own
+/// app list (docs/research/arch/x4), Marquee's from its install; Jellyfin's is the jellyfin-webos app id. Add or remove one per
+/// profile with `apps.video` of theme.json: `{"add": ["app.id"], "remove": ["netflix"]}`.
+pub const VIDEO_APPS: [&str; 28] = [
+    "netflix",
+    "amazon",
+    "youtube.leanback.v4",
+    "youtube.leanback.kids.v4",
+    "youtube.leanback.ytv.v1",
+    "com.apple.appletv",
+    "com.disney.disneyplus-prod",
+    "com.wbd.stream",
+    "hulu",
+    "com.peacock.tv",
+    "com.cbs-all-access.webapp.prod",
+    "com.beb.plxnative",
+    "cdp-30",
+    "org.jellyfin.webos",
+    "com.crunchyroll.webapp",
+    "com.discovery.dplus",
+    "com.starz.app.starz-lgtv",
+    "com.mubi",
+    "com.tubitv.ott.tubi",
+    "com.plutotv.app",
+    "com.fubotv.app",
+    "com.movenetworks.app.sling-tv-sling-production",
+    "com.philo.lg",
+    "com.directv.lg",
+    "com.spectrum.stva.lgtv",
+    "fox.one-v1.0",
+    "dazn",
+    "com.webos.app.lgchannels",
+];
 /// After a switch, a mode change is LG's own (Filmmaker auto start acts as a film starts), not the owner's choice.
 pub const SETTLE: Duration = Duration::from_secs(5);
 /// How long a mode write has to show in the subscription before it counts as not taken.
@@ -246,9 +282,11 @@ impl Video {
             }
             let out = v.get("displayOutput");
             let n = |k: &str| out.and_then(|o| o.get(k)).and_then(Value::as_u64).unwrap_or(0);
-            // the panel is 3840 by 2160. A film scaled to fit fills one side and leaves bars on the other: a 2:1 film in Marquee
-            // reported 3840x1920 at y 120 with fullScreen false (2026-11-21), so a window spanning 90% of either side counts.
-            let full = v.get("fullScreen").and_then(Value::as_bool) == Some(true) || n("width") >= 3840 * 9 / 10 || n("height") >= 2160 * 9 / 10;
+            // the panel is 3840 by 2160 in videooutputd's answers (the 1920x1080 rects in the captures are the compositor's). A film
+            // scaled to fit fills one side of the panel, is centred, and leaves bars on the other: 4:3 pillarboxed, 2.39:1
+            // letterboxed, a 2:1 film in Marquee that reported 3840x1920 at y 120 with fullScreen false (2026-11-21). A hero or
+            // billboard preview that spans the width from the top, a corner or PiP window and a small centred preview are not.
+            let full = v.get("fullScreen").and_then(Value::as_bool) == Some(true) || scaled_to_fit(n("x"), n("y"), n("width"), n("height"));
             Some(Self {
                 app: v.get("appId").and_then(Value::as_str).unwrap_or("").to_owned(),
                 hdr: v.pointer("/videoInfo/hdrType").and_then(Value::as_str).unwrap_or("none").to_owned(),
@@ -279,6 +317,12 @@ pub struct Engine {
     playing: Option<Video>,
     /// Whether an SDR video of an app plays full screen, and since when that has been so; `None` before videooutputd answered.
     eligible: Option<(bool, Instant)>,
+    /// The app in front, and whether it is a video app (and since when that has been so); `None` before it is first known.
+    front: Option<String>,
+    front_video: Option<(bool, Instant)>,
+    /// theme.json's `apps.video`: apps added to and removed from [`VIDEO_APPS`].
+    video_add: Vec<String>,
+    video_remove: Vec<String>,
     active: Option<Slot>,
     /// A mode write waiting to show in the subscription.
     pending: Option<(String, Instant)>,
@@ -301,6 +345,10 @@ impl Engine {
             ctx: None,
             playing: None,
             eligible: None,
+            front: None,
+            front_video: None,
+            video_add: Vec::new(),
+            video_remove: Vec::new(),
             active: None,
             pending: None,
             settle_until: None,
@@ -335,6 +383,35 @@ impl Engine {
 
     fn is_ours(&self, app: &str) -> bool {
         app.is_empty() || app.starts_with("org.nphil.") || app == "com.webos.app.home" || self.ours.iter().any(|o| o == app)
+    }
+
+    /// A video app: on the list (or added by the owner, and not removed), not LumaTV's and not a game.
+    fn is_video_app(&self, app: &str) -> bool {
+        !self.is_ours(app)
+            && !crate::app_priority::game::GAMES.contains(&app)
+            && (self.video_add.iter().any(|a| a == app) || (VIDEO_APPS.contains(&app) && !self.video_remove.iter().any(|a| a == app)))
+    }
+
+    fn refresh_front(&mut self, now: Instant) {
+        let video = self.front.as_deref().is_some_and(|a| self.is_video_app(a));
+        if self.front_video.is_none_or(|(was, _)| was != video) {
+            self.front_video = Some((video, now));
+        }
+    }
+
+    /// The app in front, from the foreground-priority topic (`None` when none is).
+    pub fn set_front(&mut self, now: Instant, app: Option<String>) {
+        self.front = app;
+        self.refresh_front(now);
+    }
+
+    /// The owner's additions to and removals from [`VIDEO_APPS`].
+    pub fn set_video_apps(&mut self, now: Instant, add: Vec<String>, remove: Vec<String>) {
+        if self.video_add != add || self.video_remove != remove {
+            self.video_add = add;
+            self.video_remove = remove;
+            self.refresh_front(now);
+        }
     }
 
     /// The picture subscription's answer, or a read's.
@@ -398,11 +475,19 @@ impl Engine {
         }
     }
 
+    /// The video slot once a video app has been in front for [`APP`] or video has played for [`PLAY`]; the ui slot once neither
+    /// has been so for [`STOP`]; otherwise the slot in force.
     fn want(&self, now: Instant) -> Option<Slot> {
-        let (eligible, since) = self.eligible?;
-        let slot = if eligible { Slot::Video } else { Slot::Ui };
-        let wait = if eligible { PLAY } else { STOP };
-        Some(if now.saturating_duration_since(since) >= wait { slot } else { self.active.unwrap_or(slot) })
+        let (playing, play_since) = self.eligible?;
+        let (app, app_since) = self.front_video.unwrap_or((false, play_since));
+        let held = |since: Instant, wait: Duration| now.saturating_duration_since(since) >= wait;
+        if (playing && held(play_since, PLAY)) || (app && held(app_since, APP)) {
+            Some(Slot::Video)
+        } else if !playing && !app && held(play_since.max(app_since), STOP) {
+            Some(Slot::Ui)
+        } else {
+            self.active
+        }
     }
 
     pub fn tick(&mut self, now: Instant) {
@@ -606,10 +691,19 @@ impl Engine {
     /// When the next thing is due: a debounce ending, a write's echo, the settle, the hold or the rate limit.
     pub fn next(&self, now: Instant) -> Option<Instant> {
         let mut due: Vec<Instant> = Vec::new();
-        if let Some((eligible, since)) = self.eligible
-            && self.active != Some(if eligible { Slot::Video } else { Slot::Ui })
-        {
-            due.push(since + if eligible { PLAY } else { STOP });
+        if let Some((playing, play_since)) = self.eligible {
+            let (app, app_since) = self.front_video.unwrap_or((false, play_since));
+            if self.active != Some(Slot::Video) {
+                if playing {
+                    due.push(play_since + PLAY);
+                }
+                if app {
+                    due.push(app_since + APP);
+                }
+            }
+            if !playing && !app && self.active != Some(Slot::Ui) {
+                due.push(play_since.max(app_since) + STOP);
+            }
         }
         if let Some((_, at)) = &self.pending {
             due.push(*at + ECHO);
@@ -639,6 +733,7 @@ impl Engine {
             "changed": self.saved.journal.iter().filter(|(_, j)| !j.is_empty()).map(|(m, _)| m.clone()).collect::<Vec<_>>(),
             "context": self.ctx.as_ref().map(|c| json!({"mode": c.mode, "input": c.input, "range": c.range})),
             "playing": self.playing.as_ref().map(|v| json!({"app": v.app, "hdr": v.hdr, "full": v.full})),
+            "front": self.front.as_deref().map(|a| json!({"app": a, "video": self.front_video.is_some_and(|(v, _)| v)})),
             "hold": self.hold(),
             "error": self.error,
         })
@@ -653,13 +748,50 @@ fn text(v: &Value) -> String {
     }
 }
 
-/// The owner's switch: `system.separatePicture` of theme.json, on unless it says `false`.
-fn separate_on(theme: &Path) -> bool {
-    std::fs::read(theme)
-        .ok()
-        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-        .and_then(|v| v.pointer("/system/separatePicture").and_then(Value::as_bool))
-        != Some(false)
+/// Whether a rect of the panel (3840 by 2160) is a video scaled to fit it: one side filled to 98% or more, centred on both axes
+/// within 2% of the side, and at least a quarter of the panel (a thin centred strip is not a film).
+fn scaled_to_fit(x: u64, y: u64, w: u64, h: u64) -> bool {
+    const W: u64 = 3840;
+    const H: u64 = 2160;
+    let centred = |pos: u64, len: u64, side: u64| (2 * pos + len).abs_diff(side) * 25 <= side;
+    (w * 100 >= W * 98 || h * 100 >= H * 98) && centred(x, w, W) && centred(y, h, H) && w * h * 4 >= W * H
+}
+
+/// What the helper reads from theme.json: the picture switch and the owner's video apps.
+struct Theme {
+    /// `system.separatePicture`, on unless it says `false`.
+    separate: bool,
+    /// `apps.video.add` and `apps.video.remove`.
+    video_add: Vec<String>,
+    video_remove: Vec<String>,
+}
+
+impl Theme {
+    fn read(theme: &Path) -> Self {
+        let doc = std::fs::read(theme).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).unwrap_or(Value::Null);
+        let ids = |key: &str| -> Vec<String> {
+            let list = doc.pointer(&format!("/apps/video/{key}")).and_then(Value::as_array);
+            list.into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()
+        };
+        Self { separate: doc.pointer("/system/separatePicture").and_then(Value::as_bool) != Some(false), video_add: ids("add"), video_remove: ids("remove") }
+    }
+}
+
+/// The app in front, sent to the thread when it changes so that a switch of app is not left to the poll.
+fn watch_front(hub: &crate::hub::Hub, stop: &crate::control::Stop, tx: &mpsc::Sender<Msg>) {
+    let topics = [crate::app_priority::TOPIC.to_owned()];
+    let mut last: Option<Option<String>> = None;
+    while !stop.is_set() {
+        let (seq, topic) = hub.topic_at(crate::app_priority::TOPIC);
+        let front = topic.and_then(|a| a.pointer("/front/0").and_then(Value::as_str).map(str::to_owned));
+        if last.as_ref() != Some(&front) {
+            if tx.send(Msg::Front(front.clone())).is_err() {
+                return;
+            }
+            last = Some(front);
+        }
+        hub.wait_events(Some(seq), None, Some(&topics), POLL);
+    }
 }
 
 /// A game in front: game mode on (a named game or an API lease), or a named game first on screen.
@@ -675,6 +807,7 @@ pub(crate) fn game_in_front(hub: &crate::hub::Hub) -> bool {
 enum Msg {
     Picture(Context),
     Video(Option<Video>),
+    Front(Option<String>),
     Cmd(Cmd, mpsc::Sender<Result<Value, String>>),
     Stop,
 }
@@ -709,8 +842,16 @@ fn run(ctx: &Ctx, remote: &Remote) {
     let luna = ctx.config.luna.send.clone();
     let path = ctx.paths.data_dir.join(STATE);
     let theme = ctx.paths.theme_file();
-    let mut engine = Engine::new(Box::new(LunaSource::new(&luna)), load(&path), Some(path), ctx.config.brand_app_id.iter().cloned().collect(), separate_on(&theme));
+    let switches = Theme::read(&theme);
+    let mut engine = Engine::new(Box::new(LunaSource::new(&luna)), load(&path), Some(path), ctx.config.brand_app_id.iter().cloned().collect(), switches.separate);
+    engine.set_video_apps(Instant::now(), switches.video_add, switches.video_remove);
     remote.0.lock().replace(tx.clone());
+    {
+        let (hub, stop, tx) = (ctx.hub.clone(), ctx.stop.clone(), tx.clone());
+        if let Err(e) = thread::Builder::new().name("picture-front".to_owned()).stack_size(128 * 1024).spawn(move || watch_front(&hub, &stop, &tx)) {
+            crate::log_warn!("picture: watching the app in front: {e}");
+        }
+    }
     let mut follows: Vec<crate::luna::Follow> = Vec::new();
     let mut retry_at: Option<Instant> = None;
     let mut looked = Instant::now();
@@ -731,6 +872,7 @@ fn run(ctx: &Ctx, remote: &Remote) {
             Ok(Msg::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
             Ok(Msg::Picture(c)) => engine.picture(Instant::now(), c),
             Ok(Msg::Video(v)) => engine.video(Instant::now(), v),
+            Ok(Msg::Front(app)) => engine.set_front(Instant::now(), app),
             Ok(Msg::Cmd(cmd, reply)) => {
                 let _ = reply.send(engine.command(Instant::now(), cmd));
             }
@@ -741,7 +883,9 @@ fn run(ctx: &Ctx, remote: &Remote) {
         // theme.json is read at most once a second, not on every video event
         if now.saturating_duration_since(looked) >= Duration::from_secs(1) {
             looked = now;
-            engine.set_separate(now, separate_on(&theme));
+            let switches = Theme::read(&theme);
+            engine.set_separate(now, switches.separate);
+            engine.set_video_apps(now, switches.video_add, switches.video_remove);
         }
         engine.tick(now);
         ctx.hub.set(TOPIC, engine.status());
