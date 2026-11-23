@@ -152,7 +152,9 @@ impl Env {
         if !front {
             return Vec::new();
         }
-        let Some(switch) = self.denon_switch().filter(|s| s.writable) else { return Vec::new() };
+        // the picker has closed, so its gate is off: the helper's own word on the reading stands in for the gate's clock
+        let switch = self.gate.rc().filter(|r| ["reachable", "fresh"].iter().all(|k| r.get(*k).and_then(Value::as_bool) == Some(true)));
+        let Some(switch) = switch.filter(|_| self.denon_on()).and_then(Switch::from_doc).filter(|s| s.writable) else { return Vec::new() };
         let f = self.follow.as_mut().expect("checked above");
         f.front_at.get_or_insert(now);
         if switch.current.as_deref() == Some(f.code.as_str()) || f.last_set.is_some_and(|at| now.saturating_sub(at) < FOLLOW_GAP_MS) {
@@ -394,6 +396,8 @@ mod tests {
         e.update(&Input::Helper { topic: "receiver".into(), data: rx(at, "TV") }, at);
         e.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.home", "home": true}) }, at);
         e.follow_switch("com.webos.app.hdmi2".into(), "BD".into(), at);
+        e.gate.set_active(false, at); // the picker closed with the OK
+        assert!(e.denon_switch().is_none(), "the gate is off once the picker has gone");
         assert_eq!(posts(&e.update(&Input::Tick, at + 100).0), 0, "not before the port is in front");
         assert_eq!(posts(&e.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.hdmi2", "home": false}) }, at + 900).0), 1);
         // HDMI-CEC hands the receiver to the device that answers it
