@@ -154,7 +154,9 @@ impl Run<'_> {
 
 fn run(shots: &mut Shots, walk: &Walk) -> io::Result<Report> {
     shots.page.invalidate();
-    let model = walk.base.clone();
+    let mut model = walk.base.clone();
+    // The shots set a page and a focus on the fixture without rebuilding the focus graph the keys move through.
+    model.rebuild_navigation();
     let mut run = Run {
         shots,
         origin_ms: model.now_ms(),
