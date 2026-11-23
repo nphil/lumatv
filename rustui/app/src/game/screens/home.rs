@@ -68,7 +68,10 @@ pub fn home(p: &mut Paint<'_>) {
         }
         play(p, game, p.x, play_y);
     }
-    hints::bar(p, &m.hints(), Side::Right, m.hints_dim);
+    // A layer over Home draws its own hints.
+    if m.view.layers.is_empty() {
+        hints::bar(p, &m.hints(), Side::Right, m.hints_dim);
+    }
 }
 
 /// The pill names where the game plays; OK on the tile plays it, so the pill takes no focus of its own.
@@ -88,7 +91,9 @@ fn row(p: &mut Paint<'_>) {
     let pitch = TILE + TILE_GAP;
     let offset = at as f32 * pitch;
     let start = p.plan.nodes.len();
-    for (k, &id) in m.home_games.iter().enumerate().skip(at.saturating_sub(1)).take(TILES_SHOWN + 1) {
+    // The tile that just slid off to the left stays for its way out; the rest are the ones on screen.
+    let first = at.saturating_sub(1);
+    for (k, &id) in m.home_games.iter().enumerate().skip(first).take(TILES_SHOWN + at - first) {
         tile(p, 1000 + k as u64 * 8, id, Focus::Home(Spot::Tile(k)), p.x + k as f32 * pitch - offset);
     }
     let nodes = p.plan.nodes[start..].iter().map(|node| node.id).collect();
@@ -219,5 +224,7 @@ fn empty(p: &mut Paint<'_>) {
     let h = p.wrapped(500, "Games appear here after a service or a PC is linked.", Frame::new(p.x, y, W - p.x * 2.0, 0.0), Type::Title, Role::Ink, false, 10);
     p.button(510, Focus::Home(Spot::Add), "Add accounts and PCs", Some(Icon::Plus), p.x, y + h + 32.0, true, false, 12);
     let m = p.model;
-    hints::bar(p, &m.hints(), Side::Right, m.hints_dim);
+    if m.view.layers.is_empty() {
+        hints::bar(p, &m.hints(), Side::Right, m.hints_dim);
+    }
 }

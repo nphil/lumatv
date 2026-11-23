@@ -13,20 +13,31 @@ fn tile(m: &Model) -> Option<GameId> {
         _ => None,
     }
 }
+/// The fixture with Steam linked, so the featured game has every card, back on Home with Hades II featured.
+fn home() -> Model {
+    let mut m = crate::game::model::tests::with_steam(fixture(), crate::game::model::tests::SteamShot::SignedIn);
+    m.view.page = Page::Home;
+    m.view.pane = None;
+    m.view.featured = Some(id(&m, "Hades II"));
+    m.view.focus = m.home_focus();
+    m.rebuild_navigation();
+    m
+}
 fn down(base: &Model) -> Model {
     let mut m = base.clone();
     press(&mut m, Key::Down);
     m
 }
 
-pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
+pub(super) fn screens(_base: &Model, add: &mut impl FnMut(&str, Model)) {
+    let base = &home();
     add("home-a-spotlight", base.clone());
     let mut m = base.clone();
     m.prefs.light = true;
     add("home-a-spotlight-light", m);
     add("home-a-spotlight-down", down(base));
     let mut m = base.clone();
-    let quake = m.home_games.iter().position(|g| *g == id(base, "Quake")).unwrap();
+    let quake = m.home_games.iter().position(|g| m.facts(*g).activity.news == crate::game::model::facts::Fact::Absent(crate::game::model::facts::Reason::NoSteam)).expect("the row holds a game Steam does not know");
     for _ in 0..quake {
         press(&mut m, Key::Right);
     }
@@ -51,12 +62,12 @@ pub(super) fn walks() -> Vec<Walk> {
     down.push(Step::Expect("on the first card", |m, _| matches!(m.view.focus, Focus::Home(Spot::Card(_)))));
     down.extend(taps(&[(Key::Right, 200), (Key::Up, 300)]));
     down.push(Step::Expect("back on the tile", |m, _| m.view.focus == Focus::Home(Spot::Tile(0))));
-    vec![Walk { name: "home-right-walk".into(), base: fixture(), script: right }, Walk { name: "home-down-up".into(), base: fixture(), script: down }]
+    vec![Walk { name: "home-right-walk".into(), base: home(), script: right }, Walk { name: "home-down-up".into(), base: home(), script: down }]
 }
 
 #[test]
 fn right_moves_one_tile_and_the_stage_follows_it() {
-    let mut m = fixture();
+    let mut m = home();
     let first = tile(&m).unwrap();
     assert_eq!(m.view.featured, Some(first));
     press(&mut m, Key::Right);
@@ -67,7 +78,7 @@ fn right_moves_one_tile_and_the_stage_follows_it() {
 
 #[test]
 fn down_shows_only_present_cards_and_up_returns_to_the_same_tile() {
-    let mut m = fixture();
+    let mut m = home();
     let at = m.view.focus;
     let cards = m.home_cards();
     assert!(cards.len() > 1);
@@ -84,12 +95,12 @@ fn down_shows_only_present_cards_and_up_returns_to_the_same_tile() {
 
 #[test]
 fn ok_on_a_tile_plays_and_ok_on_a_card_opens_the_game() {
-    let mut m = fixture();
+    let mut m = home();
     let game = tile(&m).unwrap();
     let out = press(&mut m, Key::Ok);
     assert!(!out.is_empty() || m.view.page != Page::Home || !m.view.layers.is_empty(), "OK plays the focused game");
 
-    let mut m = fixture();
+    let mut m = home();
     press(&mut m, Key::Down);
     press(&mut m, Key::Ok);
     assert_eq!((m.view.page, m.view.selected), (Page::Game, Some(game)));
@@ -97,8 +108,8 @@ fn ok_on_a_tile_plays_and_ok_on_a_card_opens_the_game() {
 
 #[test]
 fn a_game_steam_does_not_know_has_no_steam_cards() {
-    let mut m = fixture();
-    let quake = m.home_games.iter().position(|g| *g == id(&m, "Quake")).unwrap();
+    let mut m = home();
+    let quake = m.home_games.iter().position(|g| m.facts(*g).activity.news == crate::game::model::facts::Fact::Absent(crate::game::model::facts::Reason::NoSteam)).expect("the row holds a game Steam does not know");
     for _ in 0..quake {
         press(&mut m, Key::Right);
     }
@@ -113,7 +124,7 @@ fn carousel_motion_frames() -> io::Result<()> {
     let scratch = std::env::var_os("CODY_SCRATCH").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     let out = scratch.join("lumagame-motion");
     std::fs::create_dir_all(&out)?;
-    let mut m = fixture();
+    let mut m = home();
     m.prefs.reduce_motion = std::env::var_os("GAME_MOTION_REDUCED").is_some();
     let mode = std::env::var("GAME_MOTION").unwrap_or_default();
     if mode == "grid" {
