@@ -112,14 +112,3 @@ pub(super) fn walks() -> Vec<Walk> {
         Walk { name: "game-reader-page".into(), base: reader, script: page },
     ]
 }
-
-#[test]
-fn large_text_stacks_actions_and_down_follows_the_visible_column() {
-    let mut m = fixture();
-    m.prefs.text_percent = 200;
-    m.view.page = Page::Home;
-    m.view.focus = Focus::Hero(0);
-    m.rebuild_navigation();
-    m.step(Input::Key { key: Key::Down, down: true });
-    assert_eq!(m.view.focus, Focus::Hero(1));
-}

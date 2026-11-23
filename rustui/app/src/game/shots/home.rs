@@ -1,40 +1,108 @@
-//! Home shots and the carousel motion run.
+//! Home shots, its walks and its tests, and the carousel motion run.
+use super::budget::{Step, Walk, taps};
 use super::*;
+use crate::game::model::{home::HomeCard, nav::Hints};
 
-pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
-    add("01-home", base.clone());
-    let mut m = base.clone();
-    m.prefs.light = true;
-    add("01-home-light", m);
-    let mut m = base.clone();
-    m.view.focus = Focus::Hero(0);
-    add("01-home-play-focus", m.clone());
-    m.prefs.light = true;
-    add("01-home-play-focus-light", m);
-    let mut m = base.clone();
-    m.view.focus = Focus::Hero(1);
-    add("01-home-details-focus", m);
-    for (name, row, item) in [("02-home-most-played", 1, 2), ("03-home-genres", 2, 1), ("04-home-native-plate", 3, 2)] {
-        let mut m = base.clone();
-        m.view.home_row = row;
-        m.view.focus = Focus::Home(row, item);
-        add(name, m);
-    }
-    for (name, density) in [("05-home-cinematic", Density::Cinematic), ("06-home-compact", Density::Compact)] {
-        let mut m = base.clone();
-        m.prefs.hero = density;
-        m.prefs.covers = density;
-        add(name, m);
+fn press(m: &mut Model, key: Key) -> Vec<Command> {
+    m.step(Input::Key { key, down: true });
+    m.step(Input::Key { key, down: false })
+}
+fn tile(m: &Model) -> Option<GameId> {
+    match m.view.focus {
+        Focus::Home(Spot::Tile(i)) => m.home_games.get(i).copied(),
+        _ => None,
     }
 }
+fn down(base: &Model) -> Model {
+    let mut m = base.clone();
+    press(&mut m, Key::Down);
+    m
+}
+
+pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
+    add("home-a-spotlight", base.clone());
+    let mut m = base.clone();
+    m.prefs.light = true;
+    add("home-a-spotlight-light", m);
+    add("home-a-spotlight-down", down(base));
+    let mut m = base.clone();
+    let quake = m.home_games.iter().position(|g| *g == id(base, "Quake")).unwrap();
+    for _ in 0..quake {
+        press(&mut m, Key::Right);
+    }
+    add("home-a-spotlight-native", down(&m));
+}
 pub(super) fn text200(base: &Model, add: &mut impl FnMut(&str, Model)) {
-    for (name, page) in [("30-home-text200", Page::Home), ("31-hub-text200", Page::Game)] {
+    for (name, page) in [("home-a-spotlight-text200", Page::Home), ("31-hub-text200", Page::Game)] {
         let mut m = base.clone();
         m.prefs.text_percent = 200;
         m.view.page = page;
-        m.view.focus = if page == Page::Game { Focus::Play } else { Focus::Home(0, 1) };
+        m.view.focus = if page == Page::Game { Focus::Play } else { m.home_focus() };
         add(name, m);
     }
+}
+
+/// Right along the row with the art resting on each game, and Down to the cards and back.
+pub(super) fn walks() -> Vec<Walk> {
+    let mut right = taps(&[(Key::Right, 400), (Key::Right, 400), (Key::Right, 120), (Key::Right, 120)]);
+    right.push(Step::Settle);
+    right.push(Step::Expect("the stage on the fifth tile", |m, _| m.view.focus == Focus::Home(Spot::Tile(4)) && m.view.featured == m.home_games.get(4).copied()));
+    let mut down = taps(&[(Key::Down, 300)]);
+    down.push(Step::Expect("on the first card", |m, _| matches!(m.view.focus, Focus::Home(Spot::Card(_)))));
+    down.extend(taps(&[(Key::Right, 200), (Key::Up, 300)]));
+    down.push(Step::Expect("back on the tile", |m, _| m.view.focus == Focus::Home(Spot::Tile(0))));
+    vec![Walk { name: "home-right-walk".into(), base: fixture(), script: right }, Walk { name: "home-down-up".into(), base: fixture(), script: down }]
+}
+
+#[test]
+fn right_moves_one_tile_and_the_stage_follows_it() {
+    let mut m = fixture();
+    let first = tile(&m).unwrap();
+    assert_eq!(m.view.featured, Some(first));
+    press(&mut m, Key::Right);
+    let next = tile(&m).unwrap();
+    assert_ne!(next, first);
+    assert_eq!(m.view.featured, Some(next), "the stage and the fetch ahead follow the focused tile");
+}
+
+#[test]
+fn down_shows_only_present_cards_and_up_returns_to_the_same_tile() {
+    let mut m = fixture();
+    let at = m.view.focus;
+    let cards = m.home_cards();
+    assert!(cards.len() > 1);
+    press(&mut m, Key::Down);
+    assert_eq!(m.view.focus, Focus::Home(Spot::Card(cards[0])));
+    assert_eq!(m.hints(), Hints(vec![(Key::Up, "Games"), (Key::Menu, "Menu")]));
+    for _ in 1..cards.len() {
+        press(&mut m, Key::Right);
+    }
+    assert_eq!(m.view.focus, Focus::Home(Spot::Card(*cards.last().unwrap())));
+    press(&mut m, Key::Up);
+    assert_eq!(m.view.focus, at);
+}
+
+#[test]
+fn ok_on_a_tile_plays_and_ok_on_a_card_opens_the_game() {
+    let mut m = fixture();
+    let game = tile(&m).unwrap();
+    let out = press(&mut m, Key::Ok);
+    assert!(!out.is_empty() || m.view.page != Page::Home || !m.view.layers.is_empty(), "OK plays the focused game");
+
+    let mut m = fixture();
+    press(&mut m, Key::Down);
+    press(&mut m, Key::Ok);
+    assert_eq!((m.view.page, m.view.selected), (Page::Game, Some(game)));
+}
+
+#[test]
+fn a_game_steam_does_not_know_has_no_steam_cards() {
+    let mut m = fixture();
+    let quake = m.home_games.iter().position(|g| *g == id(&m, "Quake")).unwrap();
+    for _ in 0..quake {
+        press(&mut m, Key::Right);
+    }
+    assert!(m.home_cards().iter().all(|c| *c == HomeCard::LastPlayed));
 }
 
 #[test]
@@ -51,8 +119,6 @@ fn carousel_motion_frames() -> io::Result<()> {
     if mode == "grid" {
         m.view.page = Page::Library;
         m.view.focus = Focus::Grid(0);
-    } else {
-        m.view.focus = Focus::Home(0, 0);
     }
     m.rebuild_navigation();
     let mut shots = Shots::new()?;

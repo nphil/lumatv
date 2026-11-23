@@ -31,7 +31,7 @@ fn home() -> Model {
     event(&mut m, "gfn", ipc::Event::Targets { targets });
     event(&mut m, "gfn", ipc::Event::Library { target: main, entries, next: None });
     m.step(Input::Tick { now_ms: 120_000, unix_s: 1_800_000_000 });
-    m.view.focus = Focus::Hero(0);
+    m.view.focus = m.home_focus();
     m.rebuild_navigation();
     m
 }
@@ -101,7 +101,7 @@ fn each_menu_row_does_what_it_says() {
     assert_eq!((m.view.page, m.view.place, m.view.top()), (Page::Settings, Place::Accounts, None));
     press(&mut m, Key::Back);
     press(&mut m, Key::Back);
-    assert_eq!((m.view.page, m.view.focus), (Page::Home, Focus::Hero(0)), "the way back is the page's own focus");
+    assert_eq!((m.view.page, m.view.focus), (Page::Home, m.home_focus()), "the way back is the page's own focus");
 
     press(&mut m, Key::Menu);
     m.view.focus = Focus::SheetRow(3);
@@ -171,7 +171,7 @@ fn pin_and_hide_round_trip() {
     m.rebuild_navigation();
     press(&mut m, Key::Menu);
     assert_eq!(m.view.top(), Some(Layer::Quick), "Menu in Library opens the quick menu, not the sort");
-    let pinned = |m: &Model| m.home_rows.iter().any(|r| r.title == "Favourites" && r.items.contains(&HomeItem::Game(celeste)));
+    let pinned = |m: &Model| m.pinned(celeste) && m.home_games.contains(&celeste);
 
     m.view.focus = Focus::SheetRow(4);
     press(&mut m, Key::Ok);
@@ -184,14 +184,13 @@ fn pin_and_hide_round_trip() {
     press(&mut m, Key::Ok);
     assert!(m.view.layers.is_empty() && !m.filtered.contains(&celeste));
     assert_eq!(m.view.focus, Focus::Grid(at.min(m.filtered.len() - 1)));
-    assert!(!m.home_rows.iter().any(|r| r.items.contains(&HomeItem::Game(celeste))));
+    assert!(!m.home_games.contains(&celeste));
     m.set_hidden(celeste, false, &mut Vec::new());
     assert!(m.filtered.contains(&celeste));
 
     let mut m = home();
     let hades = id(&m, "Hades II");
-    m.view.focus = Focus::Hero(1);
-    press(&mut m, Key::Ok);
+    m.open_game(hades, None);
     assert_eq!(m.view.page, Page::Game);
     press(&mut m, Key::Menu);
     m.view.focus = Focus::SheetRow(5);

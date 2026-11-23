@@ -36,7 +36,7 @@ pub mod text;
 pub(crate) mod tests;
 use accounts::{LinkFlow, PC_SEARCH_MS};
 use game::media::Media;
-use home::{HomeItem, HomeRow};
+use home::Spot;
 use launch::{Cause, IdleWarning};
 use library::{Filter, Sort};
 use nav::{Device, Hints, Neighbours, Owner, Region};
@@ -208,12 +208,6 @@ impl Density {
     }
     pub fn columns(self) -> usize {
         [7, 6, 5][self.index()]
-    }
-    pub fn hero_height(self) -> f32 {
-        [240.0, 360.0, 480.0][self.index()]
-    }
-    pub fn logo_height(self) -> f32 {
-        [72.0, 120.0, 176.0][self.index()]
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -406,8 +400,7 @@ pub enum Focus {
     // core
     Nav(usize),
     // home
-    Hero(usize),
-    Home(usize, usize),
+    Home(Spot),
     // library
     Filter(usize),
     Grid(usize),
@@ -467,8 +460,8 @@ pub struct View {
     /// The game page's sections and reader.
     pub glance: game::Glance,
     pub selected: Option<GameId>,
+    /// The game Home's stage and Library's highlight show: what is fetched ahead and what the quick menu acts on.
     pub featured: Option<GameId>,
-    pub home_row: usize,
     pub first_grid_row: usize,
     pub query: String,
     pub sort: Sort,
@@ -500,13 +493,12 @@ impl Default for View {
             beneath: Vec::new(),
             pane: None,
             search: false,
-            focus: Focus::Hero(0),
+            focus: Focus::Home(Spot::Tile(0)),
             memory: nav::Memory::default(),
             place: settings::Place::Appearance,
             glance: game::Glance::default(),
             selected: None,
             featured: None,
-            home_row: 0,
             first_grid_row: 0,
             query: String::new(),
             sort: Sort::Title,
@@ -586,7 +578,8 @@ pub struct Model {
     pub view: View,
     pub details: BTreeMap<GameId, GameDetails>,
     pub art: BTreeMap<String, PathBuf>,
-    pub home_rows: Vec<HomeRow>,
+    /// Home's row of games.
+    pub home_games: Vec<GameId>,
     pub filtered: Vec<GameId>,
     /// How many games each Show row of the library holds.
     pub library_counts: library::Counts,
@@ -660,7 +653,7 @@ impl Model {
             view: View::default(),
             details: BTreeMap::new(),
             art: BTreeMap::new(),
-            home_rows: Vec::new(),
+            home_games: Vec::new(),
             filtered: Vec::new(),
             library_counts: library::Counts::default(),
             genre_games: BTreeMap::new(),
@@ -1158,8 +1151,7 @@ impl Model {
         }
         self.view.focus = focus;
         match focus {
-            Focus::Home(row, _) => self.view.home_row = row,
-            Focus::Hero(_) => self.view.home_row = 0,
+            Focus::Home(spot) => self.home_focused(spot),
             Focus::Grid(i) => self.view.first_grid_row = i / self.library_columns(),
             Focus::Rail(i) => self.view.place = settings::Place::ALL[i],
             Focus::Setting(i) if self.view.page == Page::Settings && self.view.pane.is_none() => self.view.settings_rows[self.view.place.index()] = i,
@@ -1708,29 +1700,13 @@ impl Model {
         }
         let ids: Vec<GameId> = match self.view.page {
             Page::Home => {
-                let mut ids = Vec::new();
-                for (row_index, row) in self.home_rows.iter().enumerate().skip(self.view.home_row.saturating_sub(1)).take(4) {
-                    let first = if let Focus::Home(r, i) = self.view.focus {
-                        if r == row_index { i.saturating_sub(self.prefs.covers.columns() - 2) } else { 0 }
-                    } else {
-                        0
-                    };
-                    // Keep the adjacent tiles' art ready as they enter the clipped row.
-                    for item in row.items.iter().skip(first.saturating_sub(1)).take(self.prefs.covers.columns() + 3) {
-                        match item {
-                            HomeItem::Game(id) => ids.push(*id),
-                            HomeItem::Collection(index) => {
-                                if let Some(id) = self.state.profile().user.collections.get(*index).and_then(|c| c.games.first()) {
-                                    if let Some(url) = self.art_url(*id, ArtKind::Hero) {
-                                        wanted.push(url);
-                                    }
-                                }
-                            }
-                            HomeItem::Genre(name) => ids.extend(self.genre_games.get(name).into_iter().flatten().take(3).copied()),
-                        }
-                    }
+                let at = self.home_tile().unwrap_or(0);
+                // The neighbours' art is fetched while focus rests, so the next dip never waits on the network.
+                for id in [at.checked_sub(1), Some(at + 1)].into_iter().flatten().filter_map(|i| self.home_games.get(i)) {
+                    wanted.extend(self.art_url(*id, ArtKind::Hero));
                 }
-                ids
+                // The tile on its way out on the left, the row in view and the one coming in on the right.
+                self.home_games.iter().skip(at.saturating_sub(1)).take(home::TILES_SHOWN + 2).copied().collect()
             }
             Page::Library => {
                 self.filtered.iter().skip(self.view.first_grid_row.saturating_sub(1) * self.library_columns()).take(self.library_columns() * 4).copied().collect()

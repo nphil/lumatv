@@ -1,131 +1,183 @@
-//! Home: the featured game, the shelves, and the first-run list of integrations while there are no games.
+//! Home: one row of the owner's games under the top bar, and behind it the focused game's art, logo, one line and Play. One press down
+//! the row gives way to that game's strip of cards; up brings the row back.
+use super::facts::{Fact, Section};
 use super::nav::Slice;
 use super::*;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HomeItem {
-    Game(GameId),
-    Collection(usize),
-    Genre(String),
+/// The longest the row gets. A service can report hundreds of played games; the Library page lists them all.
+const TILES: usize = 40;
+/// How many tiles the row shows at once, the focused one first.
+pub const TILES_SHOWN: usize = 9;
+
+/// Where focus rests on Home.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Spot {
+    /// A game of the row, by its place in `Model::home_games`.
+    Tile(usize),
+    /// A card of the focused game's strip.
+    Card(HomeCard),
+    /// The empty Home's one button.
+    Add,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HomeRow {
-    pub title: String,
-    pub items: Vec<HomeItem>,
+
+/// The cards of the strip, in their order. Each shows only while its fact is present.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum HomeCard {
+    Achievements,
+    LastPlayed,
+    News,
+    Reviews,
 }
-/// The longest "Continue" or "Most played" shelf on Home. A service can report hundreds of played games; the Library page lists them all.
-const HOME_ROW_MAX: usize = 40;
+impl HomeCard {
+    /// The section of the game page the card opens.
+    pub fn section(self) -> Section {
+        match self {
+            Self::Achievements | Self::LastPlayed | Self::News => Section::Activity,
+            Self::Reviews => Section::Community,
+        }
+    }
+}
+
 pub struct Rules;
 impl Slice for Rules {
     fn rows(m: &Model, _layer: Option<Layer>) -> Vec<Vec<Focus>> {
-        m.home_grid()
+        if m.home_games.is_empty() {
+            return vec![vec![Focus::Home(Spot::Add)]];
+        }
+        let cards: Vec<Focus> = m.home_cards().into_iter().map(|c| Focus::Home(Spot::Card(c))).collect();
+        // Rows are built around where focus is, so that Down from any tile lands on the first card and Up from any card on the tile.
+        if matches!(m.view.focus, Focus::Home(Spot::Card(_))) {
+            vec![m.home_tile().map(|i| Focus::Home(Spot::Tile(i))).into_iter().collect(), cards]
+        } else {
+            vec![(0..m.home_games.len()).map(|i| Focus::Home(Spot::Tile(i))).collect(), cards.into_iter().take(1).collect()]
+        }
+    }
+    fn default_focus(m: &Model, region: Region) -> Option<Focus> {
+        match region {
+            Region::Page => Some(m.home_focus()),
+            Region::Top => Some(Focus::Nav(m.tab())),
+            Region::Layer => None,
+        }
     }
     fn anchor(m: &Model) -> Option<Focus> {
-        m.home_grid().into_iter().flatten().next()
+        Some(m.home_focus())
     }
     fn activate(m: &mut Model, f: Focus, out: &mut Vec<Command>) {
-        m.home_activate(f, out);
+        match f {
+            Focus::Home(Spot::Tile(i)) => {
+                if let Some(id) = m.home_games.get(i).copied() {
+                    m.play(id, out);
+                }
+            }
+            Focus::Home(Spot::Card(card)) => {
+                if let Some(id) = m.view.featured {
+                    m.open_game(id, Some(card.section()));
+                }
+            }
+            Focus::Home(Spot::Add) => m.open_settings(settings::Place::Accounts),
+            _ => {}
+        }
     }
     fn adjust(_m: &mut Model, _f: Focus, _forward: bool, _out: &mut Vec<Command>) -> bool {
         false
     }
     fn subject(m: &Model) -> Option<GameId> {
         match m.view.focus {
-            Focus::Hero(_) => m.view.featured,
-            Focus::Home(r, i) => match m.home_rows.get(r).and_then(|row| row.items.get(i)) {
-                Some(HomeItem::Game(id)) => Some(*id),
-                _ => None,
-            },
+            Focus::Home(Spot::Tile(_) | Spot::Card(_)) => m.view.featured,
             _ => None,
+        }
+    }
+    fn hints(m: &Model) -> Hints {
+        match m.view.focus {
+            Focus::Home(Spot::Card(_)) => Hints(vec![(Key::Up, "Games"), (Key::Menu, "Menu")]),
+            Focus::Home(Spot::Tile(_)) if !m.home_cards().is_empty() => Hints(vec![(Key::Down, "More"), (Key::Menu, "Menu")]),
+            _ => Hints(vec![(Key::Menu, "Menu")]),
         }
     }
 }
 impl Model {
-    fn home_grid(&self) -> Vec<Vec<Focus>> {
-        if self.games.is_empty() {
-            return vec![vec![Focus::Hero(0)]];
-        }
-        let mut rows: Vec<Vec<Focus>> = Vec::new();
-        if self.prefs.text_percent > 100 { rows.extend([vec![Focus::Hero(0)], vec![Focus::Hero(1)], vec![Focus::Hero(2)]]); } else { rows.push(vec![Focus::Hero(0), Focus::Hero(1), Focus::Hero(2)]); }
-        for (r, row) in self.home_rows.iter().enumerate() {
-            rows.push((0..row.items.len()).map(|i| Focus::Home(r, i)).collect());
-        }
-        rows
+    /// The featured game's place in the row.
+    pub fn home_tile(&self) -> Option<usize> {
+        let id = self.view.featured?;
+        self.home_games.iter().position(|g| *g == id)
     }
-    fn home_activate(&mut self, f: Focus, out: &mut Vec<Command>) {
-        match f {
-            Focus::Hero(0) if self.games.is_empty() => self.open_settings(settings::Place::Accounts),
-            Focus::Hero(0) => {
-                if let Some(id) = self.view.featured {
-                    self.view.selected = Some(id);
-                    self.play(id, out);
-                }
+    /// Where focus rests on arriving at Home: the featured game's tile (the last played, until another is focused), else the empty
+    /// Home's button.
+    pub fn home_focus(&self) -> Focus {
+        if self.home_games.is_empty() { Focus::Home(Spot::Add) } else { Focus::Home(Spot::Tile(self.home_tile().unwrap_or(0))) }
+    }
+    /// The featured game's cards whose facts are present.
+    pub fn home_cards(&self) -> Vec<HomeCard> {
+        let Some(id) = self.view.featured else { return Vec::new() };
+        let facts = self.facts(id);
+        let mut cards = Vec::new();
+        if matches!(facts.activity.achievements, Fact::Present(_)) {
+            cards.push(HomeCard::Achievements);
+        }
+        if matches!(facts.activity.last_session, Fact::Present(_)) {
+            cards.push(HomeCard::LastPlayed);
+        }
+        if matches!(facts.activity.news, Fact::Present(news) if !news.is_empty()) {
+            cards.push(HomeCard::News);
+        }
+        if matches!(facts.community.reviews, Fact::Present(_)) {
+            cards.push(HomeCard::Reviews);
+        }
+        cards
+    }
+    /// The stage's one line: "Played 2 h ago · 31 h · 18 of 50 achievements", any part that is not known left out.
+    pub fn home_line(&self, id: GameId) -> String {
+        let facts = self.facts(id);
+        let mut parts = Vec::new();
+        if let Some(ago) = self.since_played(id) {
+            parts.push(format!("Played {}", ago.to_lowercase()));
+        }
+        if let Fact::Present(time) = &facts.activity.play_time {
+            parts.push(game::play_time(time.seconds));
+        }
+        if let Fact::Present(a) = &facts.activity.achievements {
+            parts.push(match a.total {
+                Some(total) => format!("{} of {total} achievements", a.unlocked),
+                None => format!("{} achievements", a.unlocked),
+            });
+        }
+        parts.join("  ·  ")
+    }
+    /// A tile took focus: its game is featured, for the stage and for what is fetched ahead.
+    pub(super) fn home_focused(&mut self, spot: Spot) {
+        if let Spot::Tile(i) = spot {
+            if let Some(id) = self.home_games.get(i) {
+                self.view.featured = Some(*id);
             }
-            Focus::Hero(2) => self.refresh_libraries(None, out),
-            Focus::Hero(_) => {
-                if let Some(id) = self.view.featured {
-                    self.open_game(id, None);
-                }
-            }
-            Focus::Home(r, i) => match self.home_rows.get(r).and_then(|r| r.items.get(i)).cloned() {
-                Some(HomeItem::Game(id)) => self.open_game(id, None),
-                Some(HomeItem::Collection(i)) => {
-                    self.view.filter = Filter { show: library::Show::Collection(i), ..Filter::default() };
-                    self.show_page(Page::Library, Focus::Grid(0));
-                    self.rebuild_filter();
-                }
-                Some(HomeItem::Genre(genre)) => {
-                    self.view.filter = Filter { genre: Some(genre), ..Filter::default() };
-                    self.show_page(Page::Library, Focus::Grid(0));
-                    self.rebuild_filter();
-                }
-                _ => {}
-            },
-            _ => {}
         }
     }
+    /// The row: pinned games, then the recently played, then the most played, each game once and none hidden. A library nobody has
+    /// played yet shows its first games. Focus on a tile follows its game wherever the game now sits.
     pub(super) fn rebuild_rows(&mut self) {
         self.rebuild_genres();
         let profile = self.state.profile();
-        let valid = |id: &GameId| self.games.iter().any(|g| g.id == *id) && !profile.user.hidden.contains(id);
-        let mut rows = Vec::new();
-        // The shelves read this TV's history and every service's reports together (see `activity`).
-        let shelf = |ids: Vec<GameId>, most: usize| ids.into_iter().filter(|id| !profile.user.hidden.contains(id)).take(most).map(HomeItem::Game).collect::<Vec<_>>();
-        let recent = shelf(activity::recently_played(&self.games, &profile.history), HOME_ROW_MAX);
-        if !recent.is_empty() {
-            rows.push(HomeRow { title: "Continue".into(), items: recent });
+        let mut games: Vec<GameId> = Vec::new();
+        // The row reads this TV's history and every service's reports together (see `activity`).
+        let lists = [
+            activity::favourites(&self.games, &profile.user.favourites),
+            activity::recently_played(&self.games, &profile.history),
+            activity::most_played(&self.games, &profile.history),
+        ];
+        for id in lists.into_iter().flatten() {
+            if games.len() < TILES && !profile.user.hidden.contains(&id) && !games.contains(&id) {
+                games.push(id);
+            }
         }
-        let most = shelf(activity::most_played(&self.games, &profile.history), HOME_ROW_MAX);
-        if !most.is_empty() {
-            rows.push(HomeRow { title: "Most played".into(), items: most });
+        if games.is_empty() {
+            games = self.games.iter().map(|g| g.id).filter(|id| !profile.user.hidden.contains(id)).take(TILES).collect();
         }
-        let favourites = shelf(activity::favourites(&self.games, &profile.user.favourites), usize::MAX);
-        if !favourites.is_empty() {
-            rows.push(HomeRow { title: "Favourites".into(), items: favourites });
+        self.home_games = games;
+        if matches!(self.view.focus, Focus::Home(Spot::Tile(_) | Spot::Add)) {
+            if self.view.featured.is_none_or(|id| !self.home_games.contains(&id)) {
+                self.view.featured = self.home_games.first().copied().or(self.view.featured);
+            }
+            self.view.focus = self.home_focus();
         }
-        let collections =
-            profile.user.collections.iter().enumerate().filter(|(_, c)| c.games.iter().any(valid)).map(|(i, _)| HomeItem::Collection(i)).collect::<Vec<_>>();
-        if !collections.is_empty() {
-            rows.push(HomeRow { title: "Collections".into(), items: collections });
-        }
-        let genres = self.genres().into_iter().map(HomeItem::Genre).collect::<Vec<_>>();
-        if !genres.is_empty() {
-            rows.push(HomeRow { title: "Genres".into(), items: genres });
-        }
-        let native = self
-            .games
-            .iter()
-            .filter(|g| valid(&g.id) && g.sources.iter().any(|s| self.integration(&s.engine).is_some_and(|e| e.manifest.kind == EngineKind::Native)))
-            .map(|g| HomeItem::Game(g.id))
-            .collect::<Vec<_>>();
-        if !native.is_empty() {
-            rows.push(HomeRow { title: "Native on this TV".into(), items: native });
-        }
-        if rows.is_empty() && !self.games.is_empty() {
-            rows.push(HomeRow { title: "Library".into(), items: self.games.iter().filter(|g| valid(&g.id)).map(|g| HomeItem::Game(g.id)).collect() });
-        }
-        self.home_rows = rows;
-        self.view.home_row = self.view.home_row.min(self.home_rows.len().saturating_sub(1));
     }
 }
 #[cfg(test)]
@@ -133,15 +185,25 @@ mod tests {
     use super::*;
     use crate::game::model::tests::*;
     #[test]
-    fn no_history_means_no_empty_home_rows_and_idle_tick_does_not_relayout() {
+    fn the_empty_homes_button_opens_accounts() {
         let mut m = Model::new(State::default(), Listing::default(), vec![]);
-        assert!(m.home_rows.is_empty());
+        m.rebuild_navigation();
+        assert_eq!(m.view.focus, Focus::Home(Spot::Add));
+        key(&mut m, Key::Ok);
+        assert_eq!((m.view.page, m.view.place), (Page::Settings, settings::Place::Accounts));
+    }
+
+    #[test]
+    fn no_history_and_an_idle_tick_do_not_relayout() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![]);
+        assert!(m.home_games.is_empty());
         let r = m.revision();
         assert!(m.step(Input::Tick { now_ms: 1000, unix_s: 100 }).is_empty());
         assert_eq!(m.revision(), r);
     }
+
     #[test]
-    fn steam_play_merges_with_this_tvs_history_for_the_shelf_the_sort_and_the_genre_filter() {
+    fn steam_play_merges_with_this_tvs_history_for_the_row_the_sort_and_the_genre_filter() {
         use lumagame_core::activity::{Activity, Place};
         let mut m = Model::new(State::default(), Listing::default(), vec![manifest("pc", "PC", EngineKind::Host), manifest("steam", "Steam", EngineKind::Account)]);
         describe(&mut m, "pc", vec![], &[]);
@@ -170,9 +232,7 @@ mod tests {
         m.rebuild_rows();
         m.rebuild_filter();
 
-        let shelf = |m: &Model, title: &str| m.home_rows.iter().find(|r| r.title == title).map(|r| r.items.clone());
-        assert_eq!(shelf(&m, "Continue"), Some(vec![HomeItem::Game(beta), HomeItem::Game(gamma), HomeItem::Game(alpha)]), "Steam's 9000 beats this TV's 7000 beats Steam's 5000");
-        assert_eq!(shelf(&m, "Most played"), Some(vec![HomeItem::Game(alpha), HomeItem::Game(gamma)]), "7200 s on Steam outranks 60 s here; unplayed Beta is absent");
+        assert_eq!(m.home_games, [beta, gamma, alpha], "Steam's 9000 beats this TV's 7000 beats Steam's 5000");
         assert_eq!(m.last_played(beta).map(|l| l.place), Some(Place::Service(EngineId::new("steam").unwrap())));
         assert_eq!(m.since_played(beta).as_deref(), Some("3 days ago"));
         assert_eq!(m.play_time_of(alpha), Some((7_200, Place::Service(EngineId::new("steam").unwrap()))));
@@ -188,6 +248,7 @@ mod tests {
         m.rebuild_filter();
         assert_eq!(m.filtered, [alpha]);
     }
+
     #[test]
     fn a_service_favourite_joins_the_owners_favourites_without_becoming_one() {
         use lumagame_core::activity::Activity;
@@ -205,8 +266,7 @@ mod tests {
         m.rebuild_rows();
         m.view.filter.show = library::Show::Favourites;
         m.rebuild_filter();
-        let favourites = m.home_rows.iter().find(|r| r.title == "Favourites").map(|r| r.items.clone());
-        assert_eq!(favourites, Some(vec![HomeItem::Game(beta), HomeItem::Game(alpha)]));
+        assert_eq!(m.home_games, [beta, alpha], "both pins lead, and nothing else has been played");
         assert_eq!(m.filtered, [alpha, beta], "the filter takes both, in title order");
         assert_eq!((m.is_favourite(alpha), m.is_favourite(gamma)), (true, false));
         assert_eq!(m.favourite_on(alpha), ["GeForce NOW"]);

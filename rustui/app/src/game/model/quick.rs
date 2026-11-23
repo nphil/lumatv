@@ -271,15 +271,11 @@ impl Model {
                     self.view.restore(way);
                     self.rebuild_filter();
                 }
-                None => self.switch_tab(0, Focus::Hero(0)),
+                None => self.switch_tab(0, self.home_focus()),
             }
         }
         self.view.focus = match self.view.focus {
             Focus::Grid(i) if i >= self.filtered.len() => self.filtered.len().checked_sub(1).map_or(Focus::Filter(0), Focus::Grid),
-            Focus::Home(r, i) => match self.home_rows.get(r) {
-                Some(row) if !row.items.is_empty() => Focus::Home(r, i.min(row.items.len() - 1)),
-                _ => Focus::Hero(0),
-            },
             focus => focus,
         };
     }

@@ -271,27 +271,25 @@ pub(super) fn fixture() -> Model {
             }
         }
     }
-    let continue_titles =
-        ["Baldur's Gate 3", "Cyberpunk 2077", "Clair Obscur: Expedition 33", "Stardew Valley", "Forza Horizon 5", "Elden Ring", "It Takes Two"];
-    let most = ["Stardew Valley", "Elden Ring", "The Witcher 3: Wild Hunt", "Baldur's Gate 3", "Red Dead Redemption 2", "Rocket League", "Hollow Knight"];
-    model.home_rows = vec![
-        HomeRow { title: "Continue".into(), items: continue_titles.iter().map(|s| HomeItem::Game(id(&model, s))).collect() },
-        HomeRow { title: "Most played".into(), items: most.iter().map(|s| HomeItem::Game(id(&model, s))).collect() },
-        HomeRow {
-            title: "Genres".into(),
-            items: ["RPG", "Action", "Platformer", "Shooter", "Racing"].into_iter().map(|s| HomeItem::Genre(s.into())).collect(),
-        },
-        HomeRow {
-            title: "On this TV".into(),
-            items: ["Quake", "DOOM + DOOM II", "Celeste Classic", "OpenTTD", "SuperTuxKart", "Freedoom"]
-                .iter()
-                .map(|s| HomeItem::Game(id(&model, s)))
-                .collect(),
-        },
+    // The mock's row: the last played first, then the rest of the recent and most played, and a native game that Steam does not know.
+    let row = [
+        "Hades II",
+        "Baldur's Gate 3",
+        "Cyberpunk 2077",
+        "Clair Obscur: Expedition 33",
+        "Balatro",
+        "Forza Horizon 5",
+        "Elden Ring",
+        "It Takes Two",
+        "Stardew Valley",
+        "The Witcher 3: Wild Hunt",
+        "Red Dead Redemption 2",
+        "Quake",
     ];
+    model.home_games = row.iter().map(|s| id(&model, s)).collect();
     model.view.featured = Some(id(&model, "Hades II"));
     model.view.selected = model.view.featured;
-    model.view.focus = Focus::Home(0, 1);
+    model.view.focus = model.home_focus();
     model.rebuild_navigation();
     model
 }

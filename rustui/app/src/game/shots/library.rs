@@ -63,7 +63,7 @@ pub(super) fn refresh_screens(base: &Model) -> Vec<(String, Model)> {
         base.integrations.iter_mut().find(|e| e.manifest.id.as_str() == "gfn").unwrap().descriptor.as_mut().unwrap().capabilities.features.insert(Feature::StoreSync);
         let gfn = EngineId::new("gfn").unwrap();
         let mut working = base.clone();
-        working.view.focus = Focus::Hero(2);
+        working.view.focus = working.home_focus();
         working.refresh_libraries(Some(gfn.clone()), &mut Vec::new());
         let mut failed = working.clone();
         event(&mut failed, "gfn", ipc::Event::Error { code: ipc::ErrorCode::Network, message: "offline".into() });

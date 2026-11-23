@@ -220,7 +220,7 @@ mod tests {
     fn home() -> Model {
         let mut m = launching("Game", false);
         m.session = None;
-        m.switch_tab(0, Focus::Hero(0));
+        m.switch_tab(0, m.home_focus());
         m.rebuild_navigation();
         m
     }
@@ -252,7 +252,7 @@ mod tests {
         key(&mut m, Key::Back);
         assert_eq!((m.view.page, m.view.focus), (Page::Game, Focus::Play), "then the anchor");
         key(&mut m, Key::Back);
-        assert_eq!((m.view.page, m.view.focus), (Page::Home, Focus::Hero(0)), "then the page before");
+        assert_eq!((m.view.page, m.view.focus), (Page::Home, m.home_focus()), "then the page before");
 
         assert!(key(&mut m, Key::Back).is_empty() && m.leave_armed(), "at Home's anchor the first Back only asks");
         assert_eq!(m.hints(), Hints(vec![(Key::Back, "Back again to leave")]));
@@ -291,12 +291,13 @@ mod tests {
     #[test]
     fn leaving_a_region_and_coming_back_resumes_where_focus_rested() {
         let mut m = home();
-        m.set_focus(Focus::Hero(2));
+        let tile = m.home_focus();
+        m.set_focus(tile);
         key(&mut m, Key::Up);
         assert_eq!(m.view.focus, Focus::Nav(0), "a region with no memory starts at its default");
         key(&mut m, Key::Right);
         key(&mut m, Key::Down);
-        assert_eq!(m.view.focus, Focus::Hero(2), "the page resumes");
+        assert_eq!(m.view.focus, tile, "the page resumes");
         key(&mut m, Key::Up);
         assert_eq!(m.view.focus, Focus::Nav(1), "and so does the top bar");
     }

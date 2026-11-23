@@ -7,7 +7,7 @@
 //!
 //! The automatic refreshes (stream return, coming back after a long time away) never show anything and are throttled per engine.
 
-use super::{Command, Focus, HomeItem, Integration, Model, Page, Request, ipc};
+use super::{Command, Focus, Integration, Model, Page, Request, ipc};
 use lumagame_core::engine::{EngineKind, Feature};
 use lumagame_core::ids::{EngineId, GameId, TargetId};
 use std::collections::{BTreeMap, BTreeSet};
@@ -64,10 +64,9 @@ pub enum Line {
     Done { text: String, problem: bool },
 }
 
-/// The held card: what the focus pointed at before the catalog was rebuilt.
+/// The held card: what the focus pointed at before the catalog was rebuilt. Home's tiles follow their game by themselves (`rebuild_rows`).
 pub enum Held {
     Grid(GameId, usize),
-    Home(usize, HomeItem),
 }
 
 impl Refresher {
@@ -321,7 +320,6 @@ impl Model {
     pub(super) fn held(&self) -> Option<Held> {
         match (self.view.page, self.view.focus) {
             (Page::Library, Focus::Grid(i)) => self.filtered.get(i).map(|id| Held::Grid(*id, self.view.first_grid_row.min(i / self.library_columns()))),
-            (Page::Home, Focus::Home(r, i)) => self.home_rows.get(r).and_then(|row| row.items.get(i)).map(|item| Held::Home(r, item.clone())),
             _ => None,
         }
     }
@@ -338,15 +336,6 @@ impl Model {
                     };
                     self.view.focus = Focus::Grid(at);
                     self.view.first_grid_row = (at / columns).saturating_sub(offset);
-                }
-            }
-            Some(Held::Home(row, item)) => {
-                let found = self.home_rows.get(row).and_then(|r| r.items.iter().position(|i| *i == item)).map(|i| (row, i)).or_else(|| {
-                    self.home_rows.iter().enumerate().find_map(|(r, row)| row.items.iter().position(|i| *i == item).map(|i| (r, i)))
-                });
-                if let Some((r, i)) = found {
-                    self.view.focus = Focus::Home(r, i);
-                    self.view.home_row = r;
                 }
             }
             None => {}

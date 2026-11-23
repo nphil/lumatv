@@ -177,14 +177,14 @@ impl<'a> Paint<'a> {
         let focus = if view.top().is_some_and(Layer::is_sheet) { None } else { self.plan.hits.iter().find(|(id, _)| *id == view.focus).map(|(_, f)| *f) };
         let scrollable = |id: u64| match (view.page, view.pane) {
             (Page::Game, _) if view.top() == Some(Layer::Viewer) => false,
-            (Page::Home | Page::Game, _) => id >= 100,
+            (Page::Game, _) => id >= 100,
             (Page::Settings, _) => false,
             (Page::Library, _) => id >= 1000,
             _ => false,
         };
         let fixed = |id: &Focus| matches!(id, Focus::Nav(_) | Focus::Rail(_));
         let shift = focus.map_or(0.0, |focus| {
-            let caption = if matches!(self.model.view.focus, Focus::Home(_, _) | Focus::Grid(_)) {
+            let caption = if matches!(self.model.view.focus, Focus::Grid(_)) {
                 self.line(TypeRole::Body) + self.line(TypeRole::Caption) + 40.0
             } else {
                 0.0
@@ -195,7 +195,7 @@ impl<'a> Paint<'a> {
             } else {
                 0.0
             };
-            if matches!(self.model.view.focus, Focus::Home(_, _)) { 0.0 } else { ((focus.y + focus.h + caption).max(end) - (H - self.y)).max(0.0) }
+            ((focus.y + focus.h + caption).max(end) - (H - self.y)).max(0.0)
         });
         let grouped: std::collections::BTreeSet<_> = self.plan.groups.iter().flat_map(|group| group.nodes.iter().copied()).collect();
         for node in &mut self.plan.nodes {
@@ -654,7 +654,7 @@ mod tests {
 
     #[test]
     fn a_focused_button_zooms_by_the_theme_scale_without_an_underline_even_with_reduced_motion() {
-        use crate::game::model::Model;
+        use crate::game::model::{Model, home::Spot};
         use lumagame_core::{catalog::Listing, state::State};
         let host = Tokens::shipped();
         let tokens = lumatv_tokens::themes::game_tokens("rose-pine", Mode::Dark, &host).unwrap();
@@ -662,10 +662,10 @@ mod tests {
         for reduce_motion in [false, true] {
             let mut m = Model::new(State::default(), Listing::default(), vec![]);
             m.prefs.reduce_motion = reduce_motion;
-            m.view.focus = Focus::Hero(0);
+            m.view.focus = Focus::Home(Spot::Tile(0));
             let mut p = Paint::new(&tokens, &m, &mut fonts);
-            p.button(10, Focus::Hero(0), "Play", None, 0.0, 0.0, true, false, 12);
-            p.button(20, Focus::Hero(1), "Details", None, 300.0, 0.0, false, false, 12);
+            p.button(10, Focus::Home(Spot::Tile(0)), "Play", None, 0.0, 0.0, true, false, 12);
+            p.button(20, Focus::Home(Spot::Tile(1)), "Details", None, 300.0, 0.0, false, false, 12);
             p.icon_button(30, Focus::Where, Icon::Back, 600.0, 0.0, false, 12);
             let scales = |range: std::ops::Range<u64>| p.plan.nodes.iter().filter(|n| range.contains(&n.id)).map(|n| n.props.scale).collect::<Vec<_>>();
             assert_eq!(scales(10..20), [tokens.focus.button_scale; 2], "reduced motion {reduce_motion}");

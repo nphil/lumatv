@@ -12,7 +12,7 @@ mod quick;
 mod settings;
 
 use super::{model::*, screens::GameUi, uplink::{Medium, Uplink}};
-use super::model::{game::media::Media, home::{HomeItem, HomeRow}, settings::{Pane, Place}};
+use super::model::{game::media::Media, home::Spot, settings::{Pane, Place}};
 use super::helper::{GameSirState, LeadjoyState, gamesir_fixture, leadjoy_fixture};
 use compositor_protocol::Event;
 use lumagame_core::{

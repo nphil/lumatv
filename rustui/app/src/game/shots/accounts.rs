@@ -24,7 +24,7 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
     m.view.focus = Focus::Setting(0);
     add("settings-a-accounts-offline-pc", m);
     let mut m = Model::new(State::default(), Listing::default(), base.integrations.iter().map(|e| e.manifest.clone()).collect());
-    m.view.focus = Focus::Hero(0);
+    m.view.focus = Focus::Home(Spot::Add);
     add("home-a-empty", m.clone());
     m.open_settings(Place::Accounts);
     m.view.focus = Focus::Setting(0);
@@ -56,7 +56,6 @@ pub(super) fn steam_screens(base: &Model) -> Vec<(String, Model)> {
         ("62-steam-signed-in", SteamShot::SignedIn, None, ""),
         ("63-steam-home", SteamShot::SignedIn, Some(Page::Home), ""),
         ("64-steam-hub", SteamShot::SignedIn, Some(Page::Game), "Baldur's Gate 3"),
-        ("65-steam-home-favourites", SteamShot::SignedIn, Some(Page::Home), "Favourites"),
     ] {
         for (suffix, light, text) in [("", false, 100), ("-light", true, 100), ("-200", false, 200), ("-200-light", true, 200)] {
             let mut m = with_steam(base.clone(), shot);
@@ -68,8 +67,7 @@ pub(super) fn steam_screens(base: &Model) -> Vec<(String, Model)> {
                 }
                 Some(page) => {
                     m.view.page = page;
-                    let row = m.home_rows.iter().position(|r| r.title == title).unwrap_or(0);
-                    m.view.focus = Focus::Home(row, 0);
+                    m.view.focus = m.home_focus();
                 }
                 None => {}
             }
