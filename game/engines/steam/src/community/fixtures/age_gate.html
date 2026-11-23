@@ -1,0 +1,42 @@
+<div  data-featuretarget="footer"></div>
+		<div role="main" class="responsive_page_template_content" id="responsive_page_template_content" data-panel="{&quot;autoFocus&quot;:true,&quot;navKey&quot;:&quot;responsive_page_template_content&quot;}" >
+
+			<script lang="js">
+
+	function Proceed()
+	{
+					AcceptAppHub();
+		self.location.reload();
+	}
+
+	function AcceptAppHub()
+	{
+		const strMatureApps = V_GetCookie( 'wants_mature_content_apps' );
+		let rgMatureApps = strMatureApps && strMatureApps.length !== 0 ? strMatureApps.split( "|" ) : [];
+
+		rgMatureApps.push( '1091500' );
+
+		V_SetCookie( 'wants_mature_content_apps', rgMatureApps.join( "|" ), 365 );
+	}
+</script>
+
+<div class="pagecontent maincontent">
+
+	<div class="contentcheck_desc_ctn">
+
+						<img class="contentcheck_app_img" src="https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1091500/header.jpg?t=1" />
+
+					<div class="contentcheck_type_ctn">
+				<div class="contentcheck_header">THIS GAME CONTAINS CONTENT YOU HAVE ASKED NOT TO SEE:</div>
+					<div class="contentcheck_descriptors_ctn"><span class="contentcheck_descriptor ttip" data-tooltip-text="Games or content that contain some nudity or sexual themes, but not as the primary focus.">Some Nudity or Sexual Content</span>	</div>
+			</div>
+
+		<div class="contentcheck_btns_ctn">
+			<button data-panel="{&quot;focusable&quot;:true,&quot;clickOnActivate&quot;:true}" role="button" class="btn_blue_steamui btn_medium" style="margin-right: 15px;" onclick="Proceed();" ><span>View Community Hub</span></button>
+			<button class="btn_blue_steamui btn_medium" onclick="Cancel()" ><span>Cancel</span></button>
+		</div>
+
+	</div>
+</div>
+
+		</div>	<!-- responsive_page_legacy_content -->

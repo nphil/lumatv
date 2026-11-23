@@ -9,9 +9,10 @@ use std::fmt::{self, Write as _};
 use std::io::{self, Read};
 use std::time::Duration;
 
-/// Steam's web API and its community site: the only two hosts the engine talks to.
+/// Steam's web API, its community site and its store: the only hosts the engine talks to.
 pub const API: &str = "https://api.steampowered.com";
 pub const COMMUNITY: &str = "https://steamcommunity.com";
+pub const STORE: &str = "https://store.steampowered.com";
 
 /// An address on the web API: `api("/IPlayerService/GetOwnedGames/v1/")`.
 pub fn api(path: &str) -> String {
@@ -22,6 +23,8 @@ pub fn api(path: &str) -> String {
 pub const SMALL_BODY: usize = 1 << 20;
 pub const LIBRARY_BODY: usize = 8 << 20;
 pub const PERSONA_BODY: usize = 256 << 10;
+/// A community page: a hub fragment is 20 to 35 KB and a discussion about 120 KB.
+pub const PAGE_BODY: usize = 512 << 10;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Resp {
@@ -73,6 +76,8 @@ impl std::error::Error for HttpError {}
 pub trait Http {
     /// A GET. `limit` is the most body bytes accepted.
     fn get(&self, url: &str, limit: usize) -> Result<Resp, HttpError>;
+    /// A GET with `headers` added that gives up after `timeout` in all, whatever the client's own limit is.
+    fn get_within(&self, url: &str, headers: &[(&str, &str)], limit: usize, timeout: Duration) -> Result<Resp, HttpError>;
     /// A POST of an already encoded `application/x-www-form-urlencoded` body (see [`form`]), with `headers` added to it.
     fn post_form(&self, url: &str, headers: &[(&str, &str)], body: &str, limit: usize) -> Result<Resp, HttpError>;
 }
@@ -128,6 +133,12 @@ impl Http for Ureq {
     fn get(&self, url: &str, limit: usize) -> Result<Resp, HttpError> {
         require_https(url)?;
         finish(self.agent.get(url).call(), limit)
+    }
+
+    fn get_within(&self, url: &str, headers: &[(&str, &str)], limit: usize, timeout: Duration) -> Result<Resp, HttpError> {
+        require_https(url)?;
+        let request = headers.iter().fold(self.agent.get(url), |request, (name, value)| request.set(name, value));
+        finish(request.timeout(timeout).call(), limit)
     }
 
     fn post_form(&self, url: &str, headers: &[(&str, &str)], body: &str, limit: usize) -> Result<Resp, HttpError> {

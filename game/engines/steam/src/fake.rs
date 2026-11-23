@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 /// The account every test signs in as.
 pub const STEAMID: &str = "76561198000000001";
@@ -140,6 +141,10 @@ impl FakeHttp {
 impl Http for FakeHttp {
     fn get(&self, url: &str, limit: usize) -> Result<Resp, HttpError> {
         self.reply(false, url, &[], "", limit)
+    }
+
+    fn get_within(&self, url: &str, headers: &[(&str, &str)], limit: usize, _timeout: Duration) -> Result<Resp, HttpError> {
+        self.reply(false, url, headers, "", limit)
     }
 
     fn post_form(&self, url: &str, headers: &[(&str, &str)], body: &str, limit: usize) -> Result<Resp, HttpError> {

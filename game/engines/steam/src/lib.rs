@@ -4,6 +4,9 @@
 //! long and what kind of game it is; the app puts that on the games it already lists from other engines. Steam's own Favorites and
 //! collections live in the Steam client and are out of reach.
 //!
+//! For one game's page it also reads the community's public pages when the app asks: reviews, news, how many play now, achievement
+//! rarity, pictures and videos, discussions and guides. That needs no sign-in, and what it reads is kept in memory for ten minutes only.
+//!
 //! [`Adapter`] is the whole engine without a process around it: it takes a request, answers with events, and says when it next has to
 //! run. The network and the clock are handed in, so every path is tried against fakes; [`runtime`] owns the pipes and the sleeping.
 //!
@@ -12,6 +15,7 @@
 
 mod achievements;
 mod auth;
+mod community;
 #[cfg(test)]
 mod fake;
 mod files;
@@ -86,6 +90,8 @@ pub struct Adapter<H, C> {
     pub(crate) attempt: Option<Attempt>,
     pub(crate) snapshot: Option<Snapshot>,
     pub(crate) store: Option<Store>,
+    /// What the community pages answered in the last ten minutes. In memory only.
+    pub(crate) community: community::State,
     /// The owner asked for a refresh: the next start of a library round goes to Steam whatever the wait.
     pub(crate) refresh_wanted: bool,
     /// The events of the call in progress.
@@ -107,6 +113,7 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             attempt: None,
             snapshot: None,
             store: None,
+            community: community::State::default(),
             refresh_wanted: false,
             out: Vec::new(),
             targets_changed: false,
@@ -175,6 +182,8 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             Request::Forget { target } => self.forget(seq, &target),
             Request::Library { target, cursor } => self.library(seq, target, cursor.as_deref()),
             Request::Achievements { target, game } => self.achievements(seq, target, game),
+            Request::Community { game, mature } => self.community(seq, game, mature),
+            Request::CommunityThread { game, topic, mature } => self.community_thread(seq, game, topic, mature),
             _ => self.error(seq, ErrorCode::Unsupported, "This operation is not supported by Steam"),
         }
     }
@@ -255,7 +264,7 @@ pub fn descriptor() -> Descriptor {
             targets: TargetKind::Account,
             auth: vec![AuthMethod::Qr],
             presentation: Presentation::Nothing,
-            features: BTreeSet::from([Feature::Achievements]),
+            features: BTreeSet::from([Feature::Achievements, Feature::Community]),
             video: None,
         },
     }
@@ -308,7 +317,7 @@ mod tests {
         let capabilities = descriptor().capabilities;
         assert_eq!((capabilities.kind, capabilities.targets, capabilities.presentation), (EngineKind::Account, TargetKind::Account, Presentation::Nothing));
         assert_eq!(capabilities.auth, [AuthMethod::Qr]);
-        assert!(capabilities.features.iter().eq([&Feature::Achievements]) && capabilities.video.is_none());
+        assert!(capabilities.features.iter().eq([&Feature::Achievements, &Feature::Community]) && capabilities.video.is_none());
         assert_eq!(schema().validate(), Ok(()));
         assert_eq!(rig.log.lines(), ["ready, signed out"]);
     }

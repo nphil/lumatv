@@ -122,6 +122,8 @@ word_enum! {
         StoreSync => "store-sync",
         /// Answers `achievements` with what the owner has unlocked in one game.
         Achievements => "achievements",
+        /// Answers `community` with what a store's community says about one game, and `community-thread` with one topic's posts.
+        Community => "community",
     }
     unknown => Other
 }

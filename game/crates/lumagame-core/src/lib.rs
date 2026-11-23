@@ -13,6 +13,7 @@
 //! | [`catalog`] | one card per game: which library entries are the same game, never by title alone |
 //! | [`history`] | what was played and for how long, counted only for sessions that started |
 //! | [`activity`] | what an account knows about a game (last played, play time, favourite, genres) and how it joins this TV's history |
+//! | [`community`] | what a store's community says about one game, section by section, each present or absent with its reason |
 //! | [`launch`] | which target Play uses, and when it must ask |
 //! | [`session`] | one launch from Checking to its end, on a clock the caller supplies |
 //! | [`state`] | the saved state, its schema version and the steps that bring an older file forward |
@@ -72,6 +73,7 @@ macro_rules! word_enum {
 
 pub mod activity;
 pub mod catalog;
+pub mod community;
 pub mod engine;
 pub mod history;
 pub mod ids;

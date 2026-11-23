@@ -189,6 +189,7 @@ impl Engine {
             Request::SteamOverlay {..}=>self.emit(error(Some(seq),ErrorCode::Unsupported,"This engine does not open Steam's overlay.")),
             Request::Activity {..}=>self.emit(error(Some(seq),ErrorCode::Unsupported,"This engine sends no idle warning.")),
             Request::Achievements {..}=>self.emit(error(Some(seq),ErrorCode::Unsupported,"This engine has no achievements.")),
+            Request::Community {..} | Request::CommunityThread {..}=>self.emit(error(Some(seq),ErrorCode::Unsupported,"This engine has no community pages.")),
         }
         Ok(())
     }

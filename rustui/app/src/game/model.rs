@@ -2703,6 +2703,8 @@ impl Model {
             }
             ipc::Event::Refresh { step, note } => self.refresh_step(&id, step, note, out),
             ipc::Event::Achievements { target, game, unlocked } => self.owned_achievements(&id, &target, &game, unlocked),
+            // The redesigned game page consumes these answers.
+            ipc::Event::Community { .. } | ipc::Event::CommunityThread { .. } => {}
             ipc::Event::Unknown => {}
         }
     }

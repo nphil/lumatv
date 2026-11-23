@@ -14,6 +14,7 @@
 //!   shutdown path, and nothing an engine holds outlives the app.
 
 use crate::activity::Activity;
+use crate::community::{Community, Section, Thread};
 use crate::engine::{AuthMethod, Codec, Descriptor};
 use crate::ids::{ExternalId, ProviderGameId, SessionId, TargetId};
 use crate::settings::{SettingsSchema, Values};
@@ -143,6 +144,23 @@ pub enum Request {
         target: TargetId,
         game: ProviderGameId,
     },
+    /// Asks for what the store's community says about one game: reviews, news, players, achievement rarity, pictures, videos,
+    /// discussions and guides. Answered with `community`, only by an engine with the `community` feature. The data is public, so no
+    /// target is named and no sign-in is needed; `game` is the id the store knows the game by (a Steam app id). `mature` says the owner
+    /// agreed to pages the store keeps behind an age check; without it the engine reports them as `age-gated`.
+    Community {
+        game: ProviderGameId,
+        #[serde(default)]
+        mature: bool,
+    },
+    /// Asks for the first posts of one discussion topic, named by a `Topic::id` of the `community` answer for the same game. Answered
+    /// with `community-thread`; `mature` is as for `community`.
+    CommunityThread {
+        game: ProviderGameId,
+        topic: String,
+        #[serde(default)]
+        mature: bool,
+    },
 }
 
 /// The first message: where the engine may keep things and what the TV can show.
@@ -253,6 +271,17 @@ pub enum Event {
         target: TargetId,
         game: ProviderGameId,
         unlocked: Vec<Unlocked>,
+    },
+    /// What the community says about one game, for an engine with `community`.
+    Community {
+        game: ProviderGameId,
+        community: Community,
+    },
+    /// One discussion topic's first posts, for an engine with `community`.
+    CommunityThread {
+        game: ProviderGameId,
+        topic: String,
+        thread: Section<Thread>,
     },
     Error {
         code: ErrorCode,
@@ -719,6 +748,7 @@ impl LineBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::community::Absence;
     use crate::engine::{Capabilities, EngineKind, Feature, Presentation, TargetKind};
     use crate::ids::EngineId;
     use crate::settings::Value;
@@ -809,6 +839,8 @@ mod tests {
             Request::SteamOverlay { session: SessionId(1) },
             Request::Activity { session: SessionId(1) },
             Request::Achievements { target: target(), game: game() },
+            Request::Community { game: game(), mature: false },
+            Request::CommunityThread { game: game(), topic: "0/565925967576627123".into(), mature: true },
             Request::Action { key: "sign-out".into() },
         ];
         for (seq, request) in requests.into_iter().enumerate() {
@@ -876,6 +908,13 @@ mod tests {
             Event::Refresh { step: Some("Checking Steam".into()), note: None },
             Event::Refresh { step: None, note: Some("Steam could not be refreshed.".into()) },
             Event::Achievements { target: target(), game: game(), unlocked: vec![Unlocked { name: "ACH_WIN".into(), at: Some(1_700_000_000) }] },
+            Event::Community { game: game(), community: crate::community::sample() },
+            Event::CommunityThread {
+                game: game(),
+                topic: "0/565925967576627123".into(),
+                thread: Section::Present { value: crate::community::sample_thread() },
+            },
+            Event::CommunityThread { game: game(), topic: "0/565925967576627123".into(), thread: Section::absent(Absence::AgeGated) },
             Event::Error { code: ErrorCode::Unsupported, message: "wake".into() },
         ];
         for event in events {
@@ -912,6 +951,14 @@ mod tests {
         assert!(decode::<LibraryEntry>(page).unwrap().activity.is_empty(), "an engine that predates activity lists the same entries");
         let with = LibraryEntry { activity: Activity { favourite: true, ..Activity::default() }, ..entry() };
         assert!(encode(&with).contains(r#""activity":{"favourite":true}"#));
+    }
+
+    #[test]
+    fn a_community_request_asks_for_age_checked_pages_only_when_it_says_so() {
+        let plain: ToEngine = decode(r#"{"seq":3,"type":"community","game":"1091500"}"#).unwrap();
+        assert_eq!(plain.request, Request::Community { game: ProviderGameId::new("1091500").unwrap(), mature: false });
+        let thread: ToEngine = decode(r#"{"seq":4,"type":"community-thread","game":"1091500","topic":"0/5","mature":true}"#).unwrap();
+        assert_eq!(thread.request, Request::CommunityThread { game: ProviderGameId::new("1091500").unwrap(), topic: "0/5".into(), mature: true });
     }
 
     #[test]
