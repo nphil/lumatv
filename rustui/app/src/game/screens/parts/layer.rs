@@ -7,13 +7,16 @@ use crate::game::model::{Layer, library::Sort};
 use crate::game::screens::parts::{SHEET_Z, dialog::*, keyboard::*, motion::Enter};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{geometry::Frame, lucent::palette::PaletteRole as Role};
-use crate::game::screens::{accounts::auth, game::chooser, launch::end_session, library::list, settings::{delete, themes}};
+use crate::game::screens::{accounts::auth, quick::quick, game::chooser, launch::end_session, library::list, settings::{delete, themes}};
 
 pub fn sheet(p: &mut Paint<'_>) {
     let Some(sheet) = p.model.view.top().filter(|layer| layer.is_sheet()) else {
         return;
     };
-    curtain(p);
+    // The quick menu's drawer keeps the page in view beside it.
+    if !matches!(sheet, Layer::Quick | Layer::QuickSettings) {
+        curtain(p);
+    }
     match sheet {
         Layer::Chooser => chooser(p),
         Layer::Sort => list(p, "Sort by", Sort::ALL.iter().map(|s| s.name().into()).collect()),
@@ -27,6 +30,7 @@ pub fn sheet(p: &mut Paint<'_>) {
         Layer::EndSession => end_session(p),
         Layer::AddHost | Layer::EditText => edit_text(p),
         Layer::Delete => delete(p),
+        Layer::Quick | Layer::QuickSettings => quick(p),
         // Drawn by their page in place of its own content.
         Layer::Viewer | Layer::StreamMenu => {}
     }

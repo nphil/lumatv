@@ -30,9 +30,9 @@ const AVATAR_W: f32 = 76.0;
 /// The room between a shoulder mark and the pill it belongs to.
 const BUMP_GAP: f32 = 14.0;
 
-/// Whether an account needs the player: the avatar then wears a dot. Until the model says so, none does.
-pub fn needs_attention(_: &Paint<'_>) -> bool {
-    false
+/// Whether an account needs the player: the avatar then wears a dot.
+pub fn needs_attention(p: &Paint<'_>) -> bool {
+    p.model.attention().is_some()
 }
 
 /// The pill's look: glass over art, which is captured once with the page; over a flat canvas there is nothing to blur, so it is a tint;
