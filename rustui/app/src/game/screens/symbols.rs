@@ -6,6 +6,10 @@ use ui::ImageLayer;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Symbol {
     Library,
+    /// A two-handled pad with a cross and two buttons.
+    Gamepad,
+    /// A cup on a stem, with handles.
+    Trophy,
     /// The marking printed on one face button of a pad that is not Xbox-styled, in a 24-unit box the size of the button. `ring` adds the
     /// button's rim, for a button that must not vanish into a dark sheet.
     Face { kind: PadKind, face: Face, ring: bool },
@@ -109,6 +113,30 @@ fn playstation(face: Face) -> Vec<Shape> {
 fn shapes(symbol: Symbol) -> (Vec<Shape>, f32) {
     use Shape::*;
     let fixed: &[Shape] = match symbol {
+        Symbol::Gamepad => {
+            let mut s = vec![Line(6.7, 5.0, 17.3, 5.0), Line(21.3, 8.7, 22.0, 16.0)];
+            arc(&mut s, 17.3, 9.0, 4.0, 4.0, -90.0, -5.0);
+            arc(&mut s, 19.0, 16.0, 3.0, 3.0, 0.0, 90.0);
+            for (a, b, c, d) in [(19.0, 19.0, 17.0, 18.0), (17.0, 18.0, 15.6, 16.6), (15.6, 16.6, 14.2, 16.0), (14.2, 16.0, 9.8, 16.0)] {
+                s.extend([Line(a, b, c, d), Line(24.0 - a, b, 24.0 - c, d)]);
+            }
+            arc(&mut s, 5.0, 16.0, 3.0, 3.0, 90.0, 180.0);
+            s.push(Line(2.0, 16.0, 2.7, 8.7));
+            arc(&mut s, 6.7, 9.0, 4.0, 4.0, 185.0, 270.0);
+            s.extend([Line(6.0, 11.0, 10.0, 11.0), Line(8.0, 9.0, 8.0, 13.0), Dot(15.0, 12.0, 1.1), Dot(18.0, 10.0, 1.1)]);
+            return (s, STROKE);
+        }
+        Symbol::Trophy => {
+            let mut s = vec![Line(6.0, 2.0, 18.0, 2.0), Line(18.0, 2.0, 18.0, 9.0), Line(6.0, 9.0, 6.0, 2.0), Line(4.0, 22.0, 20.0, 22.0)];
+            arc(&mut s, 12.0, 9.0, 6.0, 6.0, 0.0, 180.0);
+            // The handles and the stem, mirrored about the middle.
+            for (a, b, c, d) in [(18.0, 4.0, 22.0, 4.0), (22.0, 4.0, 22.0, 7.5), (19.5, 10.0, 17.9, 10.0), (14.0, 14.7, 14.0, 17.5), (14.0, 17.5, 16.5, 19.5), (16.5, 19.5, 17.0, 22.0)] {
+                s.extend([Line(a, b, c, d), Line(24.0 - a, b, 24.0 - c, d)]);
+            }
+            arc(&mut s, 19.5, 7.5, 2.5, 2.5, 0.0, 90.0);
+            arc(&mut s, 4.5, 7.5, 2.5, 2.5, 90.0, 180.0);
+            return (s, STROKE);
+        }
         Symbol::Library => &[
             Line(3.0, 4.0, 7.0, 4.0),
             Line(7.0, 4.0, 7.0, 20.0),

@@ -8,7 +8,7 @@
 //! figures pill takes two of the HUD's ids (it sits above y = 150, which the page's cull spares only for them); 8300 and up the rows of
 //! a drawer, 20 to a row.
 use super::{
-    paint::{Body, Fill, H, HUD, LIVE, Paint, W},
+    paint::{Fill, H, HUD, LIVE, Paint, W},
     parts::{
         SHEET_Z, Side,
         dialog::{self, Action},
@@ -16,7 +16,7 @@ use super::{
         motion::Enter,
         row::{self, Leading, Line},
         stage::logo_art,
-        strip::{self, Item},
+        strip::{self, Item, Sign},
     },
     stats,
     symbols::Symbol,
@@ -141,13 +141,13 @@ pub fn running(p: &mut Paint<'_>) {
     }
 }
 
-fn icon(item: StripItem) -> Icon {
+fn icon(item: StripItem) -> Sign {
     match item {
-        StripItem::Resume => Icon::Play,
-        StripItem::Picture => Icon::Sun,
-        StripItem::Controller => Icon::Cog,
-        StripItem::Achievements => Icon::Checklist,
-        StripItem::End => Icon::Power,
+        StripItem::Resume => Sign::Icon(Icon::Play),
+        StripItem::Picture => Sign::Icon(Icon::Sun),
+        StripItem::Controller => Sign::Symbol(Symbol::Gamepad),
+        StripItem::Achievements => Sign::Symbol(Symbol::Trophy),
+        StripItem::End => Sign::Icon(Icon::Power),
     }
 }
 
@@ -261,12 +261,9 @@ fn achievements(p: &mut Paint<'_>) {
     hints::bar(p, &hints_now, Side::Left, m.hints_dim);
 }
 
-/// The second action of `dialog::modal`: the one that ends the session. Its words are the surface's id and one.
-const LEAVE_LABEL: u64 = 8825;
-
 /// The prompt before a session ends, on an opaque backdrop. Focus starts on Keep playing, which is also what a half minute of quiet
-/// chooses. Nothing behind a sheet over the stream is captured, so the buttons rest as plain tint, and the one that ends reads in the
-/// danger ink.
+/// chooses. Nothing behind a sheet over the stream is captured, so the buttons rest as plain tint; the one that ends carries the danger
+/// icon, as every dialog's does.
 fn end(p: &mut Paint<'_>) {
     let m = p.model;
     let (title, body, confirm) = m.end_copy();
@@ -274,17 +271,8 @@ fn end(p: &mut Paint<'_>) {
     let leave = Action { label: confirm, icon: Some(Icon::Power), focus: Focus::SheetAction(1) };
     let from = p.plan.nodes.len();
     dialog::modal(p, title, &body, &[keep, leave], 0);
-    let danger = p.ink(Role::Danger, false);
-    for node in &mut p.plan.nodes[from..] {
-        match &mut node.body {
-            Body::Surface(glass) => glass.backdrop = compositor_protocol::Backdrop::None,
-            Body::Text { words, marks } if node.id == LEAVE_LABEL => {
-                words.iter_mut().for_each(|word| word.colour = danger);
-                marks.iter_mut().for_each(|mark| mark.colour = danger);
-            }
-            _ => {}
-        }
-    }
+    dialog::opaque(p, from);
+    dialog::danger(p, 1);
     let hints_now = m.hints();
     hints::bar(p, &hints_now, Side::Left, m.hints_dim);
 }

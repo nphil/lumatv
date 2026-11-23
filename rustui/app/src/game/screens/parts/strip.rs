@@ -1,20 +1,27 @@
 //! A strip of choices along one edge: the in-stream quick strip, a centred pill along the bottom of the screen with one pill per
 //! choice, an icon and, for some, a word.
 //!
-//! Node ids: 8830 the strip's pill, then four to an item from 8831: its words, its focus wash and its focus light.
+//! Node ids: 8830 the strip's pill, then four to an item from 8831: its words, its focus wash, its focus light and a drawn symbol.
 use crate::game::{
     model::Focus,
     screens::{
         paint::{Fill, H, Paint, W},
+        symbols::Symbol,
         parts::{SHEET_Z, focus::{self, Kind}, motion::Enter},
     },
 };
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{components::Icon, geometry::Frame, lucent::palette::PaletteRole as Role};
 
+/// An item's icon: one of the toolkit's, or one of LumaGame's drawn symbols, which takes a layer of its own.
+pub enum Sign {
+    Icon(Icon),
+    Symbol(Symbol),
+}
+
 /// One choice: its icon, an optional word beside it, the focus its hit registers and whether it ends something (the icon is then red).
 pub struct Item<'a> {
-    pub icon: Icon,
+    pub icon: Sign,
     pub label: Option<&'a str>,
     pub focus: Focus,
     pub danger: bool,
@@ -60,7 +67,15 @@ pub fn bar(p: &mut Paint<'_>, items: &[Item<'_>], focused: Option<usize>) -> Fra
             word.ty = p.bold(Type::Label);
             vec![word]
         });
-        let marks = vec![p.mark(item.icon, side, mark_x, (ITEM_H - side) / 2.0, ink, false)];
+        let mark_y = (ITEM_H - side) / 2.0;
+        let marks = match item.icon {
+            Sign::Icon(icon) => vec![p.mark(icon, side, mark_x, mark_y, ink, false)],
+            Sign::Symbol(symbol) => {
+                let colour = p.ink(ink, false);
+                p.symbol(id + 3, symbol, Frame::new(frame.x + mark_x, frame.y + mark_y, side, side), colour, SHEET_Z + 1);
+                Vec::new()
+            }
+        };
         p.words(id, frame, words, marks, SHEET_Z + 1);
         focus::treat(p, from, id + 1, frame, Kind::Button, focused == Some(i));
         p.hit(item.focus, frame);
@@ -76,9 +91,9 @@ mod tests {
 
     fn items() -> [Item<'static>; 3] {
         [
-            Item { icon: Icon::Sliders, label: None, focus: Focus::Nav(0), danger: false },
-            Item { icon: Icon::Back, label: Some("Resume"), focus: Focus::Nav(1), danger: false },
-            Item { icon: Icon::Close, label: None, focus: Focus::Nav(2), danger: true },
+            Item { icon: Sign::Icon(Icon::Sliders), label: None, focus: Focus::Nav(0), danger: false },
+            Item { icon: Sign::Icon(Icon::Back), label: Some("Resume"), focus: Focus::Nav(1), danger: false },
+            Item { icon: Sign::Icon(Icon::Close), label: None, focus: Focus::Nav(2), danger: true },
         ]
     }
 

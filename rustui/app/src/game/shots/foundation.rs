@@ -12,7 +12,7 @@ use crate::game::screens::{
         drawer, hints, keyboard::{self, TextEntry}, layer,
         rail::{self, Place, RailSpec},
         row::{self, Leading, Line},
-        strip::{self, Item},
+        strip::{self, Item, Sign},
         topbar::{self, Here},
     },
 };
@@ -127,9 +127,9 @@ fn confirm(p: &mut Paint<'_>) {
 fn quick_strip(p: &mut Paint<'_>) {
     art(p);
     let items = [
-        Item { icon: Icon::Gauge, label: Some("Stats"), focus: Focus::Strip(0), danger: false },
-        Item { icon: Icon::Sliders, label: Some("Settings"), focus: Focus::Strip(1), danger: false },
-        Item { icon: Icon::Power, label: Some("End session"), focus: Focus::Strip(2), danger: true },
+        Item { icon: Sign::Icon(Icon::Gauge), label: Some("Stats"), focus: Focus::Strip(0), danger: false },
+        Item { icon: Sign::Icon(Icon::Sliders), label: Some("Settings"), focus: Focus::Strip(1), danger: false },
+        Item { icon: Sign::Icon(Icon::Power), label: Some("End session"), focus: Focus::Strip(2), danger: true },
     ];
     strip::bar(p, &items, Some(1));
 }
