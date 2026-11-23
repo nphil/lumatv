@@ -15,3 +15,7 @@ wake-word.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[[example]]
+name = "echo_replay"
+test = true
