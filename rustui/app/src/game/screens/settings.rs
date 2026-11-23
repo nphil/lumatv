@@ -23,7 +23,7 @@ use compositor_protocol::{Edges, Rect};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use lumagame_core::settings::{FieldKind, Value};
 use ui::{
-    components::{Form, Icon},
+    components::{Form, Icon, ellipsise},
     geometry::Frame,
     lucent::palette::PaletteRole as Role,
 };
@@ -159,7 +159,14 @@ fn scroll(p: &mut Paint<'_>, view: Frame, nodes: usize, hits: usize) {
     let ours = &p.plan.hits[hits..];
     let last = ours.iter().map(|(_, f)| f.y).fold(f32::MIN, f32::max);
     let shift = ours.iter().find(|(id, _)| *id == focus).map_or(0.0, |(_, f)| {
-        if f.y >= last { room } else { (f.y + f.h + 24.0 - (view.y + view.h)).clamp(0.0, room) }
+        if f.y >= last {
+            room
+        } else if f.h > view.h {
+            // A reading taller than the pane shows from its top.
+            (f.y - view.y).clamp(0.0, room)
+        } else {
+            (f.y + f.h + 24.0 - (view.y + view.h)).clamp(0.0, room)
+        }
     });
     let from = p.scroll_positions.get(&PAGE_GROUP).copied().unwrap_or(shift);
     let (lo, hi) = (from.min(shift), from.max(shift));
@@ -207,19 +214,21 @@ pub fn theme_card(p: &mut Paint<'_>, id: u64, focus: Focus, index: usize, f: Fra
     let side = (preview.w / 5.0).min(64.0);
     let total = side * 3.8;
     let start = (preview.w - total) / 2.0;
+    // The swatches and the name share one layer, so a card costs three.
     let marks = [Role::Accent, Role::Positive, Role::Warning, Role::Ink]
         .into_iter()
         .enumerate()
         .map(|(i, role)| super::paint::Mark {
             form: Form::Disc(side as u32),
             colour: roles[role].premultiply(1.0),
-            x: start + i as f32 * side * 0.95,
-            y: (preview.h - side) / 2.0,
+            x: preview.x - f.x + start + i as f32 * side * 0.95,
+            y: preview.y - f.y + (preview.h - side) / 2.0,
         })
         .collect();
-    p.words(id + 2, preview, vec![], marks, 33);
-    let title = Frame::new(f.x + 20.0, f.y + 158.0, f.w - 40.0, p.line(Type::Label) * 2.0);
-    p.wrapped(id + 3, option.name, title, Type::Label, Role::Ink, false, 33);
+    let ty = p.ty(Type::Label);
+    let name = ellipsise(p.fonts, option.name, ty, f.w - 40.0);
+    let word = p.word(name, Type::Label, p.ink(Role::Ink, false), 20.0, 158.0, f.w - 40.0);
+    p.words(id + 2, f, vec![word], marks, 33);
     if focused {
         p.zoom(from, f, p.tokens.focus.card_scale);
     }
