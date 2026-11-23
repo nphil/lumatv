@@ -254,7 +254,7 @@ fn layout(kit: &mut Kit, v: &View, shots: &[Option<&Shot>]) -> Layout {
     // devices use; the sheet grows by the longest column. One row height for all, as one button size per screen.
     let dot = s2;
     let text_x = s5 + dot + s2;
-    let names: Vec<Vec<Vec<String>>> = v.tiles.iter().map(|t| t.children.iter().take(CHILDREN_MAX as usize).map(|c| wrap::lines(kit, label_style, &c.name, tile_w - text_x - s3, 2)).collect()).collect();
+    let names: Vec<Vec<Vec<String>>> = v.tiles.iter().map(|t| t.children.iter().take(CHILDREN_MAX as usize).map(|c| wrap::lines(kit, label_style, &c.line(), tile_w - text_x - s3, 2)).collect()).collect();
     let name_lines = names.iter().flatten().map(Vec::len).max().unwrap_or(1).max(1);
     let kid_h = name_lines as f32 * label_line + 2.0 * s2;
     let pitch = kid_h + s1;
@@ -374,7 +374,7 @@ pub struct PickerSurface {
 }
 
 fn tile_signature(t: &Tile, shot: Option<&Shot>) -> String {
-    let kids: Vec<String> = t.children.iter().map(|c| format!("{}:{}:{}", c.name, c.active, c.can_switch)).collect();
+    let kids: Vec<String> = t.children.iter().map(|c| format!("{}:{}:{}", c.line(), c.active, c.can_switch)).collect();
     format!("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", t.app_id, t.port, t.icon, t.name, t.state, t.on, t.connected, t.front, t.sound, shot.map_or_else(String::new, |s| format!("{}|{}", s.live, s.age)), kids.join(","))
 }
 

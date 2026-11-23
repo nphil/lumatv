@@ -252,8 +252,8 @@ impl Picker {
         }
         if self.settings_due.is_some_and(|d| now >= d) {
             self.settings_due = Some(now + SETTINGS_EVERY_MS);
-            // only a plugin that is on is asked, and only when a port has devices behind it to name
-            if env.denon_on() && env.inputs.list().iter().any(|e| e.connected && !e.devices.is_empty()) {
+            // only a plugin that is on is asked, and only when a port has the receiver on it
+            if env.denon_on() && env.inputs.list().iter().any(|e| e.holds_receiver()) {
                 out.effects.extend(env.gate.ask_settings());
             }
         }

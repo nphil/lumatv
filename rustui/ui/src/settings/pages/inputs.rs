@@ -6,7 +6,9 @@
 //! `offByUser`, and reads `on` and `onByUser` as on); tuning, the channel manager and the locks are scans and lists the tuner's service
 //! answers, so they stay in LG's channel screen, the last row.
 
+use super::receiver;
 use super::util::{atsc3, atsc3_read, go, inputs, inputs_read};
+use crate::host::inputs::{Switch, receiver_key};
 use crate::settings::ctx::{Ctx, Spec, ask, lg_launch, toast};
 use crate::settings::names::Table;
 use crate::settings::page::{Page, Read};
@@ -29,8 +31,8 @@ fn summary(c: &Ctx) -> String {
     inputs(c).current().map(|e| e.port.clone()).unwrap_or_default()
 }
 
-fn reads(_: &Ctx) -> Vec<Read> {
-    vec![
+fn reads(c: &Ctx) -> Vec<Read> {
+    let mut reads = vec![
         inputs_read(),
         Read::lg(
             "other",
@@ -38,7 +40,11 @@ fn reads(_: &Ctx) -> Vec<Read> {
         ),
         Read::lg("general", &["noSignalScreenSaver"]),
         Read::call("bt", "luna://com.webos.service.config/getConfigs", json!({"configNames": ["system.supportBluetoothFeatures"]})),
-    ]
+    ];
+    if receiver::on(c) {
+        reads.push(Read::Get { name: "receiver", path: "/v1/receiver/settings" });
+    }
+    reads
 }
 
 fn opened(_: &Ctx) -> Vec<Op> {
@@ -58,6 +64,25 @@ fn visibility(c: &Ctx, key: &str, icon: &str, label: &str, help: &str) -> Row {
         Arg::Index(i) => CHOICES.get(i).map(|v| vec![Op::Patch(patch_of(&format!("inputs.{key}"), json!(v)))]).unwrap_or_default(),
         _ => Vec::new(),
     })
+}
+
+/// The Denon receiver's video inputs, under the port its receiver is on: shown in the picker unless the owner turns one off here
+/// (`inputs.receiver-<code>`), so an input nothing is plugged into can be put away. Nothing while the plugin is off or does not answer.
+fn receiver_inputs(c: &Ctx) -> Vec<Row> {
+    let Some(switch) = receiver::doc(c).and_then(Switch::from_doc) else { return Vec::new() };
+    switch
+        .video_sources()
+        .into_iter()
+        .map(|(code, label)| {
+            let key = receiver_key(&code);
+            let shown = c.theme_str(&format!("inputs.{key}")) != Some("hidden");
+            let name = if label.trim().is_empty() { code } else { label.trim().to_string() };
+            Row::toggle(&key).tab(0).icon("cable").label(&format!("\u{21b3} {name}")).help("An input of the receiver, in the picker under its port.").on(shown).act(move |a| match a {
+                Arg::Toggle(v) => vec![Op::Patch(patch_of(&format!("inputs.{key}"), json!(if v { "auto" } else { "hidden" })))],
+                _ => Vec::new(),
+            })
+        })
+        .collect()
 }
 
 /// What the TV's config says it can do over Bluetooth: the remote app's own link ("remoteapp") and the TV as a speaker ("btsoundsink").
@@ -99,6 +124,9 @@ fn rows(c: &Ctx) -> Vec<Row> {
             _ => "Nothing connected",
         };
         rows.push(visibility(c, port, entry.map_or("unplug", |e| e.icon.as_str()), &format!("HDMI {} \u{b7} {device}", n + 1), ""));
+        if entry.is_some_and(|e| e.holds_receiver()) {
+            rows.extend(receiver_inputs(c));
+        }
     }
     rows.push(
         Row::toggle("banner")

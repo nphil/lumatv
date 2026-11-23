@@ -27,9 +27,24 @@ pub struct Entry {
     /// The name the audio system on this port gave itself over HDMI-CEC (`subList` of the input's status, `cecpDevType` 5: a receiver or
     /// a soundbar), with its maker in front when the name does not have it; "" when there is none.
     pub receiver: String,
-    /// The names of the devices behind that audio system (`subList` entries at `depth` 2: what is plugged into the receiver), in the order of
+    /// What is plugged in behind that audio system (`subList` entries at `depth` 2: what is plugged into the receiver), in the order of
     /// their HDMI-CEC physical addresses; the receiver itself and entries with no name are not in it.
-    pub devices: Vec<String>,
+    pub devices: Vec<Device>,
+}
+
+/// A device behind an audio system, as LG's HDMI-CEC list has it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Device {
+    pub name: String,
+    /// What it says of its power (`cecPower`: "On", "Off"); "" when it does not.
+    pub power: String,
+}
+
+impl Entry {
+    /// The audio system is on this port: it says so over HDMI-CEC, or the device's own name is a receiver's.
+    pub fn holds_receiver(&self) -> bool {
+        self.connected && (!self.receiver.is_empty() || is_receiver(&self.label))
+    }
 }
 
 /// A tile of the picker and of Home's Inputs row, one shape for both: Live TV first, then each port the owner has not hidden.
@@ -45,22 +60,31 @@ pub struct Tile {
     pub connected: bool,
     pub front: bool,
     pub sound: bool,
-    /// The devices behind the receiver on this port, with the receiver's input each one is on.
+    /// What is under the receiver's port: the receiver's own video inputs while the Denon receiver plugin is on, else the devices LG's
+    /// HDMI-CEC list has behind it.
     pub children: Vec<Child>,
 }
 
-/// A device behind the receiver, under its port's tile (HDMI 2, AVR-S760H, Apple TV).
+/// A row under the receiver's port tile (HDMI 2, AVR-S760H, Apple TV).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Child {
     pub name: String,
     pub icon: String,
-    /// The receiver input (`SI` code) this device is on, when the Denon receiver plugin is on and names one like the device's own name; a
-    /// device with none has no switch.
+    /// What LG's HDMI-CEC list says of the device on this input that is worth a word ("Off"); "" when nothing.
+    pub state: String,
+    /// The receiver input (`SI` code) this row is; none for a device only LG's list has, or with the plugin off.
     pub source: Option<String>,
-    /// This is the device the receiver is playing now (its input is the receiver's current one, and this port is in front).
+    /// This is what the receiver is playing now (its input is the receiver's current one, and this port is in front).
     pub active: bool,
     /// OK on it switches the receiver: it has an input and the helper takes a change of the receiver's input now.
     pub can_switch: bool,
+}
+
+impl Child {
+    /// The words of its row: the name, and the state after it when there is one.
+    pub fn line(&self) -> String {
+        if self.state.is_empty() { self.name.clone() } else { format!("{} \u{b7} {}", self.name, self.state) }
+    }
 }
 
 /// What the Denon receiver plugin says of the receiver's inputs (the `receiver` topic's `settings.input`), for the devices behind it.
@@ -102,6 +126,22 @@ impl Switch {
             session,
         })
     }
+
+    /// The inputs that can carry a picture: all but those that are only sound (the TV's own audio, the network, Bluetooth, tuners).
+    pub fn video_sources(&self) -> Vec<(String, String)> {
+        self.sources.iter().filter(|(code, _)| !AUDIO_ONLY.iter().any(|a| a.eq_ignore_ascii_case(code))).cloned().collect()
+    }
+}
+
+/// The receiver inputs that are only sound; the rest are the ones a device can be on.
+const AUDIO_ONLY: &[&str] = &[
+    "TV", "NET", "BT", "TUNER", "PHONO", "CD", "USB", "USB/IPOD", "IPOD", "IRADIO", "SERVER", "FAVORITES", "HDRADIO", "SIRIUSXM", "PANDORA", "SPOTIFY", "LASTFM", "FLICKR", "RADIO",
+];
+
+/// The theme key of the owner's choice for a receiver input (`inputs.receiver-<code>`: Hidden keeps it out of the picker, anything else
+/// shows it); the ports' are `inputs.hdmiN`.
+pub fn receiver_key(code: &str) -> String {
+    format!("receiver-{code}")
 }
 
 /// A name as it is compared: its letters and digits in lower case, so "Apple TV" and "apple-tv" are one.
@@ -129,29 +169,44 @@ pub fn source_for(device: &str, sources: &[(String, String)]) -> Option<String> 
     only(named.iter().filter(|(_, n)| part(n, &d)).map(|(c, _)| *c).collect())
 }
 
-/// The one device the receiver's current input is (the codes compared without case); none when no device is on it or two are.
-pub fn active_index(sources: &[Option<String>], current: &str) -> Option<usize> {
-    let mut on = sources.iter().enumerate().filter(|(_, s)| s.as_deref().is_some_and(|s| s.eq_ignore_ascii_case(current)));
-    let first = on.next()?.0;
-    on.next().is_none().then_some(first)
+/// What a device says of its power that the picker repeats: that it is off.
+fn power_note(d: &Device) -> String {
+    if ["off", "standby"].contains(&d.power.to_lowercase().as_str()) { "Off".into() } else { String::new() }
 }
 
-/// The devices behind a receiver as children of its tile. Without the plugin's `switch` they only have names.
-fn children(devices: &[String], switch: Option<&Switch>, front: bool) -> Vec<Child> {
-    let sources: Vec<Option<String>> = devices.iter().map(|d| switch.and_then(|s| source_for(d, &s.sources))).collect();
-    let active = switch.and_then(|s| s.current.as_deref()).filter(|_| front).and_then(|c| active_index(&sources, c));
-    devices
-        .iter()
-        .zip(sources)
-        .enumerate()
-        .map(|(i, (name, source))| Child {
-            name: name.clone(),
-            icon: icon_for(name, "").to_string(),
-            can_switch: source.is_some() && switch.is_some_and(|s| s.writable),
-            source,
-            active: active == Some(i),
-        })
-        .collect()
+/// The rows under the receiver's port. With the plugin's `switch`: the receiver's own video inputs by the names it gives them, the ones the
+/// owner has not hidden (`choices` is the theme's `inputs`), each with the state of the CEC device that has its name; a CEC device no input
+/// has the name of stays as a row that cannot be switched to. Without it: the CEC devices, named only.
+fn children(devices: &[Device], switch: Option<&Switch>, choices: &Value, front: bool) -> Vec<Child> {
+    let named = |d: &Device| Child { name: d.name.clone(), icon: icon_for(&d.name, "").to_string(), state: power_note(d), source: None, active: false, can_switch: false };
+    let Some(switch) = switch else { return devices.iter().map(named).collect() };
+    let video = switch.video_sources();
+    let matched: Vec<Option<String>> = devices.iter().map(|d| source_for(&d.name, &video)).collect();
+    let mut rows = Vec::new();
+    for (code, label) in &video {
+        if choices.get(receiver_key(code)).and_then(Value::as_str) == Some("hidden") {
+            continue;
+        }
+        let device = devices.iter().zip(&matched).find(|(_, m)| m.as_deref() == Some(code.as_str())).map(|(d, _)| d);
+        let name = if label.trim().is_empty() { code.clone() } else { label.trim().to_string() };
+        rows.push(Child {
+            icon: icon_for(&name, "").to_string(),
+            name,
+            state: device.map(power_note).unwrap_or_default(),
+            source: Some(code.clone()),
+            active: front && switch.current.as_deref().is_some_and(|c| c.eq_ignore_ascii_case(code)),
+            can_switch: switch.writable,
+        });
+    }
+    // a device that is on an input already has its row there; one that no input names, or a second on the same input, is only named
+    let mut taken: Vec<&str> = Vec::new();
+    for (d, m) in devices.iter().zip(&matched) {
+        match m.as_deref().filter(|c| !taken.contains(c)) {
+            Some(code) => taken.push(code),
+            None => rows.push(named(d)),
+        }
+    }
+    rows
 }
 
 #[derive(Clone, Debug, Default)]
@@ -238,22 +293,23 @@ fn cec_audio_system(input: &Value) -> String {
     }
 }
 
-/// The names of the devices plugged in behind the first one on an input (`subList` entries at `depth` 2 or more, named, not themselves an
-/// audio system), by CEC physical address. An entry that does not say its depth is not taken for one.
-fn cec_devices_behind(input: &Value) -> Vec<String> {
+/// The devices plugged in behind the first one on an input (`subList` entries at `depth` 2 or more, named, not themselves an audio
+/// system), by CEC physical address. An entry that does not say its depth is not taken for one.
+fn cec_devices_behind(input: &Value) -> Vec<Device> {
     let Some(sub) = input.get("subList").and_then(Value::as_array) else { return Vec::new() };
     let number = |v: &Value, k: &str| v.get(k).and_then(|n| n.as_u64().or_else(|| n.as_str().and_then(|s| s.parse().ok())));
-    let mut found: Vec<(u64, String)> = sub
+    let mut found: Vec<(u64, Device)> = sub
         .iter()
         .filter(|d| number(d, "depth").is_some_and(|n| n >= 2) && number(d, "cecpDevType") != Some(5))
         .filter_map(|d| {
             let name = d.get("osdName").and_then(Value::as_str)?.trim();
-            (!name.is_empty()).then(|| (number(d, "physicalAddress").unwrap_or(u64::MAX), name.to_string()))
+            let power = d.get("cecPower").and_then(Value::as_str).unwrap_or("").trim().to_string();
+            (!name.is_empty()).then(|| (number(d, "physicalAddress").unwrap_or(u64::MAX), Device { name: name.to_string(), power }))
         })
         .collect();
     found.sort_by_key(|(address, _)| *address);
-    found.dedup_by(|a, b| a.1 == b.1);
-    found.into_iter().map(|(_, name)| name).collect()
+    found.dedup_by(|a, b| a.1.name == b.1.name);
+    found.into_iter().map(|(_, d)| d).collect()
 }
 
 impl Inputs {
@@ -313,7 +369,7 @@ impl Inputs {
                 continue;
             }
             let front = e.app_id == self.foreground;
-            let sound = arc && e.connected && (!e.receiver.is_empty() || is_receiver(&e.label));
+            let sound = arc && e.holds_receiver();
             out.push(Tile {
                 app_id: e.app_id.clone(),
                 key,
@@ -332,7 +388,7 @@ impl Inputs {
                 connected: e.connected,
                 front,
                 sound,
-                children: if e.connected { children(&e.devices, switch, front) } else { Vec::new() },
+                children: if e.connected { children(&e.devices, switch.filter(|_| e.holds_receiver()), choices, front) } else { Vec::new() },
             });
         }
         out
@@ -563,7 +619,8 @@ mod tests {
     fn the_devices_behind_the_receiver_are_its_children_by_address_without_the_receiver_or_a_nameless_one() {
         let mut i = Inputs::new();
         i.parse(&behind_the_receiver());
-        assert_eq!(i.list()[0].devices, vec!["Apple TV".to_string(), "PlayStation 5".to_string()]);
+        let names: Vec<_> = i.list()[0].devices.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, ["Apple TV", "PlayStation 5"]);
         assert_eq!(i.list()[0].receiver, "Denon AVR-S760H", "the receiver is still named by its own entry");
         let tiles = i.tiles(&json!({}), true, None);
         let hdmi2 = tiles.iter().find(|t| t.key == "hdmi2").unwrap();
@@ -598,24 +655,38 @@ mod tests {
     }
 
     #[test]
-    fn the_active_device_is_the_one_on_the_receivers_current_input_only_while_its_port_is_in_front() {
-        let known = [Some("MPLAY".to_string()), None, Some("GAME".to_string())];
-        assert_eq!(active_index(&known, "mplay"), Some(0));
-        assert_eq!(active_index(&known, "GAME"), Some(2));
-        assert_eq!(active_index(&known, "TV"), None, "the receiver is on something that is not behind it");
-        assert_eq!(active_index(&[Some("GAME".into()), Some("GAME".into())], "GAME"), None, "two on one input: none is marked");
-
+    fn the_rows_are_the_receivers_own_video_inputs_and_the_one_it_is_on_is_marked_only_while_its_port_is_in_front() {
         let mut i = Inputs::new();
         i.parse(&behind_the_receiver());
-        let switch = Switch { sources: sources(&[("MPLAY", "Apple TV"), ("GAME", "PlayStation 5")]), current: Some("GAME".into()), writable: true, session: "s".into() };
-        let marked = |i: &Inputs| {
-            let tiles = i.tiles(&json!({}), true, Some(&switch));
-            let hdmi2 = tiles.into_iter().find(|t| t.key == "hdmi2").unwrap();
-            hdmi2.children.iter().map(|c| (c.name.clone(), c.source.clone(), c.active)).collect::<Vec<_>>()
+        let switch = Switch {
+            sources: sources(&[("TV", "TV Audio"), ("MPLAY", "Apple TV"), ("GAME", "PS4"), ("BD", "MAGNAVOX 4K BD"), ("NET", "HEOS Music")]),
+            current: Some("game".into()),
+            writable: true,
+            session: "s".into(),
         };
-        assert_eq!(marked(&i), vec![("Apple TV".into(), Some("MPLAY".into()), false), ("PlayStation 5".into(), Some("GAME".into()), false)], "HDMI 2 is not in front");
+        let rows = |i: &Inputs, choices: &Value, switch: &Switch| {
+            let tiles = i.tiles(choices, true, Some(switch));
+            let hdmi2 = tiles.into_iter().find(|t| t.key == "hdmi2").unwrap();
+            hdmi2.children.iter().map(|c| (c.name.clone(), c.source.clone(), c.state.clone(), c.active, c.can_switch)).collect::<Vec<_>>()
+        };
+        let row = |n: &str, code: Option<&str>, active: bool| (n.to_string(), code.map(String::from), String::new(), active, code.is_some());
+        let mut expected = vec![row("Apple TV", Some("MPLAY"), false), row("PS4", Some("GAME"), false), row("MAGNAVOX 4K BD", Some("BD"), false)];
+        // sound-only inputs are not rows; the CEC device the receiver has no input named like is a row that cannot be switched to
+        expected.push(row("PlayStation 5", None, false));
+        assert_eq!(rows(&i, &json!({}), &switch), expected, "HDMI 2 is not in front: no mark");
         i.foreground = "com.webos.app.hdmi2".into();
-        assert_eq!(marked(&i), vec![("Apple TV".into(), Some("MPLAY".into()), false), ("PlayStation 5".into(), Some("GAME".into()), true)]);
+        expected[1].3 = true;
+        assert_eq!(rows(&i, &json!({}), &switch), expected);
+        // an input the owner hid has no row; the plugin's state is only read while the receiver says it can take a change
+        let hidden = json!({"receiver-BD": "hidden"});
+        assert_eq!(rows(&i, &hidden, &switch).iter().map(|r| r.0.as_str()).collect::<Vec<_>>(), ["Apple TV", "PS4", "PlayStation 5"]);
+        let busy = Switch { writable: false, ..switch.clone() };
+        assert!(rows(&i, &json!({}), &busy).iter().all(|r| !r.4), "marked, but no switch");
+        // a CEC device with a name an input has takes that input's row, with its power
+        let mut off = behind_the_receiver();
+        off["devices"][0]["subList"][0]["cecPower"] = json!("Off");
+        i.parse(&off);
+        assert_eq!(rows(&i, &json!({}), &switch)[0].2, "Off");
     }
 
     #[test]
