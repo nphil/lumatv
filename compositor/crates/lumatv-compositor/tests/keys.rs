@@ -11,6 +11,7 @@ use lumatv_compositor::State;
 use lumatv_compositor::config::Config;
 use lumatv_compositor::input::Keys;
 use lumatv_compositor::input::code::*;
+use lumatv_compositor::keys::SystemRequest;
 use lumatv_compositor::server::seat::SeatId;
 use lumatv_compositor::shell::Msg;
 use serde_json::{Value, json};
@@ -177,7 +178,7 @@ fn a_hold_the_shell_cannot_show_opens_nothing_of_lgs() {
 }
 
 #[test]
-fn unavailable_picker_does_not_open_an_alternate_but_a_hold_opens_the_hub() {
+fn unavailable_picker_does_not_open_an_alternate_and_a_hold_launches_nothing() {
     let mut server = Server::start();
     let mut a = app(&mut server, "Player", "org.test.player");
     let t = Instant::now();
@@ -188,20 +189,20 @@ fn unavailable_picker_does_not_open_an_alternate_but_a_hold_opens_the_hub() {
         s.key_event_at(SeatId(0), KEY_VIDEO_NEXT, true, false, t2);
         s.poll_holds_at(t2 + Duration::from_millis(1100));
         s.key_event_at(SeatId(0), KEY_VIDEO_NEXT, false, false, t2 + Duration::from_millis(1300));
-        (launches(s), said_tap, journal_has(s, "input: Input held: the Home Hub, launching com.webos.app.homeconnect"))
+        (launches(s), said_tap, journal_has(s, "input: Input held: the input picker cannot be shown now, nothing opened"))
     });
-    assert_eq!(launched, vec!["com.webos.app.homeconnect"], "only the hold opens the Hub");
+    assert!(launched.is_empty(), "neither the tap nor the hold launches anything of LG's: {launched:?}");
     assert!(said_tap && said_hold);
     a.client.roundtrip();
     assert!(a.client.state.keys.is_empty());
 }
 
 #[test]
-fn with_the_shells_picker_input_acts_on_its_press_and_a_hold_still_opens_the_hub() {
+fn with_the_shells_picker_input_acts_on_its_press_and_a_hold_shows_it_without_launching_anything() {
     let mut server = Server::start();
     let mut a = app(&mut server, "Player", "org.test.player");
     let t = Instant::now();
-    let (at_press, at_release, hub_after_hold) = server.eval(move |s| {
+    let (at_press, at_release, after_hold, shows_after_request, launched_after_request, said_hold) = server.eval(move |s| {
         s.shell_rust_open(0, "test".into()).unwrap();
         s.shell_rust.kinds = vec!["picker".into()];
         s.shell_rust_handle(Msg::Connected);
@@ -212,16 +213,20 @@ fn with_the_shells_picker_input_acts_on_its_press_and_a_hold_still_opens_the_hub
         let at_press = (shows(s), journal_has(s, "input: Input tap: the input picker -> LumaTV's input picker"), launches(s));
         s.key_event_at(seat, KEY_VIDEO_NEXT, false, false, t + Duration::from_millis(120));
         let at_release = (shows(s), launches(s));
-        // Held a second: the picker came at the press, the Hub follows at the hold; the release asks for nothing more.
+        // Held a second: the picker came at the press and the hold does not show it again; the release asks for nothing more.
         let t2 = t + Duration::from_secs(2);
         s.key_event_at(seat, KEY_VIDEO_NEXT, true, false, t2);
         s.poll_holds_at(t2 + Duration::from_millis(1100));
         s.key_event_at(seat, KEY_VIDEO_NEXT, false, false, t2 + Duration::from_millis(1300));
-        (at_press, at_release, (shows(s), launches(s)))
+        let after_hold = (shows(s), launches(s));
+        // A hold whose press found no picker asks again at the hold, and the picker shows then.
+        s.system_request(SystemRequest::InputHold);
+        (at_press, at_release, after_hold, shows(s), launches(s), journal_has(s, "input: Input held: the input picker -> LumaTV's input picker"))
     });
     assert_eq!(at_press, (1, true, vec![]), "the shell was asked for the picker at the press, and nothing was launched");
     assert_eq!(at_release, (1, vec![]), "the release asked for nothing");
-    assert_eq!(hub_after_hold, (2, vec!["com.webos.app.homeconnect".to_string()]), "the second press showed the picker again; the hold opened the Hub once");
+    assert_eq!(after_hold, (2, vec![]), "the second press showed the picker; the hold did not show it a second time");
+    assert_eq!((shows_after_request, launched_after_request, said_hold), (3, vec![], true), "the hold's own request shows the picker and launches nothing");
     a.client.roundtrip();
     assert!(a.client.state.keys.is_empty(), "the app never saw the key");
 }

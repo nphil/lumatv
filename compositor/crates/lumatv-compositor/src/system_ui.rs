@@ -5,7 +5,6 @@ use serde_json::{Value, json};
 use crate::State;
 use crate::keys::{HoldAction, SystemRequest};
 
-const HOME_HUB: &str = "com.webos.app.homeconnect";
 const QUICK_ACCESS: &str = "com.webos.app.magicnum";
 const ACCESSIBILITY: &str = "com.webos.app.accessibility-overlay";
 /// LG's remote support (`LG Remote Service`: LG staff see and control the TV once a code is read out). It opens only while the owner has
@@ -30,7 +29,13 @@ impl State {
                     self.journal("input: Input tap: the input picker cannot be shown now, nothing opened".into());
                 }
             }
-            SystemRequest::InputHub => self.launch("Input held", "the Home Hub", HOME_HUB, None),
+            SystemRequest::InputHold => {
+                if self.shell_show("picker", false) {
+                    self.journal("input: Input held: the input picker -> LumaTV's input picker".into());
+                } else {
+                    self.journal("input: Input held: the input picker cannot be shown now, nothing opened".into());
+                }
+            }
             SystemRequest::GearHold => self.gear_hold(),
             SystemRequest::Accessibility => self.launch("Mute held", "the accessibility panel", ACCESSIBILITY, Some(json!({"quickMode": true}))),
             SystemRequest::QuickAccess(0) => self.launch("0 held", "the Quick Access editor", QUICK_ACCESS, None),

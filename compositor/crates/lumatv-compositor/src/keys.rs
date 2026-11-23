@@ -220,8 +220,8 @@ pub enum SystemRequest {
     /// The Input key's tap: the input picker (`com.webos.app.quickinputpicker`). At its press when LumaTV's picker can answer, else at
     /// its release.
     InputPicker,
-    /// The Input key held: the Home Hub (`com.webos.app.homeconnect`).
-    InputHub,
+    /// The Input key held: the input picker again, for a press that did not already show it (LG's Home Hub is never opened).
+    InputHold,
     /// The gear held: what the owner chose for it (`GearHold`). Never LG's Settings app, and never LG's hidden AV-reset menu, which three
     /// taps used to open (`tvhotkey`, `mute-hidden-action`): its items are in LumaTV's Settings.
     GearHold,
@@ -360,7 +360,9 @@ impl Router {
             }
             match h.logical {
                 Logical::Gear => out.push(Action::Request(SystemRequest::GearHold)),
-                Logical::Input => out.push(Action::Request(SystemRequest::InputHub)),
+                // The press already showed the picker: showing it again would step it to the next input.
+                Logical::Input if h.early => {}
+                Logical::Input => out.push(Action::Request(SystemRequest::InputHold)),
                 // Quick Access is not asked of a text field's keyboard: its digits are the field's (LG skips it while the keyboard shows).
                 Logical::Digit(_) if ctx.keyboard_up => continue,
                 Logical::Digit(n) => {
@@ -538,13 +540,13 @@ mod tests {
     }
 
     #[test]
-    fn input_is_a_picker_on_a_tap_and_the_hub_on_a_hold() {
+    fn input_is_a_picker_on_a_tap_and_a_hold() {
         let mut r = Rig::new();
         let (press, polled, release) = r.hold(KEY_VIDEO_NEXT, 120);
         assert!(press.swallow && polled.is_empty());
         assert_eq!(release.actions, vec![req(InputPicker)], "without a picker of LumaTV's to answer the tap is decided at the release");
         let (_, polled, release) = r.hold(KEY_VIDEO_NEXT, 1100);
-        assert_eq!(polled, vec![req(InputHub)]);
+        assert_eq!(polled, vec![req(InputHold)]);
         assert!(release.swallow && release.actions.is_empty());
     }
 
@@ -583,12 +585,12 @@ mod tests {
     }
 
     #[test]
-    fn with_the_picker_ready_a_held_input_still_opens_the_hub_once() {
+    fn with_the_picker_ready_a_held_input_asks_for_nothing_more() {
         let mut r = Rig::new();
         r.picker_ready = true;
         let (press, polled, release) = r.hold(KEY_VIDEO_NEXT, 1100);
         assert_eq!(press.actions, vec![req(InputPicker)], "the press asked for the picker, as LG's chain acts on Input's press");
-        assert_eq!(polled, vec![req(InputHub)], "and the hold goes on to the Hub");
+        assert!(polled.is_empty(), "the hold does not show it a second time, which would step it on");
         assert!(release.swallow && release.actions.is_empty());
     }
 

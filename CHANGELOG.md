@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Holding the remote's Input key for a second opens LumaTV's own input picker instead of launching LG's Home Hub (`com.webos.app.homeconnect`); when the picker cannot be shown, nothing opens, and a hold whose press already showed the picker does not show it a second time.
+
 A screen the UI makes (a commit of 64 operations or more) is drawn when its commit arrives, outside a run of frames, even with a flip in flight: it is drawn into the free page and goes out when that flip lands. It waited for the idle tick before, and the Apps grid's first frame, 10 ms to GPU done, missed the refresh after the feedback frame's flip in most of the frames the 120 Hz gate dropped (about 3 a run on 2026-11-22). `ctl arrival on|off` switches it without a restart and `ctl status` shows it as `ui.arrival`. Not yet frame-gated on the TV.
 
 The Home wallpaper no longer makes its two gradient scrim plates when the theme's scrim is no darker than Silk's, which holds for both shipped modes: two full-width layers fewer in every Home and Apps frame, and an Apps open of 44 layers and 6.6 million pixels of layer area instead of 46 and 8.7 million, with the same pixels on the host. Not yet frame-gated on the TV.
