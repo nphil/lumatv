@@ -1,5 +1,5 @@
-//! Glance cards: a label, a headline, a line of detail, a progress bar, and at the foot a caption row over some thumbnails and where the facts
-//! came from. A row of them is the game page's strip of sections.
+//! Glance cards: a label, a headline, a line of detail, a progress bar, and at the foot some thumbnails, a caption and where the facts
+//! came from. A row of them is the game page's strip of sections and Home's spotlight.
 //!
 //! Node ids: `Card::id` and the 15 after it: the sheet, then the label, headline, detail, track, fill, caption and source, the thumbnails
 //! from `id + 8`, and the focus treatment from `id + 12`. The card registers no hit: the page that places it knows what it opens.
@@ -36,7 +36,7 @@ pub struct Card<'a> {
     /// 0 to 1.
     pub progress: Option<f32>,
     pub thumbs: &'a [PathBuf],
-    /// Small words on a row of their own above the foot's thumbnails or source line; left out when the card has no room for the row.
+    /// Small words at the foot's left, after any thumbnails.
     pub caption: Option<&'a str>,
     pub source: Option<Source<'a>>,
 }
@@ -74,20 +74,15 @@ pub fn glance(p: &mut Paint<'_>, card: &Card<'_>, frame: Frame, focused: bool) {
     // Large text leaves a short card little room under its headline: the thumbnails, then the track, then the detail give way
     // rather than overlap it.
     let bottom = frame.y + frame.h - PAD_Y;
-    let line = p.line(Type::Caption);
-    let caption = card.caption.filter(|_| y + FOOT_GAP + line <= bottom);
-    let caption_h = caption.map_or(0.0, |_| line + FOOT_GAP);
-    let thumbs = if y <= bottom - THUMB - FOOT_GAP - caption_h { card.thumbs } else { &[] };
-    let row_h = if !thumbs.is_empty() {
+    let thumbs = if y <= bottom - THUMB - FOOT_GAP { card.thumbs } else { &[] };
+    let foot_h = if !thumbs.is_empty() {
         THUMB
-    } else if card.source.is_some() {
-        line.max(side)
+    } else if card.caption.is_some() || card.source.is_some() {
+        p.line(Type::Caption).max(side)
     } else {
         0.0
     };
-    let foot_h = row_h + caption_h;
     let foot_y = bottom - foot_h;
-    let row_y = bottom - row_h;
     let floor = foot_y - if foot_h > 0.0 { FOOT_GAP } else { 0.0 };
     if let Some(done) = card.progress.filter(|_| y + 18.0 + TRACK_H <= floor) {
         y += 18.0;
@@ -103,21 +98,16 @@ pub fn glance(p: &mut Paint<'_>, card: &Card<'_>, frame: Frame, focused: bool) {
         put(p, id + 3, lines, Frame::new(x, y, w, 0.0), Type::Label, false, quiet);
     }
 
-    // The source line is whole or absent: thumbnails make room for it before it gives way to an ellipsis.
-    let source_w = card.source.map_or(0.0, |s| {
-        let text = if s.stale.is_some() { format!("From {}, {}", s.name, s.stale.unwrap_or_default()) } else { format!("From {}", s.name) };
-        p.width(&text, Type::Caption) + if s.stale.is_some() { side + 8.0 } else { 0.0 } + THUMB_GAP
-    });
-    let fit = ((w - source_w + THUMB_GAP) / (THUMB + THUMB_GAP)).floor().max(0.0) as usize;
     let mut left = x;
-    for (i, path) in thumbs.iter().take(THUMBS.min(fit)).enumerate() {
+    for (i, path) in thumbs.iter().take(THUMBS).enumerate() {
         let radius = p.tokens.radius(Radius::Control);
-        p.image(id + 8 + i as u64, path.clone(), Frame::new(left, row_y, THUMB, THUMB), radius, false, None, Z + 1);
+        p.image(id + 8 + i as u64, path.clone(), Frame::new(left, foot_y, THUMB, THUMB), radius, false, None, Z + 1);
         left += THUMB + THUMB_GAP;
     }
-    if let Some(caption) = caption {
-        let lines = p.fit(caption, Type::Caption, w, 1);
-        put(p, id + 6, lines, Frame::new(x, foot_y, w, 0.0), Type::Caption, false, quiet);
+    if let Some(caption) = card.caption {
+        let at = if thumbs.is_empty() { x } else { left + 4.0 };
+        let line = p.fit(caption, Type::Caption, (x + w - at).max(0.0), 1);
+        put(p, id + 6, line, Frame::new(at, foot_y + (foot_h - p.line(Type::Caption)) / 2.0, x + w - at, 0.0), Type::Caption, false, quiet);
     }
     if let Some(source) = card.source {
         let text = match source.stale {
@@ -131,7 +121,7 @@ pub fn glance(p: &mut Paint<'_>, card: &Card<'_>, frame: Frame, focused: bool) {
         let at = x + w - mark - text_w;
         let word = p.word(&lines[0], Type::Caption, p.ink(quiet, false), mark, (side - p.line(Type::Caption)) / 2.0, text_w);
         let marks = if source.stale.is_some() { vec![p.mark(Icon::Alert, side, 0.0, 0.0, Role::Warning, false)] } else { Vec::new() };
-        let row = Frame::new(at, row_y + (row_h - side) / 2.0, mark + text_w, side);
+        let row = Frame::new(at, foot_y + (foot_h - side) / 2.0, mark + text_w, side);
         p.words(id + 7, row, vec![word], marks, Z + 1);
     }
     focus::treat(p, from, id + 12, frame, Kind::Card, focused);
@@ -214,42 +204,6 @@ mod tests {
             assert!(!has(7008) && !has(7004) && !has(7003), "thumbnail, track and detail give way");
             let (headline, source) = (frame_of(p, 7002), frame_of(p, 7007));
             assert!(headline.y + headline.h <= source.y, "the headline stays clear of the foot");
-        });
-    }
-
-    #[test]
-    fn a_caption_has_its_own_row_clear_of_thumbnails_and_the_text_above_at_both_text_sizes() {
-        let thumbs = [PathBuf::from("a.png"), PathBuf::from("b.png"), PathBuf::from("c.png"), PathBuf::from("d.png")];
-        for percent in [100, 200] {
-            painted(|m| m.prefs.text_percent = percent, |p| {
-                let mut with = card(&thumbs);
-                with.caption = Some("A long news headline about the next update to the game");
-                let frame = Frame { h: 330.0 * p.scale, ..FRAME };
-                glance(p, &with, frame, false);
-                let caption = frame_of(p, 7006);
-                assert_eq!(caption.x, frame.x + PAD_X, "{percent}%: the row starts at the padding");
-                let above = [7002, 7003].into_iter().filter(|id| p.plan.nodes.iter().any(|n| n.id == *id)).map(|id| frame_of(p, id));
-                for text in above {
-                    assert!(text.y + text.h <= caption.y, "{percent}%: clear of the text above");
-                }
-                if let Some(node) = p.plan.nodes.iter().find(|n| n.id == 7008) {
-                    assert!(caption.y + caption.h <= node.frame.y, "{percent}%: clear of the thumbnails");
-                }
-                assert!(caption.y + caption.h <= frame.y + frame.h - PAD_Y, "{percent}%: inside the card");
-            });
-        }
-    }
-
-    #[test]
-    fn thumbnails_make_room_for_the_whole_source_line_in_a_narrow_card() {
-        let thumbs = [PathBuf::from("a.png"), PathBuf::from("b.png"), PathBuf::from("c.png"), PathBuf::from("d.png")];
-        painted(|_| {}, |p| {
-            glance(p, &card(&thumbs), Frame { w: 400.0, ..FRAME }, false);
-            assert_eq!(texts(p, 7007), ["From Steam"]);
-            let last = (8..12).rev().find_map(|i| p.plan.nodes.iter().find(|n| n.id == 7000 + i)).unwrap().frame;
-            let source = frame_of(p, 7007);
-            assert!(last.x + last.w <= source.x, "no thumbnail under the source");
-            assert!(!p.plan.nodes.iter().any(|n| n.id == 7011), "the fourth thumbnail gave way");
         });
     }
 

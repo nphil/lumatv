@@ -59,6 +59,8 @@ pub const CONFIRM_BODY: &str = "The app and its data on this TV are removed. It 
 pub const WIDGET_ID: u32 = 200;
 pub const DOCK_ID: u32 = 300;
 pub const DOCK_MAX: u32 = 60;
+/// The dock card's own lift id, the one past the tiles' ids: the card lifts like a widget while the focus is on any of its tiles (`HomeSurface::update_focus`).
+pub const DOCK_CARD: u32 = DOCK_ID + DOCK_MAX;
 
 pub const SCOPE_APPS: Scope = Scope(1);
 pub const SCOPE_SEARCH: Scope = Scope(2);

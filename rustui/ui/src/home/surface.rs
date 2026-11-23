@@ -323,8 +323,6 @@ struct DockSurface {
     arts: Vec<IconArt>,
     halo_accent: Option<Rgba>,
     halo_at: Option<(f32, f32)>,
-    /// The glass the dock's pane was last given (`update_focus`); `None` once something else restyled it.
-    pane_glass: Option<Glass>,
 }
 
 pub struct HomeSurface {
@@ -355,6 +353,8 @@ pub struct HomeSurface {
     /// The wallpaper's prepared backdrop the glass was made with.
     backdrop: Option<compositor_protocol::BackdropId>,
     last_focus: Option<Id>,
+    /// Whether the dock card is lifted: the focus is on one of its tiles. The card takes the lift of the cards (`model::DOCK_CARD`) while it is.
+    dock_lit: bool,
     last_hover: Option<Id>,
     /// [`Home::chrome_rev`] as the chrome was last made.
     chrome_rev: Option<(u64, u64)>,
@@ -409,6 +409,7 @@ impl HomeSurface {
             text_scale: 0.0,
             backdrop: None,
             last_focus: None,
+            dock_lit: false,
             last_hover: None,
             chrome_rev: None,
             chrome_mend: Mend::default(),
@@ -572,7 +573,6 @@ impl HomeSurface {
             }
             if let Some(d) = &mut self.dock {
                 d.lift.set_over_video(kit, PaneKind::Card, hole);
-                d.pane_glass = None;
             }
         }
         // the chrome, made again when the layout or the theme's own keys change, or when it did not come through whole
@@ -633,7 +633,8 @@ impl HomeSurface {
             }
         }
         if let Some(d) = self.dock.take() {
-            engine.flow.drop_lift(Id(model::DOCK_ID + model::DOCK_MAX));
+            engine.flow.drop_lift(Id(model::DOCK_CARD));
+            self.dock_lit = false;
             for t in d.tiles {
                 engine.flow.drop_lift(t.id);
             }
@@ -718,6 +719,8 @@ impl HomeSurface {
         if let Some(r) = dock_rect {
             let frame = Frame::new(r.x as f32, r.y as f32, r.w as f32, r.h as f32);
             if self.dock.as_ref().is_none_or(|d| d.frame != frame) {
+                engine.flow.drop_lift(Id(model::DOCK_CARD));
+                self.dock_lit = false;
                 if let Some(d) = self.dock.take() {
                     for t in d.tiles {
                         engine.flow.drop_lift(t.id);
@@ -726,6 +729,8 @@ impl HomeSurface {
                 self.dock = Some(self.make_dock(kit, engine, home, frame)?);
             }
         } else if let Some(d) = self.dock.take() {
+            engine.flow.drop_lift(Id(model::DOCK_CARD));
+            self.dock_lit = false;
             for t in d.tiles {
                 engine.flow.drop_lift(t.id);
             }
@@ -740,9 +745,12 @@ impl HomeSurface {
 
     fn make_dock(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home, frame: Frame) -> std::io::Result<DockSurface> {
         let other = |e: ui::error::UiError| std::io::Error::other(format!("{e}"));
-        let lift = Lift::new(kit, engine, Id(model::DOCK_ID + model::DOCK_MAX), frame, Z_DOCK, PaneKind::Card, 1.0, 0.0, self.over_video)?;
+        // the card lifts as the widgets do (scale and rise on the shared flow); its tiles hang under a group that does not scale with it, so
+        // their pictures stay on whole pixels while the glass grows
+        let lift = Lift::new(kit, engine, Id(model::DOCK_CARD), frame, Z_DOCK, PaneKind::Card, kit.tokens.focus.card_scale, kit.tokens.focus.card_lift, self.over_video)?;
+        lift.keep(kit, engine)?;
         let radius = kit.tokens.radius(Radius::Card);
-        let parent = engine.flow.group(lift.id).map(|g| g.id());
+        let parent = engine.flow.kept(lift.id).map(|g| g.id());
         let viewport = kit.ui.scene.group(parent, GroupPose { clip: Some(compositor_protocol::Rect { x: 0.0, y: 0.0, w: frame.w, h: frame.h }), ..GroupPose::IDENTITY }).map_err(other)?;
         let grid = kit.ui.scene.group(Some(viewport.id()), GroupPose::IDENTITY).map_err(other)?;
         let scene = kit.ui.scene.clone();
@@ -763,7 +771,7 @@ impl HomeSurface {
         })?;
         let _ = radius;
         engine.flow.scroller(&kit.ui.scene, model::DOCK, &grid, GroupPose::IDENTITY, false, 4000.0).map_err(other)?;
-        Ok(DockSurface { lift, frame, viewport, grid, halo, fade, tiles: Vec::new(), pill, pill_text, pill_for: None, cols: home.dock.cols(), scroll: 0.0, key: None, arts: Vec::new(), halo_accent: None, halo_at: None, pane_glass: None })
+        Ok(DockSurface { lift, frame, viewport, grid, halo, fade, tiles: Vec::new(), pill, pill_text, pill_for: None, cols: home.dock.cols(), scroll: 0.0, key: None, arts: Vec::new(), halo_accent: None, halo_at: None })
     }
 
     /// The tiles, made again when the dock's list changes, and after a shed ([`HomeSurface::set_shed`]) from the pictures kept for them: a
@@ -1378,16 +1386,13 @@ impl HomeSurface {
             let _ = engine.flow.go(self.last_focus, shown, now_ns);
             self.last_focus = shown;
         }
+        // the dock card lifts, with the widgets' spring, while the focus is on one of its tiles and settles back when it leaves; the tile lifts on
+        // its own, so a move inside the dock leaves the card where it is
         let on_dock = current.is_some_and(is_dock);
-        if let Some(d) = &mut self.dock {
-            // the dock's glass is lit while the focus is on it (the cards' own lifts light theirs); said at every apply (a dock made again, or
-            // restyled for a video behind, has it back), restyled only when that changes: the same glass at every apply made a commit, and a
-            // frame, of every apply that changed nothing else
-            let glass = glass_of(kit, PaneKind::Card, d.frame.h, on_dock, self.over_video);
-            if d.pane_glass != Some(glass) {
-                d.pane_glass = Some(glass);
-                d.lift.pane.restyle(glass);
-            }
+        if on_dock != self.dock_lit && self.dock.is_some() {
+            self.dock_lit = on_dock;
+            let card = Some(Id(model::DOCK_CARD));
+            let _ = if on_dock { engine.flow.go(None, card, now_ns) } else { engine.flow.go(card, None, now_ns) };
         }
         // the hover cue: a ring on what the pointer is over
         let hover = home.focus.hovered();
@@ -2983,6 +2988,50 @@ mod tests {
     }
 
     #[test]
+    fn the_dock_card_lifts_like_a_widget_while_the_focus_is_on_a_tile_and_settles_back_when_it_leaves() {
+        const MS: u64 = 1_000_000;
+        let (h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        let clock = std::rc::Rc::new(std::cell::Cell::new(5_000 * MS));
+        let read = std::rc::Rc::clone(&clock);
+        kit.ui.scene.set_clock(move || read.get(), 8 * MS);
+        let mut engine = Engine::new(&kit).expect("an engine");
+        let mut home = Home::new(lumatv_tokens::Tokens::shipped().json().clone(), super::super::grid::shipped(), json!({}));
+        fixtures(&mut home);
+        let mut s = HomeSurface::new(1000);
+        s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+        let (card, tile) = (Id(model::DOCK_CARD), |i: u32| Id(model::DOCK_ID + i));
+        let widget = home.widget_id("clock").expect("the clock card");
+        // the focus goes to `focus` and the frame is drawn, then `after_ms` pass; returns the scene's time by then
+        fn step(s: &mut HomeSurface, kit: &mut Kit, engine: &mut Engine, home: &mut Home, clock: &std::cell::Cell<u64>, focus: Id, after_ms: u64) -> u64 {
+            assert!(home.focus.focus(focus), "{focus:?} is a focusable");
+            s.apply(kit, engine, home, 2000).expect("Home drawn");
+            clock.set(clock.get() + after_ms * MS);
+            clock.get()
+        }
+        let at = step(&mut s, &mut kit, &mut engine, &mut home, &clock, widget, 600);
+        assert!(engine.flow.resting(card, at) && engine.flow.lift_at(widget, at) > 0.99, "a widget is up and the dock card is at rest");
+        let at = step(&mut s, &mut kit, &mut engine, &mut home, &clock, tile(1), 40);
+        assert!(!engine.flow.resting(card, at) && engine.flow.lift_at(card, at) < 0.5, "the dock card starts up with the focus, and not from the top");
+        let at = step(&mut s, &mut kit, &mut engine, &mut home, &clock, tile(1), 600);
+        let frame = s.dock.as_ref().expect("the dock").frame;
+        assert!(engine.flow.lift_at(card, at) > 0.99 && engine.flow.lift_at(tile(1), at) > 0.99 && engine.flow.resting(widget, at), "the card and the focused tile are up, the widget settled back");
+        let mut up = engine.flow.lifted_ids(at);
+        up.sort_by_key(|i| i.0);
+        assert_eq!(up, vec![tile(1), card], "nothing else lifted or moved aside");
+        // the cards' own numbers: a widget's plate at full lift is its box grown by card_scale and raised by card_lift
+        let (lifted, _) = engine.flow.lifted_plate(card, at).expect("the dock card's plate");
+        let f = &kit.tokens.focus;
+        assert!((lifted.w - frame.w * f.card_scale).abs() < 0.01 && (lifted.h - frame.h * f.card_scale).abs() < 0.01, "grown by the card scale: {lifted:?}");
+        assert!((lifted.y - (frame.y - frame.h * (f.card_scale - 1.0) / 2.0 - f.card_lift)).abs() < 0.01, "raised by the card lift: {lifted:?}");
+        // a move inside the dock leaves the card up
+        let at = step(&mut s, &mut kit, &mut engine, &mut home, &clock, tile(2), 60);
+        assert!(engine.flow.lift_at(card, at) > 0.99, "a move along the dock keeps the card up");
+        let at = step(&mut s, &mut kit, &mut engine, &mut home, &clock, widget, 600);
+        assert!(engine.flow.resting(card, at) && engine.flow.resting(tile(2), at) && engine.flow.lift_at(widget, at) > 0.99, "the focus left: the card and the tile are back at rest");
+        drop(h);
+    }
+
+    #[test]
     fn tiles_after_a_removed_or_hidden_one_close_up_with_every_tile_still_drawn_where_the_dock_puts_it() {
         let (h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
         let mut engine = Engine::new(&kit).expect("an engine");
@@ -3021,5 +3070,72 @@ mod tests {
         home.update(&Input::Fetched { tag: model::THEME_TAG, status: 200, data: json!({}) }, 2600);
         check(&mut s, &mut home, &mut engine, &mut kit, 2700);
         std::mem::forget(h);
+    }
+
+    /// Home with the focus on the dock written as a 1920x1080 PNG when `DOCK_SHOTS` names a file, drawn by the real renderer on software GL
+    /// (`LIBGL_ALWAYS_SOFTWARE=1` on a machine with a GPU), 45 refreshes after the focus lands so that the spring has settled. Without the
+    /// variable the test does nothing.
+    #[test]
+    fn home_with_the_focus_on_the_dock_is_written_as_a_png_for_looking_at_when_a_file_is_named() {
+        use compositor_protocol::Event;
+        use lumatv_render::host::{Engine as Host, HostConfig};
+        use lumatv_render::{Gles, now_ns};
+        use std::time::{Duration, Instant};
+        use ui::lucent::material::MaterialTier;
+        use ui::testing::TempDir;
+
+        fn pump(kit: &mut Kit, host: &mut Host, events: &std::sync::mpsc::Receiver<Event>) {
+            while let Ok(event) = events.try_recv() {
+                kit.ui.scene.observe(&event);
+            }
+            if let Some(atlas) = kit.ui.text_atlas() {
+                atlas.pump();
+            }
+            if kit.ui.scene.has_pending() {
+                kit.ui.try_commit().expect("a commit");
+            }
+            assert!(!host.pump().expect("the renderer").closed, "the renderer closed");
+        }
+
+        let Ok(file) = std::env::var("DOCK_SHOTS") else { return };
+        let shm = TempDir::new("home-dock-shots");
+        let gles = Gles::software_pbuffer(c"libEGL.so.1", 1920, 1080).expect("Mesa EGL");
+        let config = HostConfig { width: 1920, height: 1080, refresh_hz: 60.0, shm_dir: shm.path().to_owned(), direct: false, gpu_sync: false, idle_trim: false, pages: 0, reference: false, blit: false, external: false, system_z: i32::MAX };
+        let (mut host, end) = Host::new(gles, config).expect("the renderer");
+        let (scene, _, events) = ui::Scene::over_with(end, ui::SceneOptions { shm_dir: Some(shm.path().to_owned()), ..Default::default() }).expect("a scene");
+        host.finish_handshake().expect("the handshake");
+        let mut kit = Kit::new(scene, lumatv_tokens::Tokens::shipped(), Mode::Dark, MaterialTier::T1, 1.0).expect("a kit");
+        kit.icons = crate::kit::icon::Icons::new(&testkit::module_dir());
+        let mut engine = Engine::new(&kit).expect("an engine");
+        let mut home = Home::new(lumatv_tokens::Tokens::shipped().json().clone(), super::super::grid::shipped(), json!({}));
+        fixtures(&mut home);
+        let mut s = HomeSurface::new(1000);
+        s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+        assert!(home.focus.focus(Id(model::DOCK_ID + 1)), "a dock tile takes the focus");
+        s.apply(&mut kit, &mut engine, &mut home, 2000).expect("Home drawn");
+        let end = Instant::now() + Duration::from_secs(30);
+        loop {
+            pump(&mut kit, &mut host, &events);
+            host.apply_waiting(now_ns());
+            host.tidy();
+            if kit.ui.glyph_text_settled() && !kit.ui.scene.has_pending() && !host.tidy_more() {
+                break;
+            }
+            assert!(Instant::now() < end, "the glyph atlas did not settle");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        s.apply(&mut kit, &mut engine, &mut home, 2001).expect("Home drawn");
+        let mut ns = now_ns();
+        for _ in 0..45 {
+            ns += 16_666_667;
+            pump(&mut kit, &mut host, &events);
+            let cost = host.draw(ns);
+            host.frame_done(ns, &cost);
+            host.tidy();
+        }
+        let mut encoder = png::Encoder::new(std::io::BufWriter::new(std::fs::File::create(&file).expect("the file")), 1920, 1080);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.write_header().and_then(|mut w| w.write_image_data(&host.read_page(0))).expect("the PNG");
     }
 }
