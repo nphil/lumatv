@@ -77,6 +77,8 @@ sm already reads the remotes' evdev nodes itself (Home held 10 s escapes), pings
 
 Sampled by the compositor once a second while open, nothing while closed; sources, all read in under 0.1 ms together: `/proc/stat` (per core, saturating deltas), `/proc/meminfo` (`MemAvailable`), `/sys/kernel/debug/mali0/dvfs_utilization` (`busy_time`, `idle_time`), `/proc/lg/pm/temperature` (°C) and `/proc/lg/pm/frequency` (kHz), the pnwash state. `ctl switcher` reports `stats.samples` and `stats.us` (time spent sampling) so the cost, and zero while hidden, can be read.
 
+The UI draws the numbers as one slim header line across the top, between the safe side margins: no card or plate, muted small type, CPU with a tiny bar per core, then Memory, GPU and Temp (the last two only when read), evenly spaced. A line too long for the width (200 % text) drops the memory total first, then the CPU bars. The row of cards is centred in the room between the header and the buttons.
+
 ## Pictures
 
 Apps release their buffer when they leave the front, so the windows alone cannot make the list or its pictures. The list is the app manager's `running`, refreshed at open and by life events. When an app leaves the front (`State::freeze_app`'s call sites, before its picture is released) the compositor keeps a 16:9 thumbnail on the GPU (at most 12, about 1 MB each, least recently used out; dropped with the app). A card's picture is the window's live buffer when it has one, else the thumbnail, else none.

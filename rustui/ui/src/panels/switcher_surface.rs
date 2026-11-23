@@ -1,7 +1,7 @@
 //! The task manager's chrome (`docs/research/task-manager.md`): what is drawn over the apps' pictures. The pictures are the compositor's, drawn
 //! under the shell's layers where `Switcher::layout` says; here are the frame of each card (the lit glass of the one in focus, the veil on the
-//! others), its icon and name, what is happening to it, an icon on a tile for an app with no picture, the strip of the TV's numbers, the
-//! two buttons below it, the System sheet and the confirmations.
+//! others), its icon and name, what is happening to it, an icon on a tile for an app with no picture, the header strip of the TV's numbers
+//! across the top, the two buttons below the cards, the System sheet and the confirmations.
 //!
 //! The model decides what is where and who has the focus; this follows it. A card's chrome is made once per app and moves in place (the
 //! cards close up when one leaves, the focused card is larger), so a card keeps its look while the list around it changes. Nothing here
@@ -53,9 +53,10 @@ const MAX_CARDS: usize = 16;
 /// The page mark under the cards, when not all are in the window: how tall it is and how wide per app (a mark, not a rule across the screen).
 const MARK_H: f32 = 4.0;
 const MARK_PER_APP: f32 = 56.0;
-/// The height of the stats bars' area (a core's row, or the memory and GPU bar centred in it), and the gap between a core's rows.
-const BARS_H: f32 = 40.0;
-const BAR_GAP: f32 = 4.0;
+/// The safe margins the header strip stands inside (the buttons' left edge is the same), and the width between them.
+const EDGE_X: f32 = 96.0;
+const EDGE_Y: f32 = 54.0;
+const HEAD_W: f32 = 1920.0 - 2.0 * EDGE_X;
 /// How far up a card has to be dragged for it to be quit.
 const DRAG_PX: f32 = 120.0;
 const FULL: Frame = Frame { x: 0.0, y: 0.0, w: 1920.0, h: 1080.0 };
@@ -139,28 +140,29 @@ struct Metrics {
     stacked: bool,
     btn_h: f32,
     action_y: f32,
-    strip_y: f32,
-    strip_h: f32,
+    /// The header strip of numbers: its top and height, one line of small type.
+    head_y: f32,
     head_h: f32,
+    /// The area between the header and the buttons that the row of cards and the empty state are centred in.
+    zone_top: f32,
+    zone_bottom: f32,
 }
 
 fn metrics(kit: &mut Kit) -> Metrics {
-    let (s2, s3, s4, s5, s7, s8) = (kit.space(2), kit.space(3), kit.space(4), kit.space(5), kit.space(7), kit.space(8));
+    let (s2, s3, s4, s7, s8) = (kit.space(2), kit.space(3), kit.space(4), kit.space(7), kit.space(8));
     let btn_h = Button::height(kit);
-    let action_y = 1080.0 - 54.0 - btn_h;
-    let head_h = kit.line(TypeRole::Body).max(kit.line(TypeRole::Caption)).ceil();
-    let strip_h = (2.0 * s5 + head_h + s3 + BARS_H).ceil();
-    let strip_y = action_y - s7 - strip_h;
+    let action_y = 1080.0 - EDGE_Y - btn_h;
+    let head_h = kit.line(TypeRole::Caption).ceil();
     let stacked = kit.line(TypeRole::Body) > ICON;
     // the state words wrap to a second line where the card is narrower than they are, which only large text makes it
     let words_h = 2.0 * kit.line(TypeRole::Body) + if stacked { 2.0 } else { 1.0 } * kit.line(TypeRole::Caption);
     let foot_h = if stacked { ICON + s2 + words_h } else { words_h.max(ICON) }.ceil();
     let cards_h = geo::H + s4 + foot_h + s8 + s2;
-    let zone = strip_y - s8 - 54.0;
-    let top = (54.0 + ((zone - cards_h) / 2.0).max(0.0)).round();
+    let (zone_top, zone_bottom) = (EDGE_Y + head_h + s7, action_y - s7);
+    let top = (zone_top + ((zone_bottom - zone_top - cards_h) / 2.0).max(0.0)).round();
     let rest_w = geo::W * geo::REST;
     let name_w = if stacked { rest_w } else { rest_w - ICON - s3 };
-    Metrics { top, foot_h, name_w, stacked, btn_h, action_y, strip_y, strip_h, head_h }
+    Metrics { top, foot_h, name_w, stacked, btn_h, action_y, head_y: EDGE_Y, head_h, zone_top, zone_bottom }
 }
 
 /// The width of the "No preview" line on a tile: the resting picture less its margins.
@@ -433,7 +435,8 @@ struct Shape4 {
 impl Shape4 {
     fn of(s: Option<&Stats>) -> Self {
         let mem = s.and_then(|s| s.mem).map_or_else(|| "9.9".to_string(), |m| gb(m.total_kb));
-        Self { cores: s.map_or(0, |s| s.cpu.len()).max(4), gpu: s.is_some_and(|s| s.gpu.is_some()), temp: s.is_some_and(|s| s.temp_c.is_some()), mem }
+        // the TV has three cores: that is what the bars are made for until the first sample says
+        Self { cores: s.map_or(3, |s| s.cpu.len()), gpu: s.is_some_and(|s| s.gpu.is_some()), temp: s.is_some_and(|s| s.temp_c.is_some()), mem }
     }
 }
 
@@ -445,95 +448,105 @@ fn average(cpu: &[f32]) -> Option<f32> {
     (!cpu.is_empty()).then(|| cpu.iter().sum::<f32>() / cpu.len() as f32)
 }
 
-struct StatTile {
+/// One reading in the header: its label and number and, for the CPU, a bar for each core.
+struct Reading {
     kind: Kind,
+    frame: Frame,
     label: Words,
     value: Words,
-    viz: Frame,
-    /// The thickness of one bar and the top of the first: a core is a row, like the memory and GPU bars, and not a column.
-    bar_h: f32,
-    bars_y: f32,
+    bars: Bars,
     _tracks: Vec<ShapeLayer>,
     fills: Vec<ShapeLayer>,
 }
 
-/// The strip of numbers under the cards: one panel, a tile for each reading, a rule between them.
+/// Where a CPU core's bars stand: the left of the first, its top, the size of one and the gap between two.
+#[derive(Clone, Copy)]
+struct Bars {
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    gap: f32,
+}
+
+/// The strip of numbers across the top of the task manager: one line of muted small type, no plate, a reading after another with even
+/// gaps between the safe margins. Where the line is too long for the width the memory loses its total, then the CPU its bars, so
+/// nothing ever overlaps.
 struct Strip {
     shape: Shape4,
     frame: Frame,
-    _panel: ShapeLayer,
-    _rules: Vec<ShapeLayer>,
-    tiles: Vec<StatTile>,
+    mem_short: bool,
+    readings: Vec<Reading>,
     shown: Option<Option<Stats>>,
 }
 
 impl Strip {
     fn new(kit: &mut Kit, root: &Group, z: i32, m: &Metrics, shape: Shape4) -> std::io::Result<Self> {
         let scene = kit.ui.scene.clone();
-        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
-        let (pad_x, pad_y, gap, label_gap) = (kit.space(6), kit.space(5), kit.space(7), kit.space(4));
-        let label_style = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
-        let value_style = role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Right);
-        let mut kinds = vec![Kind::Cpu, Kind::Mem];
-        if shape.gpu {
-            kinds.push(Kind::Gpu);
+        let ink2 = kit.ui.look.ink2();
+        let scaled = |kit: &Kit, n: usize| (kit.space(n) * kit.text_scale).round();
+        let (label_gap, bar_w, bar_gap, least_gap) = (scaled(kit, 2), scaled(kit, 2), scaled(kit, 1), scaled(kit, 7));
+        let bar_h = (m.head_h - 2.0 * bar_gap).max(bar_w);
+        let style = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
+        let mut kinds = vec![(Kind::Cpu, "CPU", "100%"), (Kind::Mem, "Memory", ""), (Kind::Gpu, "GPU", "100%"), (Kind::Temp, "Temp", "100 \u{b0}C")];
+        kinds.retain(|(k, ..)| match k {
+            Kind::Gpu => shape.gpu,
+            Kind::Temp => shape.temp,
+            Kind::Cpu | Kind::Mem => true,
+        });
+        let mem_long = format!("{0} / {0} GB", shape.mem);
+        let mem_short = format!("{} GB", shape.mem);
+        // each reading's label width and the widest its number gets (long, short): a number's box never changes with its digits
+        let mut measured = Vec::new();
+        for (k, label, widest_value) in &kinds {
+            let lw = width_of(kit, style, label);
+            let vw = |kit: &mut Kit, v: &str| widest(kit, style, &[v, "\u{2014}"]);
+            let (long, short) = if *k == Kind::Mem { (vw(kit, &mem_long), vw(kit, &mem_short)) } else { let v = vw(kit, widest_value); (v, v) };
+            measured.push((*k, *label, lw, long, short));
         }
-        if shape.temp {
-            kinds.push(Kind::Temp);
-        }
-        let mem_wide = format!("{0} / {0} GB", shape.mem);
-        let mut tiles_at = Vec::new();
-        let mut x = 96.0 + pad_x;
-        for k in &kinds {
-            let (label, widest_value, least) = match k {
-                Kind::Cpu => ("CPU", "100%", 240.0),
-                Kind::Mem => ("Memory", mem_wide.as_str(), 200.0),
-                Kind::Gpu => ("GPU", "100%", 140.0),
-                Kind::Temp => ("Temp", "100 \u{b0}C", 0.0),
-            };
-            let (lw, vw) = (width_of(kit, label_style, label), widest(kit, value_style, &[widest_value, "\u{2014}"]));
-            let w = (lw + label_gap + vw).max(least).ceil();
-            tiles_at.push((*k, label, x, w, lw, vw));
-            x += w + gap;
-        }
-        let frame = Frame::new(96.0, m.strip_y, (x - gap + pad_x - 96.0).ceil(), m.strip_h);
-        let panel = scene.adopting_view(root, || plate::shape(&kit.ui, frame, z + 2, Shape { corner_radius: kit.tokens.radius(Radius::Card), fill: Fill::Solid(kit.ui.look.colour(PaletteRole::Glass)), border_width: 1.0, border: edge(kit) }));
-        let (track, accent) = (kit.ui.look.theme.materials.track_off, kit.ui.look.accent());
-        let (label_line, value_line) = (kit.line(TypeRole::Caption), kit.line(TypeRole::Body));
-        let y0 = m.strip_y + pad_y;
-        let mut tiles = Vec::new();
-        let mut rules = Vec::new();
-        for (i, (kind, label, x, w, lw, vw)) in tiles_at.into_iter().enumerate() {
-            let tile = Frame::new(x, y0, w, m.head_h + kit.space(3) + BARS_H);
-            let viz = Frame::new(x, y0 + m.head_h + kit.space(3), w, BARS_H);
-            let (lf, vf) = (Frame::new(x, y0 + ((m.head_h - label_line) / 2.0).round(), lw, label_line), Frame::new(x + w - vw, y0 + ((m.head_h - value_line) / 2.0).round(), vw, value_line));
-            let (bars, bar_h) = match kind {
-                Kind::Cpu => (shape.cores, ((BARS_H + BAR_GAP) / shape.cores as f32 - BAR_GAP).clamp(2.0, 10.0).floor()),
-                Kind::Mem | Kind::Gpu => (1, 10.0),
-                Kind::Temp => (0, 0.0),
-            };
-            let bars_y = viz.y + ((BARS_H - (bars as f32 * (bar_h + BAR_GAP) - BAR_GAP)) / 2.0).max(0.0).floor();
+        let bars_w = |n: usize| n as f32 * bar_w + n.saturating_sub(1) as f32 * bar_gap;
+        let mut level = 0;
+        let (widths, gap) = loop {
+            let widths: Vec<f32> = measured
+                .iter()
+                .map(|(k, _, lw, long, short)| {
+                    let vw = if level > 0 && *k == Kind::Mem { *short } else { *long };
+                    lw + label_gap + vw + if *k == Kind::Cpu && level < 2 && shape.cores > 0 { label_gap + bars_w(shape.cores) } else { 0.0 }
+                })
+                .collect();
+            let gap = ((HEAD_W - widths.iter().sum::<f32>()) / (widths.len() - 1) as f32).floor();
+            if gap >= least_gap || level == 2 {
+                break (widths, gap);
+            }
+            level += 1;
+        };
+        let (track, fill) = (faded(kit.ui.look.theme.materials.track_off, 0.6), faded(ink2, 0.5));
+        let line = kit.line(TypeRole::Caption);
+        let text_y = m.head_y + ((m.head_h - line) / 2.0).round();
+        let mut readings = Vec::new();
+        let mut x = EDGE_X;
+        for ((kind, label, lw, long, short), w) in measured.into_iter().zip(widths) {
+            let vw = if level > 0 && kind == Kind::Mem { short } else { long };
+            let x0 = x.round();
+            let n = if kind == Kind::Cpu && level < 2 { shape.cores } else { 0 };
+            let bars = Bars { x: x0 + lw + label_gap + vw + label_gap, y: m.head_y + ((m.head_h - bar_h) / 2.0).round(), w: bar_w, h: bar_h, gap: bar_gap };
             let (tracks, fills, label_w, value_w) = scene.adopting_view(root, || -> std::io::Result<_> {
-                let mut tracks = Vec::new();
-                let mut fills = Vec::new();
-                for b in 0..bars {
-                    let (bx, by, bw, bh) = (viz.x, bars_y + b as f32 * (bar_h + BAR_GAP), w, bar_h);
-                    tracks.push(plate::shape(&kit.ui, Frame::new(bx, by, bw, bh), z + 3, plate::solid(track, (bw.min(bh) / 2.0).floor())));
-                    let fill = plate::shape(&kit.ui, Frame::new(bx, by, bw, bh), z + 4, plate::solid(accent, (bw.min(bh) / 2.0).floor()));
-                    fill.set(Props { opacity: 0.0, ..Props::at(bx, by) });
-                    fills.push(fill);
+                let (mut tracks, mut fills) = (Vec::new(), Vec::new());
+                for b in 0..n {
+                    let f = Frame::new(bars.x + b as f32 * (bars.w + bars.gap), bars.y, bars.w, bars.h);
+                    tracks.push(plate::shape(&kit.ui, f, z + 3, plate::solid(track, (bars.w / 2.0).floor())));
+                    let lit = plate::shape(&kit.ui, f, z + 4, plate::solid(fill, (bars.w / 2.0).floor()));
+                    lit.set(Props { opacity: 0.0, ..Props::at(f.x, f.y) });
+                    fills.push(lit);
                 }
-                let label_w = Words::new(kit, lf.x, lf.y, lf.w, z + 4, &[WordLine::new(label, TypeRole::Caption, ink2)])?;
-                let value_w = Words::new(kit, vf.x, vf.y, vf.w, z + 4, &[WordLine::new("\u{2014}", TypeRole::Body, ink).weight(Weight::SemiBold).aligned(Align::Right)])?;
+                let label_w = Words::new(kit, x0, text_y, lw, z + 4, &[WordLine::new(label, TypeRole::Caption, ink2)])?;
+                let value_w = Words::new(kit, x0 + lw + label_gap, text_y, vw, z + 4, &[WordLine::new("\u{2014}", TypeRole::Caption, ink2)])?;
                 Ok((tracks, fills, label_w, value_w))
             })?;
-            if i > 0 {
-                let rule = Frame::new((x - gap / 2.0).round(), y0, 1.0, tile.h);
-                rules.push(scene.adopting_view(root, || plate::shape(&kit.ui, rule, z + 3, plate::solid(edge(kit), 0.0))));
-            }
-            tiles.push(StatTile { kind, label: label_w, value: value_w, viz, bar_h, bars_y, _tracks: tracks, fills });
+            readings.push(Reading { kind, frame: Frame::new(x0, m.head_y, w, m.head_h), label: label_w, value: value_w, bars, _tracks: tracks, fills });
+            x += w + gap;
         }
-        Ok(Self { shape, frame, _panel: panel, _rules: rules, tiles, shown: None })
+        Ok(Self { shape, frame: Frame::new(EDGE_X, m.head_y, HEAD_W, m.head_h), mem_short: level > 0, readings, shown: None })
     }
 
     /// The numbers as the last sample says them (a dash before there is one: nothing is made up).
@@ -543,30 +556,26 @@ impl Strip {
         }
         let first = self.shown.is_none();
         self.shown = Some(s.cloned());
-        for t in &mut self.tiles {
-            match t.kind {
+        let dash = "\u{2014}".to_string();
+        for r in &mut self.readings {
+            match r.kind {
                 Kind::Cpu => {
                     let avg = s.and_then(|s| average(&s.cpu));
-                    t.value.set(kit, 0, &avg.map_or("\u{2014}".to_string(), |a| format!("{a:.0}%")));
-                    for (b, fill) in t.fills.iter().enumerate() {
-                        let pct = s.and_then(|s| s.cpu.get(b)).copied();
-                        let y = t.bars_y + b as f32 * (t.bar_h + BAR_GAP);
-                        let w = pct.map_or(0.0, |p| (t.viz.w * p.clamp(0.0, 100.0) / 100.0).max(2.0));
-                        glide_to(kit, fill, Props { opacity: if pct.is_some() { 1.0 } else { 0.0 }, clip: Some(Rect { x: t.viz.x, y, w, h: t.bar_h }), ..Props::at(t.viz.x, y) }, first);
+                    r.value.set(kit, 0, &avg.map_or(dash.clone(), |a| format!("{a:.0}%")));
+                    let b = r.bars;
+                    for (i, fill) in r.fills.iter().enumerate() {
+                        let pct = s.and_then(|s| s.cpu.get(i)).copied();
+                        let x = b.x + i as f32 * (b.w + b.gap);
+                        let h = pct.map_or(0.0, |p| (b.h * p.clamp(0.0, 100.0) / 100.0).clamp(2.0, b.h));
+                        glide_to(kit, fill, Props { opacity: if pct.is_some() { 1.0 } else { 0.0 }, clip: Some(Rect { x, y: b.y + b.h - h, w: b.w, h }), ..Props::at(x, b.y) }, first);
                     }
                 }
                 Kind::Mem => {
-                    let m = s.and_then(|s| s.mem);
-                    t.value.set(kit, 0, &m.map_or("\u{2014}".to_string(), |m| format!("{} / {} GB", gb(m.used_kb()), gb(m.total_kb))));
-                    let frac = m.map_or(0.0, |m| m.used_kb() as f32 / m.total_kb.max(1) as f32);
-                    bar_to(kit, t, frac, m.is_some(), first);
+                    let text = s.and_then(|s| s.mem).map(|m| if self.mem_short { format!("{} GB", gb(m.used_kb())) } else { format!("{} / {} GB", gb(m.used_kb()), gb(m.total_kb)) });
+                    r.value.set(kit, 0, &text.unwrap_or(dash.clone()));
                 }
-                Kind::Gpu => {
-                    let g = s.and_then(|s| s.gpu);
-                    t.value.set(kit, 0, &g.map_or("\u{2014}".to_string(), |g| format!("{g:.0}%")));
-                    bar_to(kit, t, g.unwrap_or(0.0) / 100.0, g.is_some(), first);
-                }
-                Kind::Temp => t.value.set(kit, 0, &s.and_then(|s| s.temp_c).map_or("\u{2014}".to_string(), |c| format!("{c:.0} \u{b0}C"))),
+                Kind::Gpu => r.value.set(kit, 0, &s.and_then(|s| s.gpu).map_or(dash.clone(), |g| format!("{g:.0}%"))),
+                Kind::Temp => r.value.set(kit, 0, &s.and_then(|s| s.temp_c).map_or(dash.clone(), |c| format!("{c:.0} \u{b0}C"))),
             }
         }
     }
@@ -578,14 +587,6 @@ fn glide_to(kit: &Kit, layer: &ShapeLayer, to: Props, at_once: bool) {
     } else {
         kit.glide(layer, to, Beat::Label);
     }
-}
-
-/// A bar that is a fraction of its track wide.
-fn bar_to(kit: &Kit, t: &StatTile, frac: f32, known: bool, at_once: bool) {
-    let Some(fill) = t.fills.first() else { return };
-    let w = (t.viz.w * frac.clamp(0.0, 1.0)).max(if known { 2.0 } else { 0.0 });
-    let y = t.viz.y + (BARS_H - 10.0) / 2.0;
-    glide_to(kit, fill, Props { opacity: if known { 1.0 } else { 0.0 }, clip: Some(Rect { x: t.viz.x, y, w, h: 10.0 }), ..Props::at(t.viz.x, y) }, at_once);
 }
 
 /// The sheet of what can be done to the TV: a title and three rows, each with its glyph, its name and what follows.
@@ -992,7 +993,7 @@ fn empty_state(kit: &mut Kit, root: &Group, z: i32, m: &Metrics) -> std::io::Res
     let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
     let gap = kit.space(4);
     let all = 64.0 + gap + kit.line(TypeRole::Title);
-    let y = (((54.0 + m.strip_y - kit.space(8)) - all) / 2.0).round();
+    let y = (((m.zone_top + m.zone_bottom) - all) / 2.0).round();
     scene.adopting_view(root, || -> std::io::Result<_> {
         let mark = icon::layer(kit, "layout-grid", 64, ink2, z + 3, Props::at(928.0, y))?;
         let words = Words::new(kit, 660.0, y + 64.0 + gap, 600.0, z + 3, &[WordLine::new("No apps open", TypeRole::Title, ink).aligned(Align::Centre)])?;
@@ -1237,7 +1238,7 @@ impl SwitcherSurface {
             "focus": focus,
             "close": b.close_on.then(|| f(b.close.frame())),
             "system": f(b.system.frame()),
-            "strip": b.strip.as_ref().map(|s| json!({"frame": f(s.frame), "tiles": s.tiles.iter().map(|t| format!("{:?}", t.kind)).collect::<Vec<_>>(), "values": s.tiles.iter().map(|t| t.value.text(0)).collect::<Vec<_>>()})),
+            "strip": b.strip.as_ref().map(|s| json!({"frame": f(s.frame), "tiles": s.readings.iter().map(|t| format!("{:?}", t.kind)).collect::<Vec<_>>(), "frames": s.readings.iter().map(|t| f(t.frame)).collect::<Vec<_>>(), "values": s.readings.iter().map(|t| t.value.text(0)).collect::<Vec<_>>()})),
             "sheet": sheet,
             "ask": ask,
             "empty": b.empty.is_some(),
@@ -1288,10 +1289,9 @@ impl SwitcherSurface {
             words.feed_lint(kit, lint, "no apps", Some(dim), (0.0, 0.0));
         }
         if let Some(s) = &b.strip {
-            let panel = lint.panel_on("stats strip", s.frame, kit.ui.look.colour(PaletteRole::Glass), true, dim);
-            for t in &s.tiles {
-                t.label.feed_lint(kit, lint, "stat label", Some(panel), (0.0, 0.0));
-                t.value.feed_lint(kit, lint, "stat value", Some(panel), (0.0, 0.0));
+            for t in &s.readings {
+                t.label.feed_lint(kit, lint, "stat label", Some(dim), (0.0, 0.0));
+                t.value.feed_lint(kit, lint, "stat value", Some(dim), (0.0, 0.0));
             }
         }
         if b.close_on {
@@ -1511,6 +1511,40 @@ mod tests {
         u.push_stats(stats(false, true));
         assert_eq!(u.geo()["strip"]["tiles"], json!(["Cpu", "Mem", "Gpu", "Temp"]));
         assert_eq!(u.geo()["strip"]["values"][3], "61 \u{b0}C");
+    }
+
+    #[test]
+    fn the_numbers_are_one_line_across_the_top_inside_the_margins_and_the_cards_are_centred_in_the_room_below() {
+        use ui::lucent::palette::Mode;
+        let rect = |v: &Value| Frame::new(v["x"].as_f64().unwrap() as f32, v["y"].as_f64().unwrap() as f32, v["w"].as_f64().unwrap() as f32, v["h"].as_f64().unwrap() as f32);
+        for scale in [1.0, 2.0] {
+            let mut u = Up::new(Mode::Dark, scale, five());
+            let mut s = stats(false, true);
+            s["cpu"] = json!([12.0, 80.0, 40.0]);
+            u.push_stats(s);
+            let m = metrics(&mut u.kit);
+            let g = u.geo();
+            let items: Vec<Frame> = g["strip"]["frames"].as_array().unwrap().iter().map(rect).collect();
+            assert_eq!(items.len(), 4, "CPU, memory, GPU and temperature at {scale}");
+            for (i, f) in items.iter().enumerate() {
+                assert!(f.x >= 96.0 && f.x + f.w <= 1824.0, "item {i} inside the side margins at {scale}: {f:?}");
+                assert!(f.y >= 54.0 && f.y + f.h <= m.zone_top, "item {i} is on the top row, above the cards' room at {scale}: {f:?}");
+                assert_eq!((f.y, f.h), (items[0].y, items[0].h), "item {i} is on the same line at {scale}");
+                if i > 0 {
+                    assert!(f.x > items[i - 1].x + items[i - 1].w, "item {i} does not touch the one before at {scale}");
+                }
+            }
+            let cards = g["cards"].as_array().unwrap().iter().map(|c| rect(&c["frame"])).filter(|f| f.w > 0.0);
+            let foot = geo::H + u.kit.space(4) + m.foot_h;
+            for (i, c) in cards.enumerate() {
+                assert!(c.y >= m.top && c.y >= m.zone_top && c.y + c.h <= m.top + geo::H, "card {i} is in the row, in the room below the strip at {scale}");
+                assert!(items.iter().all(|f| f.y + f.h <= c.y), "card {i} is under every item at {scale}");
+            }
+            let system = rect(&g["system"]);
+            assert!(m.top + foot <= m.zone_bottom && m.zone_bottom <= system.y, "the cards and their words end above the buttons at {scale}");
+            let (above, below) = (m.top - m.zone_top, m.zone_bottom - (m.top + foot));
+            assert!((below - above).abs() <= u.kit.space(8) + u.kit.space(2) + 1.0, "the row is centred in the room, the page mark's space aside, at {scale}");
+        }
     }
 
     #[test]

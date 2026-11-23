@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The task manager's numbers are a slim header line across the top (CPU with a tiny bar per core, Memory, GPU, Temp) instead of a card at the bottom, and the cards are centred in the room that frees.
 The Live TV tuner changes channels faster: each channel's PAT/PMT is kept (in `tuner/channels.json`) and a tune routes from them at once while the live tables are checked, and a channel on the RF channel the last stream left is read without playing or waiting for a lock again. A moved program is routed again before its picture, and a cached one that brings no picture is forgotten.
 The task manager uses LumaGame's hook: Quit asks it to end the session and closes it the ordinary way only if it is still there after 3 s, and its card takes LumaGame's own last UI frame as its picture (a black frame leaves the icon card; a video on the hardware layer is not in it).
 
