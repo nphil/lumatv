@@ -1,8 +1,8 @@
 //! Opt-in audio passthrough: Dolby TrueHD from a player that decodes for itself (Marquee) to the receiver over eARC.
 //!
 //! The route is the `audiopass` crate. This module is the plugin around it: the switch and its page, LG's sound output, the monitor
-//! thread that carries a session through connecting and watches it, and the three calls a player makes
-//! (`docs/plugins/audio-passthrough.md`):
+//! thread that carries a session through connecting and watches it, the reader and sampler threads that keep what a player polls
+//! current ([`audiopass::sample`]), and the three calls a player makes (`docs/plugins/audio-passthrough.md`):
 //!
 //! | Request | Answer |
 //! |---|---|
@@ -27,6 +27,7 @@ use crate::plugins::session::Shared;
 use crate::timeutil::now_ms;
 use audiopass::host::{Host, System};
 use audiopass::route::{Env, MAX_ADEC, Phase, Route, Snapshot, State, Why};
+use audiopass::sample::{self, READ_MS, Reading, SAMPLE_MS, Sample};
 use parking_lot::{Condvar, Mutex, RwLock};
 use serde_json::{Value, json};
 use std::panic::{self, AssertUnwindSafe};
@@ -72,10 +73,16 @@ const PAYLOAD: &str =
 const FOLLOW_RETRY: Duration = Duration::from_secs(5);
 /// Before the page is registered again after the base refused it.
 const PAGE_RETRY: Duration = Duration::from_secs(30);
-/// How long a reading of the route can be trusted by a player (`validForMs`).
+/// How long a sample of the route can be trusted by a player (`validForMs`). The sampler publishes every `SAMPLE_MS` (50 ms) and a
+/// player polls every 50 ms, so a live sampler's samples reach it at most about 100 ms old, 150 ms with one sample late; the rest is
+/// the answer's own way through a loaded TV (load average about 17 during playback). Older than this, the helper has stopped
+/// publishing and nothing vouches for the route: a stream that runs on through a route LG changed meanwhile is noise at the
+/// receiver, and upstream (`lgroute.c`) accepts about 250 ms of that before it looks at Pass-Through again.
 const VALID_FOR_MS: u64 = 300;
 /// How long the monitor sleeps while the plugin is off; switching it on wakes it.
 const OFF_WAIT_MS: u64 = 30_000;
+/// The reader's and the sampler's stacks.
+const SAMPLING_STACK: usize = 128 * 1024;
 
 /// The running module, for the router. Replaced by each start.
 static SERVICE: RwLock<Option<Arc<Service>>> = RwLock::new(None);
@@ -108,7 +115,7 @@ impl Sound {
     }
 }
 
-/// Wakes the monitor before its wait is over.
+/// Wakes a thread before its wait is over.
 #[derive(Default)]
 struct Wake {
     pending: Mutex<bool>,
@@ -121,7 +128,7 @@ impl Wake {
         self.changed.notify_all();
     }
 
-    /// Sleeps up to `ms`, or less when woken (including a wake that came while the monitor was busy).
+    /// Sleeps up to `ms`, or less when woken (including a wake that came while the thread was busy).
     fn wait(&self, ms: u64) {
         let mut pending = self.pending.lock();
         if !*pending {
@@ -157,6 +164,21 @@ impl Ages {
     }
 }
 
+/// What the helper shows of the route: the topic, the latest snapshot, and the sample a player polls. The route publishes here from
+/// inside its steps; between them the reader and the sampler threads keep the sample current without the route. Locks are taken in
+/// the order `view`, `reading`, `sample`.
+struct Board {
+    hub: Arc<Hub>,
+    host: Arc<dyn Host>,
+    /// The latest snapshot of the route.
+    view: Mutex<Option<Snapshot>>,
+    /// The reader's last reading of the session's route.
+    reading: Mutex<Option<Reading>>,
+    /// What `GET route` answers. A player polls it every few tens of milliseconds, so answering from it never waits for the route,
+    /// which an arm or a restore holds for seconds.
+    sample: Mutex<Option<Sample>>,
+}
+
 struct Service {
     hub: Arc<Hub>,
     host: Arc<dyn Host>,
@@ -164,10 +186,11 @@ struct Service {
     enabled: Box<dyn Fn() -> bool + Send + Sync>,
     route: Mutex<Route>,
     sound: Mutex<Sound>,
-    /// The latest snapshot of the route. A player polls it every few tens of milliseconds, so answering from it never waits for the
-    /// route, which an arm or a restore holds for seconds.
-    view: Arc<Mutex<Option<Snapshot>>>,
+    board: Arc<Board>,
     wake: Wake,
+    /// The reader and the sampler wait long between sessions: an arm and the helper stopping wake them.
+    read_wake: Wake,
+    sample_wake: Wake,
     ages: Mutex<Ages>,
 }
 
@@ -245,10 +268,81 @@ fn topic(s: &Snapshot) -> Value {
     })
 }
 
-/// Keeps the snapshot for `GET route` and publishes the topic. A topic that differs only in its sample time raises no event.
-fn publish(hub: &Hub, view: &Mutex<Option<Snapshot>>, snapshot: &Snapshot) {
-    hub.set_ignoring(TOPIC, topic(snapshot), &["sampledUptimeMs"]);
-    *view.lock() = Some(snapshot.clone());
+impl Board {
+    /// Keeps `snapshot`, publishes the topic, and the sample at once. A topic that differs only in its sample time raises no event.
+    fn publish(&self, snapshot: &Snapshot) {
+        self.hub
+            .set_ignoring(TOPIC, topic(snapshot), &["sampledUptimeMs"]);
+        *self.view.lock() = Some(snapshot.clone());
+        self.resample();
+    }
+
+    /// Publishes the sample again from the latest snapshot and reading. Returns whether there is a session.
+    fn resample(&self) -> bool {
+        let view = self.view.lock();
+        let Some(snapshot) = view.as_ref() else {
+            return false;
+        };
+        let reading = self.reading.lock();
+        self.sample
+            .lock()
+            .get_or_insert_with(Sample::default)
+            .refresh(snapshot, reading.as_ref(), self.host.now_ms());
+        snapshot.session.is_some()
+    }
+
+    /// One read of the kernel for a session that is not ending, its converter kept in `converter`. Returns whether there was one.
+    fn read(&self, converter: &mut String) -> bool {
+        let live = self
+            .view
+            .lock()
+            .as_ref()
+            .and_then(|s| s.session.as_ref())
+            .filter(|s| s.phase != Phase::Ending)
+            .map(|s| converter.clone_from(&s.converter))
+            .is_some();
+        let reading = live.then(|| sample::read(&*self.host, converter).0);
+        *self.reading.lock() = reading;
+        live
+    }
+}
+
+/// The reader: reads the kernel every [`READ_MS`] during a session. A read that waits on LG's driver holds only this thread.
+fn reader(service: &Service) {
+    let mut converter = String::new();
+    while !service.stop.is_set() {
+        let live = service.board.read(&mut converter);
+        service
+            .read_wake
+            .wait(if live { READ_MS } else { OFF_WAIT_MS });
+    }
+}
+
+/// The sampler: publishes the sample every [`SAMPLE_MS`] during a session, whatever the route and the reader are waiting on.
+fn sampler(service: &Service) {
+    while !service.stop.is_set() {
+        let live = service.board.resample();
+        service
+            .sample_wake
+            .wait(if live { SAMPLE_MS } else { OFF_WAIT_MS });
+    }
+}
+
+/// Starts the reader and the sampler; both end once the helper stops.
+fn start_sampling(service: &Arc<Service>) -> std::io::Result<[JoinHandle<()>; 2]> {
+    let hook = service.clone();
+    service.stop.on_stop(move || {
+        hook.read_wake.notify();
+        hook.sample_wake.notify();
+    });
+    let start = |name: &str, turn: fn(&Service)| {
+        let service = service.clone();
+        std::thread::Builder::new()
+            .name(name.to_owned())
+            .stack_size(SAMPLING_STACK)
+            .spawn(move || turn(&service))
+    };
+    Ok([start("audiopass-read", reader)?, start("audiopass-tick", sampler)?])
 }
 
 fn pid_of(body: &Value) -> Result<u32, Response> {
@@ -299,11 +393,17 @@ impl Service {
         journal: String,
         enabled: Box<dyn Fn() -> bool + Send + Sync>,
     ) -> Self {
-        let view = Arc::new(Mutex::new(None));
+        let board = Arc::new(Board {
+            hub: hub.clone(),
+            host: host.clone(),
+            view: Mutex::default(),
+            reading: Mutex::default(),
+            sample: Mutex::default(),
+        });
         let mut route = Route::new(host.clone(), journal);
         {
-            let (hub, view) = (hub.clone(), view.clone());
-            route.observe_with(move |snapshot| publish(&hub, &view, snapshot));
+            let board = board.clone();
+            route.observe_with(move |snapshot| board.publish(snapshot));
         }
         Self {
             hub,
@@ -312,8 +412,10 @@ impl Service {
             enabled,
             route: Mutex::new(route),
             sound: Mutex::new(Sound::default()),
-            view,
+            board,
             wake: Wake::default(),
+            read_wake: Wake::default(),
+            sample_wake: Wake::default(),
             ages: Mutex::default(),
         }
     }
@@ -349,6 +451,7 @@ impl Service {
     /// other way. Taken once per session.
     fn session_report(&self) -> Option<String> {
         if self
+            .board
             .view
             .lock()
             .as_ref()
@@ -401,8 +504,10 @@ impl Service {
             let env = self.env(self.stop.is_set());
             route.arm(pid, tail, adec, &env)
         };
-        // The monitor sleeps long while idle; the session's own steps start now.
+        // The monitor, the reader and the sampler wait long while idle; the session's own steps start now.
         self.wake.notify();
+        self.read_wake.notify();
+        self.sample_wake.notify();
         match armed {
             Ok(converter) => ok(json!({
                 "armed": true, "converter": converter, "reason": null, "retry": false,
@@ -429,31 +534,34 @@ impl Service {
 
     /// What a player watches while it streams: stop sending the moment `bypassing` is false or `ageMs` passes `validForMs`.
     fn route(&self) -> Response {
-        let Some(s) = self.view.lock().clone() else {
-            return error_response(
-                503,
-                "audio_passthrough_unavailable",
-                "the route has not been read yet",
-            );
+        let body = {
+            let sample = self.board.sample.lock();
+            let Some(s) = sample.as_ref() else {
+                return error_response(
+                    503,
+                    "audio_passthrough_unavailable",
+                    "the route has not been read yet",
+                );
+            };
+            let age = self.host.now_ms().saturating_sub(s.at);
+            if s.phase.is_some() {
+                self.ages.lock().seen(age);
+            }
+            json!({
+                "armed": s.phase.is_some_and(|p| p != Phase::Ending),
+                "phase": s.phase.map(Phase::name),
+                "adec": s.adec,
+                "bypassing": s.bypassing,
+                "mixed": s.mixed,
+                "converterPresent": s.converter_present,
+                "connected": s.connected,
+                "audible": s.audible,
+                "reason": s.reason,
+                "ageMs": age,
+                "sampledUptimeMs": s.at,
+            })
         };
-        let session = s.session.as_ref();
-        let age = self.host.now_ms().saturating_sub(s.at);
-        if session.is_some() {
-            self.ages.lock().seen(age);
-        }
-        ok(json!({
-            "armed": session.is_some_and(|v| v.phase != Phase::Ending),
-            "phase": session.map(|v| v.phase.name()),
-            "adec": session.map(|v| v.adec),
-            "bypassing": session.is_some_and(|v| v.bypassing),
-            "mixed": session.is_some_and(|v| v.mixed),
-            "converterPresent": session.is_some_and(|v| v.converter_present),
-            "connected": session.is_some_and(|v| v.connected),
-            "audible": session.is_some_and(|v| v.audible),
-            "reason": s.reason,
-            "ageMs": age,
-            "sampledUptimeMs": s.at,
-        }))
+        ok(body)
     }
 }
 
@@ -596,7 +704,7 @@ pub fn spawn(ctx: &Ctx, shared: Arc<Shared>) -> std::io::Result<JoinHandle<()>> 
         crate::log_info!("audio passthrough: {note}");
     }
     let first = service.route.lock().snapshot();
-    publish(&service.hub, &service.view, &first);
+    service.board.publish(&first);
     *SERVICE.write() = Some(service.clone());
     {
         let service = service.clone();
@@ -606,6 +714,7 @@ pub fn spawn(ctx: &Ctx, shared: Arc<Shared>) -> std::io::Result<JoinHandle<()>> 
         let service = service.clone();
         ctx.stop.on_stop(move || service.wake.notify());
     }
+    start_sampling(&service)?;
     let ctx = ctx.clone();
     let guard_shared = shared.clone();
     crate::plugins::guard::spawn(
@@ -664,7 +773,7 @@ impl Surroundings {
                 }
             }
         }
-        let snapshot = service.view.lock().clone();
+        let snapshot = service.board.view.lock().clone();
         let (Some(page), Some(snapshot)) = (&self.page, snapshot) else {
             return;
         };
@@ -776,6 +885,7 @@ fn run(service: &Arc<Service>, ctx: &Ctx, shared: &Arc<Shared>, again: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use audiopass::sample::{NOT_READ, READING_FRESH_MS};
     use audiopass::testing::{ADEC, CONVERTER, FakeHost, PID, TAIL};
     use std::net::IpAddr;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -1033,7 +1143,7 @@ mod tests {
     fn the_page_says_it_in_words() {
         let rig = Rig::new();
         rig.run(2_100);
-        let ready = facts(&rig.service.view.lock().clone().unwrap(), None);
+        let ready = facts(&rig.service.board.view.lock().clone().unwrap(), None);
         assert_eq!(
             ready["status"],
             "Ready for a player that decodes TrueHD itself"
@@ -1051,7 +1161,7 @@ mod tests {
         rig.arm();
         rig.run(10_000);
         let playing = facts(
-            &rig.service.view.lock().clone().unwrap(),
+            &rig.service.board.view.lock().clone().unwrap(),
             Some("DOLBY ATMOS"),
         );
         assert_eq!(
@@ -1060,7 +1170,7 @@ mod tests {
         );
         assert_eq!(playing["receiver"], "DOLBY ATMOS");
         rig.call("POST", "release", &format!(r#"{{"pid":{PID}}}"#));
-        let after = facts(&rig.service.view.lock().clone().unwrap(), None);
+        let after = facts(&rig.service.board.view.lock().clone().unwrap(), None);
         assert_eq!(
             after["ended"],
             "The app stopped playing: the player ended the session"
@@ -1078,7 +1188,7 @@ mod tests {
         rig.call("POST", "release", &format!(r#"{{"pid":{PID}}}"#));
         let note = rig.topic()["after"].as_str().expect("a note").to_owned();
         assert!(note.contains("HDMI input service"), "{note}");
-        let page = facts(&rig.service.view.lock().clone().unwrap(), None);
+        let page = facts(&rig.service.board.view.lock().clone().unwrap(), None);
         assert_eq!(page["after"], note);
         rig.run(2_100);
         assert_eq!(rig.topic()["ready"], false);
@@ -1235,5 +1345,57 @@ mod tests {
             "{text}"
         );
         assert_eq!(rig.service.session_report(), None, "once per session");
+    }
+
+    #[test]
+    fn the_sample_stays_current_while_a_slow_call_to_lg_holds_the_route() {
+        let rig = Rig::new();
+        rig.arm();
+        rig.run(10_000);
+        let threads = start_sampling(&rig.service).unwrap();
+        {
+            // What a call to LG does for as long as it takes: the route stays held while the clock moves on.
+            let _route = rig.service.route.lock();
+            for _ in 0..3 {
+                rig.host.with(|s| s.now += 2_000);
+                let deadline = Instant::now() + Duration::from_secs(2);
+                loop {
+                    let (_, route) = rig.call("GET", "route", "");
+                    if route["ageMs"] == 0 && route["bypassing"] == true {
+                        break;
+                    }
+                    assert!(Instant::now() < deadline, "the sample fell behind: {route}");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
+        }
+        rig.service.stop.request();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn a_read_that_does_not_come_back_stops_the_bypass_and_a_stalled_sampler_shows_its_age() {
+        let rig = Rig::new();
+        rig.arm();
+        rig.run(10_000);
+        let read_at = rig.host.now();
+        assert!(rig.service.board.read(&mut String::new()));
+        // The reader is starved or waits on LG's driver; the sampler goes on.
+        let sampled = |late: u64| {
+            rig.host.with(|s| s.now = read_at + late);
+            rig.service.board.resample();
+            rig.call("GET", "route", "").1
+        };
+        let fresh = sampled(READING_FRESH_MS);
+        assert_eq!((&fresh["bypassing"], &fresh["ageMs"]), (&json!(true), &json!(0)));
+        let late = sampled(READING_FRESH_MS + 1);
+        assert_eq!(late["bypassing"], false);
+        assert_eq!(late["reason"], NOT_READ);
+        assert_eq!(late["ageMs"], 0);
+        // A sampler that stops publishing shows the player its age.
+        rig.host.with(|s| s.now += 400);
+        assert_eq!(rig.call("GET", "route", "").1["ageMs"], 400);
     }
 }

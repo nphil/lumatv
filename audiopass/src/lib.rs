@@ -16,6 +16,7 @@ pub mod health;
 pub mod host;
 pub mod journal;
 pub mod route;
+pub mod sample;
 pub mod sndout;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;

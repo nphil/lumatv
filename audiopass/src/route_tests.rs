@@ -1,5 +1,6 @@
 use super::*;
-use crate::host::{PUMP_MS, Stuck};
+use crate::host::Stuck;
+use crate::sample::{NOT_READ, READING_FRESH_MS, Sample};
 use crate::testing::{ADEC, CONVERTER, FakeHost, Fault, PID, TAIL, graph_with};
 use std::sync::Mutex;
 
@@ -1308,53 +1309,29 @@ fn watching_a_session_asks_luna_nothing_and_never_holds_the_route_for_a_luna_cal
 }
 
 #[test]
-fn a_step_that_talks_to_lg_is_followed_by_a_fresh_reading() {
-    let mut rig = Rig::new();
-    rig.host.with(|s| s.luna_ms = 400);
-    rig.arm().unwrap();
-    while rig.host.at("luna connect").is_none() {
-        let wait = rig.route.tick(&rig.env);
-        rig.host.sleep_ms(wait);
-    }
-    let connected_at = rig.host.at("luna connect").unwrap();
-    let session = rig.session();
-    assert!(session.connected);
-    assert!(
-        session.at >= connected_at,
-        "read at {} for a step at {connected_at}: the player would be told it is stale",
-        session.at
-    );
-}
-
-#[test]
-fn the_reading_a_player_polls_is_never_old_by_the_length_of_a_luna_call() {
-    let mut rig = Rig::new();
-    rig.host.with(|s| {
-        s.luna_ms = 400;
-        s.scan_ms = 120;
-    });
-    // Every reading that was published: when, and when the kernel was read for it.
-    let published = Arc::new(Mutex::new(Vec::new()));
-    let (host, sink) = (rig.host.clone(), published.clone());
-    rig.route.observe_with(move |snap| {
-        if let Some(session) = &snap.session {
-            sink.lock().unwrap().push((host.now(), session.at));
-        }
-    });
-    rig.arm().unwrap();
-    rig.run(10_000);
-    assert_eq!(rig.session().phase, Phase::Audible);
-    // A player that polls just before a publish sees the previous reading at its oldest.
-    let published = published.lock().unwrap();
-    let oldest = published
-        .windows(2)
-        .map(|pair| pair[1].0 - pair[0].1)
-        .max()
-        .unwrap();
-    assert!(
-        oldest <= ARMED_TICK_MS + PUMP_MS,
-        "a reading was {oldest} ms old when the next one replaced it"
-    );
+fn a_sample_says_bypass_only_from_a_fresh_reading_of_the_sessions_converter() {
+    let rig = Rig::audible();
+    let snap = rig.snap();
+    let read_at = snap.session.as_ref().unwrap().at;
+    let (newer, _) = sample::read(&*rig.host, CONVERTER);
+    assert!(newer.at > read_at);
+    let mut published = Sample::default();
+    let mut look = |reading: Option<&Reading>, now: u64| {
+        published.refresh(&snap, reading, now);
+        (published.bypassing, published.reason.clone())
+    };
+    let passing = (true, "Passthrough is audible".to_owned());
+    let stale = (false, NOT_READ.to_owned());
+    // The route's own reading, fresh and then too old.
+    assert_eq!(look(None, read_at + READING_FRESH_MS), passing);
+    assert_eq!(look(None, read_at + READING_FRESH_MS + 1), stale);
+    // A newer reading of the session's converter counts from when it was read; one of another converter does not count.
+    assert_eq!(look(Some(&newer), read_at + READING_FRESH_MS + 1), passing);
+    let other = Reading {
+        converter: "04270010".into(),
+        ..newer
+    };
+    assert_eq!(look(Some(&other), read_at + READING_FRESH_MS + 1), stale);
 }
 
 #[test]

@@ -82,20 +82,14 @@ fn task_state(host: &dyn Host) -> Health {
     busy.map_or(Health::Ok, Health::Busy)
 }
 
-/// The /proc half of the gate and what a running session is watched with: a luna call there would leave the player's sample stale
-/// for as long as LG takes to answer. A task in the control lock is a wedge only when it is still there [`PERSIST_MS`] after the
-/// first look; the lock is also held for a moment in normal use.
+/// The /proc half of the gate and what a running session is watched with: a luna call there would hold the route, and with it a
+/// re-arm or a release, for as long as LG takes to answer. A task in the control lock is a wedge only when it is still there
+/// [`PERSIST_MS`] after the first look; the lock is also held for a moment in normal use.
 pub fn tasks(host: &dyn Host) -> Health {
-    tasks_pumped(host, &mut || {})
-}
-
-/// [`tasks`] for a caller that keeps a reading fresh: `pump` runs about every [`crate::host::PUMP_MS`] of the wait for the second
-/// look, and on either side of each scan, which cannot be cut into slices.
-pub fn tasks_pumped(host: &dyn Host, pump: &mut dyn FnMut()) -> Health {
-    match look(host, pump) {
+    match task_state(host) {
         Health::Wedged(first) => {
-            host.sleep_pumped(PERSIST_MS, pump);
-            match look(host, pump) {
+            host.sleep_ms(PERSIST_MS);
+            match task_state(host) {
                 wedged @ Health::Wedged(_) => wedged,
                 _ => Health::Busy(format!("{first}, but it let go again")),
             }
@@ -104,26 +98,13 @@ pub fn tasks_pumped(host: &dyn Host, pump: &mut dyn FnMut()) -> Health {
     }
 }
 
-/// [`task_state`] with a `pump` on either side, so that the reading a player polls is only as old as the scan took.
-fn look(host: &dyn Host, pump: &mut dyn FnMut()) -> Health {
-    pump();
-    let seen = task_state(host);
-    pump();
-    seen
-}
-
 /// The gate before a step that touches LG's route: the tasks, then LG's audio service has to answer.
 pub fn check(host: &dyn Host) -> Health {
-    check_pumped(host, &mut || {})
-}
-
-/// [`check`] for a caller that keeps a reading fresh: `pump` also runs while LG's audio service takes its time to answer.
-pub fn check_pumped(host: &dyn Host, pump: &mut dyn FnMut()) -> Health {
-    let seen = tasks_pumped(host, pump);
+    let seen = tasks(host);
     if seen != Health::Ok {
         return seen;
     }
-    match host.luna_pumped(STATUS, "{}", pump) {
+    match host.luna(STATUS, "{}") {
         Some(reply) if returned_true(&reply) => Health::Ok,
         _ => Health::Busy("the audio service does not answer".into()),
     }
@@ -145,7 +126,7 @@ pub fn input_services(host: &dyn Host) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::host::{PUMP_MS, Stuck};
+    use crate::host::Stuck;
     use crate::testing::FakeHost;
 
     fn stuck(comm: &str, stack: &str) -> Stuck {
@@ -266,33 +247,6 @@ mod tests {
         assert!(matches!(tasks(&host), Health::Wedged(_)));
         assert_eq!(host.now() - before, PERSIST_MS);
         assert_eq!(host.with(|sim| sim.luna_calls), 0, "no luna call is made");
-    }
-
-    #[test]
-    fn the_wait_for_the_second_look_never_goes_a_pump_without_handing_control_back() {
-        let host = FakeHost::c4();
-        host.with(|sim| {
-            sim.stuck
-                .push(stuck("amixer", "[<0>] snd_ctl_release+0x70/0x1b0\n"))
-        });
-        let (mut at, before) = (Vec::new(), host.now());
-        let seen = tasks_pumped(&host, &mut || at.push(host.now() - before));
-        assert!(matches!(seen, Health::Wedged(_)));
-        assert_eq!(at.last(), Some(&PERSIST_MS));
-        let longest = at.windows(2).map(|pair| pair[1] - pair[0]).max();
-        assert_eq!(longest, Some(PUMP_MS), "{at:?}");
-    }
-
-    #[test]
-    fn a_scan_that_cannot_be_sliced_has_a_pump_on_either_side() {
-        let host = FakeHost::c4();
-        host.with(|sim| sim.scan_ms = 120);
-        let (mut at, before) = (Vec::new(), host.now());
-        assert_eq!(
-            tasks_pumped(&host, &mut || at.push(host.now() - before)),
-            Health::Ok
-        );
-        assert_eq!(at, [0, 120]);
     }
 
     #[test]

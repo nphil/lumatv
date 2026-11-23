@@ -24,9 +24,6 @@ const CHILD_TIMEOUT: Duration = Duration::from_secs(5);
 /// card's control lock never does.
 const IO_TIMEOUT: Duration = Duration::from_millis(1500);
 const IO_STACK: usize = 128 * 1024;
-/// How often a caller that keeps a reading fresh gets control back while a slow call or a wait is outstanding: a player stops
-/// sending once the reading it polls is 300 ms old, and one luna call takes longer than that.
-pub const PUMP_MS: u64 = 50;
 /// Where LG's sound driver keeps its files, which are the ones that can wait on the sound card's control lock.
 const DRIVER_ROOTS: [&str; 2] = ["/proc/aaudio/", "/proc/lgtv-driver/"];
 /// Where one driver file operation stands: running, finished while its caller waited, or abandoned by its caller.
@@ -87,13 +84,8 @@ pub trait Host: Send + Sync {
     fn start_time(&self, pid: u32) -> Option<u64>;
     /// Sets `Sndout EARC Outputtype`, the one control LG's route is changed through.
     fn set_earc_words(&self, words: Words) -> Result<(), WriteError>;
-    /// One luna call's reply text, `None` when it did not answer or failed to run. `pump` is called about every [`PUMP_MS`] while
-    /// the call is outstanding.
-    fn luna_pumped(&self, uri: &str, payload: &str, pump: &mut dyn FnMut()) -> Option<String>;
     /// One luna call's reply text, `None` when it did not answer or failed to run.
-    fn luna(&self, uri: &str, payload: &str) -> Option<String> {
-        self.luna_pumped(uri, payload, &mut || {})
-    }
+    fn luna(&self, uri: &str, payload: &str) -> Option<String>;
     /// Tasks stuck in uninterruptible sleep.
     fn stuck_tasks(&self) -> Vec<Stuck>;
     /// Whether an earlier read or write of a driver file is still blocked, so that new ones fail at once.
@@ -101,16 +93,6 @@ pub trait Host: Send + Sync {
     /// Milliseconds since boot, suspend included.
     fn now_ms(&self) -> u64;
     fn sleep_ms(&self, ms: u64);
-    /// Sleeps `ms` and calls `pump` after every [`PUMP_MS`] of it.
-    fn sleep_pumped(&self, ms: u64, pump: &mut dyn FnMut()) {
-        let mut left = ms;
-        while left > 0 {
-            let slice = left.min(PUMP_MS);
-            self.sleep_ms(slice);
-            left -= slice;
-            pump();
-        }
-    }
 }
 
 /// The real TV.
@@ -126,8 +108,6 @@ pub struct System {
     /// stalled: they are the ones that can wait on the sound card's control lock. Any other file, the firmware's identity and the
     /// journal included, reads as ever.
     pub driver_roots: Vec<String>,
-    /// How often [`Host::luna_pumped`] calls its `pump` while the child is outstanding.
-    pub pump_every: Duration,
     /// Driver file operations that were abandoned and are still blocked. While there is one, new ones fail at once.
     stalled: Arc<AtomicUsize>,
 }
@@ -140,7 +120,6 @@ impl Default for System {
             timeout: CHILD_TIMEOUT,
             io_timeout: IO_TIMEOUT,
             driver_roots: DRIVER_ROOTS.iter().map(|root| (*root).to_owned()).collect(),
-            pump_every: Duration::from_millis(PUMP_MS),
             stalled: Arc::default(),
         }
     }
@@ -165,9 +144,9 @@ impl System {
             .any(|root| path.starts_with(root.as_str()))
     }
 
-    /// Runs one operation on a driver's file on a thread of its own and waits [`System::io_timeout`] for it. The route is held
-    /// while it waits, and a call that waits on the stuck control lock never returns: its thread is left behind, and until that
-    /// thread comes back every further call fails at once, so a wedge neither piles up threads nor blocks the caller for good.
+    /// Runs one operation on a driver's file on a thread of its own and waits [`System::io_timeout`] for it. A call that waits on
+    /// the stuck control lock never returns: its thread is left behind, and until that thread comes back every further call fails
+    /// at once, so a wedge neither piles up threads nor blocks its caller for good.
     fn bounded<T: Send + 'static>(
         &self,
         work: impl FnOnce() -> io::Result<T> + Send + 'static,
@@ -216,26 +195,13 @@ impl System {
     }
 }
 
-/// Waits for a child up to `timeout`, calling `pump` about every `pump_every`; on timeout kills it and leaves reaping to a thread
-/// that may block for good.
-fn wait_or_abandon(
-    mut child: Child,
-    timeout: Duration,
-    pump_every: Duration,
-    pump: &mut dyn FnMut(),
-) -> Option<std::process::ExitStatus> {
+/// Waits for a child up to `timeout`; on timeout kills it and leaves reaping to a thread that may block for good.
+fn wait_or_abandon(mut child: Child, timeout: Duration) -> Option<std::process::ExitStatus> {
     let end = Instant::now() + timeout;
-    let mut pumped = Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(status)) => return Some(status),
-            Ok(None) if Instant::now() < end => {
-                thread::sleep(Duration::from_millis(20));
-                if pumped.elapsed() >= pump_every {
-                    pump();
-                    pumped = Instant::now();
-                }
-            }
+            Ok(None) if Instant::now() < end => thread::sleep(Duration::from_millis(20)),
             _ => {
                 let _ = child.kill();
                 thread::spawn(move || {
@@ -380,14 +346,14 @@ impl Host for System {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| WriteError::Failed(format!("amixer did not start: {e}")))?;
-        match wait_or_abandon(child, self.timeout, self.pump_every, &mut || {}) {
+        match wait_or_abandon(child, self.timeout) {
             Some(status) if status.success() => Ok(()),
             Some(status) => Err(WriteError::Failed(format!("amixer exited with {status}"))),
             None => Err(WriteError::Hung),
         }
     }
 
-    fn luna_pumped(&self, uri: &str, payload: &str, pump: &mut dyn FnMut()) -> Option<String> {
+    fn luna(&self, uri: &str, payload: &str) -> Option<String> {
         let mut child = command(&self.luna_send)
             .args(["-n", "1", uri, payload])
             .stdin(Stdio::null())
@@ -401,7 +367,7 @@ impl Host for System {
             let _ = stdout.read_to_string(&mut text);
             text
         });
-        wait_or_abandon(child, self.timeout, self.pump_every, pump)?;
+        wait_or_abandon(child, self.timeout)?;
         reader.join().ok()
     }
 
@@ -576,33 +542,6 @@ mod tests {
         assert_eq!(system.set_earc_words(words), Err(WriteError::Hung));
         assert_eq!(system.luna("luna://x/y", "{}"), None);
         assert!(started.elapsed() < Duration::from_secs(2));
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn a_slow_luna_call_hands_control_back_while_it_waits() {
-        // A script that takes a moment to answer stands in for audiooutputd.
-        let dir = std::env::temp_dir().join(format!("audiopass-pump-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let script = dir.join("luna-send");
-        fs::write(
-            &script,
-            "#!/bin/sh\nsleep 0.15\necho '{\"returnValue\":true}'\n",
-        )
-        .unwrap();
-        fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-        let system = System {
-            luna_send: script.to_str().unwrap().to_owned(),
-            pump_every: Duration::from_millis(10),
-            ..System::default()
-        };
-        let mut pumps = 0;
-        let reply = system.luna_pumped("luna://x/y", "{}", &mut || pumps += 1);
-        assert_eq!(
-            reply.as_deref().map(str::trim),
-            Some(r#"{"returnValue":true}"#)
-        );
-        assert!(pumps >= 3, "{pumps} pumps while the call took 150 ms");
         let _ = fs::remove_dir_all(dir);
     }
 

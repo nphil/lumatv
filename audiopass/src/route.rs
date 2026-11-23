@@ -23,9 +23,8 @@
 //! connected inputs, the ADEC's own kernel line) and LG's input services are checked (no audio task wedged in the sound card's
 //! control lock, the HDMI input service answers a ping); a fault holds the next session off. A helper that is stopping has seconds
 //! (`hurry`): it does not wait for the renderer or compare afterwards, and what it cannot finish stays journalled for the next start.
-//! A running session is watched from /proc and the kernel only. A step of the watch that waits on LG (a luna call, a health check, a
-//! read-back) reads the kernel again and publishes the reading about every [`crate::host::PUMP_MS`] while it waits, so the reading a
-//! player polls is never old by the length of a luna call.
+//! A running session is watched from /proc and the kernel only. The sample a player polls is not published from these steps,
+//! which can wait on LG for seconds, but by threads of the caller's own that read and publish on a fixed tick ([`crate::sample`]).
 //!
 //! Ported from `lgroute.c` and `lgroute-control.c` of dts_restore_plus (LGPL-2.1-or-later): the converter command, the words and
 //! their ranges, and the rule that gives up once LG has mixed or re-encoded the stream for about a second.
@@ -35,6 +34,7 @@ use crate::graph::{self, Chain};
 use crate::health::{self, Health, returned_true};
 use crate::host::{Host, WriteError};
 use crate::journal::Journal;
+use crate::sample::{self, Reading};
 use crate::sndout::{self, Adec, Sndout, Words};
 use std::sync::Arc;
 
@@ -44,7 +44,7 @@ pub const INSTANCES: &str = "/proc/aaudio/instances";
 pub const BOOT_ID: &str = "/proc/sys/kernel/random/boot_id";
 const AUDIO: &str = "luna://com.webos.service.audiooutput/audio/";
 /// Why LG's sound status cannot be read while an earlier read of the driver's files is still waiting.
-const DRIVER_BUSY: &str = "LG's audio driver is busy: a read of its files has not returned yet";
+pub(crate) const DRIVER_BUSY: &str = "LG's audio driver is busy: a read of its files has not returned yet";
 /// 8 channels of 16-bit PCM at 192 kHz, which carry an encoded stream in IEC 61937 bursts (lgroute.c).
 const CONVERTER_COMMAND: &str = "0x50020020 192000 8 16 0 0 192000 8 16\n";
 
@@ -226,16 +226,6 @@ impl Refusal {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct Observed {
-    at: u64,
-    bypassing: bool,
-    mixed: bool,
-    converter_present: bool,
-    /// Why not bypassing; empty when bypassing.
-    why: String,
-}
-
 struct Session {
     pid: u32,
     start: u64,
@@ -244,7 +234,7 @@ struct Session {
     journal: Journal,
     phase: Phase,
     since: u64,
-    observed: Observed,
+    observed: Reading,
     /// When the route first stopped looking like bypass, for the grace period.
     bad_since: Option<u64>,
 }
@@ -326,9 +316,6 @@ pub struct Route {
     ready: Result<(), String>,
     health: Health,
     health_at: Option<u64>,
-    /// A monitoring step is running: its waits publish a fresh reading. An arm, a re-arm and a restore do not, as the player waits
-    /// for those calls to return.
-    monitoring: bool,
     observer: Option<Observer>,
 }
 
@@ -353,7 +340,6 @@ impl Route {
             ready: Err("starting".into()),
             health: Health::Ok,
             health_at: None,
-            monitoring: false,
             observer: None,
         }
     }
@@ -390,33 +376,13 @@ impl Route {
             .map(|text| sndout::parse_adec(&text))
     }
 
-    /// Reads the kernel again and publishes the reading during a monitoring step. A step that waits on LG (a luna call, a health
-    /// check, a wait for the kernel) takes longer than the 300 ms a player tolerates, and the reading it polls would be older than
-    /// that when the step ends.
-    fn publish_reading(&mut self) {
-        if self.monitoring {
-            self.observe();
-            self.notify();
-        }
-    }
-
-    /// Sleeps `ms`; during a monitoring step a fresh reading is published about every [`crate::host::PUMP_MS`] of it.
-    fn nap(&mut self, ms: u64) {
-        if !self.monitoring {
-            self.host.sleep_ms(ms);
-            return;
-        }
-        let host = self.host.clone();
-        host.sleep_pumped(ms, &mut || self.publish_reading());
-    }
-
     /// Looks every `wait.every_ms` until `done` says yes, up to `wait.polls` times.
-    fn poll(&mut self, wait: Wait, mut done: impl FnMut(&Self) -> bool) -> bool {
+    fn poll(&self, wait: Wait, mut done: impl FnMut(&Self) -> bool) -> bool {
         for _ in 0..wait.polls {
             if done(self) {
                 return true;
             }
-            self.nap(wait.every_ms);
+            self.host.sleep_ms(wait.every_ms);
         }
         done(self)
     }
@@ -427,15 +393,13 @@ impl Route {
             .map_err(|e| format!("cannot write the recovery journal: {e}"))
     }
 
-    fn luna(&mut self, verb: &str, payload: &str) -> bool {
-        let host = self.host.clone();
-        host.luna_pumped(&format!("{AUDIO}{verb}"), payload, &mut || {
-            self.publish_reading()
-        })
-        .is_some_and(|reply| returned_true(&reply))
+    fn luna(&self, verb: &str, payload: &str) -> bool {
+        self.host
+            .luna(&format!("{AUDIO}{verb}"), payload)
+            .is_some_and(|reply| returned_true(&reply))
     }
 
-    fn luna_mute(&mut self, adec: u8, mute: bool) -> bool {
+    fn luna_mute(&self, adec: u8, mute: bool) -> bool {
         self.luna(
             "mute",
             &format!(r#"{{"source":"ADEC{adec}","sink":"MAIN","mute":{mute}}}"#),
@@ -443,7 +407,7 @@ impl Route {
     }
 
     /// `connect` or `disconnect` of the ADEC to the main output.
-    fn luna_link(&mut self, verb: &str, adec: u8) -> bool {
+    fn luna_link(&self, verb: &str, adec: u8) -> bool {
         self.luna(verb, &format!(r#"{{"source":"ADEC{adec}","sink":"MAIN"}}"#))
     }
 
@@ -501,10 +465,10 @@ impl Route {
         if let Some(why) = &self.hung {
             return Err(Refusal::now(why.clone()));
         }
-        let mut now = self.check_health();
+        let mut now = health::check(&*self.host);
         if matches!(now, Health::Busy(_)) {
-            self.nap(HEALTH_RETRY_MS);
-            now = self.check_health();
+            self.host.sleep_ms(HEALTH_RETRY_MS);
+            now = health::check(&*self.host);
         }
         self.health = now.clone();
         self.health_at = Some(self.host.now_ms());
@@ -515,12 +479,6 @@ impl Route {
                 "audio control is stuck: {why}; the TV needs a restart"
             ))),
         }
-    }
-
-    /// [`health::check`], publishing a fresh reading meanwhile during a monitoring step.
-    fn check_health(&mut self) -> Health {
-        let host = self.host.clone();
-        health::check_pumped(&*host, &mut || self.publish_reading())
     }
 
     fn refresh_idle(&mut self) {
@@ -773,7 +731,7 @@ impl Route {
             journal,
             phase,
             since,
-            observed: Observed::default(),
+            observed: Reading::default(),
             bad_since: None,
         });
         self.lost = None;
@@ -810,30 +768,13 @@ impl Route {
 
     /// Reads the kernel and records what the session looks like now.
     fn observe(&mut self) {
-        let Some(converter) = self.session.as_ref().map(|s| s.converter.clone()) else {
+        let Some(s) = &self.session else {
             return;
         };
-        let snd = self.read_sndout();
-        let present = self.host.is_dir(&format!("{INSTANCES}/{converter}"));
-        let why = match &snd {
-            None if self.host.driver_busy() => DRIVER_BUSY,
-            None => "LG's sound status cannot be read",
-            Some(_) if !present => "LG rebuilt its audio path: the converter is gone",
-            Some(s) if s.earc_on != Some(true) => "eARC is off",
-            Some(s) if s.mixed() => "LG turned eARC mixing back on",
-            Some(s) if !s.bypassing() => "the kernel is not reporting Pass-Through",
-            Some(_) => "",
-        };
-        let observed = Observed {
-            at: self.host.now_ms(),
-            bypassing: why.is_empty(),
-            mixed: snd.as_ref().is_some_and(Sndout::mixed),
-            converter_present: present,
-            why: why.to_owned(),
-        };
+        let (reading, snd) = sample::read(&*self.host, &s.converter);
         self.sndout = snd;
         if let Some(s) = &mut self.session {
-            s.observed = observed;
+            s.observed = reading;
         }
     }
 
@@ -844,10 +785,8 @@ impl Route {
             .health_at
             .is_none_or(|at| now.saturating_sub(at) >= ARMED_HEALTH_MS)
         {
-            // Tasks only, from /proc: a luna call here would hold the route for as long as LG takes to answer. The scan cannot be
-            // cut into slices, so the reading is refreshed on either side of it.
-            let host = self.host.clone();
-            self.health = health::tasks_pumped(&*host, &mut || self.publish_reading());
+            // Tasks only, from /proc: a luna call here would hold the route for as long as LG takes to answer.
+            self.health = health::tasks(&*self.host);
             self.health_at = Some(now);
             if let Health::Wedged(why) = &self.health {
                 return Some((Why::RouteLost, format!("audio control is stuck: {why}")));
@@ -905,14 +844,7 @@ impl Route {
                 return Some((Why::RouteLost, "LG muted the audio input".into()));
             }
         }
-        let was = phase;
-        let ended = self.advance(now);
-        if ended.is_none() && self.session.as_ref().is_some_and(|s| s.phase != was) {
-            // A step that talks to LG takes a while, and the player stops sending once the reading it polls is older than 300 ms:
-            // read again after the step, so the stamp is not from before it.
-            self.observe();
-        }
-        ended
+        self.advance(now)
     }
 
     /// Moves the connect sequence on by at most one step.
@@ -992,10 +924,7 @@ impl Route {
         }
         let mut journal = self.session.as_ref().ok_or("no session")?.journal.clone();
         journal.connected = true;
-        // A write to flash cannot be cut into slices, so the reading is refreshed on either side of it.
-        self.publish_reading();
         self.save_journal(&journal)?;
-        self.publish_reading();
         if let Some(s) = &mut self.session {
             s.journal = journal;
         }
@@ -1158,10 +1087,13 @@ impl Route {
 
     /// Ends the session, whatever the reason: first the client is told (so it stops the stream), then LG's settings go back.
     pub fn end(&mut self, why: Why, detail: &str) {
+        let now = self.host.now_ms();
         let Some(session) = &mut self.session else {
             return;
         };
         session.phase = Phase::Ending;
+        // Newer than any reading of the kernel, so the sample a player polls gives this reason.
+        session.observed.at = now;
         session.observed.bypassing = false;
         session.observed.why = detail.to_owned();
         let (journal, pid, start) = (session.journal.clone(), session.pid, session.start);
@@ -1240,12 +1172,7 @@ impl Route {
             };
             let ending = ending
                 .map(|(why, detail)| (why, detail.to_owned()))
-                .or_else(|| {
-                    self.monitoring = true;
-                    let ending = self.monitor();
-                    self.monitoring = false;
-                    ending
-                });
+                .or_else(|| self.monitor());
             if let Some((why, detail)) = ending {
                 self.end(why, &detail);
                 ended = true;
@@ -1283,7 +1210,7 @@ impl Route {
         } else if let Some(why) = refused {
             (State::Refused, why.clone())
         } else if let Some(s) = &self.session {
-            (State::Armed, status_text(s))
+            (State::Armed, status_text(s.phase, &s.observed.why).to_owned())
         } else if let Some(why) = &self.lost {
             (State::Lost, why.clone())
         } else if let Err(why) = &self.ready {
@@ -1335,18 +1262,18 @@ impl Route {
     }
 }
 
-fn status_text(s: &Session) -> String {
-    if !s.observed.why.is_empty() && s.phase != Phase::Armed {
-        return s.observed.why.clone();
+/// What a session's phase and the reason it is not bypassing (empty when it is) tell a person.
+pub(crate) fn status_text(phase: Phase, why: &str) -> &str {
+    if !why.is_empty() && phase != Phase::Armed {
+        return why;
     }
-    match s.phase {
+    match phase {
         Phase::Armed => "Waiting for the kernel to report Pass-Through",
         Phase::Bypassing => "Passing the stream through; the output connects shortly",
         Phase::Connected | Phase::Unmuting => "Connecting the output",
         Phase::Audible => "Passthrough is audible",
         Phase::Ending => "Putting LG's settings back",
     }
-    .to_owned()
 }
 
 /// Whether the kernel's line of the session's decoder shows LG using it. `Connect=` reads the same on the C4's ADEC1 (`HDMI_PORT2`)

@@ -7,7 +7,7 @@
 //! audiooutputd forwards a mute call to the kernel only when it differs from what audiooutputd believes, so a lone unmute after
 //! the connect does nothing, and refuses a mute call once the input is disconnected.
 
-use crate::host::{Host, PUMP_MS, Stuck, WriteError};
+use crate::host::{Host, Stuck, WriteError};
 use crate::route::{AREN, BOOT_ID, GRAPH, INSTANCES};
 use crate::sndout::{SNDOUT, Words, adec_path};
 use std::collections::{BTreeMap, BTreeSet};
@@ -394,24 +394,14 @@ impl Host for FakeHost {
         })
     }
 
-    fn luna_pumped(&self, uri: &str, payload: &str, pump: &mut dyn FnMut()) -> Option<String> {
+    fn luna(&self, uri: &str, payload: &str) -> Option<String> {
         const OK: &str = r#"{"returnValue":true}"#;
         const NO: &str = r#"{"returnValue":false,"errorText":"Audio not connected"}"#;
         const HDMI_METHODS: &str = r#"{"/":{"open":"METHOD","getVRRInfo":"METHOD"}}"#;
-        // The call takes `luna_ms` of the fake clock, and its caller gets control back every `PUMP_MS` of it.
-        let mut left = self.with(|sim| {
-            sim.luna_calls += 1;
-            sim.luna_ms
-        });
-        while left > 0 {
-            let slice = left.min(PUMP_MS);
-            self.with(|sim| sim.now += slice);
-            left -= slice;
-            if left > 0 {
-                pump();
-            }
-        }
         self.with(|sim| {
+            // The call takes `luna_ms` of the fake clock.
+            sim.luna_calls += 1;
+            sim.now += sim.luna_ms;
             if matches!(sim.fault, Some(Fault::Dead | Fault::Silent)) {
                 return None;
             }
