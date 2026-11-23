@@ -11,6 +11,10 @@ and the standing rules; this file is the dated record behind it.
 
 Helper `f98d7788` -> `3ede3107` (main 8e40c05e, tuner stream diagnostics) at 16:40 EST, then helper `83bc5e2d3613e124eda1cbe9675be2ee17c19e164be97ab7830c69667a7eeac1` and lumatv-ui `24ae712632d7cc84b90809ab71d618926e5ebf37d5ee5af879e83aa6f097f2e6` (replacing `7635037b`; main 074750a6: tuner glyphs, glass-pill task manager numbers) at 16:48 EST, under the TV lock. UI by live swap, compositor untouched (`3ba09192`); audio-passthrough and voice-assistant still enabled.
 
+## Task manager header pills, 2026-11-23 (main f2a090f3)
+
+The numbers are theme-glass pills with flat pictures (core bars, segmented memory, GPU ring and disc, thermometer). Installed as part of lumatv-ui `24ae712632d7cc84b90809ab71d618926e5ebf37d5ee5af879e83aa6f097f2e6` (live swap, compositor untouched). On the set at 100 % text, dark theme, with the browser open: all four pills drawn, 56 °C muted (`/data/home/tmp/taskmgr-header-shot/tv-pills.png`). Host scenes dark and light at 100 % and 200 % text passed the tests and lint. Not checked on the set: light theme, 200 % text, the warning and danger temperature colours (the set stays calm at 56 °C), the frame gate.
+
 ## Task manager System sheet, rescue and gate regression checked on the set, 2026-11-23 (main a63e7924)
 
 Run under the TV lock on the installed set (compositor `3ba09192`, UI `7635037b`, lumatv-sm `e6de36b8`, tools/lumatv `6f982df3`, helper `f98d7788`; nothing installed or changed). Screenshots and gate JSON: `/data/home/tmp/taskmgr-checks/`.
