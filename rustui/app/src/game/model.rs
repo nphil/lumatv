@@ -797,6 +797,8 @@ impl Model {
             format!("{} min ago", seconds / 60)
         } else if seconds < 86400 {
             format!("{} h ago", seconds / 3600)
+        } else if days == 1 {
+            "Yesterday".into()
         } else {
             format!("{days} days ago")
         })
