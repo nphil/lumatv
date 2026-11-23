@@ -9,6 +9,24 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Task manager System sheet, rescue and gate regression checked on the set, 2026-11-23 (main a63e7924)
+
+Run under the TV lock on the installed set (compositor `3ba09192`, UI `7635037b`, lumatv-sm `e6de36b8`, tools/lumatv `6f982df3`, helper `f98d7788`; nothing installed or changed). Screenshots and gate JSON: `/data/home/tmp/taskmgr-checks/`.
+
+- System sheet, Restart the TV: confirm opened with Cancel focused, Cancel returned to the sheet, uptime unchanged (50813 s). Never confirmed.
+- System sheet, Restart LumaTV: Cancel and Back both cancel. Confirmed with LumaBrowser open: the browser got its close 0.2 s after the quit, compositor/UI/sm pids changed within 3 s (9001/9351/8877 -> 13719/13896/13629 on the second run), Home in front, failure count 0, no crash bundle.
+- System sheet, LG Home: LG's launcher in front (`getForegroundAppInfo` `com.webos.app.home`), sm exec'd LG's compositor in place, bundle kind `escape` ("the task manager"), no failure counted. Launching `org.nphil.lumatv` brought LumaTV back; same compositor, UI, sm and helper hashes, plugins connected again.
+- Rescue, Back 3 s: a virtual remote (uinput, key bits 773 and 412 only, which lumatv-sm reads and the compositor does not route) held Back with the compositor answering pings. At 3.0 s sm logged the rescue, kept one bundle (`rescue: Back held 3 s, task manager did not open`, kind `problem`) and restarted LumaTV; failure count 0.
+- Rescue, Back 10 s: with `tools/lumatv` made non-executable for 4.5 s the 3 s restart was refused ("cannot be run"), and at 10.0 s LG's Home came forward with an `escape` bundle.
+- SIGSTOPped compositor with Back held 3.6 s: the heartbeat wins, not the Back rescue. LG's Home was in front 2 to 3 s after the stop, bundle `heartbeat: two beats missed`, failure count 1 until the relaunch of the app (0 after). The two paths race, so the Back rescue is only reachable while the compositor still answers pings (a hung shell or task manager), which is what the test above exercised.
+- `kb.py` keys cannot test the rescue: they come from the SSAP device, which lumatv-sm rejects.
+- All bundles made here were deleted and `latest`/`pending` put back. The 8-bundle limit had already aged out two old ones while testing (the oldest, `20261101-142407-001`, and one before it).
+- `tools/lumatv video-check`: `picture`, "connected after 1s", exit 0 with the task manager closed, open and closed again.
+
+Regression, `quick-settings` first frame at 120 Hz: five runs of `gate.py --surfaces quick-settings --refresh 120 --cycles 3` (6 windows each). Opening: 0.5 to 13 ms in all 15 windows. Closing (Back), ms: run 1 69, 18, 60; run 2 71, 65, 64; run 3 73, 65, 72; run 4 34, 68, 71; run 5 58, 68, 68; 13 of 15 above 50 ms. The compositor now holds a Back until its release to tell a tap from the task manager hold (`10d6f2e2`, `keys.rs`), so a Back close starts after the tap: the gate's injected tap is 50 ms and the first frame is the tap plus 10 to 20 ms of drawing. With a 100 ms hold (`kb.py` BACK:20 and BACK:100 both hold 100 ms, its loop steps in 100 ms) the close first frame was 111 to 124 ms. Load does not explain it: the same runs open in under 13 ms and the load average was 14 with the CPU mostly idle. The two closes under 50 ms (18, 34) are other frames in the window, not the response. The earlier 17.9 ms run predates the Back hold. No UI change is involved, so the `1b3d31e4` build was not tried. Left as it is: whether Back acts on its press over LumaTV's own panels (the Input key does) or the gate judges Back closes from the release is a product choice.
+
+Untested: Restart the TV confirmed (never done), its refusal while the pixel refresher runs, the task manager over a real playing video app (video-check plays its own clip), 200 % text and light mode on the set (no helper route sets them; the Settings page writes `material` and `type.scale` into theme.json).
+
 ## Task manager installed and checked on the set, 2026-11-23 (main d172f28a, helper from 76430ee3)
 
 Installed under the TV lock, old -> new: lumatv-compositor `3cafb86f` -> `3ba09192`, lumatv-ui `542c9806` -> `7635037b` (header strip included), lumatv-sm `26eca8b5` -> `e6de36b8`, tools/lumatv `666d8153` -> `6f982df3`, `lib/x1heapshim.so` `2abb40a6` -> `3ecc4c5b`, helper `09cab7f6` -> `f98d7788` (built from main 76430ee3: audio passthrough device-number match, tuner cache, camera cool-down). The feeder was left as it was (`d9194794`; only a local build hash differed). Compositor, UI and sm applied live with `tv_install.py --now`, the video check passed each time; audio-passthrough and voice-assistant are still in the enabled list after the helper restart (their on/off state was not exercised).
