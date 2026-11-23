@@ -516,10 +516,7 @@ fn handler(local: &Local, message: plugin_api::wire::ToPlugin) {
 }
 
 pub fn spawn(ctx: &Ctx, shared: Arc<Shared>) -> std::io::Result<JoinHandle<()>> {
-    let host: Arc<dyn Host> = Arc::new(System {
-        luna_send: ctx.config.luna.send.clone(),
-        ..System::default()
-    });
+    let host: Arc<dyn Host> = Arc::new(System::new(ctx.config.luna.send.clone()));
     let journal = ctx.paths.data_dir.join(ID).join("journal");
     let switched = shared.clone();
     let service = Arc::new(Service::new(

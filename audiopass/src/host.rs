@@ -2,7 +2,8 @@
 //!
 //! Rules that hold for every method (WEDGE.md of the TrueHD study): nothing here reads `/proc/aaudio/instances/*/prop`, uses
 //! `amixer` to read, or opens the sound card's control device; a child process that does not answer is abandoned, never waited on,
-//! because a task stuck in the sound card's control lock cannot be killed.
+//! because a task stuck in the sound card's control lock cannot be killed. A read or write of a driver's file is the same kind of
+//! call and gets the same treatment: it runs on a thread of its own and is abandoned at a deadline, so the route is never held for good.
 
 use crate::sndout::Words;
 use sha2::{Digest, Sha256};
@@ -12,11 +13,21 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
 /// How long `amixer` and `luna-send` get before they are abandoned.
 const CHILD_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a read or write of one of LG's driver files gets. A healthy one answers in microseconds; one that waits on the sound
+/// card's control lock never does.
+const IO_TIMEOUT: Duration = Duration::from_millis(1500);
+const IO_STACK: usize = 128 * 1024;
+/// Where one driver file operation stands: running, finished while its caller waited, or abandoned by its caller.
+const IO_RUNNING: u8 = 0;
+const IO_FINISHED: u8 = 1;
+const IO_ABANDONED: u8 = 2;
 
 /// A crashed child must not leave a core dump on the TV: SAM starts processes with an unlimited core size and a dump is 160-290 MB.
 pub fn no_core_dumps() -> io::Result<()> {
@@ -86,6 +97,10 @@ pub struct System {
     pub luna_send: String,
     /// How long `amixer` and `luna-send` get before they are abandoned.
     pub timeout: Duration,
+    /// How long a read or write of a driver's file gets before it is abandoned.
+    pub io_timeout: Duration,
+    /// Driver file operations that were abandoned and are still blocked. While there is one, new ones fail at once.
+    stalled: Arc<AtomicUsize>,
 }
 
 impl Default for System {
@@ -94,6 +109,72 @@ impl Default for System {
             amixer: "amixer".into(),
             luna_send: "luna-send".into(),
             timeout: CHILD_TIMEOUT,
+            io_timeout: IO_TIMEOUT,
+            stalled: Arc::default(),
+        }
+    }
+}
+
+fn timed_out() -> io::Error {
+    io::Error::new(io::ErrorKind::TimedOut, "LG's sound driver did not answer")
+}
+
+impl System {
+    /// The real TV, with `luna_send` as the program that makes luna calls.
+    pub fn new(luna_send: impl Into<String>) -> Self {
+        Self {
+            luna_send: luna_send.into(),
+            ..Self::default()
+        }
+    }
+
+    /// Runs one operation on a driver's file on a thread of its own and waits [`System::io_timeout`] for it. The route is held
+    /// while it waits, and a call that waits on the stuck control lock never returns: its thread is left behind, and until that
+    /// thread comes back every further call fails at once, so a wedge neither piles up threads nor blocks the caller for good.
+    fn bounded<T: Send + 'static>(
+        &self,
+        work: impl FnOnce() -> io::Result<T> + Send + 'static,
+    ) -> io::Result<T> {
+        if self.stalled.load(Ordering::SeqCst) > 0 {
+            return Err(timed_out());
+        }
+        let (send, receive) = mpsc::channel();
+        let state = Arc::new(AtomicU8::new(IO_RUNNING));
+        let (worker_state, stalled) = (state.clone(), self.stalled.clone());
+        thread::Builder::new()
+            .name("audiopass-io".into())
+            .stack_size(IO_STACK)
+            .spawn(move || {
+                let _ = send.send(work());
+                // Its caller gave up while it blocked: it no longer counts as stalled.
+                if worker_state
+                    .compare_exchange(IO_RUNNING, IO_FINISHED, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_err()
+                {
+                    stalled.fetch_sub(1, Ordering::SeqCst);
+                }
+            })?;
+        match receive.recv_timeout(self.io_timeout) {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                Err(io::Error::other("the file operation failed"))
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // Counted before the thread can see it was abandoned, so the count never goes below zero.
+                self.stalled.fetch_add(1, Ordering::SeqCst);
+                let abandoned = state.compare_exchange(
+                    IO_RUNNING,
+                    IO_ABANDONED,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                );
+                if abandoned.is_ok() {
+                    return Err(timed_out());
+                }
+                // It finished between the deadline and now, and its result is already in the channel.
+                self.stalled.fetch_sub(1, Ordering::SeqCst);
+                receive.try_recv().unwrap_or_else(|_| Err(timed_out()))
+            }
         }
     }
 }
@@ -126,18 +207,24 @@ fn stat_head(stat: &str) -> Option<(&str, char)> {
 
 impl Host for System {
     fn read(&self, path: &str) -> io::Result<String> {
-        fs::read_to_string(path)
+        let path = path.to_owned();
+        self.bounded(move || fs::read_to_string(path))
     }
 
     fn is_dir(&self, path: &str) -> bool {
-        Path::new(path).is_dir()
+        let path = path.to_owned();
+        self.bounded(move || Ok(Path::new(&path).is_dir()))
+            .unwrap_or(false)
     }
 
     fn write(&self, path: &str, text: &str) -> io::Result<()> {
-        OpenOptions::new()
-            .write(true)
-            .open(path)?
-            .write_all(text.as_bytes())
+        let (path, text) = (path.to_owned(), text.to_owned());
+        self.bounded(move || {
+            OpenOptions::new()
+                .write(true)
+                .open(path)?
+                .write_all(text.as_bytes())
+        })
     }
 
     fn save(&self, path: &str, text: &str) -> io::Result<()> {
@@ -387,6 +474,7 @@ mod tests {
             amixer: program.clone(),
             luna_send: program,
             timeout: Duration::from_millis(150),
+            ..System::default()
         };
         let words = Words {
             set_type: 2,
@@ -399,6 +487,58 @@ mod tests {
         assert_eq!(system.set_earc_words(words), Err(WriteError::Hung));
         assert_eq!(system.luna("luna://x/y", "{}"), None);
         assert!(started.elapsed() < Duration::from_secs(2));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_read_that_blocks_is_abandoned_and_the_next_calls_do_not_wait() {
+        let dir = std::env::temp_dir().join(format!("audiopass-fifo-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let (fifo, regular) = (dir.join("pipe"), dir.join("regular"));
+        let c_path = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        // SAFETY: `c_path` is a valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+        fs::write(&regular, "ok").unwrap();
+        let (fifo, regular) = (fifo.to_str().unwrap(), regular.to_str().unwrap());
+        let system = System {
+            io_timeout: Duration::from_millis(100),
+            ..System::default()
+        };
+
+        // A read that waits for a writer that never comes stands in for one that waits on the control lock.
+        let started = Instant::now();
+        assert_eq!(
+            system.read(fifo).unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+
+        // While it is blocked, nothing else waits for the deadline again.
+        let again = Instant::now();
+        assert_eq!(
+            system.read(regular).unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+        assert_eq!(
+            system.write(regular, "x").unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+        assert!(again.elapsed() < Duration::from_millis(50));
+        assert_eq!(fs::read_to_string(regular).unwrap(), "ok");
+
+        // The writer arrives, the blocked read returns, and the calls work again.
+        drop(OpenOptions::new().write(true).open(fifo).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match system.read(regular) {
+                Ok(text) => {
+                    assert_eq!(text, "ok");
+                    break;
+                }
+                Err(_) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+                Err(e) => panic!("still blocked: {e}"),
+            }
+        }
         let _ = fs::remove_dir_all(dir);
     }
 }
