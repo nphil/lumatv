@@ -5,7 +5,12 @@
 html, body { margin: 0; width: 1920px; height: 1080px; background: transparent; overflow: hidden;
   font-family: var(--lu-font); color: var(--lu-ink); -webkit-font-smoothing: antialiased; }
 #pane { position: absolute; left: 0; top: 0; width: 100px; height: 100px; overflow: hidden; }
-#web { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; border-radius: var(--lu-radius-control); }
+#web { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; border-radius: var(--lu-radius-control); visibility: hidden; }
+#web.ready { visibility: visible; }
+/* video: nothing of the frame's own over the player; the pane takes a still's corners in a card and none at full screen */
+[data-mode="video"] #web { background: transparent; border-radius: var(--lu-radius-tile); }
+[data-mode="video"][data-full="1"] #web { border-radius: 0; }
+[data-mode="video"] #error { background: var(--lu-sheet); border-radius: var(--lu-radius-tile); }
 #reader { position: absolute; inset: 0; overflow: hidden; }
 #reader .inner { padding-right: var(--lu-space-6); }
 #reader .inner { will-change: transform; transition: transform var(--lu-card-ms) var(--lu-ease-card); }

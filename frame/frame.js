@@ -2,7 +2,11 @@
    this overlay-type app with {url, title, source, rect:{x,y,w,h}, light}. The interior at
    rect shows the page in an iframe when the site allows framing, otherwise a reader view
    built from the fetched HTML. Up/Down scroll, Back closes (the compositor closes overlay
-   windows on Back; window.close() covers the app's own handling). */
+   windows on Back; window.close() covers the app's own handling).
+   mode "video" (LumaGame's player page): OK, Left, Right and the media keys go to the page as
+   {lumaframe: "key", key}; Up grows the pane to full screen and Down returns it to rect. The
+   page reports {lumaplayer: state}. A relaunch with the same url and mode only moves the pane
+   (no reload); {close: true} closes the frame. */
 (function () {
   'use strict';
   var pane = document.getElementById('pane');
@@ -35,13 +39,29 @@
   }
   function shq(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
 
-  function layout(p) {
-    var r = p.rect || { x: 200, y: 150, w: 1520, h: 860 };
+  var FULL = { x: 0, y: 0, w: 1920, h: 1080 };
+  // A paused picture is a still: after this long the frame closes rather than hold it on the panel.
+  var PAUSED_MS = 90000;
+  // How long "not available here" stays before the frame closes.
+  var REFUSED_MS = 5000;
+  var card = null, full = false, dwell = 0;
+
+  function place(r) {
     pane.style.left = r.x + 'px'; pane.style.top = r.y + 'px'; pane.style.width = r.w + 'px'; pane.style.height = r.h + 'px';
-    document.documentElement.dataset.theme = p.light ? 'light' : 'dark';      // the material: theme.css has both (tools/tokens.py web)
+    document.documentElement.dataset.full = (r.w >= FULL.w && r.h >= FULL.h) ? '1' : '';
   }
+  function layout(p) {
+    card = p.rect || { x: 200, y: 150, w: 1520, h: 860 };
+    full = false;
+    place(card);
+    document.documentElement.dataset.theme = p.light ? 'light' : 'dark';      // the material: theme.css has both (tools/tokens.py web)
+    document.documentElement.dataset.mode = p.mode || '';
+  }
+  // The iframe keeps its place and size while it loads (hidden by visibility, not display), so the page measures its final
+  // viewport from the start instead of 0x0, and nothing of it (its white backdrop) shows before it has loaded.
   function show(el) {
-    [spinner, reader, web, errorBox].forEach(function (e) { e.hidden = (e !== el); });
+    [spinner, reader, errorBox].forEach(function (e) { e.hidden = (e !== el); });
+    web.classList.toggle('ready', el === web);
     if (el === spinner) spinner.style.display = 'flex'; else spinner.style.display = 'none';
   }
   function fail(msg) { errorBox.textContent = msg; show(errorBox); }
@@ -115,10 +135,13 @@
   }
 
   // ---- open: decide iframe vs reader from the response headers, then load
+  function same(a, b) { return a && b && a.url === b.url && (a.mode || '') === (b.mode || ''); }
   function open(p) {
-    current = p; layout(p); show(spinner);
+    if (p.close) { window.close(); return; }
+    if (same(current, p)) { current = p; layout(p); return; }
+    current = p; layout(p); show(spinner); clearTimeout(dwell);
     if (!p.url) { fail('Nothing to show'); return; }
-    if (p.mode === 'web') { openWeb(p.url); return; }
+    if (p.mode === 'web' || p.mode === 'video') { openWeb(p.url); return; }
     exec('curl -sSL -m 12 -A "Mozilla/5.0 (X11; Linux) AppleWebKit/537.36 Chrome/94 Safari/537.36" -D - -o /tmp/lumaframe.html ' + shq(p.url) + ' >/tmp/lumaframe.hdr 2>&1; cat /tmp/lumaframe.hdr')
       .then(function (r) {
         var hdr = (r.stdoutString || '').toLowerCase();
@@ -137,6 +160,25 @@
     setTimeout(function () { if (spinner.style.display !== 'none') show(web); }, 6000);
   }
 
+  // ---- video: the player page's word on its state, and the keys it is given
+  function played(state) {
+    clearTimeout(dwell);
+    if (state === 'paused') dwell = setTimeout(function () { window.close(); }, PAUSED_MS);
+    else if (state === 'ended') window.close();
+    else if (state === 'refused') { fail('Not available here'); dwell = setTimeout(function () { window.close(); }, REFUSED_MS); }
+  }
+  window.addEventListener('message', function (e) {
+    if (e.source === web.contentWindow && e.data && typeof e.data.lumaplayer === 'string') played(e.data.lumaplayer);
+  });
+  var VIDEO_KEYS = { 13: 'ok', 37: 'left', 39: 'right', 412: 'left', 417: 'right', 415: 'play', 19: 'pause' };
+  function videoKey(k) {
+    if (k === 38 && !full) { full = true; place(FULL); return true; }
+    if (k === 40 && full) { full = false; place(card); return true; }
+    var key = VIDEO_KEYS[k];
+    if (key && web.contentWindow) web.contentWindow.postMessage({ lumaframe: 'key', key: key }, '*');
+    return !!key;
+  }
+
   function params() {
     try { if (window.webOSSystem && webOSSystem.launchParams) return JSON.parse(webOSSystem.launchParams); } catch (e) {}
     try { if (window.PalmSystem && PalmSystem.launchParams) return JSON.parse(PalmSystem.launchParams); } catch (e) {}
@@ -145,9 +187,10 @@
   document.addEventListener('webOSRelaunch', function (e) { open((e && e.detail) || params()); });
   window.addEventListener('keydown', function (e) {
     var k = e.keyCode;
-    if (k === 40) { scrollBy(300); e.preventDefault(); }
+    if (k === 461 || k === 27) { e.preventDefault(); window.close(); }
+    else if (current && current.mode === 'video') { if (videoKey(k)) e.preventDefault(); }
+    else if (k === 40) { scrollBy(300); e.preventDefault(); }
     else if (k === 38) { scrollBy(-300); e.preventDefault(); }
-    else if (k === 461 || k === 27) { e.preventDefault(); window.close(); }
   });
   document.body.tabIndex = 0; document.body.focus();
   open(params());
