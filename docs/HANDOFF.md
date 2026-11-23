@@ -9,9 +9,9 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
-## Profile OLED brightness learning staged, 2026-11-22 (main a007cb1a)
+## Profile OLED brightness learning installed, 2026-11-22 (main 34cb02b4, 19:5x EST)
 
-The next normal boot can activate helper `75c2b611` → `4e92fc23` and UI `b6e115b3` → `3cde477a`; the boot tool is `c5d33779`. This set replaced an earlier staged helper `8c8f6783` (main 454c72e7), in which a value left above the limit for 5 s on the way to a lower one raised the profile's limit for good. The helper, shell and Marquee kept their process IDs during both stagings. Activation, live learning and fewer manual corrections have not been verified on the set. Receipts: `cody-data-scratch/18172b987bff/oled-learning-20261122/` and its `v2/`.
+Helper `75c2b611` → `32081d2c` and UI `b6e115b3` → `29d246f9` went live with the input-picker device test, built from main 34cb02b4, which carries the brightness fix of a007cb1a; the compositor was untouched and the video check found a picture. That install discarded the boot-only set staged earlier for this fix (helper `4e92fc23`, UI `3cde477a`, main a007cb1a), which replaced a first staged helper `8c8f6783` (main 454c72e7) in which a value left above the limit for 5 s on the way to a lower one raised the profile's limit for good. Afterwards `autobright` reported `profile` `nitin`, `active` true, `learned` 0 (the new per-profile file starts empty; the legacy global file is kept), ceiling 50, target 33 at 3 lux. Live learning and fewer manual corrections have not been verified on the set. Receipts: `cody-data-scratch/18172b987bff/oled-learning-20261122/` and its `v2/`.
 
 The owner's Home wallpaper moved from the default 10 fps to 30 fps (`theme.wallpaperMotion.fps`) at 19:11 EST; measured on 2026-11-21 at 30 fps: GPU 17.8 %, compositor 9.3 % of a core.
 
