@@ -203,7 +203,6 @@ fn glance_of(m: &Model, id: GameId, section: Section) -> Glance {
         Section::Media => {
             let shots = &facts.media.store_screenshots;
             let trailers = if let Fact::Present(t) = facts.media.trailers { t.len() } else { 0 };
-            let own = m.details.get(&id).map_or(0, |d| d.media.len());
             let thumbs = match shots {
                 Fact::Present(s) => pictures(s.iter().take(4).map(|s| s.thumb.as_str()).collect()),
                 _ => Vec::new(),
@@ -212,7 +211,6 @@ fn glance_of(m: &Model, id: GameId, section: Section) -> Glance {
                 big: false,
                 headline: match shots {
                     Fact::Present(s) => format!("{} screenshots, {trailers} trailers", s.len()),
-                    _ if own > 0 => format!("{own} pictures and videos"),
                     fact => said(fact, |_| String::new()),
                 },
                 detail: None,
@@ -249,6 +247,11 @@ fn section_layer(p: &mut Paint<'_>, id: GameId, section: Section) {
     let m = p.model;
     let names = SECTIONS.map(section_name);
     let slot = layer::section(p, &names, section_index(section));
+    if section == Section::Media {
+        media::section(p, id, slot);
+        hints::bar(p, &m.hints(), Side::Right, m.hints_dim);
+        return;
+    }
     let items = section_items(m, id, section);
     let base = 1000 + section_index(section) as u64 * 1000;
     let (rh, fh) = (row_height(p), p.line(Type::Body));
@@ -408,21 +411,8 @@ fn section_items(m: &Model, id: GameId, section: Section) -> Vec<Item> {
                 }
             }
         }
-        // The Media slice replaces this list with its own body; until then the pictures the page data gave open the viewer.
-        Section::Media => {
-            let media = &facts.media;
-            fact(&mut items, "Screenshots", said(&media.store_screenshots, |s| s.len().to_string()));
-            fact(&mut items, "Trailers", said(&media.trailers, |t| t.len().to_string()));
-            for (i, item) in m.details.get(&id).map_or(&[][..], |d| d.media.as_slice()).iter().enumerate() {
-                items.push(Item::Row {
-                    focus: Focus::Media(i),
-                    name: item.title.clone(),
-                    sub: Some(if item.video.is_some() { "Trailer" } else { "Screenshot" }.into()),
-                    picture: m.art_path(&item.image),
-                    glyph: None,
-                });
-            }
-        }
+        // Its own grid: `media::section`.
+        Section::Media => {}
         Section::About => {
             let a = &facts.about;
             if let (Some(k), Fact::Present(description)) = (entries.iter().position(|e| *e == Entry::About), a.description) {

@@ -487,17 +487,6 @@ impl<'a> Paint<'a> {
         self.hit(focus, frame);
         w
     }
-    pub fn icon_button(&mut self, id: u64, focus: Focus, icon: Icon, x: f32, y: f32, stage: bool, z: i32) {
-        let from = self.plan.nodes.len();
-        let h = self.tokens.target;
-        let f = Frame::new(x, y, h, h);
-        self.surface(id, f, Fill::Glass, Radius::Pill, stage, self.focused(focus), true, z);
-        self.words(id + 1, f, vec![], vec![self.mark(icon, 30.0, 17.0, 17.0, Role::Ink, stage)], z + 1);
-        if self.focused(focus) {
-            self.zoom(from, f, self.tokens.focus.button_scale);
-        }
-        self.hit(focus, f);
-    }
     pub fn toggle(&mut self, id: u64, x: f32, y: f32, on: bool, stage: bool, z: i32) {
         let f = Frame::new(x, y, 82.0, 48.0);
         self.surface(id, f, if on { Fill::Accent } else { Fill::Track }, Radius::Pill, stage, false, false, z);
@@ -666,11 +655,10 @@ mod tests {
             let mut p = Paint::new(&tokens, &m, &mut fonts);
             p.button(10, Focus::Home(Spot::Tile(0)), "Play", None, 0.0, 0.0, true, false, 12);
             p.button(20, Focus::Home(Spot::Tile(1)), "Details", None, 300.0, 0.0, false, false, 12);
-            p.icon_button(30, Focus::Where, Icon::Back, 600.0, 0.0, false, 12);
             let scales = |range: std::ops::Range<u64>| p.plan.nodes.iter().filter(|n| range.contains(&n.id)).map(|n| n.props.scale).collect::<Vec<_>>();
             assert_eq!(scales(10..20), [tokens.focus.button_scale; 2], "reduced motion {reduce_motion}");
-            assert_eq!(scales(20..40), [1.0; 4]);
-            assert_eq!(p.plan.nodes.len(), 6, "no underline layer");
+            assert_eq!(scales(20..30), [1.0; 2]);
+            assert_eq!(p.plan.nodes.len(), 4, "no underline layer");
         }
     }
 

@@ -3,7 +3,7 @@ use lumagame_core::{catalog::ArtKind, engine::Codec, ids::GameId, ipc::{Display,
 use lumagame_meta::{Artwork, Cache, CacheLimits, Client, Http, Job, Kind, Loader, Metadata, secrets::Secrets};
 use lumatv_gfn_pad::{MAX_PADS, PadConfig, PadEvent, PadRuntime, PadSink, PadState, RawReport, button, menu::{MenuKeys, STICK}};
 use lumatv_render::{Demand, now_ns, host::{Engine, HostConfig}};
-use lumatv_rustui::{card::{FULLSCREEN, MINIMIZED}, game::{helper::{ControllerClient, ControllerRequest, ControllerReply, Lease}, host::{self, HostEvent, Supervisor}, model::{Command, GameDetails, Input, Key, Model, game::media::Media, settings::PadMode}, screens::GameUi, store::{self, Store}}, lifecycle::{Channel, FromApp, ToApp}, window::{self, Event, Spec}};
+use lumatv_rustui::{card::{FULLSCREEN, MINIMIZED}, game::{helper::{ControllerClient, ControllerRequest, ControllerReply, Lease}, host::{self, HostEvent, Supervisor}, model::{Command, GameDetails, Input, Key, Model, settings::PadMode}, screens::GameUi, store::{self, Store}}, lifecycle::{Channel, FromApp, ToApp}, window::{self, Event, Spec}};
 use lumatv_rustui::game::helper::{OverlayClient, Sample};
 use lumatv_rustui::game::diagnostics::{Diagnostics, Event as DiagnosticEvent, Level};
 use lumatv_rustui::game::input::Face;
@@ -278,7 +278,6 @@ fn game_details(hub: Option<lumagame_meta::Hub>, metadata: Option<Metadata>) -> 
     details.year = details.year.or(year);
     if details.genres.is_empty() { details.genres = metadata.genres; }
     if details.developer.is_none() && !metadata.developers.is_empty() { details.developer = Some(metadata.developers.join(", ")); }
-    details.media.extend(metadata.artwork.into_iter().filter(|art| matches!(art.kind, Kind::Hero | Kind::Header)).map(|art| Media { title: "Artwork".into(), image: art.url, video: None }));
     Some(details)
 }
 
@@ -365,6 +364,8 @@ impl Shell {
                     if !url.starts_with("https://") { Err(io::Error::new(io::ErrorKind::InvalidInput, "media must use HTTPS")) }
                     else { self.launch_app("com.webos.app.browser", serde_json::json!({"target":url})) }
                 }
+                // The video-layer slice plays these on their own hardware plane; the owner wants no hand-off to another app meanwhile.
+                Command::PlayVideo { kind, .. } => { eprintln!("lumagame: {kind:?} video asked for; no video layer in this build"); Ok(()) }
                 Command::OpenControllerSettings => self.launch_app("com.palm.app.settings", serde_json::json!({})),
                 Command::Rumble { slot, low, high } => pads.runtime.rumble(slot, low, high, 500),
                 Command::GameSir(change) => {

@@ -249,15 +249,8 @@ pub(super) fn fixture() -> Model {
                 hub.achievements.shown.push(lumagame_meta::hub::Achievement { api: None, name: name.into(), icon: url, permille });
             }
             details.hub = hub;
-            for (i, name) in ["trailer-1.jpg", "trailer-2.jpg", "shot-1.jpg", "shot-2.jpg", "shot-3.jpg", "shot-4.jpg", "shot-5.jpg"].into_iter().enumerate() {
-                let path = assets().join("1145350/media").join(name);
-                let url = format!("fixture://media/{name}");
-                model.art.insert(url.clone(), path);
-                details.media.push(Media {
-                    title: if i < 2 { ["Gameplay trailer", "Early access trailer"][i].into() } else { format!("Screenshot {}", i - 1) },
-                    image: url,
-                    video: (i < 2).then(|| "https://store.steampowered.com/app/1145350".into()),
-                });
+            for name in ["trailer-1.jpg", "trailer-2.jpg", "shot-1.jpg", "shot-2.jpg", "shot-3.jpg", "shot-4.jpg", "shot-5.jpg"] {
+                model.art.insert(format!("fixture://media/{name}"), assets().join("1145350/media").join(name));
             }
         }
         model.details.insert(game, details);

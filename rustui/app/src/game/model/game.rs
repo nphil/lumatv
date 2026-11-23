@@ -88,8 +88,6 @@ impl GameDetails {
             .filter(|(category, _)| hub.categories.iter().any(|c| c.starts_with(category)))
             .map(|(_, label)| label)
             .collect();
-        let trailers = hub.trailers.iter().map(|t| Media { title: t.title.clone(), image: t.thumb.clone(), video: Some(t.url.clone()) });
-        let shots = hub.screenshots.iter().enumerate().map(|(i, url)| Media { title: format!("Screenshot {}", i + 1), image: url.clone(), video: None });
         Self {
             description: hub.description.clone(),
             year,
@@ -98,7 +96,6 @@ impl GameDetails {
             developer: (!hub.developers.is_empty()).then(|| hub.developers.join(", ")),
             capabilities,
             cloud_saves: hub.categories.iter().any(|c| c == "Steam Cloud").then_some(true),
-            media: trailers.chain(shots).collect(),
             hub,
         }
     }
@@ -144,9 +141,12 @@ impl Slice for Rules {
     fn activate(m: &mut Model, f: Focus, out: &mut Vec<Command>) {
         m.game_activate(f, out);
     }
-    /// Left and Right over a section switch sections.
-    fn adjust(m: &mut Model, _f: Focus, forward: bool, _out: &mut Vec<Command>) -> bool {
-        m.switch_section(forward)
+    /// Left and Right over a section switch sections; in Media they first move along the filter or a row of stills.
+    fn adjust(m: &mut Model, f: Focus, forward: bool, _out: &mut Vec<Command>) -> bool {
+        match m.media_sideways(f, forward) {
+            Some(moved) => moved,
+            None => m.switch_section(forward),
+        }
     }
     fn anchor(_m: &Model) -> Option<Focus> {
         Some(Focus::Play)
@@ -159,7 +159,7 @@ impl Slice for Rules {
     }
     fn hints(m: &Model) -> Hints {
         Hints(match m.view.top() {
-            Some(Layer::Section(_)) => vec![(Key::Ok, "Open"), (Key::Next, "Section"), (Key::Back, "Close")],
+            Some(Layer::Section(_)) => vec![(Key::Ok, m.media_ok().unwrap_or("Open")), (Key::Next, "Section"), (Key::Back, "Close")],
             Some(Layer::Reader) => vec![(Key::Down, "Next page"), (Key::Back, "Close")],
             Some(Layer::Chooser) => vec![(Key::Ok, "Play"), (Key::Back, "Close")],
             _ => vec![(Key::Down, "More"), (Key::Menu, "Menu")],
@@ -232,6 +232,7 @@ impl Model {
                 rows.push(vec![Focus::Remember]);
                 rows
             }
+            Some(Layer::Section(Section::Media)) => self.media_grid(),
             Some(Layer::Section(section)) => self.section_rows(section).into_iter().map(|f| vec![f]).collect(),
             Some(Layer::Reader) => (0..self.reader_text().map_or(0, |r| r.pages.len())).map(|i| vec![Focus::ReaderPage(i)]).collect(),
             Some(_) => Vec::new(),
@@ -288,7 +289,7 @@ impl Model {
                 entries.extend((0..count(&facts.community.discussions)).map(Entry::Thread));
                 entries.extend((0..count(&facts.community.guides)).map(Entry::Guide));
             }
-            // The Media slice fills this section; its rows are the pictures (`Focus::Media`).
+            // Its rows are the Media slice's filter and stills (`media_focuses`).
             Section::Media => {}
             Section::About => {
                 if matches!(facts.about.description, Fact::Present(_)) {
@@ -312,7 +313,7 @@ impl Model {
     fn section_rows(&self, section: Section) -> Vec<Focus> {
         let Some(id) = self.view.selected else { return Vec::new() };
         if section == Section::Media {
-            return (0..self.details.get(&id).map_or(0, |d| d.media.len())).map(Focus::Media).collect();
+            return self.media_focuses();
         }
         (0..self.section_entries(id, section).len()).map(Focus::Entry).collect()
     }
@@ -424,7 +425,7 @@ impl Model {
         }
     }
     /// The pictures the page and its open section show: the latest achievements' icons and the first store screenshots on the cards,
-    /// and the Media section's pictures while it is open.
+    /// and what the Media section or the viewer shows while it is open.
     pub(super) fn glance_art(&self, id: GameId) -> Vec<String> {
         let facts = self.facts(id);
         let mut urls = Vec::new();
@@ -434,11 +435,7 @@ impl Model {
         if let Fact::Present(shots) = facts.media.store_screenshots {
             urls.extend(shots.iter().take(4).map(|s| s.thumb.clone()));
         }
-        if self.view.top() == Some(Layer::Section(Section::Media)) {
-            if let Some(details) = self.details.get(&id) {
-                urls.extend(details.media.iter().map(|m| m.image.clone()).filter(|url| !url.is_empty()));
-            }
-        }
+        urls.extend(self.media_art(id));
         urls
     }
     /// A way to play from the chooser: one that needs a sign-in or a pairing starts it; one that can start plays, and Remember pins
@@ -538,11 +535,16 @@ impl Model {
 mod tests {
     use super::*;
     use crate::game::model::tests::*;
-    use lumagame_core::{activity::Activity, community::{Community, NewsItem, Section as Part}, engine::AuthMethod, ids::ProviderGameId};
+    use lumagame_core::{activity::Activity, community::{Community, NewsItem, Section as Part, Shot}, engine::AuthMethod, ids::ProviderGameId};
 
     /// GeForce NOW lists Hades II (Steam app 1145350) and Steam, on with achievements and the community, has said two long news posts.
     /// Steam is signed in when `signed_in`.
     fn hades(signed_in: bool) -> (Model, GameId) {
+        let news = (0..2).map(|i| NewsItem { title: format!("Patch {i}"), text: "word ".repeat(300), author: None, source: None, at: 0, url: None }).collect();
+        hades_with(signed_in, Community { news: Part::list(news), ..Community::default() })
+    }
+    /// Hades II as `hades` has it, with `community` for what Steam's community says of it.
+    pub(super) fn hades_with(signed_in: bool, community: Community) -> (Model, GameId) {
         let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gfn", "GeForce NOW", EngineKind::Cloud), manifest("steam", "Steam", EngineKind::Account)]);
         describe(&mut m, "gfn", vec![AuthMethod::DeviceCode], &[]);
         describe(&mut m, "steam", vec![AuthMethod::Qr], &[Feature::Achievements, Feature::Community]);
@@ -552,8 +554,6 @@ mod tests {
         }
         let entries = vec![entry("1", "Hades II", ipc::Role::Game, &["steam:1145350"], Activity::default())];
         engine_says(&mut m, "gfn", ipc::Event::Library { target: TargetId::new("main").unwrap(), entries, next: None });
-        let news = (0..2).map(|i| NewsItem { title: format!("Patch {i}"), text: "word ".repeat(300), author: None, source: None, at: 0, url: None }).collect();
-        let community = Community { news: Part::list(news), ..Community::default() };
         engine_says(&mut m, "steam", ipc::Event::Community { game: ProviderGameId::new("1145350").unwrap(), community });
         let id = id_of(&m, "Hades II");
         m.open_game(id, None);
@@ -575,18 +575,19 @@ mod tests {
     }
     #[test]
     fn each_section_keeps_its_own_focus_across_switches() {
-        let (mut m, id) = hades(true);
-        let hub = Hub { screenshots: (0..3).map(|i| format!("https://x/{i}.jpg")).collect(), description: "A god's daughter.".into(), ..Hub::default() };
+        let shots = (0..9).map(|i| Shot { thumb: format!("https://x/{i}.jpg"), full: format!("https://x/{i}.jpg") }).collect();
+        let (mut m, id) = hades_with(true, Community { store_screenshots: Part::list(shots), ..Community::default() });
+        let hub = Hub { description: "A god's daughter.".into(), ..Hub::default() };
         m.step(Input::Details { game: id, details: Box::new(GameDetails::from_hub(hub)) });
         m.set_focus(Focus::Card(2));
         key(&mut m, Key::Ok);
         key(&mut m, Key::Down);
         key(&mut m, Key::Down);
-        assert_eq!(m.view.focus, Focus::Media(2));
+        assert_eq!(m.view.focus, Focus::Media(6));
         key(&mut m, Key::Next);
         assert_eq!((m.view.top(), m.view.focus), (Some(Layer::Section(Section::About)), Focus::Entry(0)), "the bumper steps to About");
         key(&mut m, Key::Left);
-        assert_eq!((m.view.top(), m.view.focus), (Some(Layer::Section(Section::Media)), Focus::Media(2)), "Left comes back to the same picture");
+        assert_eq!((m.view.top(), m.view.focus), (Some(Layer::Section(Section::Media)), Focus::Media(6)), "Left comes back to the same picture");
     }
     #[test]
     fn a_news_post_opens_the_reader_and_down_turns_its_page_and_back_closes_only_the_reader() {

@@ -35,7 +35,6 @@ pub mod text;
 #[cfg(test)]
 pub(crate) mod tests;
 use accounts::{LinkFlow, PC_SEARCH_MS};
-use game::media::Media;
 use home::Spot;
 use launch::{Cause, IdleWarning};
 use library::{Filter, Sort};
@@ -170,6 +169,8 @@ pub enum Command {
     Exit,
     // game/media
     PlayMedia { url: String },
+    /// A trailer or video, on the shell's own video layer over `rect`: never decoded into the UI.
+    PlayVideo { kind: game::media::VideoKind, source: String, rect: game::media::VideoRect },
     // settings
     OpenControllerSettings,
     Rumble { slot: u8, low: u16, high: u16 },
@@ -334,7 +335,6 @@ pub struct GameDetails {
     pub capabilities: Vec<String>,
     pub hub: lumagame_meta::Hub,
     pub cloud_saves: Option<bool>,
-    pub media: Vec<Media>,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Page {
@@ -414,6 +414,8 @@ pub enum Focus {
     Entry(usize),
     ReaderPage(usize),
     Media(usize),
+    /// The Media section's filter, on the group it has chosen.
+    MediaFilter(usize),
     Remember,
     // settings: `Setting` is a row of the open place or pane, counted over its groups and notes too
     Rail(usize),
@@ -479,7 +481,7 @@ pub struct View {
     pub auth: Option<LinkFlow>,
     pub stream: Option<StreamInfo>,
     pub stats: Stats,
-    pub media: usize,
+    pub media: game::media::Viewer,
     pub address: String,
     pub edit_field: Option<usize>,
     pub keyboard_lower: bool,
@@ -513,7 +515,7 @@ impl Default for View {
             auth: None,
             stream: None,
             stats: Stats::default(),
-            media: 0,
+            media: game::media::Viewer::default(),
             address: String::new(),
             edit_field: None,
             keyboard_lower: false,
@@ -1232,7 +1234,7 @@ impl Model {
             self.leave_until = 0;
             changed = true;
         }
-        changed | self.tick_launch(before_ms, out)
+        changed | self.media_tick(before_ms) | self.tick_launch(before_ms, out)
     }
     /// Whether the Menu key opens the quick menu here: on every page and over a section of the game page, and over no layer that is a
     /// dialog, the reader, the viewer or the keyboard. The Launch screens and a stream have their own menu.
@@ -1281,7 +1283,7 @@ impl Model {
         let held = self.repeat.map(|held| held.wake_in(now_ms));
         let dim = (!self.hints_dim).then(|| (self.last_key_ms + HINTS_DIM_MS).saturating_sub(now_ms));
         let leave = (self.leave_until > now_ms).then(|| self.leave_until - now_ms);
-        [held, dim, leave, self.launch_wake(now_ms)].into_iter().flatten().min()
+        [held, dim, leave, self.launch_wake(now_ms), self.media_wake(now_ms)].into_iter().flatten().min()
     }
     fn key(&mut self, key: Key, down: bool, out: &mut Vec<Command>) -> bool {
         if !self.foreground {
@@ -1310,6 +1312,9 @@ impl Model {
             } else if down {
                 self.run.quiet.show(self.now_ms);
             }
+        }
+        if down && self.media_swallow() {
+            return true;
         }
         if down {
             if key != Key::Back {
@@ -1689,12 +1694,6 @@ impl Model {
                     out.push(Command::FetchDetails { game: id });
                 }
                 self.request_owned(id, out);
-                let media_open = self.view.top() == Some(Layer::Viewer);
-                if media_open {
-                    if let Some(details) = self.details.get(&id) {
-                        wanted.extend(details.media.iter().map(|m| m.image.clone()).filter(|url| !url.is_empty()));
-                    }
-                }
                 wanted.extend(self.glance_art(id));
             }
         }
