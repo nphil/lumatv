@@ -595,8 +595,7 @@ impl EditorSurface {
         let bar_text = Block::new(&mut kit.ui, bf, z + 5, bar_lines)?;
         let mut buttons = Vec::new();
         for (i, b) in ed.buttons().iter().enumerate() {
-            let tone = if b.primary { Tone::Primary } else { Tone::Plain };
-            let mut btn = Button::new(kit, engine, Place { id: Id(editor::BAR_ID + i as u32), frame: b.frame, region: editor::BAR, scope: super::model::SCOPE_EDIT, z: z + 6 }, Spec::new(b.label, tone).with_icon(b.icon))?;
+            let mut btn = Button::new(kit, engine, Place { id: Id(editor::BAR_ID + i as u32), frame: b.frame, region: editor::BAR, scope: super::model::SCOPE_EDIT, z: z + 6 }, Spec::new(b.label, Tone::Plain).with_icon(b.icon))?;
             btn.set_enabled(kit, engine, b.enabled);
             btn.show(kit, true);
             buttons.push(btn);
@@ -625,7 +624,7 @@ impl EditorSurface {
         ask_title.set_props(HIDDEN);
         let mut ask_buttons = Vec::new();
         for (i, (_, label, danger)) in editor::ASK_ANSWERS.iter().enumerate() {
-            let tone = if *danger { Tone::Danger } else if i == 1 { Tone::Primary } else { Tone::Plain };
+            let tone = if *danger { Tone::Danger } else { Tone::Plain };
             let btn = Button::new(kit, engine, Place { id: Id(editor::ASK_ID + i as u32), frame: answers[i], region: editor::ASK, scope: super::model::SCOPE_EDIT, z: z + 14 }, Spec::new(label, tone))?;
             ask_buttons.push(btn);
         }
@@ -1013,7 +1012,7 @@ impl MenuSurface {
 
 // ---- the question after Uninstall
 /// The question (`docs/mocks/06-confirm-dialog`, `panels/Confirm.qml`): the page behind is hidden by an opaque scrim and a solid card 760 wide holds
-/// the app's icon, "Uninstall <name>?", what happens and the answers, Keep it (the safe one, primary) and Uninstall (danger). It is Home's own, so it
+/// the app's icon, "Uninstall <name>?", what happens and the answers, Keep it (the safe one, in focus first) and Uninstall (danger). It is Home's own, so it
 /// stands whether or not the shell's confirm kind is on. The model decides which answer is in front; the answers' frames go back to it.
 pub struct ConfirmSurface {
     _scrim: ShapeLayer,
@@ -1047,7 +1046,7 @@ impl ConfirmSurface {
         let body = crate::kit::wrap::lines(kit, body_style, super::model::CONFIRM_BODY, inner, 12);
         let body_h = body.len() as f32 * kit.line(TypeRole::Body);
         let (bh, gap) = (Button::height(kit), s4);
-        let widths: Vec<f32> = super::model::CONFIRM_ANSWERS.iter().map(|(label, _)| Button::width_for(kit, label, false)).collect();
+        let widths: Vec<f32> = super::model::CONFIRM_ANSWERS.iter().map(|(label, danger)| Button::width_for(kit, label, *danger)).collect();
         let body_top = head_h + s4;
         let buttons_top = body_top + body_h + s4;
         let h = (s6 + buttons_top + bh + s6).ceil();
@@ -1070,7 +1069,7 @@ impl ConfirmSurface {
         let mut frames = Vec::new();
         let mut x = cx;
         for (i, ((label, danger), w)) in super::model::CONFIRM_ANSWERS.iter().zip(&widths).enumerate() {
-            let tone = if *danger { Tone::Danger } else { Tone::Primary };
+            let tone = if *danger { Tone::Danger } else { Tone::Plain };
             let frame = Frame::new(x, cy + buttons_top, *w, bh);
             let place = Place { id: Id(super::model::CONFIRM_ID + i as u32), frame, region: super::model::CONFIRM_REGION, scope: super::model::SCOPE_CONFIRM, z: z + 3 };
             let mut b = Button::new(kit, engine, place, Spec::new(label, tone))?;

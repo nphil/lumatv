@@ -643,12 +643,12 @@ impl LabSurface {
         let note_w = mk(kit, note_at, &note, TypeRole::Label, Some(Weight::SemiBold), ink)?;
         let mut buttons = Vec::new();
         if button {
-            let (target, label, tone) = if i.ready { (Target::Start, "Start", Tone::Primary) } else { (Target::Leave, "Leave", Tone::Plain) };
+            let (target, label) = if i.ready { (Target::Start, "Start") } else { (Target::Leave, "Leave") };
             let mut b = Button::new(
                 kit,
                 engine,
                 Place { id: id_of(target), frame: shift_y(btn_at), region: REGION, scope: SCOPE, z: z + 7 },
-                ButtonSpec::new(label, tone),
+                ButtonSpec::new(label, Tone::Plain),
             )?;
             b.show(kit, true);
             buttons.push((target, b));
@@ -724,9 +724,9 @@ impl LabSurface {
         let rows_right = Words::new(kit, rows_at.0 + inner * 0.5, rows_at.1 + top, inner * 0.5, z + 6, &right)?;
         let saved = Words::new(kit, saved_at.0, saved_at.1 + top, saved_at.2, z + 6, &[WordLine::new(&r.saved, TypeRole::Caption, ink2)])?;
         let mut buttons = Vec::new();
-        for ((target, label, tone), f) in [(Target::Done, "Done", Tone::Primary), (Target::Again, "Again", Tone::Plain)].into_iter().zip(button_frames) {
+        for ((target, label), f) in [(Target::Done, "Done"), (Target::Again, "Again")].into_iter().zip(button_frames) {
             let mut b =
-                Button::new(kit, engine, Place { id: id_of(target), frame: shift_y(f), region: REGION, scope: SCOPE, z: z + 7 }, ButtonSpec::new(label, tone))?;
+                Button::new(kit, engine, Place { id: id_of(target), frame: shift_y(f), region: REGION, scope: SCOPE, z: z + 7 }, ButtonSpec::new(label, Tone::Plain))?;
             b.show(kit, true);
             buttons.push((target, b));
         }

@@ -809,7 +809,7 @@ impl GuideSurface {
         let label = if s.main.is_some_and(|p| p.airing(g.now())) { "Watch" } else { "Tune in" };
         let bw = Button::width_for(kit, label, false);
         let place = Place { id: WATCH, frame: Frame::new(frame.x + s6, y + s4, bw, btn_h), region: R_SHEET, scope: SCOPE, z: z + 3 };
-        let mut watch = scene.adopting(self.stage.group(), || Button::new(kit, engine, place, ButtonSpec::new(label, Tone::Primary)))?;
+        let mut watch = scene.adopting(self.stage.group(), || Button::new(kit, engine, place, ButtonSpec::new(label, Tone::Plain)))?;
         watch.show(kit, true);
         c.sheet = Some(SheetBuilt { sig, frame, _pane: pane, _text: text_layer, watch, _dim: dim, words: said });
         Ok(())

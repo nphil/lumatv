@@ -1,9 +1,10 @@
-//! A button of the TV (`kit/LuButton.qml` of the QML shell): a pill with a label and, if it has one, an icon before it. The plain
-//! one is the glass wash; the primary one is the accent with the ink that reads on it (one primary button to a task); the danger one
-//! is the danger colour on a wash, for the answer that destroys something. It is a focusable of the kit: it registers with the
-//! [`Engine`], and its lift (the scale of `focus.buttonScale` and the lit glass, the raised wash and its edge) is the flowing focus's
-//! like every other focusable's, handing over between buttons and cards alike. The pointer's hover is a cue of its own (the hover
-//! wash and a rim, no lift), pressed shrinks the pill for the press beat, a disabled one dims.
+//! A button of the TV (`kit/LuButton.qml` of the QML shell): a pill with a label and, if it has one, an icon before it. Every button is
+//! the same quiet glass at rest whatever its role; only the focused one is bright (Lucent "Focus", owner rule 2, 2026-11-23: one focus at
+//! a glance, never a filled primary beside a tinted danger button). The role is in the ink: the danger one has the danger ink and a
+//! warning glyph. It is a focusable of the kit: it registers with the [`Engine`], and its lift (the scale of `focus.buttonScale`, a small
+//! rise, and the lit glass: the raised fill with its sheen and the softened edge) is the flowing focus's like every other focusable's,
+//! handing over between buttons and cards alike on the compositor's critically damped spring, retargetable mid-flight. The pointer's
+//! hover is a cue of its own (the hover wash and a rim, no lift), pressed shrinks the pill for the press beat, a disabled one dims.
 //!
 //! The parts hang under one group made at the button's place (the lift's pivot is its centre); `Button` keeps the layers, the
 //! engine keeps the group. [`Button::destroy`] gives both back.
@@ -21,10 +22,11 @@ use ui::geometry::Frame;
 use ui::lucent::palette::PaletteRole;
 use ui::scene::{ImageLayer, ShapeLayer};
 
+/// What the button is for: its ink, never its fill.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {
     Plain,
-    Primary,
+    /// The answer that destroys something: danger ink and a warning glyph.
     Danger,
 }
 
@@ -47,7 +49,8 @@ pub struct Spec {
 
 impl Spec {
     pub fn new(label: &str, tone: Tone) -> Self {
-        Self { label: label.to_string(), icon: None, icon_ink: None, icon_after: false, tone, enabled: true, selected: false, radius: None }
+        let icon = (tone == Tone::Danger).then_some(DANGER_GLYPH);
+        Self { label: label.to_string(), icon, icon_ink: None, icon_after: false, tone, enabled: true, selected: false, radius: None }
     }
 
     pub fn with_icon(mut self, icon: &'static str) -> Self {
@@ -86,10 +89,42 @@ pub fn faded(c: Rgba, a: f32) -> Rgba {
     Rgba(s(c.0), s(c.1), s(c.2), s(c.3))
 }
 
-/// `c` lightened by `by` (Qt's `lighter`: the channels scaled, clamped), opaque colours only.
-fn lighter(c: Rgba, by: f32) -> Rgba {
-    let s = |v: u8| (f32::from(v) * by).round().min(255.0) as u8;
-    Rgba(s(c.0), s(c.1), s(c.2), c.3)
+/// The glyph a danger button carries before its label.
+const DANGER_GLYPH: &str = "triangle-alert";
+
+/// How far a focused button rises, in px (Lucent's soft raised depth: 2 logical px).
+const RISE: f32 = 2.0;
+
+/// The soft shadow of raised glass as one pill under it (spread px, drop px, black at alpha /255 at its foot and a fifth of that at its head):
+/// it fades in with the lit glass, so the lift reads on a light sheet where white glass on cream is a 3-level step. One layer, as a modal
+/// is held to 90 layers and the PIN pad has thirteen buttons.
+const SHADOW: (f32, f32, u8) = (3.0, 3.0, 30);
+
+/// `c` (premultiplied) with white laid over it at `a`: the sheen at the upper left of raised glass.
+fn sheened(c: Rgba, a: f32) -> Rgba {
+    let k = a.clamp(0.0, 1.0);
+    let s = |v: u8| (255.0 * k + f32::from(v) * (1.0 - k)).round().min(255.0) as u8;
+    Rgba(s(c.0), s(c.1), s(c.2), s(c.3))
+}
+
+/// The ink of a danger label: the palette's danger colour where it reads, and drawn towards the ink in steps where it does not (the light
+/// look's rose is 3.8:1 on the sheet) until it holds 4.6:1 on the sheet and on the lit glass with its full sheen over it.
+pub fn danger_ink(kit: &Kit) -> Rgba {
+    let look = &kit.ui.look;
+    let (danger, ink) = (look.danger(), look.ink());
+    let under = [if kit.mode == ui::lucent::palette::Mode::Light { 255.0 } else { 0.0 }; 3];
+    let sheet = look.colour(PaletteRole::Sheet);
+    let flat = super::lint::composite(sheet, under);
+    let lit = sheened(look.colour(PaletteRole::GlassRaised), look.theme.fields.sheen.peak);
+    let reads = |c: Rgba| super::lint::contrast_on(c, sheet, under).min(super::lint::contrast_on(c, lit, flat)) >= 4.6;
+    (0..=10)
+        .map(|i| {
+            let t = i as f32 / 10.0;
+            let m = |a: u8, b: u8| (f32::from(a) * (1.0 - t) + f32::from(b) * t).round() as u8;
+            Rgba(m(danger.0, ink.0), m(danger.1, ink.1), m(danger.2, ink.2), 255)
+        })
+        .find(|c| reads(*c))
+        .unwrap_or(ink)
 }
 
 fn pill(fill: Rgba, border: Rgba, radius: f32) -> Shape {
@@ -129,6 +164,8 @@ pub struct Button {
     spec: Spec,
     base: ShapeLayer,
     lit: ShapeLayer,
+    /// The raised glass's soft shadow, under the lit pill.
+    shadow: ShapeLayer,
     hover: ShapeLayer,
     label: Text,
     icon: Option<ImageLayer>,
@@ -179,12 +216,12 @@ impl Button {
         let look = &kit.ui.look;
         let (glass, edge, raised, edge_raised) =
             (look.colour(PaletteRole::Glass), look.colour(PaletteRole::Edge), look.colour(PaletteRole::GlassRaised), look.colour(PaletteRole::EdgeRaised));
-        let (accent, danger, ink) = (look.accent(), look.danger(), look.ink());
-        let (base_shape, lit_shape, label_colour) = match spec.tone {
-            Tone::Plain => (pill(glass, edge, radius), pill(raised, edge_raised, radius), ink),
-            Tone::Primary => (pill(accent, edge, radius), pill(lighter(accent, 1.12), edge_raised, radius), look.accent_ink()),
-            Tone::Danger => (pill(faded(danger, 0.16), faded(danger, 0.5), radius), pill(faded(danger, 0.24), edge_raised, radius), danger),
-        };
+        let ink = look.ink();
+        let label_colour = if spec.tone == Tone::Danger { danger_ink(kit) } else { ink };
+        let sheen = look.theme.fields.sheen.peak;
+        let raised_fill = Fill::Linear { from: sheened(raised, sheen), to: raised, angle_deg: 45.0 };
+        let base_shape = pill(glass, edge, radius);
+        let lit_shape = Shape { corner_radius: radius, fill: raised_fill, border_width: 1.0, border: edge_raised };
         let icon_ink = spec.icon_ink.unwrap_or(label_colour);
         let hover_fill = faded(ink, kit.tokens.states.hover_wash);
         let hover_edge = faded(edge_raised, 0.6);
@@ -216,16 +253,23 @@ impl Button {
             };
             Ok((base, hover, label, icon))
         })?;
+        let shadow = scene.adopting(&lit_group, || {
+            let (spread, _, alpha) = SHADOW;
+            let (sw, sh) = ((w + 2.0 * spread).round() as u32, (h + 2.0 * spread).round() as u32);
+            let fill = Fill::Linear { from: Rgba(0, 0, 0, alpha / 5), to: Rgba(0, 0, 0, alpha), angle_deg: 90.0 };
+            kit.ui.scene.shape(sw, sh, z, Shape { corner_radius: radius + spread, fill, border_width: 0.0, border: Rgba(0, 0, 0, 0) }, HIDDEN)
+        });
         let lit = scene.adopting(&lit_group, || kit.ui.scene.shape(w.round() as u32, h.round() as u32, z + 1, lit_shape, HIDDEN));
         engine.focus.register(id, frame, region, scope);
         engine.focus.set_enabled(id, spec.enabled);
-        engine.flow.lift(id, Lifted { group, rest, scale: kit.tokens.focus.button_scale, rise: 0.0, lit: Some(lit_group) });
+        engine.flow.lift(id, Lifted { group, rest, scale: kit.tokens.focus.button_scale, rise: RISE, lit: Some(lit_group) });
         Ok(Self {
             id,
             frame,
             spec,
             base,
             lit,
+            shadow,
             hover,
             label,
             icon,
@@ -254,9 +298,9 @@ impl Button {
         self.shown
     }
 
-    /// The layers this button holds (the scene's budget): the pill, the lit pill, the hover, the label and the icon.
+    /// The layers this button holds (the scene's budget): the pill, the lit pill and its shadow, the hover, the label and the icon.
     pub fn layers(&self) -> usize {
-        4 + usize::from(self.icon.is_some())
+        5 + usize::from(self.icon.is_some())
     }
 
     fn opacity(&self, kit: &Kit) -> f32 {
@@ -274,6 +318,8 @@ impl Button {
         }
         // the lit pill and the hover cue are visible always: their opacity is the lift's and the cue's
         self.lit.set(Props::at(0.0, 0.0));
+        let (spread, dy, _) = SHADOW;
+        self.shadow.set(Props::at(-spread, dy - spread));
         self.hover.set(Props { opacity: if self.hovered { 1.0 } else { 0.0 }, visible: true, ..Props::at(0.0, 0.0) });
         self.shown = true;
     }
@@ -283,7 +329,7 @@ impl Button {
         let o = self.opacity(kit);
         let from = |p: Props| Props { opacity: o, ..p };
         if at_once {
-            for l in [&*self.base, self.label.layer(), &*self.lit, &*self.hover] {
+            for l in [&*self.base, self.label.layer(), &*self.lit, &*self.hover, &*self.shadow] {
                 l.set(HIDDEN);
             }
             if let Some(i) = &self.icon {
@@ -296,6 +342,7 @@ impl Button {
                 kit.leave(i, from(self.icon_at), Beat::Layer);
             }
             self.lit.set(HIDDEN);
+            self.shadow.set(HIDDEN);
             self.hover.set(HIDDEN);
         }
         self.shown = false;
@@ -376,12 +423,7 @@ impl Button {
 
     /// [`Button::feed_lint`] for a button that a scrolled list has moved by `shift`.
     pub fn feed_lint_at(&self, kit: &mut Kit, lint: &mut super::lint::Lint, under: usize, shift: (f32, f32)) {
-        let look = &kit.ui.look;
-        let paint = match self.spec.tone {
-            Tone::Plain => look.colour(PaletteRole::Glass),
-            Tone::Primary => look.accent(),
-            Tone::Danger => faded(look.danger(), 0.16),
-        };
+        let paint = kit.ui.look.colour(PaletteRole::Glass);
         let at = Frame::new(self.frame.x + shift.0, self.frame.y + shift.1, self.frame.w, self.frame.h);
         let panel = lint.panel_on(&format!("button {}", self.spec.label), at, paint, false, under);
         if !self.spec.label.is_empty() {
@@ -391,8 +433,8 @@ impl Button {
                 let words = kit.ui.fonts.measure(&self.spec.label, self.style.ty).width.ceil();
                 let glyph = Self::icon_side_of(kit) as f32 + kit.space(2);
                 let group = Frame::new(at.x + self.group_x, at.y + self.label_box.y, glyph + words, self.label_box.h);
-                // ink that is not the full reading ink (a primary button's) is muted by design, as `Lint::word` has it
-                let muted = self.style.colour != kit.ui.look.ink() || self.style.colour.3 < 230;
+                // ink that is not the full reading ink (a block's dimmed one) is muted by design, as `Lint::word` has it; the danger label is held to the body contrast
+                let muted = self.spec.tone != Tone::Danger && self.style.colour != kit.ui.look.ink() || self.style.colour.3 < 230;
                 lint.word_at(&name, group, self.style.colour, self.style.ty.px, muted, Some(panel));
             } else {
                 let at = Frame::new(at.x + self.label_box.x, at.y + self.label_box.y, self.label_box.w, self.label_box.h);
@@ -423,6 +465,7 @@ impl Button {
 mod tests {
     use super::*;
     use crate::kit::testkit;
+    use ui::lucent::palette::Mode;
 
     #[test]
     fn a_button_registers_with_the_engine_lifts_and_hides_until_shown() {
@@ -434,7 +477,7 @@ mod tests {
         assert_eq!(h, 64.0, "the target at 100 % text");
         let before = kit.room();
         let place = Place { id: Id(7), frame: Frame::new(100.0, 100.0, w, h), region: Region(0), scope: Scope::BASE, z: 10 };
-        let mut b = Button::new(&mut kit, &mut engine, place, Spec::new("Switch to HDMI 1", Tone::Primary).with_icon("check")).expect("a button");
+        let mut b = Button::new(&mut kit, &mut engine, place, Spec::new("Switch to HDMI 1", Tone::Plain).with_icon("check")).expect("a button");
         let after = kit.room();
         assert_eq!(before.layers - after.layers, b.layers(), "the layers it says it holds are the layers it made");
         assert!(!b.is_shown());
@@ -457,5 +500,39 @@ mod tests {
         assert!(Button::width_for(&mut kit, "OK", true) > short, "the icon takes room");
         let (_h2, kit2) = testkit::kit(2.0);
         assert!(Button::height(&kit2) > 64.0, "at 200 % the label's line is taller than the target: {}", Button::height(&kit2));
+    }
+
+    #[test]
+    fn every_tone_rests_as_the_same_quiet_glass_and_only_danger_has_a_glyph() {
+        let plain = Spec::new("Cancel", Tone::Plain);
+        let danger = Spec::new("Restart", Tone::Danger);
+        assert_eq!(plain.icon, None);
+        assert_eq!(danger.icon, Some(DANGER_GLYPH), "the role is in the glyph as well as the ink");
+        for mode in [Mode::Dark, Mode::Light] {
+            let (_h, mut kit) = testkit::kit_in(mode, 1.0);
+            let mut engine = Engine::new(&kit).expect("engine");
+            let (w, h) = (Button::width_for(&mut kit, "Restart", true), Button::height(&kit));
+            let at = |id| Place { id: Id(id), frame: Frame::new(100.0, 100.0, w, h), region: Region(0), scope: Scope::BASE, z: 10 };
+            let a = Button::new(&mut kit, &mut engine, at(1), plain.clone()).expect("a button");
+            let b = Button::new(&mut kit, &mut engine, at(2), danger.clone()).expect("a button");
+            assert_eq!(a.layers(), b.layers() - 1, "the same parts, and the glyph");
+            assert_eq!(a.style.colour, kit.ui.look.ink(), "{mode:?}");
+            assert_eq!(b.style.colour, danger_ink(&kit), "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn the_danger_ink_reads_on_the_sheet_and_on_the_lit_glass_in_both_looks() {
+        for mode in [Mode::Dark, Mode::Light] {
+            let (_h, kit) = testkit::kit_in(mode, 1.0);
+            let look = &kit.ui.look;
+            let under = [if mode == Mode::Light { 255.0 } else { 0.0 }; 3];
+            let sheet = look.colour(PaletteRole::Sheet);
+            let ink = danger_ink(&kit);
+            assert!(super::super::lint::contrast_on(ink, sheet, under) >= 4.5, "{mode:?} on the sheet");
+            let lit = sheened(look.colour(PaletteRole::GlassRaised), look.theme.fields.sheen.peak);
+            let flat = super::super::lint::composite(sheet, under);
+            assert!(super::super::lint::contrast_on(ink, lit, flat) >= 4.5, "{mode:?} on the lit glass");
+        }
     }
 }

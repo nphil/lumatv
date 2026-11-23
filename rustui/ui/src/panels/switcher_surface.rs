@@ -10,7 +10,7 @@
 use super::life::Phase;
 use super::stage::{Dim, Stage, Touch};
 use super::switcher::{ACTIONS, Action, AskState, AskView, Confirm, Entry, Focus as Zone, Picture, Reason, Standing, Stats, View, geo};
-use super::ui::{Arrive, WordLine, Words, hints_width, picture_layer, scrim, scrim_set};
+use super::ui::{Arrive, Root, WordLine, Words, hints_width, picture_layer, scrim, scrim_set};
 use crate::kit::button::{Button, Place, Spec as ButtonSpec, Tone, faded};
 use crate::kit::flow::Lifted;
 use crate::kit::focus::{Id, Region, Scope};
@@ -957,10 +957,14 @@ impl Sheet {
     }
 }
 
-/// A confirmation: the question, what follows and the two answers, the safe one first and in focus.
+/// A confirmation: the question, what follows and the two answers, the safe one first and in focus. The dim fades and the card grows from
+/// 96 % as it opens, both on the focus's own spring (the compositor's, retargetable, nothing snaps), and they ease away the same way.
 struct Ask {
     sig: (Confirm, AskState),
     card: Frame,
+    /// The dim's and the card's own roots: the dim fades where it stands, the card grows about its centre.
+    veil_root: Root,
+    card_root: Root,
     /// Two dims: the sheet a question comes from is under it, and one dim leaves its words readable through.
     _scrim: [ShapeLayer; 2],
     _plate: ShapeLayer,
@@ -968,10 +972,12 @@ struct Ask {
     body: Words,
     cancel: Button,
     go: Button,
+    /// What OK and Back do, as glyphs at the left of the buttons (none where the buttons leave no room, as at large text).
+    _hints: Vec<HintRow>,
 }
 
 impl Ask {
-    fn new(kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, a: &AskView) -> std::io::Result<Self> {
+    fn new(kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, a: &AskView, animate: bool) -> std::io::Result<Self> {
         let scene = kit.ui.scene.clone();
         let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
         let (s3, s4, s8) = (kit.space(3), kit.space(4), kit.space(8));
@@ -988,29 +994,52 @@ impl Ask {
         let h = (s8 + title_h + s3 + body_h + s4 + btn_h + s8).ceil();
         let card = Frame::new(((1920.0 - w) / 2.0).round(), ((1080.0 - h) / 2.0).round(), w, h);
         let by = card.y + h - s8 - btn_h;
-        let (gw, cw) = (Button::width_for(kit, go_label, false), Button::width_for(kit, "Cancel", false));
+        let (gw, cw) = (Button::width_for(kit, go_label, true), Button::width_for(kit, "Cancel", false));
         let right = card.x + w - 48.0;
         let working = a.state == AskState::Working;
         let (sheet, lay_title, lay_body) = (kit.ui.look.colour(PaletteRole::Sheet), title, body);
+        let hints = [Hint::key(Key::Ok, HintAction::Confirm), Hint::key(Key::Back, HintAction::Close)];
+        let (hint_w, hint_x) = (hints_width(kit, &hints, TypeRole::Label, kit.space(7)), card.x + 48.0);
+        let cancel_x = right - gw - kit.space(5) - cw;
+        let hints_fit = hint_x + hint_w + kit.space(5) <= cancel_x;
+        // the card grows from 96 % of its size about its centre
+        let from = [card.x + card.w * 0.02, card.y + card.h * 0.02, card.w * 0.96, card.h * 0.96];
         let built = scene.adopting_view(root, || -> std::io::Result<_> {
+            let veil_root = Root::new(kit, Arrive::Fade, !animate)?;
+            let card_root = Root::new(kit, Arrive::Grow { from, to: [card.x, card.y, card.w, card.h] }, !animate)?;
             // the question hides what is behind it, the pictures too
-            let veil = [scrim(kit, z, true), scrim(kit, z, true)];
-            for v in &veil {
-                scrim_set(v, true);
-            }
-            let shape = Shape { corner_radius: kit.tokens.radius(Radius::Sheet), fill: Fill::Solid(sheet), border_width: 1.0, border: edge(kit) };
-            let plate_ = plate::shape(&kit.ui, card, z + 1, shape);
-            let tl: Vec<WordLine> = lay_title.iter().map(|t| WordLine::new(t, TypeRole::Title, ink).weight(Weight::SemiBold)).collect();
-            let title = Words::new(kit, card.x + 48.0, card.y + s8, inner, z + 2, &tl)?;
-            let bl: Vec<WordLine> = lay_body.iter().map(|t| WordLine::new(t, TypeRole::Body, ink2)).collect();
-            let body = Words::new(kit, card.x + 48.0, card.y + s8 + title_h + s3, inner, z + 2, &bl)?;
-            let mut cancel = Button::new(kit, engine, Place { id: choice_id(0), frame: Frame::new(right - gw - kit.space(5) - cw, by, cw, btn_h), region: REGION_ASK, scope: ASK_SCOPE, z: z + 3 }, ButtonSpec::new("Cancel", Tone::Primary))?;
-            cancel.show(kit, true);
-            let mut go = Button::new(kit, engine, Place { id: choice_id(1), frame: Frame::new(right - gw, by, gw, btn_h), region: REGION_ASK, scope: ASK_SCOPE, z: z + 3 }, ButtonSpec::new(go_label, Tone::Danger))?;
-            go.show(kit, true);
-            Ok((veil, plate_, title, body, cancel, go))
+            let veil = scene.adopting_view(&veil_root.group, || {
+                let veil = [scrim(kit, z, true), scrim(kit, z, true)];
+                for v in &veil {
+                    scrim_set(v, true);
+                }
+                veil
+            });
+            let parts = scene.adopting_view(&card_root.group, || -> std::io::Result<_> {
+                let shape = Shape { corner_radius: kit.tokens.radius(Radius::Sheet), fill: Fill::Solid(sheet), border_width: 1.0, border: edge(kit) };
+                let plate_ = plate::shape(&kit.ui, card, z + 1, shape);
+                let tl: Vec<WordLine> = lay_title.iter().map(|t| WordLine::new(t, TypeRole::Title, ink).weight(Weight::SemiBold)).collect();
+                let title = Words::new(kit, card.x + 48.0, card.y + s8, inner, z + 2, &tl)?;
+                let bl: Vec<WordLine> = lay_body.iter().map(|t| WordLine::new(t, TypeRole::Body, ink2)).collect();
+                let body = Words::new(kit, card.x + 48.0, card.y + s8 + title_h + s3, inner, z + 2, &bl)?;
+                let mut cancel = Button::new(kit, engine, Place { id: choice_id(0), frame: Frame::new(cancel_x, by, cw, btn_h), region: REGION_ASK, scope: ASK_SCOPE, z: z + 3 }, ButtonSpec::new("Cancel", Tone::Plain))?;
+                cancel.show(kit, true);
+                let mut go = Button::new(kit, engine, Place { id: choice_id(1), frame: Frame::new(right - gw, by, gw, btn_h), region: REGION_ASK, scope: ASK_SCOPE, z: z + 3 }, ButtonSpec::new(go_label, Tone::Danger))?;
+                go.show(kit, true);
+                let mut rows = Vec::new();
+                if hints_fit {
+                    let mut x = hint_x;
+                    for hint in &hints {
+                        let row = HintRow::new(kit, hint, TypeRole::Label, RowAt { x, y: by, h: btn_h, z: z + 3 }, ink2)?;
+                        x += row.width() + kit.space(7);
+                        rows.push(row);
+                    }
+                }
+                Ok((plate_, title, body, cancel, go, rows))
+            })?;
+            Ok((veil_root, card_root, veil, parts))
         })?;
-        let (veil, plate_, title, body, mut cancel, mut go) = built;
+        let (mut veil_root, mut card_root, veil, (plate_, title, body, mut cancel, mut go, hint_rows)) = built;
         engine.focus.register(ID_ASK_BACK, FULL, REGION_ASK, ASK_SCOPE);
         engine.focus.set_enabled(ID_ASK_BACK, false);
         if working {
@@ -1019,13 +1048,24 @@ impl Ask {
                 b.set_dimmed(kit, true);
             }
         }
-        Ok(Self { sig: (a.kind, a.state), card, _scrim: veil, _plate: plate_, title, body, cancel, go })
+        if animate {
+            veil_root.show_with(engine.flow.spec.settle());
+            card_root.show_with(engine.flow.spec.settle());
+        }
+        Ok(Self { sig: (a.kind, a.state), card, veil_root, card_root, _scrim: veil, _plate: plate_, title, body, cancel, go, _hints: hint_rows })
     }
 
-    fn destroy(self, engine: &mut Engine) {
+    /// The controls leave the engine: the keys no longer reach them.
+    fn detach(&mut self, engine: &mut Engine) {
         engine.focus.unregister(ID_ASK_BACK);
-        self.cancel.destroy(engine);
-        self.go.destroy(engine);
+        self.cancel.detach(engine);
+        self.go.detach(engine);
+    }
+
+    /// The card and its dim ease away on the shared spring; the layers go when it has settled.
+    fn leave(&mut self, engine: &Engine) {
+        self.veil_root.hide_with(engine.flow.spec.settle());
+        self.card_root.hide_with(engine.flow.spec.settle());
     }
 }
 
@@ -1085,6 +1125,8 @@ struct Built {
     bar: Option<(ShapeLayer, ShapeLayer, Frame, usize)>,
     sheet: Option<Sheet>,
     ask: Option<Ask>,
+    /// Questions that were answered and are easing away: their layers go when `until` (ns) has passed.
+    leaving_asks: Vec<(Ask, u64)>,
     settled: bool,
 }
 
@@ -1106,7 +1148,7 @@ impl Built {
         let base = kit.room().layers;
         let close = lower_button(kit, engine, root, z, m, ID_CLOSE, 96.0, "Close all", "x")?;
         let system = lower_button(kit, engine, root, z, m, ID_SYSTEM, 96.0 + close.frame().w + kit.space(5), "System", "monitor-cog")?;
-        Ok(Self { look, base, used: 0, next: 1, cards: Vec::new(), leaving: Vec::new(), empty: None, strip: None, close, system, close_on: true, hints: None, bar: None, sheet: None, ask: None, settled: false })
+        Ok(Self { look, base, used: 0, next: 1, cards: Vec::new(), leaving: Vec::new(), empty: None, strip: None, close, system, close_on: true, hints: None, bar: None, sheet: None, ask: None, leaving_asks: Vec::new(), settled: false })
     }
 
     fn serial(&mut self) -> u32 {
@@ -1125,8 +1167,8 @@ impl Built {
         if let Some(s) = self.sheet {
             s.destroy(engine);
         }
-        if let Some(a) = self.ask {
-            a.destroy(engine);
+        if let Some(mut a) = self.ask {
+            a.detach(engine);
         }
         self.close.destroy(engine);
         self.system.destroy(engine);
@@ -1139,6 +1181,7 @@ impl Built {
         let total = v.entries.len();
         let listed = total.min(MAX_CARDS);
         self.leaving.retain(|(_, until)| *until > now_ns);
+        self.leaving_asks.retain(|(_, until)| *until > now_ns);
         let mut old = std::mem::take(&mut self.cards);
         let mut next: Vec<(Card, bool)> = Vec::with_capacity(listed);
         for (i, e) in v.entries.iter().take(listed).enumerate() {
@@ -1224,12 +1267,20 @@ impl Built {
         match (&v.ask, self.ask.take()) {
             (Some(a), Some(s)) if s.sig == (a.kind, a.state) => self.ask = Some(s),
             (Some(a), old) => {
-                if let Some(s) = old {
-                    s.destroy(engine);
+                // a question that changes in place (asking, then working) is made again where it stands; only a new one arrives
+                let animate = old.is_none();
+                if let Some(mut s) = old {
+                    s.detach(engine);
                 }
-                self.ask = Some(Ask::new(kit, engine, root, z, a)?);
+                self.ask = Some(Ask::new(kit, engine, root, z, a, animate)?);
             }
-            (None, Some(s)) => s.destroy(engine),
+            (None, Some(mut s)) => {
+                s.detach(engine);
+                s.leave(engine);
+                // the spring lands within about 1.05 of its period; the layers stay a little past that
+                let linger = (engine.flow.spec.response_ms * 1.6) as u64 * 1_000_000 + 40_000_000;
+                self.leaving_asks.push((s, now_ns + linger));
+            }
             (None, None) => {}
         }
         self.used = self.base.abs_diff(kit.room().layers);
@@ -1530,6 +1581,7 @@ impl SwitcherSurface {
         json!({
             "cards": cards,
             "leaving": b.leaving.len(),
+            "leavingAsks": b.leaving_asks.len(),
             "focus": focus,
             "close": b.close_on.then(|| f(b.close.frame())),
             "system": f(b.system.frame()),
@@ -1781,6 +1833,10 @@ mod tests {
         u.key(K::Back);
         assert_eq!(u.geo()["ask"], Value::Null, "Back cancels the question");
         assert_eq!(u.geo()["focus"], "row:2", "and goes back one step, to the sheet");
+        assert_eq!(u.geo()["leavingAsks"], 1, "the question eases away on the spring instead of vanishing");
+        u.t += 2000;
+        u.apply();
+        assert_eq!(u.geo()["leavingAsks"], 0, "and its layers are gone once it has settled");
         u.key(K::Back);
         assert_eq!(u.geo()["sheet"], Value::Null);
     }

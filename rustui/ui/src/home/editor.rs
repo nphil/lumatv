@@ -53,7 +53,6 @@ pub struct Button {
     pub label: &'static str,
     pub icon: &'static str,
     pub enabled: bool,
-    pub primary: bool,
     pub frame: Frame,
 }
 
@@ -167,27 +166,27 @@ impl Editor {
 
     /// The bar's buttons, right-aligned in the bar, with their frames on the screen.
     pub fn buttons(&self) -> Vec<Button> {
-        let specs: [(&'static str, &'static str, &'static str, bool, bool, f32); 6] = [
-            ("add", "Add", "plus", true, false, 150.0),
-            ("remove", "Remove", "trash-2", self.can_remove(), false, 196.0),
-            ("items", "Items", "layout-grid", self.arrangeable(), false, 150.0),
-            ("undo", "Undo", "undo-2", !self.history.is_empty(), false, 164.0),
-            ("cancel", "Cancel", "x", true, false, 184.0),
-            ("save", "Save", "check", true, true, 150.0),
+        let specs: [(&'static str, &'static str, &'static str, bool, f32); 6] = [
+            ("add", "Add", "plus", true, 150.0),
+            ("remove", "Remove", "trash-2", self.can_remove(), 196.0),
+            ("items", "Items", "layout-grid", self.arrangeable(), 150.0),
+            ("undo", "Undo", "undo-2", !self.history.is_empty(), 164.0),
+            ("cancel", "Cancel", "x", true, 184.0),
+            ("save", "Save", "check", true, 150.0),
         ];
         // the bar and its buttons grow with the text size, their widths stop at 1.6 so that six of them stay on the bar
         let k = self.scale;
         let kw = k.min(1.6);
         let gap = 12.0;
-        let total: f32 = specs.iter().map(|s| s.5 * kw).sum::<f32>() + gap * (specs.len() as f32 - 1.0);
+        let total: f32 = specs.iter().map(|s| s.4 * kw).sum::<f32>() + gap * (specs.len() as f32 - 1.0);
         let mut x = 64.0 + 1792.0 - 16.0 - total;
         let bh = (56.0 * k).round();
         let y = BAR_Y + ((self.bar_h() - bh) / 2.0).round();
         specs
             .iter()
             .map(|s| {
-                let b = Button { id: s.0, label: s.1, icon: s.2, enabled: s.3, primary: s.4, frame: Frame::new(x.round(), y, (s.5 * kw).round(), bh) };
-                x += s.5 * kw + gap;
+                let b = Button { id: s.0, label: s.1, icon: s.2, enabled: s.3, frame: Frame::new(x.round(), y, (s.4 * kw).round(), bh) };
+                x += s.4 * kw + gap;
                 b
             })
             .collect()

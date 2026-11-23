@@ -274,11 +274,10 @@ fn build_confirm(kit: &mut Kit, engine: &mut Engine, z: i32, sig: String, icon_n
     // the answers
     let btn_y = y + card_h - sz.s6 - btn_h;
     let mut bx = x + sz.s6;
-    let last_plain = answers.iter().rposition(|a| !a.danger);
     let mut buttons = Vec::new();
     for (i, a) in answers.iter().enumerate() {
-        let tone = if a.danger { Tone::Danger } else if Some(i) == last_plain && (i > 0 || answers.len() == 1) { Tone::Primary } else { Tone::Plain };
-        let w = Button::width_for(kit, &a.label, false);
+        let tone = if a.danger { Tone::Danger } else { Tone::Plain };
+        let w = Button::width_for(kit, &a.label, a.danger);
         let place = Place { id: Id(SHEET_ID + i as u32), frame: Frame::new(bx, btn_y, w, btn_h), region: REGION_SHEET, scope: SHEET_SCOPE, z: z + 5 };
         let mut b = Button::new(kit, engine, place, Spec::new(&a.label, tone))?;
         b.show(kit, true);

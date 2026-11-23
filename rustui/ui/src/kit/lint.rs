@@ -138,7 +138,7 @@ fn luminance(c: [f32; 3]) -> f32 {
 }
 
 /// `over` composited on the opaque `under`, both premultiplied.
-fn composite(over: Rgba, under: [f32; 3]) -> [f32; 3] {
+pub(super) fn composite(over: Rgba, under: [f32; 3]) -> [f32; 3] {
     let k = 1.0 - f32::from(over.3) / 255.0;
     [f32::from(over.0) + under[0] * k, f32::from(over.1) + under[1] * k, f32::from(over.2) + under[2] * k]
 }

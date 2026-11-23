@@ -331,7 +331,7 @@ impl AlertSurface {
         let title_lines = wrap::lines(kit, title_style, &plain(&a.title), text_w, 2);
         let header_h = TILE.max(title_lines.len() as f32 * ui::components::line_height(title_style.ty));
         let labels: Vec<(String, bool)> =
-            if a.buttons.is_empty() { vec![("OK".to_string(), false)] } else { a.buttons.iter().map(|b| (b.label.clone(), false)).collect() };
+            if a.buttons.is_empty() { vec![("OK".to_string(), false)] } else { a.buttons.iter().map(|b| (b.label.clone(), b.danger)).collect() };
         let (_, rows_h) = Self::row(kit, &labels, 0.0, 0.0, SHEET_W - 2.0 * pad);
         let message = plain(&a.message);
         let body_line = ui::components::line_height(body_style.ty);
@@ -465,12 +465,11 @@ impl AlertSurface {
         let mut buttons = Vec::new();
         let mut targets = Vec::new();
         for (i, f) in frames.iter().enumerate() {
-            let tone = if i == 0 && p.inputs.len() == 1 || i + 1 < frames.len() && i == 0 { Tone::Primary } else { Tone::Plain };
             buttons.push(Button::new(
                 kit,
                 engine,
                 Place { id: id(i), frame: *f, region: REGION, scope: SCOPE_INPUT, z: z + 4 },
-                Spec::new(&labels[i].0, tone),
+                Spec::new(&labels[i].0, Tone::Plain),
             )?);
             targets.push((id(i), Target::Input(i)));
         }
@@ -607,7 +606,7 @@ impl AlertSurface {
         y += 4.0 * key_h + 3.0 * kgap + gap;
         let ok = Frame::new(sx + ((sheet_w - ok_w) / 2.0).round(), y, ok_w, key_h);
         let mut ok_button =
-            Button::new(kit, engine, Place { id: id(OK_INDEX), frame: ok, region: REGION, scope: SCOPE_PIN, z: z + 4 }, Spec::new("OK", Tone::Primary))?;
+            Button::new(kit, engine, Place { id: id(OK_INDEX), frame: ok, region: REGION, scope: SCOPE_PIN, z: z + 4 }, Spec::new("OK", Tone::Plain))?;
         ok_button.set_dimmed(kit, p.typed.chars().count() < 4);
         buttons.push(ok_button);
         targets.push((id(OK_INDEX), Target::Pin(OK_INDEX)));

@@ -664,8 +664,7 @@ impl LayoutSurface {
             for (i, b) in view.buttons.iter().enumerate() {
                 let bw = widths[i];
                 let (row, x) = at[i];
-                let tone = if b.primary { Tone::Primary } else { Tone::Plain };
-                let mut spec = Spec::new(b.label, tone);
+                let mut spec = Spec::new(b.label, Tone::Plain);
                 spec.enabled = b.enabled;
                 spec.icon = b.icon;
                 spec.selected = b.selected;

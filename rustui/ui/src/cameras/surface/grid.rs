@@ -254,7 +254,7 @@ impl GridUi {
         let mut words = vec![WordRec { name: "empty title".into(), text: empty.title.clone(), frame, style }];
         let by = top + side as f32 + 16.0 + line + 28.0;
         let bw = Button::width_for(cx.kit, "Settings", true);
-        let b = Self::button(cx, ids::EMPTY_SETTINGS, "Settings", "settings", Tone::Primary, (((1920.0 - bw) / 2.0).round(), by), false, z)?;
+        let b = Self::button(cx, ids::EMPTY_SETTINGS, "Settings", "settings", Tone::Plain, (((1920.0 - bw) / 2.0).round(), by), false, z)?;
         words.push(WordRec { name: "empty settings".into(), text: "Settings".into(), frame: b.frame(), style });
         self.buttons.push((b, Target::EmptySettings));
         parts.set_opacity(1.0);

@@ -379,7 +379,7 @@ impl FullUi {
         let x0 = frame.x + (width - row_w) / 2.0;
         let place = Place { id: ids::RETRY, frame: Frame::new(x0.round(), y, btn_w, btn_h), region: REGION_FULL, scope: SCOPE_BASE, z: z + 2 };
         let radius = cx.kit.tokens.radius(Radius::Control) + 2.0;
-        let mut button = Button::new(cx.kit, cx.engine, place, Spec::new(note.button, Tone::Primary).with_radius(radius))?;
+        let mut button = Button::new(cx.kit, cx.engine, place, Spec::new(note.button, Tone::Plain).with_radius(radius))?;
         button.show(cx.kit, true);
         pill::draw_hints(cx.kit, std::slice::from_ref(&hint), x0 + btn_w + 28.0, y + btn_h / 2.0, z + 2, &self.ink, &mut parts)?;
         let _ = hint_side;

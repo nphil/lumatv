@@ -1,6 +1,6 @@
 //! The confirm dialog drawn (`docs/mocks/06-confirm-dialog`, `panels/Confirm.qml`): the page behind is hidden, and a solid card 760 wide in
-//! the middle holds the app's icon (or a glyph on the accent), the question, what happens and one button per answer. The safe answer is the
-//! primary button and has the focus first; a danger answer is drawn in the danger colour. Nothing but an answer closes it: the dim is not a
+//! the middle holds the app's icon (or a glyph on the accent), the question, what happens and one button per answer. The safe answer has the
+//! focus first; a danger answer has the danger ink and a warning glyph. Nothing but an answer closes it: the dim is not a
 //! target.
 //!
 //! The model decides which answer has the focus; this follows it. The card is made again when the question says something else.
@@ -83,7 +83,7 @@ fn layout(kit: &mut Kit, spec: &Spec) -> Layout {
     let mut at = Vec::new();
     let (mut x, mut y) = (0.0f32, 0.0f32);
     for a in &spec.answers {
-        let w = Button::width_for(kit, &a.label, false);
+        let w = Button::width_for(kit, &a.label, a.danger);
         if x > 0.0 && x + w > inner {
             x = 0.0;
             y += bh + gap;
@@ -159,14 +159,7 @@ impl ConfirmSurface {
                 let body = Words::new(kit, lay.body_at.0, lay.body_at.1, lay.body_at.2, z + 2, &body_lines)?;
                 let mut buttons = Vec::new();
                 for (i, (a, f)) in spec.answers.iter().zip(&lay.buttons).enumerate() {
-                    // the safe answer (the one that is focused first) is the task's one primary button
-                    let tone = if a.danger {
-                        Tone::Danger
-                    } else if i == spec.focus.min(spec.answers.len().saturating_sub(1)) {
-                        Tone::Primary
-                    } else {
-                        Tone::Plain
-                    };
+                    let tone = if a.danger { Tone::Danger } else { Tone::Plain };
                     let mut b = Button::new(
                         kit,
                         engine,
