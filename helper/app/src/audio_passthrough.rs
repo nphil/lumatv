@@ -29,6 +29,7 @@ use audiopass::host::{Host, System};
 use audiopass::route::{Env, MAX_ADEC, Phase, Route, Snapshot, State, Why};
 use parking_lot::{Condvar, Mutex, RwLock};
 use serde_json::{Value, json};
+use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -131,6 +132,31 @@ impl Wake {
     }
 }
 
+/// What a player's polls of `GET route` saw during one session; the TV test of the sample's freshness reads it from the log.
+#[derive(Debug, Default)]
+struct Ages {
+    polls: u64,
+    /// The largest `ageMs` any of them was answered with.
+    oldest_ms: u64,
+}
+
+impl Ages {
+    fn seen(&mut self, age_ms: u64) {
+        self.polls += 1;
+        self.oldest_ms = self.oldest_ms.max(age_ms);
+    }
+
+    /// The log line for a finished session; nothing when no player polled.
+    fn report(&self) -> Option<String> {
+        (self.polls > 0).then(|| {
+            format!(
+                "session over: {} route polls, longest ageMs {} (a player stops above {VALID_FOR_MS})",
+                self.polls, self.oldest_ms
+            )
+        })
+    }
+}
+
 struct Service {
     hub: Arc<Hub>,
     host: Arc<dyn Host>,
@@ -142,6 +168,7 @@ struct Service {
     /// route, which an arm or a restore holds for seconds.
     view: Arc<Mutex<Option<Snapshot>>>,
     wake: Wake,
+    ages: Mutex<Ages>,
 }
 
 fn ok(mut body: Value) -> Response {
@@ -287,6 +314,7 @@ impl Service {
             sound: Mutex::new(Sound::default()),
             view,
             wake: Wake::default(),
+            ages: Mutex::default(),
         }
     }
 
@@ -303,11 +331,38 @@ impl Service {
 
     /// One turn of the monitor: ends and restores what must end, carries a session through connecting, watches it, and keeps readiness
     /// fresh. Returns how long to wait before the next turn, and whether the helper is stopping (this was the last).
+    ///
+    /// The switch and the stop flag are read once the route is held: a turn that waited behind an arm or a restore must not act on
+    /// what it read before.
     fn step(&self) -> (u64, bool) {
-        let stopping = self.stop.is_set();
-        let env = self.env(stopping);
-        let wait = self.route.lock().tick(&env);
-        (if env.enabled { wait } else { OFF_WAIT_MS }, stopping)
+        let (wait, enabled, stopping) = {
+            let mut route = self.route.lock();
+            let stopping = self.stop.is_set();
+            let env = self.env(stopping);
+            (route.tick(&env), env.enabled, stopping)
+        };
+        self.log_session_report();
+        (if enabled { wait } else { OFF_WAIT_MS }, stopping)
+    }
+
+    /// The log line for a session that is over: how stale the readings were that its player saw, which a TV test cannot see any
+    /// other way. Taken once per session.
+    fn session_report(&self) -> Option<String> {
+        if self
+            .view
+            .lock()
+            .as_ref()
+            .is_some_and(|s| s.session.is_some())
+        {
+            return None;
+        }
+        std::mem::take(&mut *self.ages.lock()).report()
+    }
+
+    fn log_session_report(&self) {
+        if let Some(text) = self.session_report() {
+            crate::log_info!("audio passthrough: {text}");
+        }
     }
 
     fn handle(&self, request: &Request, op: &str) -> Response {
@@ -341,8 +396,11 @@ impl Service {
             (Ok(pid), Ok(tail), Ok(adec)) => (pid, tail, adec),
             (Err(response), ..) | (_, Err(response), _) | (.., Err(response)) => return response,
         };
-        let env = self.env(self.stop.is_set());
-        let armed = self.route.lock().arm(pid, tail, adec, &env);
+        let armed = {
+            let mut route = self.route.lock();
+            let env = self.env(self.stop.is_set());
+            route.arm(pid, tail, adec, &env)
+        };
         // The monitor sleeps long while idle; the session's own steps start now.
         self.wake.notify();
         match armed {
@@ -362,6 +420,7 @@ impl Service {
         };
         let released = self.route.lock().release(pid);
         self.wake.notify();
+        self.log_session_report();
         match released {
             Ok(released) => ok(json!({ "released": released })),
             Err(why) => error_response(409, "not_the_holder", &why),
@@ -378,6 +437,10 @@ impl Service {
             );
         };
         let session = s.session.as_ref();
+        let age = self.host.now_ms().saturating_sub(s.at);
+        if session.is_some() {
+            self.ages.lock().seen(age);
+        }
         ok(json!({
             "armed": session.is_some_and(|v| v.phase != Phase::Ending),
             "phase": session.map(|v| v.phase.name()),
@@ -387,7 +450,7 @@ impl Service {
             "connected": session.is_some_and(|v| v.connected),
             "audible": session.is_some_and(|v| v.audible),
             "reason": s.reason,
-            "ageMs": self.host.now_ms().saturating_sub(s.at),
+            "ageMs": age,
             "sampledUptimeMs": s.at,
         }))
     }
@@ -662,6 +725,21 @@ impl Surroundings {
     }
 }
 
+/// One turn of the monitor's loop. A panic in it puts the TV back here and now, then goes on to the guard: the guard starts the thread
+/// again only after 30 s to 30 min, far too long for a session that nothing watches.
+fn guarded<T>(service: &Service, turn: impl FnOnce() -> T) -> T {
+    match panic::catch_unwind(AssertUnwindSafe(turn)) {
+        Ok(value) => value,
+        Err(payload) => {
+            service
+                .route
+                .lock()
+                .end(Why::Fault, "the audio passthrough thread failed");
+            panic::resume_unwind(payload)
+        }
+    }
+}
+
 fn run(service: &Arc<Service>, ctx: &Ctx, shared: &Arc<Shared>, again: bool) {
     if again {
         // A turn failed half way: whatever it had changed goes back.
@@ -680,10 +758,13 @@ fn run(service: &Arc<Service>, ctx: &Ctx, shared: &Arc<Shared>, again: bool) {
         follow_error: None,
     };
     loop {
-        let enabled = (service.enabled)();
-        around.follow(service, &ctx.config.luna.send, enabled);
-        let (wait, stopping) = service.step();
-        around.page(service, shared, enabled);
+        let (wait, stopping) = guarded(service, || {
+            let enabled = (service.enabled)();
+            around.follow(service, &ctx.config.luna.send, enabled);
+            let turn = service.step();
+            around.page(service, shared, enabled);
+            turn
+        });
         if stopping {
             break;
         }
@@ -696,7 +777,8 @@ mod tests {
     use super::*;
     use audiopass::testing::{ADEC, CONVERTER, FakeHost, PID, TAIL};
     use std::net::IpAddr;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::sync::{OnceLock, Weak};
 
     const JOURNAL: &str = "/data/audio-passthrough/journal";
 
@@ -730,17 +812,22 @@ mod tests {
 
     impl Rig {
         fn new() -> Self {
+            let on = Arc::new(AtomicBool::new(true));
+            let flag = on.clone();
+            Self::with_switch(on, Box::new(move || flag.load(Ordering::Relaxed)))
+        }
+
+        /// A rig whose plugin switch is read through `enabled`; `on` is then not what the service reads.
+        fn with_switch(on: Arc<AtomicBool>, enabled: Box<dyn Fn() -> bool + Send + Sync>) -> Self {
             let hub = Arc::new(Hub::new(1));
             hub.set(crate::screen::TOPIC, json!({"on": true}));
             let host = Arc::new(FakeHost::c4());
-            let on = Arc::new(AtomicBool::new(true));
-            let flag = on.clone();
             let service = Arc::new(Service::new(
                 hub,
                 host.clone(),
                 Stop::new(),
                 JOURNAL.into(),
-                Box::new(move || flag.load(Ordering::Relaxed)),
+                enabled,
             ));
             *service.sound.lock() = Sound {
                 output: Some("external_arc".into()),
@@ -1008,5 +1095,142 @@ mod tests {
         assert_eq!(rig.call("POST", "arm", &body(3)).1["armed"], true);
         rig.run(10_000);
         assert_eq!(rig.topic()["session"]["adec"], 3);
+    }
+
+    /// LG's route is as it was before the session: the decoder input is disconnected, the words are back and the journal is gone.
+    fn assert_restored(rig: &Rig) {
+        let log = rig.host.log();
+        assert_eq!(log.last().map(String::as_str), Some("remove"), "{log:?}");
+        rig.host.with(|s| {
+            assert_eq!(s.words.to_string(), "2,1,0,0,1");
+            assert!(!s.files.contains_key(JOURNAL));
+            assert!(!s.adec_connected);
+        });
+    }
+
+    #[test]
+    fn a_panic_in_a_turn_puts_the_tv_back_before_the_guard_hears_of_it() {
+        let rig = Rig::new();
+        assert_eq!(rig.arm().1["armed"], true);
+        rig.run(10_000);
+        assert_eq!(rig.topic()["session"]["phase"], "audible");
+        let panicked = panic::catch_unwind(AssertUnwindSafe(|| {
+            guarded(&rig.service, || {
+                panic!("a turn failed");
+            })
+        }));
+        assert!(panicked.is_err(), "the guard still hears of it");
+        let topic = rig.topic();
+        assert_eq!(topic["session"], Value::Null);
+        assert_eq!(topic["end"]["why"], "fault");
+        assert_restored(&rig);
+    }
+
+    #[test]
+    fn standby_the_helper_stopping_and_the_player_dying_each_put_the_tv_back() {
+        type Cut = (&'static str, fn(&Rig), &'static str);
+        let cuts: [Cut; 3] = [
+            (
+                "standby",
+                |rig| {
+                    rig.service
+                        .hub
+                        .set(crate::screen::TOPIC, json!({"on": false}));
+                },
+                "standby",
+            ),
+            (
+                "stop",
+                |rig| {
+                    rig.service.stop.request();
+                },
+                "helper-exit",
+            ),
+            (
+                "player",
+                |rig| {
+                    rig.host.with(|s| {
+                        s.procs.remove(&PID);
+                    });
+                },
+                "owner-exited",
+            ),
+        ];
+        for (name, cut, why) in cuts {
+            let rig = Rig::new();
+            assert_eq!(rig.arm().1["armed"], true, "{name}");
+            rig.run(10_000);
+            assert_eq!(rig.topic()["session"]["phase"], "audible", "{name}");
+            cut(&rig);
+            rig.run(300);
+            let topic = rig.topic();
+            assert_eq!(topic["session"], Value::Null, "{name}");
+            assert_eq!(topic["end"]["why"], why, "{name}");
+            assert_restored(&rig);
+        }
+    }
+
+    #[test]
+    fn the_switch_is_read_only_once_the_route_is_held() {
+        let slot: Arc<OnceLock<Weak<Service>>> = Arc::default();
+        let (reads, held) = (Arc::new(AtomicU32::new(0)), Arc::new(AtomicU32::new(0)));
+        let rig = {
+            let (slot, reads, held) = (slot.clone(), reads.clone(), held.clone());
+            Rig::with_switch(
+                Arc::new(AtomicBool::new(true)),
+                Box::new(move || {
+                    reads.fetch_add(1, Ordering::Relaxed);
+                    if slot
+                        .get()
+                        .and_then(Weak::upgrade)
+                        .is_some_and(|service| service.route.is_locked())
+                    {
+                        held.fetch_add(1, Ordering::Relaxed);
+                    }
+                    true
+                }),
+            )
+        };
+        slot.set(Arc::downgrade(&rig.service)).unwrap();
+        rig.run(2_100);
+        rig.arm();
+        let reads = reads.load(Ordering::Relaxed);
+        assert!(reads >= 2, "a step and an arm both ask");
+        assert_eq!(
+            held.load(Ordering::Relaxed),
+            reads,
+            "every read of the switch came with the route held"
+        );
+    }
+
+    #[test]
+    fn the_age_a_player_saw_is_counted_while_it_streams_and_reported_when_the_session_ends() {
+        let rig = Rig::new();
+        rig.run(2_100);
+        rig.call("GET", "route", "");
+        assert_eq!(rig.service.ages.lock().polls, 0, "no session, no count");
+        assert_eq!(rig.service.session_report(), None);
+
+        rig.arm();
+        rig.run(10_000);
+        for _ in 0..20 {
+            rig.run(100);
+            rig.call("GET", "route", "");
+        }
+        let (polls, oldest) = {
+            let ages = rig.service.ages.lock();
+            (ages.polls, ages.oldest_ms)
+        };
+        assert_eq!(polls, 20);
+        assert!((90..VALID_FOR_MS).contains(&oldest), "{oldest}");
+        assert_eq!(rig.service.session_report(), None, "it is still running");
+
+        rig.service.route.lock().release(PID).unwrap();
+        let text = rig.service.session_report().expect("a report");
+        assert!(
+            text.contains("20 route polls") && text.contains(&format!("longest ageMs {oldest} ")),
+            "{text}"
+        );
+        assert_eq!(rig.service.session_report(), None, "once per session");
     }
 }
