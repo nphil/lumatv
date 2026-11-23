@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Home B · Board</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Home B, Board: the last game is the big tile, recent games fill the board beside it, and
+  // pinned games sit in the row below. OK plays the highlighted tile.
+  const { games, steam, ic, esc, nav, hints, tile } = RW;
+  const recent = ["bg3", "cyberpunk", "clair", "balatro", "forza", "elden", "ittakestwo", "stardew", "wukong", "portal2", "hollow", "rocket"];
+  const pins = ["disco", "mhwilds", "tunic", "celesteclassic", "ori", "dave", "celeste"];
+  const g = games.hades2;
+  document.querySelector(".screen").innerHTML = `<div class="rw-stage on-stage">
+    <div class="stage full dimmer"><img src="${g.hero}" alt=""></div>
+    ${nav("home")}
+    <main class="hB">
+      <div class="hB-grid">${tile("hades2", { focused: true, cls: "big", pos: "68% 30%" })}${recent.map((k) => tile(k)).join("")}</div>
+      <div class="hB-head">${ic("pin")}<h2 class="rw-h">Pinned</h2></div>
+      <div class="hB-pins" data-runs>${pins.map((k) => tile(k)).join("")}</div>
+    </main>
+    <div class="hB-line"><div class="rw-play">${ic("key-ok", "glyph")}<span>Play</span><span class="via">${ic("cloud")}</span></div><span><b>${esc(g.title)}</b><i class="rw-sep"></i>Played 2 h ago<i class="rw-sep"></i>${steam.hours}</span></div>
+    ${hints([["key-menu", "Menu"]])}</div>`;
+  RW.ready();
+</script>
+</body>
+</html>

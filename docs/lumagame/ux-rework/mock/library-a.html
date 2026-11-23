@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Library A · Bar</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Library A, Bar: one bar of views about the games, a dense cover grid under it. Sort and
+  // the "plays on" filter sit behind Menu. ?search=1 is Search: keys left, live results right.
+  const { games, ic, esc, nav, hints, cover, q } = RW;
+  const all = ["balatro", "wukong", "bg3", "celeste", "celesteclassic", "clair", "control", "cyberpunk", "dave", "disco", "doom", "elden", "forza", "freedoom", "hades2", "hollow", "ittakestwo", "mhwilds", "openttd", "ori", "portal2", "quake", "rdr2", "rocket"];
+  const chip = (label, n, sel) => `<span class="chip-btn${sel ? " is-selected" : ""}"><span>${label}</span>${n ? `<span class="n">${n}</span>` : ""}</span>`;
+  const rows = (keys, cols, focus) => { let out = ""; for (let i = 0; i < keys.length; i += cols) { const r = keys.slice(i, i + cols); out += `<div class="grid-row${r.includes(focus) ? " has-focus" : ""}">${r.map((k) => cover(k, { focused: k === focus })).join("")}</div>`; } return out; };
+  const lib = `${nav("library")}
+    <main class="lib">
+      <div class="filters">${chip("All", 142, true)}${chip("Favourites", 12)}${chip("Recently added")}${chip("Ready now", 96)}<span class="rw-cap">A to Z</span></div>
+      <div class="grid" style="--lib-cols:8" data-runs>${rows(all, 8, "balatro")}</div>
+    </main>
+    ${hints([["key-ok", "Open"], ["key-menu", "Sort"]])}`;
+  const keys = ["ABCDEF", "GHIJKL", "MNOPQR", "STUVWX"].map((r) => `<div class="kbd-row">${[...r].map((c) => `<span class="key${c === "L" ? " is-focused" : ""}">${c}</span>`).join("")}</div>`).join("");
+  const found = ["elden", "celeste", "celesteclassic", "disco"];
+  const search = `${nav("search")}
+    <main class="lS">
+      <div><div class="lS-field">${ic("search")}<span>el</span><i class="caret"></i></div>
+        <div class="kbd">${keys}<div class="kbd-row"><span class="key">Y</span><span class="key">Z</span><span class="key space">${ic("space")}</span><span class="key">${ic("delete")}</span></div>
+        <div class="kbd-row"><span class="key wide">123</span></div></div></div>
+      <div class="lS-res"><div class="rw-cap">4 games</div><div class="grid-row">${found.map((k) => cover(k)).join("")}</div></div>
+    </main>
+    ${hints([["key-ok", "Type"], ["key-right", "Results"]])}`;
+  document.querySelector(".screen").innerHTML = q.get("search") ? search : lib;
+  RW.ready();
+</script>
+</body>
+</html>

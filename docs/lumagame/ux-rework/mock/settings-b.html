@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Settings B · Tiles</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Settings B, Tiles: a landing of five tiles that show what is set now; each opens a page
+  // of rows. Most visits end on the landing, having read the answer.
+  const { ic, hints, settingsTitle } = RW;
+  const tile = (icon, name, lines, focus) => `<div class="rw-card${focus ? " is-focused" : ""}"><span class="rw-gt">${ic(icon)}</span><div class="t">${name}</div><div class="x">${lines.join("<br>")}</div></div>`;
+  document.querySelector(".screen").innerHTML = `${settingsTitle()}
+    <main class="sB">
+      ${tile("users-round", "Accounts and PCs", ["4 ready, 1 offline", "Steam linked"], true)}
+      ${tile("monitor-play", "Picture and stream", ["4K, 120 fps", "HDR on"])}
+      ${tile("gamepad-2", "Controllers", ["2 connected", "DualSense, Xbox"])}
+      ${tile("palette", "Appearance", ["Rosé Pine, dark", "Text 100%"])}
+      ${tile("info", "System", ["Version 0.9.2", "Up to date"])}
+    </main>
+    ${hints([["key-ok", "Open"], ["key-back", "Back"]])}`;
+  RW.ready();
+</script>
+</body>
+</html>

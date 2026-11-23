@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Steam C · In the menu</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Steam C, In the menu: accounts and PCs are a level of the quick menu, so linking Steam
+  // never leaves the screen the menu was opened on. ?state=qr is sign-in in the same drawer.
+  const { hints, accounts, qr, crumb, hintsInline, homeSpotlight, q } = RW;
+  const signin = q.get("state") === "qr";
+  const list = `<div class="rw-drawer-head">${crumb("Menu")}<h2 class="rw-title">Accounts and PCs</h2></div>${accounts({ focus: "steam" })}`;
+  const code = `<div class="rw-drawer-head">${crumb("Accounts and PCs")}<h2 class="rw-title">Sign in to Steam</h2></div><div style="padding: 10px 28px">${qr({ stack: true })}</div>`;
+  document.querySelector(".screen").innerHTML = `<div class="rw-stage on-stage">${homeSpotlight()}</div>
+    <div class="scrim rw-scrim-side"></div>
+    <aside class="sheet rw-drawer">${signin ? code : list}<div class="rw-drawer-foot">${hintsInline(signin ? [["key-back", "Cancel"]] : [["key-ok", "Open"], ["key-back", "Back"]])}</div></aside>`;
+  RW.ready();
+</script>
+</body>
+</html>

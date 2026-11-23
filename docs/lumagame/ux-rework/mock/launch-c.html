@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Launch C · Strip</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Launch C, Strip: the least on screen. Starting is a ring and one line on the plain
+  // stage; the in-game menu (?view=menu) is a strip along the bottom that leaves after 5 s.
+  const { games, ic, esc, hints, q } = RW;
+  const g = games.hades2;
+  const item = (label, icon, cur, cls) => `<span class="nav-item${cur ? " is-focused" : ""}">${ic(icon, cls || "")}<span>${label}</span></span>`;
+  const wait = `<div class="rw-stage on-stage" style="background: var(--lg-stage)">
+    <div class="lC-wait"><img class="gp-logo" data-trim src="${g.logo}" alt="${esc(g.title)}"><span class="rw-ring" style="--p:38%"></span>
+      <div><div class="rw-h">In queue, 14 ahead</div><div class="rw-cap">GeForce NOW, about 2 min</div></div></div>
+    ${hints([["key-back", "Cancel"]])}</div>`;
+  const menu = `<div class="rw-stage on-stage"><img class="frame" src="${RW.BASE}assets/1091500/frame.jpg" alt=""><div class="vw-scrim"></div>
+    <div class="lC-stats"><span>4K</span><span>120 fps</span><span>18 ms</span></div>
+    <nav class="lC-strip">${item("Resume", "play", true)}${item("Picture", "sun")}${item("Controller", "gamepad-2")}${item("Achievements", "trophy")}${item("End", "power", false, "bad")}</nav></div>`;
+  document.querySelector(".screen").innerHTML = q.get("view") === "menu" ? menu : wait;
+  RW.ready();
+</script>
+</body>
+</html>

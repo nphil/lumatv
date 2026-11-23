@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Home C · Quiet row</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Home C, Quiet row: one row of large tiles on the plain canvas and the dock. No backdrop
+  // art, so nothing large changes when focus moves. OK plays the highlighted tile.
+  const { games, steam, ic, esc, hints, tile } = RW;
+  const recent = ["hades2", "bg3", "cyberpunk", "clair", "balatro"];
+  const g = games.hades2;
+  const item = (label, icon, cur) => `<span class="nav-item${cur ? " is-current" : ""}">${ic(icon)}<span>${label}</span></span>`;
+  document.querySelector(".screen").innerHTML = `
+    <header class="hC-title"><h1 class="rw-title">${esc(g.title)}</h1><div class="rw-cap">Played 2 h ago<i class="rw-sep"></i>${steam.hours}</div></header>
+    <div class="hC-row" data-runs>${recent.map((k, i) => tile(k, { focused: i === 0 })).join("")}
+      <div class="rw-tile hC-all"><div class="rw-tile-art"><span class="rw-label">All games</span></div></div></div>
+    <div class="hC-play"><div class="rw-play">${ic("key-ok", "glyph")}<span>Play</span><span class="via">${ic("cloud")}</span></div></div>
+    <nav class="hC-dock">${item("Home", "house", true)}${item("Library", "library-big")}${item("Search", "search")}<span class="nav-item icon-only avatar" aria-label="Profile and menu"><span>N</span></span></nav>
+    ${hints([["key-menu", "Menu"]])}`;
+  RW.ready();
+</script>
+</body>
+</html>

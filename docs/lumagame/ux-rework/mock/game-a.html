@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Game page A · Feed</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Game page A, Feed: art, Play and the one where-to-play button first; the four sections are
+  // a strip along the bottom. Down turns the page into that section's feed under a slim Play
+  // bar (?view=community); Back returns to Play before it leaves the page.
+  const { games, steam, ic, esc, hints, btn, tabs, sec, row, q } = RW;
+  const g = games.hades2;
+  const view = q.get("view");
+  const actions = (focus) => `${btn("Play", "play", { primary: true, focus })}${btn("GeForce NOW", "cloud", { after: ic("chevron-down") })}`;
+  const first = `<div class="rw-stage on-stage">
+      <div class="stage full"><img src="${g.hero}" alt=""></div>
+      <header class="gA-head">
+        <img class="gp-logo" data-trim src="${g.logo}" alt="${esc(g.title)}">
+        <div class="hero-meta"><span>Played 2 h ago</span><i class="sep"></i><span>${steam.hours}</span><i class="sep"></i><span>${steam.achDone} of ${steam.achAll} achievements</span></div>
+        <div class="actions">${actions(true)}</div>
+      </header>
+      <div class="gA-strip">${tabs("Activity")}</div>
+      ${hints([["key-down", "Sections"], ["key-menu", "Menu"]])}</div>`;
+  const r = steam.review;
+  const feed = `
+    <div class="gA-bar"><img class="gp-logo" data-trim src="${g.logo}" alt="${esc(g.title)}">${actions(false)}${tabs("Community")}</div>
+    <div class="gA-cols" data-runs>
+      <div>${sec.community({ reviews: 3, focus: 0, fragile: false })}</div>
+      <div><div class="group-label">Discussions</div>
+        ${steam.threads.map((x) => row({ icon: "message-square", name: x.t, sub: `${x.n}, ${x.d}`, right: ic("chevron-right", "rw-st"), src: "fragile" })).join("")}
+        <div class="group-label">Guides</div>
+        ${steam.guides.map((x) => row({ icon: "book-open", name: x.t, sub: `${x.n}, ${x.d}`, right: ic("chevron-right", "rw-st"), src: "fragile" })).join("")}</div>
+    </div>
+    ${hints([["key-ok", "Open"], ["key-back", "Play"]])}`;
+  document.querySelector(".screen").innerHTML = view === "community" ? feed : first;
+  RW.ready();
+</script>
+</body>
+</html>

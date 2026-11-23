@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Game page C · Glance</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Game page C, Glance: one screen that never scrolls. Play and the where-to-play button,
+  // then one card per section; a card opens its section as a layer (?view=community).
+  const { games, steam, ic, esc, hints, btn, tabs, sec, bar, from, q } = RW;
+  const g = games.hades2;
+  const open = q.get("view") === "community";
+  const card = (cls, inner) => `<div class="rw-card${cls ? " " + cls : ""}">${inner}</div>`;
+  const r = steam.review;
+  document.querySelector(".screen").innerHTML = `<div class="rw-stage on-stage">
+      <div class="stage full"><img src="${g.hero}" alt=""></div>
+      <header class="gC-head">
+        <img class="gp-logo" data-trim src="${g.logo}" alt="${esc(g.title)}">
+        <div class="hero-meta"><span>Played 2 h ago</span><i class="sep"></i><span>${steam.hours}</span></div>
+        <div class="actions">${btn("Play", "play", { primary: true, focus: !open })}${btn("GeForce NOW", "cloud", { after: ic("chevron-down") })}</div>
+      </header>
+      <div class="gC-cards" data-runs>
+        ${card("", `<div class="k">Activity</div><div class="v">${steam.achDone} of ${steam.achAll}</div><div class="x">Achievements</div>${bar(36)}<div class="foot"><span class="rw-icons">${steam.ach.slice(0, 3).map((a) => `<img src="${a.img}" alt="">`).join("")}</span></div>`)}
+        ${card("", `<div class="k">Community</div><div class="t">${r.word}</div><div class="x">${r.pct}% of ${r.n} reviews</div><div class="foot">${from()}</div>`)}
+        ${card("pic", `<img src="${steam.media.store[2]}" alt=""><div class="over"><div class="k">Media</div><div class="t">2 trailers, 5 screenshots</div></div>`)}
+        ${card("", `<div class="k">About</div><div class="x">Battle beyond the Underworld using dark sorcery to take on the Titan of Time.</div><div class="foot"><span class="rw-cap">Supergiant Games</span></div>`)}
+      </div>
+      ${open ? "" : hints([["key-down", "More"], ["key-menu", "Menu"]])}</div>
+    ${open ? `<div class="scrim rw-scrim-side"></div><section class="sheet gC-layer">${tabs("Community")}<div class="gp-body" data-runs>${sec.community({ focus: 0 })}</div><div class="rw-drawer-foot" style="padding-bottom:26px">${RW.hintsInline([["key-ok", "Open"], ["key-back", "Close"]])}</div></section>` : ""}`;
+  RW.ready();
+</script>
+</body>
+</html>

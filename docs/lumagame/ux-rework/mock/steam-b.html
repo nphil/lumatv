@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Steam B · In place</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Steam B, In place: no Steam page. The game page asks for sign-in where the missing
+  // information would be (?state=qr opens the code beside it), and says so in the same place
+  // when the sign-in has expired (?state=stale). News and reviews need no account and stay.
+  const { games, steam, ic, esc, hints, btn, tabs, sec, where, row, val, qr, crumb, hintsInline, q } = RW;
+  const g = games.hades2;
+  const state = q.get("state") || "out";
+  const news = `<div class="group-label">News</div>${steam.news.map((x) => row({ icon: "newspaper", name: x.t, sub: `${x.d}, ${x.by}`, right: ic("chevron-right", "rw-st") })).join("")}`;
+  const out = `${row({ icon: "key-round", name: "Sign in to Steam", sub: "Adds play time and achievements here", right: ic("chevron-right", "rw-st"), cls: "gp-prompt", focus: true })}${news}`;
+  const stale = `${row({ icon: "triangle-alert", name: "Steam sign-in has expired", sub: "Showing what was saved 3 days ago", right: val("Sign in again", true), cls: "gp-prompt", focus: true })}<div class="gp-gap"></div>${sec.activity({ ach: 2, news: 2 })}`;
+  document.querySelector(".screen").innerHTML = `
+    <aside class="gB-art on-stage">
+      <img class="art" src="${g.hero}" alt="">
+      <div class="gB-play">
+        <img class="gp-logo" data-trim src="${g.logo}" alt="${esc(g.title)}">
+        <div class="hero-meta"><span>Played 2 h ago</span></div>
+        ${btn("Play", "play", { primary: true })}
+        ${where()}
+      </div>
+    </aside>
+    <main class="gB-pane">${tabs("Activity")}<div class="gp-body" data-runs>${state === "stale" ? stale : out}</div></main>
+    ${state === "qr" ? `<div class="scrim rw-scrim-side"></div><aside class="sheet rw-drawer"><div class="rw-drawer-head"><h2 class="rw-title">Sign in to Steam</h2></div><div style="padding: 10px 28px">${qr({ stack: true })}</div><div class="rw-drawer-foot">${hintsInline([["key-back", "Cancel"]])}</div></aside>` : hints([["key-ok", state === "stale" ? "Sign in" : "Sign in"], ["key-back", "Play"]])}`;
+  RW.ready();
+</script>
+</body>
+</html>

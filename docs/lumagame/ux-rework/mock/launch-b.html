@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Launch B · Drawer</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Launch B, Drawer: starting happens in place on the game page, so the sections stay
+  // readable through a queue. ?view=menu is the in-game menu, a drawer over the live picture;
+  // ?view=end is the confirm for End session, on an opaque backdrop with focus on the safe choice.
+  const { games, steam, ic, esc, hints, btn, tabs, sec, row, val, fact, hintsInline, q } = RW;
+  const g = games.hades2, c = games.cyberpunk;
+  const view = q.get("view");
+  const frame = `<img class="frame" src="${RW.BASE}assets/1091500/frame.jpg" alt="">`;
+  const page = `
+    <aside class="gB-art on-stage">
+      <img class="art" src="${g.hero}" alt="">
+      <div class="gB-play">
+        <img class="gp-logo" data-trim src="${g.logo}" alt="${esc(g.title)}">
+        <div class="hero-meta"></div>
+        <div class="lB-run"><div class="rw-h"><span class="rw-ring" style="--p:38%"></span>In queue, 14 ahead</div><div class="rw-cap">GeForce NOW, about 2 min</div></div>
+        ${btn("Cancel", "x", { focus: true })}
+      </div>
+    </aside>
+    <main class="gB-pane">${tabs("Activity")}<div class="gp-body" data-runs>${sec.activity()}</div></main>
+    ${hints([["key-right", "Sections"], ["key-back", "Cancel"]])}`;
+  const seg = `<span class="seg lB-tabs"><span class="is-selected">${ic("play")}Session</span><span>${ic("sun")}Picture</span><span>${ic("trophy")}Game</span></span>`;
+  const menu = `${frame}<div class="scrim rw-scrim-side"></div>
+    <aside class="sheet rw-drawer"><div class="rw-drawer-head"><h2 class="rw-title">${esc(c.title)}</h2><div class="rw-cap">Gaming PC, 1 h 12 min</div></div>
+      ${seg}
+      <div class="lB-facts">${fact("Stream", "4K, 120 fps")}${fact("Delay", "18 ms")}</div>
+      ${row({ icon: "play", name: "Resume", focus: true })}
+      ${row({ icon: "gamepad-2", name: "Controller", right: val("DualSense", true) })}
+      ${row({ icon: "power", name: "End session", cls: "rw-danger" })}
+      <div class="rw-drawer-foot">${hintsInline([["key-back", "Resume"]])}</div></aside>`;
+  const end = `${frame}<div class="scrim hides"></div><div class="sheet-wrap"><section class="sheet dialog narrow rw-confirm">
+      <h2 class="t-title">End this session?</h2><p class="sheet-text">Progress since the last save may be lost.</p>
+      <div class="actions">${btn("Keep playing", "play", { primary: true, focus: true })}${btn("End session", "power", { danger: true })}</div></section></div>`;
+  document.querySelector(".screen").innerHTML = view === "menu" ? menu : view === "end" ? end : page;
+  RW.ready();
+</script>
+</body>
+</html>

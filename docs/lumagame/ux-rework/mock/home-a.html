@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Home A · Spotlight</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Home A, Spotlight: the highlighted game owns the screen. OK plays it; Down opens its strip
+  // of cards (?view=hub); Menu opens the quick menu (?menu=1).
+  const { games, steam, ic, esc, nav, hints, tile, bar, from, quickMenu, q } = RW;
+  const g = games.hades2;
+  const view = q.get("view");
+  const play = `<div class="rw-play">${ic("key-ok", "glyph")}<span>Play</span><span class="via">${ic("cloud")}</span></div>`;
+  const card = (cls, inner, src) => `<div class="rw-card${cls ? " " + cls : ""}"${src ? ` data-src="${src}"` : ""}>${inner}</div>`;
+  const first = `${RW.homeSpotlight()}
+    ${hints([["key-down", "More"], ["key-menu", "Menu"]])}`;
+  const n = steam.news[0];
+  const hub = `
+    <div class="stage full dimmer"><img src="${g.hero}" alt=""></div>
+    ${nav("home")}
+    <div class="hA-top"><img class="hero-logo" data-trim src="${g.logo}" alt="${esc(g.title)}">${play}</div>
+    <div class="hA-cards" data-runs>
+      ${card("is-focused", `<div class="k">Achievements</div><div class="v">${steam.achDone} of ${steam.achAll}</div>${bar(36)}<div class="x">Latest: ${esc(steam.ach[0].n)}</div><div class="foot"><span class="rw-icons">${steam.ach.slice(0, 3).map((a) => `<img src="${a.img}" alt="">`).join("")}</span>${from()}</div>`)}
+      ${card("", `<div class="k">Last played</div><div class="v">${steam.last}</div><div class="x">${steam.lastLen} on ${steam.lastWhere}</div><div class="foot"><span class="rw-cap">${steam.hours} in total</span></div>`)}
+      ${card("", `<div class="k">News, ${n.d}</div><div class="t">${esc(n.t)}</div><div class="x">${esc(n.x)}</div><div class="foot">${from()}</div>`)}
+      ${card("", `<div class="k">Reviews</div><div class="v">${steam.review.word}</div><div class="x">${steam.review.pct}% of ${steam.review.n} reviews</div><div class="foot">${from()}</div>`)}
+    </div>
+    ${hints([["key-up", "Games"], ["key-menu", "Menu"]])}`;
+  document.querySelector(".screen").innerHTML = `<div class="rw-stage on-stage">${view === "hub" ? hub : first}</div>` + (q.get("menu") ? quickMenu({ game: "hades2", focus: "refresh", attention: "Desk PC is offline" }) : "");
+  RW.ready();
+</script>
+</body>
+</html>

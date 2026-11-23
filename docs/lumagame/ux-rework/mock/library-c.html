@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Library C · List</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Library C, List: titles as a list grouped by first letter, the highlighted game shown
+  // beside it. Skipping a letter at a time makes a long library quick; one picture is drawn.
+  const { games, steam, ic, esc, nav, hints, row, val } = RW;
+  const groups = { G: [["Grim Fandango", "9 h"]], H: [["Hades", "64 h"], ["Hades II", "31 h", true], ["Halo Infinite", ""], ["Hollow Knight", "22 h"]], I: [["Inside", "4 h"], ["It Takes Two", "13 h"]] };
+  const g = games.hades2;
+  document.querySelector(".screen").innerHTML = `${nav("library")}
+    <main class="lC">
+      <div class="lC-list" data-runs>${Object.entries(groups).map(([l, list]) => `<div class="group-label">${l}</div>${list.map(([n, h, f]) => row({ name: n, right: val(h), focus: f })).join("")}`).join("")}</div>
+      <div class="lC-view">
+        <div class="lC-art on-stage"><img class="art" src="${g.hero}" alt=""><img class="gp-logo" data-trim src="${g.logo}" alt="${esc(g.title)}"></div>
+        <div class="hero-meta"><span>Played 2 h ago</span><i class="sep"></i><span>${steam.hours}</span><i class="sep"></i><span>${steam.achDone} of ${steam.achAll} achievements</span></div>
+        ${row({ icon: "cloud", name: "GeForce NOW", sub: "Ready" })}
+      </div>
+    </main>
+    ${hints([["key-ok", "Open"], ["key-menu", "Sort"]])}`;
+  RW.ready();
+</script>
+</body>
+</html>

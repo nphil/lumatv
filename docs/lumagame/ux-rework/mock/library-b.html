@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Library B · Panel</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Library B, Panel: the filters stay on screen in a panel on the left, search first; the
+  // grid beside it answers each change at once.
+  const { ic, nav, hints, cover, row, val } = RW;
+  const all = ["balatro", "wukong", "bg3", "celeste", "celesteclassic", "clair", "control", "cyberpunk", "dave", "disco", "doom", "elden", "forza", "freedoom", "hades2"];
+  const rows = (keys, cols, focus) => { let out = ""; for (let i = 0; i < keys.length; i += cols) { const r = keys.slice(i, i + cols); out += `<div class="grid-row${r.includes(focus) ? " has-focus" : ""}">${r.map((k) => cover(k, { focused: k === focus })).join("")}</div>`; } return out; };
+  const pick = (name, n, on) => row({ name, right: `<span class="val">${n}${on ? ic("check") : ""}</span>`, cls: on ? "is-current" : "" });
+  document.querySelector(".screen").innerHTML = `${nav("library")}
+    <main class="lB">
+      <aside class="sheet lB-panel rail">
+        ${row({ icon: "search", name: "Search" })}
+        <div class="group-label">Show</div>
+        ${pick("All games", 142, true)}${pick("Favourites", 12)}${pick("Recently added", 8)}${pick("Ready now", 96)}
+        <div class="group-label">Refine</div>
+        ${row({ name: "Plays on", right: val("Anywhere", true) })}${row({ name: "Sort", right: val("A to Z", true) })}
+      </aside>
+      <div data-runs>${rows(all, 5, "balatro")}</div>
+    </main>
+    ${hints([["key-ok", "Open"], ["key-left", "Filters"]])}`;
+  RW.ready();
+</script>
+</body>
+</html>

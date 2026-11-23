@@ -1,0 +1,331 @@
+/* UX rework option mocks: additions to ../../mock/lumagame.css. One system for every option:
+ * the base kit's tokens (Lucent v2 TV profile, ../../mock/tokens.css), nav, buttons, rows, sheets
+ * and focus, plus the shared pieces below. Options differ in layout, never in styling: colour,
+ * radius, type, glass and motion come from --lu-* and --lg-* only; --rw-* are layout sizes.
+ * Native mapping follows ../../DESIGN.md: art, crops and scrims are baked at decode (neutral
+ * black, so art keeps its hue), glass is cached, layers move by x, y, scale and opacity only. */
+
+:root {
+  --rw-drawer: 640px;              /* every side panel: quick menu, accounts, in-stream menu */
+  --rw-reader: 1080px;             /* every reading or list layer over a page */
+  --rw-tile: 200px;                /* Home game tile, square */
+  --rw-card-w: 520px; --rw-card-h: 330px;   /* glance card */
+  --rw-hint-clear: calc(var(--lu-edge-y) + var(--lg-glyph) + 28px);   /* room the hint bar keeps free below scrolling content */
+  --rw-thumb: 64px;                /* row picture, the 64 target */
+  --rw-glyph-tile: calc(32px * var(--lg-text-scale) + 20px);
+  --rw-sheet-fill: rgb(from var(--lu-sheet) r g b / var(--lu-material-overlay-minimum-opacity));
+  --rw-tint: color-mix(in srgb, var(--lu-ink) 6%, var(--lu-canvas));   /* T0 surface, as the base kit's fact tile */
+}
+
+/* ── Shared ──────────────────────────────────────────────────────────────────────────── */
+.rw-navwrap { display: flex; align-items: center; gap: 14px; }
+.rw-bump .glyph { width: var(--lg-glyph); height: var(--lg-glyph); color: var(--lu-ink-2); }
+.avatar { position: relative; }
+.rw-attn { position: absolute; right: 6px; top: 6px; width: 14px; height: 14px; border-radius: 50%; background: var(--lu-warning); box-shadow: 0 0 0 3px var(--lu-canvas); }
+.rw-from { display: inline-flex; align-items: center; gap: 8px; font: 500 var(--lu-type-caption)/1.35 var(--lu-font); color: var(--lu-ink-2); white-space: nowrap; }
+.rw-from .ic { width: calc(24px * var(--lg-text-scale)); height: calc(24px * var(--lg-text-scale)); }
+.warn { color: var(--lu-warning); } .bad { color: var(--lu-danger); } .ok { color: var(--lu-positive); } .sleep { color: var(--lu-info); }
+.rw-st { width: calc(28px * var(--lg-text-scale)); height: calc(28px * var(--lg-text-scale)); }
+.rw-state { color: var(--lu-ink); }
+.rw-h { font: 600 var(--lu-type-body)/1.3 var(--lu-font); letter-spacing: -.005em; }
+.rw-title { font: 600 var(--lu-type-title)/1.2 var(--lu-font); letter-spacing: -.01em; }
+.rw-cap { font: 500 var(--lu-type-caption)/1.35 var(--lu-font); color: var(--lu-ink-2); }
+.rw-label { font: 500 var(--lu-type-label)/1.3 var(--lu-font); color: var(--lu-ink-2); }
+.rw-sep { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .7; margin: 0 12px; vertical-align: middle; }
+/* A stage screen: art fills the screen and everything on it resolves to the family's dark
+   variant in light themes too (.on-stage), as the base kit's game hub does. */
+.rw-stage { position: absolute; inset: 0; }
+.stage.full { --stage-h: 1080px; --art-h: 1080px; }
+.stage.full::after { background: linear-gradient(180deg, transparent 520px, color-mix(in srgb, var(--lg-stage) 86%, transparent) 1080px); }
+.stage.full.dimmer > img { opacity: .38; }
+
+/* Progress bar: one track, one fill. */
+.rw-bar { position: relative; display: block; height: 8px; border-radius: 4px; background: var(--lu-track-off); box-shadow: inset 0 0 0 1px var(--lu-track-readable); overflow: hidden; }
+.rw-bar > b { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--lu-ink); }
+
+/* Radio */
+.rw-radio { flex: none; width: 32px; height: 32px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--lu-track-readable); }
+.rw-radio.on { box-shadow: inset 0 0 0 2px var(--lu-accent); background: radial-gradient(circle, var(--lu-accent) 0 8px, transparent 9px); }
+
+/* The one list row: a base .srow with a leading glyph tile or picture and one short second
+   line. The glyph tile is LumaTV's (Settings rail, Quick settings): a tinted rounded square. */
+.rw-row { gap: 22px; }
+.rw-row .rw-name { display: block; font-weight: 600; }
+.rw-row .sub { margin-top: 2px; }
+.rw-gt { flex: none; display: grid; place-items: center; width: var(--rw-glyph-tile); height: var(--rw-glyph-tile); border-radius: var(--lu-radius-control); background: color-mix(in srgb, var(--lu-ink) 9%, transparent); box-shadow: inset 0 0 0 1px var(--lu-edge); }
+.rw-gt .ic { width: calc(30px * var(--lg-text-scale)); height: calc(30px * var(--lg-text-scale)); color: var(--lu-ink); }
+.rw-thumb { flex: none; width: var(--rw-thumb); height: var(--rw-thumb); border-radius: var(--lu-radius-control); object-fit: cover; }
+.rw-thumb.wide { width: calc(var(--rw-thumb) * 16 / 9); }
+.rw-thumb.dim { opacity: .38; }
+.rw-row .val .ic { width: calc(28px * var(--lg-text-scale)); height: calc(28px * var(--lg-text-scale)); }
+
+/* Not-ready mark on a tile or cover: an opaque disc with the state's glyph. Ready shows nothing. */
+.rw-flag { position: absolute; z-index: 3; left: 12px; top: 12px; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: var(--lg-stage); box-shadow: inset 0 0 0 1px var(--lu-edge-raised); color: var(--pal-stage-ink); }
+.rw-flag .ic { width: 26px; height: 26px; }
+.rw-capline { font: 500 var(--lu-type-caption)/1.35 var(--lu-font); color: var(--lu-ink-2); }
+
+/* Game tile: wide art cropped to the tile, a baked bottom scrim, the logo on top. */
+.rw-tile { position: relative; flex: none; width: var(--tw, var(--rw-tile)); height: var(--th, var(--rw-tile)); }
+.rw-tile-art { position: absolute; inset: 0; border-radius: var(--lu-radius-tile); overflow: hidden; background: var(--lg-stage); box-shadow: var(--lg-cover-rest); transition: transform var(--lu-motion-focus) var(--lu-ease); }
+.rw-tile-art > .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.rw-tile-art::before { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, rgba(0,0,0,.10) 0, rgba(0,0,0,.18) 40%, rgba(0,0,0,.72) 100%); }
+.rw-tile-art::after { content: ""; position: absolute; inset: 0; z-index: 4; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--lu-edge); pointer-events: none; }
+.rw-tile-art > .logo { position: absolute; z-index: 2; left: 12%; bottom: 10%; width: 76%; height: 40%; object-fit: contain; object-position: center bottom; }
+.rw-tile .plate { padding: 20px 18px; }
+.rw-tile .plate-title { font-size: var(--lu-type-body); }
+.rw-tile .plate-mono { font-size: 260px; }
+.rw-tile.is-focused .rw-tile-art { transform: translateY(var(--lg-focus-lift)) scale(var(--tile-scale, 1.08)); box-shadow: var(--lg-focus-shadow); }
+.rw-tile.is-focused .rw-tile-art::after { box-shadow: inset 0 0 0 1px var(--lu-edge-raised), inset 0 1px 0 rgba(255,255,255,.28); }
+.rw-tile .land { display: none; }
+.rw-tile.is-focused .land { display: block; position: absolute; left: 22%; right: 22%; top: calc(100% + var(--land-gap, 18px)); height: var(--lu-focus-indicator); border-radius: 2px; background: var(--lu-ink); }
+
+/* Side drawer: one width for every side panel (quick menu, accounts, in-stream menu), the
+   place and material of LumaTV's Quick settings. */
+.rw-scrim-side { z-index: 70; background: linear-gradient(90deg, color-mix(in srgb, var(--lu-canvas) 40%, transparent) 0, color-mix(in srgb, var(--lu-canvas) 82%, transparent) 60%); }
+.rw-drawer { z-index: 80; top: var(--lu-edge-y); right: var(--lu-edge-x); bottom: var(--lu-edge-y); width: var(--rw-drawer); padding: 28px 22px 26px; display: flex; flex-direction: column; background: var(--rw-sheet-fill); }
+.rw-drawer .group-label { margin: 26px 28px 10px; }
+.rw-drawer-head { padding: 6px 28px 20px; }
+.rw-drawer-foot { margin-top: auto; padding: 18px 28px 0; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.rw-quick .srow:first-child { margin-top: 4px; }
+
+/* Hints dim after a dwell (panel care): drawn here at rest strength. */
+.rw-dwell { opacity: 1; }
+
+/* ?marks=1: outline content whose Steam source is fragile (read from Steam's pages) or unconfirmed. */
+[data-marks] [data-src] { outline: 2px dashed var(--lu-warning); outline-offset: 4px; position: relative; }
+[data-marks] [data-src]::before { content: attr(data-src); position: absolute; z-index: 9; right: 8px; top: -18px; padding: 2px 12px; border-radius: var(--lu-radius-pill); background: var(--lu-warning); color: var(--lu-accent-ink); font: 600 var(--lu-type-caption)/1.3 var(--lu-font); }
+
+/* ── Home A · Spotlight ──────────────────────────────────────────────────────────────── */
+.hA-row { position: absolute; z-index: 10; left: var(--lu-edge-x); top: 172px; display: flex; gap: 20px; --tw: 184px; --th: 184px; --tile-scale: 1.12; }
+.hA-hero { position: absolute; z-index: 10; left: var(--lu-edge-x); bottom: 132px; width: 900px; }
+.hA-hero .hero-logo { height: 150px; max-width: 560px; }
+.hA-hero .hero-meta { margin-top: 22px; }
+.rw-play { margin-top: 28px; display: inline-flex; align-items: center; gap: 14px; min-height: var(--lu-target); padding: 0 32px 0 16px; border-radius: var(--lu-radius-pill); background: var(--lg-primary); color: var(--lg-primary-ink); font: 600 var(--lu-type-label)/1.2 var(--lu-font); box-shadow: var(--lu-highlight-rest), var(--lg-focus-shadow); }
+.rw-play .glyph { width: var(--lg-glyph); height: var(--lg-glyph); }
+.rw-play .via { display: inline-flex; margin-left: 6px; padding-left: 18px; box-shadow: inset 1.5px 0 0 color-mix(in srgb, currentColor 35%, transparent); }
+.rw-play .via .ic { width: calc(28px * var(--lg-text-scale)); height: calc(28px * var(--lg-text-scale)); }
+
+/* Spotlight, one press down: the game's own strip of cards. */
+.hA-top { position: absolute; z-index: 10; left: var(--lu-edge-x); top: 172px; display: flex; align-items: center; gap: 36px; }
+.hA-top .hero-logo { height: 96px; width: 360px; }
+.hA-top .rw-play { margin-top: 0; box-shadow: var(--lu-highlight-rest); }
+.hA-cards { position: absolute; z-index: 10; left: var(--lu-edge-x); top: 372px; display: flex; gap: 24px; --rw-card-h: 400px; }
+.rw-card { position: relative; flex: none; width: var(--rw-card-w); height: var(--rw-card-h); padding: 28px 30px; border-radius: var(--lu-radius-card); background: var(--lu-sheet); box-shadow: inset 0 0 0 1px var(--lu-edge), var(--lu-shadow-rest); display: flex; flex-direction: column; overflow: hidden; }
+.rw-card.is-focused { background: color-mix(in srgb, var(--lu-ink) 9%, var(--lu-sheet)); transform: translateY(var(--lg-focus-lift)) scale(var(--lg-focus-scale)); box-shadow: inset 0 0 0 1px var(--lu-edge-raised), var(--lu-highlight-raised), var(--lg-focus-shadow); }
+.rw-card.is-focused::after { content: ""; position: absolute; left: 30px; right: 30px; bottom: 0; height: var(--lu-focus-indicator); border-radius: 2px; background: currentColor; }
+.rw-card.is-focused .k, .rw-card.is-focused .x, .rw-card.is-focused .rw-from, .rw-card.is-focused .rw-cap { color: var(--lu-ink); }
+.rw-card .k { font: 500 var(--lu-type-caption)/1.35 var(--lu-font); color: var(--lu-ink-2); }
+.rw-card .v { margin-top: 6px; font: 600 var(--lu-type-title)/1.2 var(--lu-font); letter-spacing: -.01em; }
+.rw-card .t { margin-top: 8px; font: 600 var(--lu-type-body)/1.3 var(--lu-font); }
+.rw-card .x { margin-top: 8px; font: 400 var(--lu-type-label)/1.4 var(--lu-font); color: var(--lu-ink-2); }
+.rw-card .foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.rw-card .rw-bar { margin-top: 18px; }
+.rw-icons { display: flex; gap: 12px; }
+.rw-icons img { width: var(--rw-thumb); height: var(--rw-thumb); border-radius: var(--lu-radius-control); }
+.rw-card.pic { padding: 0; }
+.rw-card.pic > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.rw-card.pic::before { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,.82)); }
+.rw-card.pic .over { position: absolute; z-index: 2; left: 30px; right: 30px; bottom: 26px; color: var(--pal-stage-ink); }
+.rw-card.pic .over .k { color: var(--pal-stage-ink); }
+
+/* ── Home B · Board ──────────────────────────────────────────────────────────────────── */
+.hB { position: absolute; z-index: 10; left: var(--lu-edge-x); top: 172px; }
+.hB-grid { display: grid; grid-template-columns: 432px repeat(6, 200px); grid-template-rows: 208px 208px; gap: 16px; }
+.hB-grid .rw-tile { width: 100%; height: 100%; --tile-scale: 1.05; }
+.hB-grid .rw-tile.big { grid-row: 1 / 3; --tile-scale: 1.03; }
+.hB-grid .rw-tile.big .logo { height: 30%; left: 14%; width: 72%; bottom: 12%; }
+.hB-head { margin: 46px 0 18px; display: flex; align-items: center; gap: 14px; }
+.hB-head .ic { width: 28px; height: 28px; color: var(--lu-ink-2); }
+.hB-pins { display: flex; gap: 16px; --tw: 200px; --th: 200px; }
+.hB-line { position: absolute; z-index: 10; left: var(--lu-edge-x); bottom: var(--lu-edge-y); font: 500 var(--lu-type-label)/1.3 var(--lu-font); color: var(--lu-ink-2); }
+.hB-line b { font-weight: 600; color: var(--lu-ink); }
+
+/* ── Home C · Quiet row ──────────────────────────────────────────────────────────────── */
+.hC-title { position: absolute; left: var(--lu-edge-x); top: 218px; }
+.hC-title .rw-cap { margin-top: 6px; }
+.hC-row { position: absolute; left: var(--lu-edge-x); top: 372px; display: flex; gap: 24px; --tw: 328px; --th: 328px; --tile-scale: 1.06; --land-gap: 22px; }
+.hC-row .rw-tile .logo { height: 34%; }
+.hC-all .rw-tile-art { display: grid; place-items: center; background: color-mix(in srgb, var(--lu-ink) 6%, var(--lu-canvas)); }
+.hC-all .rw-tile-art::before { display: none; }
+.hC-dock { position: absolute; left: 50%; bottom: var(--lu-edge-y); transform: translateX(-50%); display: flex; gap: 4px; padding: 6px; border-radius: var(--lu-radius-pill); background: var(--lg-nav-fill); box-shadow: inset 0 0 0 1px var(--lu-edge), var(--lu-highlight-raised), var(--lu-shadow-rest); }
+.hC-play { position: absolute; left: var(--lu-edge-x); top: 760px; }
+.hC-play .rw-play { margin-top: 0; box-shadow: var(--lu-highlight-rest); }
+.hB-line { display: flex; align-items: center; gap: 28px; }
+.hB-line .rw-play { margin-top: 0; box-shadow: var(--lu-highlight-rest); }
+[data-theme="light"] .rw-stage .nav { --lg-nav-fill: var(--lu-sheet); }
+
+/* ── Game page: shared parts ─────────────────────────────────────────────────────────── */
+.gp-logo { display: block; height: 132px; width: 100%; max-width: 460px; object-fit: contain; object-position: left bottom; }
+.gp-tabs { display: flex; align-items: center; gap: 20px; }
+.gp-step { gap: 18px; }
+.gp-step .ic { width: calc(28px * var(--lg-text-scale)); height: calc(28px * var(--lg-text-scale)); }
+.gp-facts .fact { background: color-mix(in srgb, var(--lu-ink) 4%, var(--lu-canvas)); }
+.gp-facts .fact .v { font: 600 var(--lu-type-title)/1.2 var(--lu-font); letter-spacing: -.01em; margin-top: 4px; }
+.gp-facts .fact .rw-bar { margin-top: 16px; }
+.gp-facts .fact .rw-cap { margin-top: 2px; }
+.gp-score { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 0 28px; }
+.gp-score + .rw-bar { margin: 16px 28px 0; }
+.gp-gap { height: 18px; }
+.gp-quote .rw-name { font-weight: 500; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.gp-quote { padding-top: 14px; padding-bottom: 14px; align-items: flex-start; }
+.gp-grid { margin: 22px 28px 0; display: grid; grid-template-columns: repeat(var(--gp-cols, 3), 1fr); gap: var(--lg-cover-gap); }
+.gp-pic { position: relative; aspect-ratio: 16 / 9; border-radius: var(--lu-radius-tile); overflow: hidden; background: var(--lg-stage); box-shadow: var(--lg-cover-rest); }
+.gp-pic > img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gp-pic::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--lu-edge); }
+.gp-pic.is-focused { transform: translateY(var(--lg-focus-lift)) scale(var(--lg-focus-scale)); box-shadow: var(--lg-focus-shadow); z-index: 2; }
+.gp-pic.is-focused::after { box-shadow: inset 0 0 0 1px var(--lu-edge-raised), inset 0 -4px 0 var(--pal-stage-ink); }
+.gp-playmark { position: absolute; left: 14px; bottom: 14px; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: var(--lg-stage); color: var(--pal-stage-ink); box-shadow: inset 0 0 0 1px var(--lu-edge-raised); }
+.gp-playmark .ic { width: 22px; height: 22px; fill: currentColor; }
+.gp-body-text { max-width: 60ch; margin: 0 28px; font: 400 var(--lu-type-body)/1.5 var(--lu-font); }
+.gp-body-text p + p { margin-top: .9em; }
+.gp-reader .gp-crumb { margin: 0 0 26px 14px; }
+.gp-reader .rw-title { margin: 0 28px; max-width: 24ch; }
+.gp-reader > .rw-cap { margin: 8px 28px 26px; }
+.gp-reader-foot { margin: 30px 28px 0; display: flex; justify-content: space-between; gap: 24px; max-width: 60ch; }
+.gp-ways { border-radius: var(--lu-radius-card); background: var(--lu-sheet); box-shadow: inset 0 0 0 1px var(--lu-edge), var(--lu-shadow-rest); padding: 8px; }
+.gp-body { overflow: hidden; }
+[data-text="200"] .gp-body { mask-image: linear-gradient(#000 calc(100% - 72px), transparent); }
+[data-text="200"] .gp-facts { flex-wrap: wrap; }
+[data-text="200"] .gp-facts .fact { flex: 1 1 40%; }
+
+/* ── Game B · Split: an art panel that holds Play, beside the four sections ──────────── */
+.gB-art { position: absolute; left: var(--lu-edge-x); top: var(--lu-edge-y); bottom: var(--lu-edge-y); width: 540px; border-radius: var(--lu-radius-sheet); overflow: hidden; background: var(--lg-stage); box-shadow: var(--lg-cover-rest); }
+.gB-art > img.art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 71% 30%; }
+.gB-art::before { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, rgba(0,0,0,.05) 0, rgba(0,0,0,.10) 34%, rgba(0,0,0,.86) 66%, rgba(0,0,0,.94) 100%); }
+.gB-art::after { content: ""; position: absolute; inset: 0; z-index: 3; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--lu-edge); pointer-events: none; }
+.gB-play { position: absolute; z-index: 2; left: 28px; right: 28px; bottom: 28px; }
+.gB-play .hero-meta { margin: 16px 0 24px; }
+.gB-play .btn { width: 100%; justify-content: center; }
+.gB-play .gp-where { margin-top: 10px; padding-left: 14px; padding-right: 20px; }
+.gB-play .gp-ways { margin-top: 10px; }
+.gB-pane { position: absolute; left: 684px; right: calc(var(--lu-edge-x) - 28px); top: var(--lu-edge-y); bottom: var(--rw-hint-clear); display: flex; flex-direction: column; }
+.gB-pane .gp-tabs { padding: 0 14px; min-height: var(--lu-target); }
+.gB-pane .gp-body { flex: 1; padding: 28px 0 0; }
+[data-text="200"] .gB-art { width: 600px; }
+[data-text="200"] .gB-pane { left: 730px; }
+[data-text="200"] .gp-logo { height: 110px; }
+[data-text="200"] .btn { min-height: calc(var(--lu-target) * 1.5); }
+
+/* ── Game A · Feed: art and Play first, the four sections as a strip along the bottom;
+      Down turns the page into the section feed under a slim Play bar ─────────────────── */
+.gA-head { position: absolute; z-index: 10; left: var(--lu-edge-x); bottom: 178px; width: 900px; }
+.gA-head .gp-logo { height: 168px; max-width: 600px; }
+.gA-head .actions, .gC-head .actions { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 14px; }
+.gA-strip { position: absolute; z-index: 10; left: calc(var(--lu-edge-x) - 14px); bottom: var(--lu-edge-y); }
+.gA-bar { position: absolute; left: var(--lu-edge-x); right: var(--lu-edge-x); top: var(--lu-edge-y); display: flex; align-items: center; gap: 14px; }
+.gA-bar .gp-logo { height: var(--lu-target); width: 220px; margin-right: 18px; }
+.gA-bar .gp-tabs { margin-left: auto; }
+.gA-cols { position: absolute; left: calc(var(--lu-edge-x) - 28px); right: calc(var(--lu-edge-x) - 28px); top: 170px; bottom: var(--rw-hint-clear); display: grid; grid-template-columns: 1fr 1fr; gap: 48px; overflow: hidden; }
+.gA-cols .group-label:first-child { margin-top: 0; }
+[data-text="200"] .gA-head { bottom: 250px; width: 1500px; }
+[data-text="200"] .gA-cols { grid-template-columns: 1fr; }
+
+/* ── Game C · Glance: one screen; each section is a card that opens a layer ──────────── */
+.gC-head { position: absolute; z-index: 10; left: var(--lu-edge-x); top: 250px; width: 900px; }
+.gC-head .gp-logo { height: 150px; max-width: 560px; }
+.gC-cards { position: absolute; z-index: 10; left: var(--lu-edge-x); right: 0; top: 650px; display: flex; gap: 24px; --rw-card-w: 414px; --rw-card-h: 276px; }
+.gC-cards .rw-card .x { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.gC-layer { top: var(--lu-edge-y); right: var(--lu-edge-x); bottom: var(--lu-edge-y); width: var(--rw-reader); padding: 28px 22px 0; display: flex; flex-direction: column; background: var(--rw-sheet-fill); z-index: 80; }
+.gC-layer .gp-tabs { padding: 0 14px; }
+.gC-layer .gp-body { flex: 1; padding-top: 26px; }
+[data-text="200"] .gC-head { top: 70px; width: 1500px; }
+[data-text="200"] .gC-cards { top: 490px; --rw-card-w: 840px; --rw-card-h: 400px; }
+.gC-layer .gp-body { mask-image: linear-gradient(#000 calc(100% - 56px), transparent); }
+
+/* ── Viewer: the picture, then chrome that leaves after 3 s (first key only brings it back) ─ */
+.vw-pic { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.vw-scrim { position: absolute; left: 0; right: 0; bottom: 0; height: 300px; background: linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,.82)); }
+.vw-cap { position: absolute; left: var(--lu-edge-x); bottom: var(--lu-edge-y); }
+.vw-cap .rw-h { color: var(--lu-ink); }
+
+/* ── Library ─────────────────────────────────────────────────────────────────────────── */
+.lib .filters .rw-cap { margin-left: auto; }
+.lib { bottom: 0; }
+.lib .grid { padding-top: 36px; }
+/* A scrolling grid ends in a canvas fade (one baked strip) so the hint bar never sits on art. */
+.lib .grid, .lB > [data-runs] { height: calc(1080px - var(--lu-edge-y) - var(--lg-nav-h) - 32px - var(--lu-target)); overflow: hidden; mask-image: linear-gradient(#000 calc(100% - 230px), transparent calc(100% - 96px)); }
+.lB > [data-runs] { height: 100%; padding: 12px 12px 0; margin: -12px -12px 0; }
+.lib .plate-title, .lB .plate-title, .lS .plate-title { font-size: var(--lu-type-body); }
+.srow.is-current .val { color: var(--lu-ink); }
+.lib .cover .rw-flag { left: 10px; top: 10px; }
+/* A, search: keys on the left, results on the right; the grid never moves under the keys. */
+.lS { position: absolute; left: var(--lu-edge-x); right: var(--lu-edge-x); top: calc(var(--lu-edge-y) + var(--lg-nav-h) + 32px); bottom: 0; display: grid; grid-template-columns: 482px minmax(0, 1fr); gap: 72px; }
+.lS-field { display: flex; align-items: center; gap: 16px; min-height: var(--lu-target); padding: 0 26px; margin-bottom: 22px; border-radius: var(--lu-radius-pill); background: color-mix(in srgb, var(--lu-ink) 7%, transparent); box-shadow: inset 0 0 0 1px var(--lu-edge-raised); font: 600 var(--lu-type-body)/1.2 var(--lu-font); }
+.lS-field .ic { width: 30px; height: 30px; color: var(--lu-ink-2); }
+.lS-field .caret { width: 3px; height: 34px; margin-left: -10px; border-radius: 2px; background: var(--lu-accent); }
+.lS .kbd-row { justify-content: flex-start; }
+.lS .key.space { width: 236px; }
+.lS .key.wide { width: 154px; }
+.lS-res .grid-row { --lg-cover-w: 216px; }
+.lS-res .rw-cap { margin-bottom: 22px; min-height: var(--lu-target); display: flex; align-items: center; }
+/* B: a filter panel that stays. */
+.lB { position: absolute; left: var(--lu-edge-x); right: var(--lu-edge-x); top: calc(var(--lu-edge-y) + var(--lg-nav-h) + 32px); bottom: 0; display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 48px; }
+.lB-panel { position: relative; align-self: start; padding: 14px; }
+.lB-panel .group-label { margin: 22px 28px 8px; }
+.lB .grid-row { --lg-cover-w: calc((1260px - 4 * var(--lg-cover-gap)) / 5); }
+.lB .grid-row + .grid-row { margin-top: 40px; }
+/* C: titles as a list, the highlighted game shown beside it. */
+.lC { position: absolute; left: calc(var(--lu-edge-x) - 28px); right: var(--lu-edge-x); top: calc(var(--lu-edge-y) + var(--lg-nav-h) + 32px); bottom: 0; display: grid; grid-template-columns: 780px minmax(0, 1fr); gap: 76px; }
+.lC-list { overflow: hidden; mask-image: linear-gradient(#000 calc(100% - 120px), transparent); }
+.lC-list .group-label:first-child { margin-top: 0; }
+.lC-list .group-label { font-size: var(--lu-type-title); color: var(--lu-ink); margin: 26px 28px 8px; letter-spacing: -.01em; }
+.lC-view { padding-top: 6px; }
+.lC-art { position: relative; aspect-ratio: 16 / 9; border-radius: var(--lu-radius-card); overflow: hidden; background: var(--lg-stage); box-shadow: var(--lg-cover-rest); }
+.lC-art > img.art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 60% 30%; }
+.lC-art::before { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,.78)); }
+.lC-art::after { content: ""; position: absolute; inset: 0; z-index: 3; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--lu-edge); }
+.lC-art .gp-logo { position: absolute; z-index: 2; left: 36px; bottom: 32px; height: 120px; max-width: 400px; }
+.lC-view .hero-meta { color: var(--lu-ink); margin: 26px 0 14px; }
+.lC-view .rw-row { padding-left: 0; }
+
+/* ── Accounts, Steam sign-in, Settings ───────────────────────────────────────────────── */
+.rw-ring { flex: none; width: 44px; height: 44px; border-radius: 50%; background: conic-gradient(var(--lu-accent) var(--p, 50%), color-mix(in srgb, var(--lu-ink) 18%, transparent) 0); mask: radial-gradient(circle, transparent 15px, #000 16px); }
+.rw-qr { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 56px; align-items: center; }
+.rw-qr.stack { grid-template-columns: 1fr; gap: 30px; justify-items: start; }
+.rw-qr-text { font: 400 var(--lu-type-body)/1.4 var(--lu-font); }
+.rw-qr-wait { margin-top: 28px; display: flex; align-items: center; gap: 18px; font: 500 var(--lu-type-label)/1.3 var(--lu-font); color: var(--lu-ink-2); font-variant-numeric: tabular-nums; }
+.rw-stepper { display: inline-flex; align-items: center; gap: 14px; min-height: 52px; padding: 0 14px; border-radius: var(--lu-radius-pill); background: color-mix(in srgb, var(--lu-ink) 7%, transparent); font: 600 var(--lu-type-label)/1.2 var(--lu-font); white-space: nowrap; }
+.rw-stepper .ic { width: 26px; height: 26px; color: var(--lu-ink-2); }
+.rw-danger .rw-name { color: var(--lu-ink); }
+.rw-danger .rw-gt .ic { color: var(--lu-danger); }
+/* Settings anatomy, as LumaTV's: a title, a rail sheet, a pane sheet. */
+.sT-title { position: absolute; left: calc(var(--lu-edge-x) - 6px); top: var(--lu-edge-y); display: flex; align-items: center; gap: 20px; min-height: var(--lu-target); }
+.sT { position: absolute; left: var(--lu-edge-x); right: var(--lu-edge-x); top: calc(var(--lu-edge-y) + var(--lu-target) + 28px); bottom: var(--rw-hint-clear); display: grid; grid-template-columns: 500px minmax(0, 1fr); gap: 24px; }
+.sT > .sheet { position: relative; z-index: auto; padding: 16px; overflow: hidden; }
+.srow.is-current .sub { color: var(--lu-ink); }
+.sT-pane-head { display: flex; align-items: center; gap: 20px; padding: 12px 28px 18px 14px; }
+.sT-pane-head .rw-title { flex: 1; }
+.sT-pane-head .gp-crumb { margin: 0; }
+.sT-lede { max-width: 56ch; margin: 0 28px 18px; font: 400 var(--lu-type-body)/1.45 var(--lu-font); }
+.sT .group-label { margin-top: 22px; }
+/* Settings B: a landing of tiles that show their current values. */
+.sB { position: absolute; left: var(--lu-edge-x); right: var(--lu-edge-x); top: calc(var(--lu-edge-y) + var(--lu-target) + 40px); display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--lg-cover-gap); --rw-card-w: auto; --rw-card-h: 372px; }
+.sB .rw-card .rw-gt { margin-bottom: 20px; }
+.sB .rw-card .t { margin-top: 0; }
+.sB .rw-card .x { margin-top: 10px; line-height: 1.5; }
+/* Steam B: the prompt sits where the data would be. */
+.gp-prompt { margin-bottom: 10px; background: var(--rw-tint); box-shadow: inset 0 0 0 1px var(--lu-edge); }
+.gp-prompt.is-focused { background: color-mix(in srgb, var(--lu-ink) 12%, var(--lu-canvas)); }
+
+/* ── Launch and in-stream ────────────────────────────────────────────────────────────── */
+.frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.lA-menu { position: absolute; z-index: 60; left: var(--lu-edge-x); top: 50%; transform: translateY(-50%); width: 720px; }
+.lA-menu .rw-title { margin: 0 28px 6px; }
+.lA-menu > .rw-cap { margin: 0 28px 26px; }
+.lB-run { margin-top: 4px; }
+.lB-run .rw-h { display: flex; align-items: center; gap: 18px; }
+.lB-run .rw-cap { margin: 10px 0 20px; color: var(--lu-ink); }
+.lB-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 4px 6px 14px; }
+.lB-facts .fact { padding: 16px 22px; }
+.lB-tabs { margin: 0 6px 18px; }
+.lB-tabs.seg > span { padding: 0 20px; gap: 10px; }
+.lB-tabs .ic { width: 28px; height: 28px; }
+.lC-wait { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); display: grid; justify-items: center; gap: 30px; text-align: center; }
+.lC-wait .gp-logo { height: 150px; width: 520px; max-width: none; object-position: center; }
+.lC-wait .rw-ring { width: 92px; height: 92px; mask: radial-gradient(circle, transparent 37px, #000 38px); }
+.lC-strip { position: absolute; z-index: 60; left: 50%; bottom: var(--lu-edge-y); transform: translateX(-50%); display: flex; gap: 6px; padding: 8px; border-radius: var(--lu-radius-pill); background: var(--rw-sheet-fill); box-shadow: inset 0 0 0 1px var(--lu-edge), var(--lu-highlight-raised), var(--lu-shadow-raised); }
+.lC-strip .nav-item .ic.bad { color: var(--lu-danger); }
+.lC-stats { position: absolute; z-index: 60; right: var(--lu-edge-x); top: var(--lu-edge-y); display: flex; gap: 22px; padding: 12px 26px; border-radius: var(--lu-radius-pill); background: var(--rw-sheet-fill); box-shadow: inset 0 0 0 1px var(--lu-edge); font: 600 var(--lu-type-label)/1.3 var(--lu-font); font-variant-numeric: tabular-nums; }
+.rw-confirm { padding: 44px 48px 44px; }
+.rw-confirm .sheet-text { padding: 0; margin: 14px 0 34px; font: 400 var(--lu-type-body)/1.4 var(--lu-font); }
+.rw-confirm .actions { display: flex; gap: 14px; }

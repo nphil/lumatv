@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Settings C · Quick panel</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Settings C, Quick panel: the five settings changed most often sit in the quick menu's
+  // drawer and change in place; everything else is one row further, in the full settings.
+  const { ic, row, toggle, stepper, crumb, btn, hintsInline, homeSpotlight } = RW;
+  document.querySelector(".screen").innerHTML = `<div class="rw-stage on-stage">${homeSpotlight()}</div>
+    <div class="scrim rw-scrim-side"></div>
+    <aside class="sheet rw-drawer"><div class="rw-drawer-head">${crumb("Menu")}<h2 class="rw-title">Quick settings</h2></div>
+      ${row({ icon: "monitor-play", name: "Stream", right: stepper("4K, 120 fps"), focus: true })}
+      ${row({ icon: "sun", name: "HDR", right: toggle(true) })}
+      ${row({ icon: "gauge", name: "Stats while playing", right: toggle(false) })}
+      ${row({ icon: "palette", name: "Theme", right: stepper("Rosé Pine") })}
+      ${row({ icon: "type", name: "Text size", right: stepper("100%") })}
+      <div class="rw-drawer-foot">${hintsInline([["key-back", "Back"]])}${btn("All settings", "settings")}</div></aside>`;
+  RW.ready();
+</script>
+</body>
+</html>

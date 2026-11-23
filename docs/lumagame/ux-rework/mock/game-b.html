@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Game page B · Split</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Game page B, Split: a tall art panel holds the game, Play and the one where-to-play row;
+  // the four sections sit beside it and read in place, so Play never leaves the screen.
+  // ?view=community|media|reader|where
+  const { games, steam, ic, esc, hints, btn, tabs, sec, where, q } = RW;
+  const g = games.hades2;
+  const view = q.get("view") || "activity";
+  const inPane = view !== "activity" && view !== "where";
+  const body = { activity: () => sec.activity(), where: () => sec.activity(), community: () => sec.community({ focus: 0 }), media: () => sec.media({ focus: 0 }), reader: () => sec.reader() }[view]();
+  const cur = { community: "Community", media: "Media" }[view] || "Activity";
+  const hint = view === "reader" ? [["key-down", "Page"], ["key-back", "Back"]] : inPane ? [["key-ok", "Open"], ["key-back", "Play"]] : [["key-right", "Sections"], ["key-menu", "Menu"]];
+  document.querySelector(".screen").innerHTML = `
+    <aside class="gB-art on-stage">
+      <img class="art" src="${g.hero}" alt="">
+      <div class="gB-play">
+        <img class="gp-logo" data-trim src="${g.logo}" alt="${esc(g.title)}">
+        <div class="hero-meta"><span>Played 2 h ago</span><i class="sep"></i><span>${steam.hours}</span></div>
+        ${btn("Play", "play", { primary: true, focus: !inPane && view !== "where" })}
+        ${where({ open: view === "where" })}
+      </div>
+    </aside>
+    <main class="gB-pane">
+      ${view === "reader" ? "" : tabs(cur)}
+      <div class="gp-body" data-runs>${body}</div>
+    </main>
+    ${hints(hint)}`;
+  RW.ready();
+</script>
+</body>
+</html>

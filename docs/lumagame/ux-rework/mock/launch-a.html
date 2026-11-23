@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Launch A · Stage</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Launch A, Stage: the game's art fills the screen while it starts, with only the steps
+  // this way of playing has. ?view=menu is the in-game menu: a list on an opaque stage.
+  const { games, ic, esc, hints, row, val, q } = RW;
+  const g = games.hades2, c = games.cyberpunk;
+  const curtain = `<div class="rw-stage on-stage">
+    <div class="stage curtain-stage"><img src="${g.hero}" alt=""></div>
+    <div class="curtain">
+      <img class="curtain-logo" data-trim src="${g.logo}" alt="${esc(g.title)}">
+      <div class="steps"><span class="done">${ic("check")}Signed in</span><span class="now">${ic("hourglass")}In queue</span><span>Starting</span><span>Connecting</span></div>
+      <div class="curtain-line"><div class="t-display">14 ahead</div><div class="curtain-sub">GeForce NOW, about 2 min</div></div>
+      <div class="progress"><b style="width:38%"></b></div>
+    </div>
+    ${hints([["key-back", "Cancel"]])}</div>`;
+  const menu = `<img class="frame" src="${RW.BASE}assets/1091500/frame.jpg" alt=""><div class="scrim hides"></div>
+    <main class="lA-menu"><h1 class="rw-title">${esc(c.title)}</h1><div class="rw-cap">Gaming PC, 1 h 12 min</div>
+      ${row({ icon: "play", name: "Resume", focus: true })}
+      ${row({ icon: "gauge", name: "Picture and stats", right: val("4K, 120 fps, 18 ms", true) })}
+      ${row({ icon: "gamepad-2", name: "Controller", right: val("DualSense", true) })}
+      ${row({ icon: "trophy", name: "Achievements", right: val("12 of 44", true) })}
+      ${row({ icon: "power", name: "End session", cls: "rw-danger" })}
+    </main>
+    ${hints([["key-back", "Resume"]])}`;
+  document.querySelector(".screen").innerHTML = q.get("view") === "menu" ? menu : curtain;
+  RW.ready();
+</script>
+</body>
+</html>

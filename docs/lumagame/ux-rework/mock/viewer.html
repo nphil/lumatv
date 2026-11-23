@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Game page · Viewer</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Full-screen viewer for the Media section. Left and Right step through the gallery; the
+  // caption and hints leave after 3 s without a key (?chrome=0), the first key only returns them.
+  const { ic, hints, q } = RW;
+  const chrome = q.get("chrome") !== "0";
+  document.querySelector(".screen").innerHTML = `<div class="rw-stage on-stage">
+    <img class="vw-pic" src="assets/shots/full-1.jpg" alt="">
+    ${chrome ? `<div class="vw-scrim"></div>
+    <div class="vw-cap"><div class="rw-h">Hades II</div><div class="rw-cap">3 of 24, community screenshot</div></div>
+    ${hints([["key-right", "Next"], ["key-back", "Back"]])}` : ""}</div>`;
+  RW.ready();
+</script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Settings A · Rail</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Settings A, Rail: LumaTV's settings anatomy with five places. Accounts and PCs comes
+  // first; every row opens its own page and shows one word of state.
+  const { hints, accounts, settingsRail, settingsTitle } = RW;
+  document.querySelector(".screen").innerHTML = `${settingsTitle()}
+    <main class="sT">
+      <aside class="sheet rail">${settingsRail("accounts")}</aside>
+      <section class="sheet"><div class="sT-pane-head"><h2 class="rw-title" style="padding-left:14px">Accounts and PCs</h2></div>${accounts({ focus: "desk" })}</section>
+    </main>
+    ${hints([["key-ok", "Open"], ["key-back", "Back"]])}`;
+  RW.ready();
+</script>
+</body>
+</html>

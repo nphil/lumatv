@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumaGame · Steam A · Accounts page</title>
+<link rel="stylesheet" href="../../mock/tokens.css">
+<link rel="stylesheet" href="../../mock/lumagame.css">
+<link rel="stylesheet" href="rework.css">
+<script src="../../mock/themes.js"></script>
+</head>
+<body>
+<div class="screen"></div>
+<script src="../../mock/icons.js"></script>
+<script src="../../mock/kit.js"></script>
+<script src="rework.js"></script>
+<script>
+  // Steam A, Accounts page: Steam has one page of its own under Settings, Accounts and PCs,
+  // beside the services and PCs. It says what Steam adds, what it matched and when.
+  // ?state=qr is sign-in from the same page.
+  const { ic, hints, row, val, toggle, crumb, chip, qr, settingsRail, settingsTitle, hintsInline, q } = RW;
+  const signin = q.get("state") === "qr";
+  const linked = `${row({ icon: "user-round", name: "Account", right: val("Nitin") })}
+      ${row({ icon: "library-big", name: "Games matched", right: val("118 of 142") })}
+      ${row({ icon: "clock", name: "Updated", right: val("2 min ago") })}
+      ${row({ icon: "newspaper", name: "News and reviews", sub: "On game pages", right: toggle(true), focus: true })}
+      ${row({ icon: "log-out", name: "Sign out", cls: "rw-danger" })}`;
+  const out = row({ icon: "qr-code", name: "Sign in", sub: "With the Steam app on a phone", right: ic("chevron-right", "rw-st") });
+  document.querySelector(".screen").innerHTML = `${settingsTitle()}
+    <main class="sT">
+      <aside class="sheet rail">${settingsRail("accounts")}</aside>
+      <section class="sheet">
+        <div class="sT-pane-head">${crumb("Accounts and PCs")}<h2 class="rw-title">Steam</h2>${signin ? chip("signin", "Not linked") : chip("ready", "Linked")}</div>
+        <p class="sT-lede">Adds play time, achievements, news and reviews to games already in the library.</p>
+        ${signin ? out : linked}
+      </section>
+    </main>
+    ${signin ? `<div class="scrim hides"></div><div class="sheet-wrap"><section class="sheet dialog mid">
+      <div class="sheet-head"><h2 class="t-title">Sign in to Steam</h2></div>
+      <div style="padding: 34px 26px 38px">${qr()}</div>
+      <div class="sheet-foot">${hintsInline([["key-back", "Cancel"]])}</div></section></div>` : hints([["key-ok", "Turn off"], ["key-back", "Back"]])}`;
+  RW.ready();
+</script>
+</body>
+</html>
