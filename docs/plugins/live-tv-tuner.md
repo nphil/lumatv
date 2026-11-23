@@ -21,6 +21,7 @@ On the TV's private address, port 5004 (`hdhr` in `helper.json`: `port`, `bind`,
 | `GET /status.json` | who has the tuner, without tuning or asking the TV: `{"holder": {"ip", "name", "channel", "channelName", "since"}}` (`name` is `Plex` for the signed-in Plex server's address or a Plex user agent, else the user agent's product; `since` in Unix ms), or `{"holder": null}` while no client's stream has it |
 | `GET /xmltv.xml` | the TV's own guide, a day back to six days ahead, as XMLTV; with the Guide data plugin on, the online listings laid over it ([guide-data.md](guide-data.md)) |
 | `GET /auto/v<number>` | MPEG-TS of one channel (`/auto/v2.4`), starting with the program's PAT and PMT. With the tuner's messages on (the default) it is answered at once and opens with a slate while the channel tunes; otherwise it is answered once the channel's first whole picture has come, and starts with that picture |
+| `GET /auto/v<number>?transcode=<profile>` | the same channel as H.264 from the TV's own video hardware, when the owner has switched that on (*H.264 on request*, below) |
 
 A request the tuner cannot take is refused with the HDHomeRun error a player expects: 503 with `805 All Tuners In Use` (another
 client's stream, or the TV's own Live TV), 404 with `801 Unknown Channel`. With the messages on, a tuner in use is answered with 200
@@ -55,6 +56,36 @@ after the start and passes a time jump through, which is why (`docs/research/tun
 (H.264, HEVC) is served without slates, from its first IDR picture: at once when it was not seen yet (nothing has gone out while its
 shape was waited for), and from the start of every stream once its type is known.
 
+## H.264 on request
+
+A player that adds `?transcode=<profile>` to a channel's address (the HDHomeRun's EXTEND request, which Marquee's phone apps send) is
+given H.264 in place of the station's MPEG-2, made by the TV's own video decoder and encoder. The converter is off until the owner
+switches on *Make H.264 for players that ask* on the plugin's page: with it off every stream is as the station sends it.
+
+| Profile | Picture | Video |
+|---|---|---|
+| `mobile` | progressive, at most 1280x720 (960x720 for a 4:3 station) and 30 frames a second | 3.5 Mbit/s |
+| `internet540`, `internet480`, `internet360`, `internet240` | progressive, at most 30 frames a second, within 960x540, 848x480, 640x360 or 432x240 (720x540, 640x480, 480x360 or 320x240 for 4:3) | 2, 1.2, 0.8 or 0.4 Mbit/s |
+| `heavy` | the station's own size and rate | 9 Mbit/s above 720 lines, 6 at 720, 2.5 below |
+
+The stream is H.264 High with a key frame once a second and the station's AC-3 sound passed through. A picture is never enlarged, and
+59.94 frames a second become 29.97. With the setting on, a name not in the table is refused with 400 and `802 Unknown Transcode
+Profile`. The first picture comes about 1.5 s after the request (3 s at most) and no slate is sent: the messages in the stream are MPEG-2.
+
+The video hardware is the TV's own, so the converter gives way. It converts only while Home or LumaTV is in front and no other program
+holds a video decoder; when an app takes the hardware the stream ends within a second and the page says `Paused` and why. A player
+reconnects when a stream ends, and a request that comes while the hardware is taken is served as the station sends it. Also:
+
+- a station that is H.264 already, an SD picture in 16:9 and an anamorphic HD one are sent as the station sends them: the converter
+  would get their shape wrong;
+- a converter that cannot start, or stalls, leaves the request as MPEG-2 and rests for a minute;
+- one that fails in mid-stream ends the stream, and the player's next request is MPEG-2;
+- one whose hardware call does not return stops until the helper restarts, and the page says so.
+
+The converter is a program the helper carries and writes to `/tmp/lumatv-xcode/` only while the setting is on. The engine that shares
+the TV's one encoder is the `lumaxcode` crate (`helper/xcode`), with no LumaTV code in it; `docs/research/hw-transcode.md` has the
+measurements.
+
 ## Players
 
 | Player | What it is given |
@@ -71,12 +102,14 @@ change); another client is refused (503) while a stream runs.
 The tuner answers while the TV is on with any app in front, or off in Always Ready (Active Standby). A stream takes only the tuner and
 the section decoder: the app in front keeps its picture and sound (Netflix in 4K, which holds every video decoder, too), and the TV's
 last channel stays as it was. With Always Ready off, a TV switched off sleeps and nothing answers; the plugin's page says so.
+A conversion is the exception: it also takes a video decoder and the encoder, and gives them up when an app other than Home needs them.
 
 ## Settings
 
 The page has the switch, where the tuner stands (idle, streaming a channel, busy while the TV's own Live TV has it, checking reception
 or measuring a channel for the meter), the three addresses to give a player, the networks it answers, the name players show and the
-switch for the messages in the stream. Turning it off asks nothing.
+switch for the messages in the stream, and the switch for H.264 (*Make H.264 for players that ask*, off) with a line that says whether the
+converter is ready, converting, paused for an app or not available. Turning it off asks nothing.
 
 Its antenna meter reads the TV's demodulator about once a second while the page is open, of an RF channel picked (the helper tunes its
 first channel) or of the one the tuner is on: a bar of the signal to noise from 16 to 30 dB in the verdict's colour, a tick at the best
