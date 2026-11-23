@@ -177,7 +177,7 @@ fn decode(key: &Key, dim: bool) -> Result<(Image, Option<Image>), String> {
         image = backdrop(image, s.height, stage);
     }
     if s.radius > 0 {
-        round(&mut image, s.radius);
+        round(&mut image.rgba, image.width, image.height, s.radius);
     }
     let dimmed = s.stage.as_ref().filter(|_| dim).map(|stage| scrimmed(&image, stage.scrim));
     Ok((image, dimmed))
@@ -266,22 +266,23 @@ fn scrimmed(image: &Image, scrim: [u8; 4]) -> Image {
     }
     Image { width: image.width, height: image.height, rgba }
 }
-fn round(image: &mut Image, radius: u32) {
-    let r = radius.min(image.width / 2).min(image.height / 2) as f32;
-    for y in 0..image.height {
-        if y >= radius && y < image.height.saturating_sub(radius) {
+/// Rounds the corners of premultiplied `rgba`, `width` by `height`, to `radius`.
+pub(super) fn round(rgba: &mut [u8], width: u32, height: u32, radius: u32) {
+    let r = radius.min(width / 2).min(height / 2) as f32;
+    for y in 0..height {
+        if y >= radius && y < height.saturating_sub(radius) {
             continue;
         }
-        for x in 0..image.width {
-            if x >= radius && x < image.width.saturating_sub(radius) {
+        for x in 0..width {
+            if x >= radius && x < width.saturating_sub(radius) {
                 continue;
             }
             let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
-            let cx = fx.clamp(r, image.width as f32 - r);
-            let cy = fy.clamp(r, image.height as f32 - r);
+            let cx = fx.clamp(r, width as f32 - r);
+            let cy = fy.clamp(r, height as f32 - r);
             let a = (r + 0.5 - (fx - cx).hypot(fy - cy)).clamp(0.0, 1.0);
-            let i = ((y * image.width + x) * 4) as usize;
-            for c in &mut image.rgba[i..i + 4] {
+            let i = ((y * width + x) * 4) as usize;
+            for c in &mut rgba[i..i + 4] {
                 *c = (f32::from(*c) * a).round() as u8;
             }
         }
@@ -512,7 +513,7 @@ mod tests {
         image.rgba[20..24].copy_from_slice(&[128, 64, 0, 128]);
         align_logo(&mut image);
         assert_eq!(&image.rgba[48..52], &[128, 64, 0, 128]);
-        round(&mut image, 2);
+        round(&mut image.rgba, image.width, image.height, 2);
         assert!(image.rgba.chunks_exact(4).all(|p| p[..3].iter().all(|c| *c <= p[3])));
     }
     #[test]

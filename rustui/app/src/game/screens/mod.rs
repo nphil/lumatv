@@ -408,7 +408,7 @@ impl GameUi {
                 }
                 Body::Qr(value) => {
                     let mut layer = self.ui.scene.image(node.frame.w as u32, node.frame.h as u32, node.z, node.props)?;
-                    draw_qr(&mut layer, value)?;
+                    draw_qr(&mut layer, value, self.tokens.radius(lumatv_tokens::Radius::Card) as u32)?;
                     Layer::Image(layer)
                 }
                 Body::Symbol(symbol, colour) => {
@@ -451,7 +451,7 @@ impl GameUi {
                     layer.pixels_mut().copy_from_slice(&image.rgba);
                     layer.damage(None);
                 }
-                (Layer::Image(layer), Body::Qr(value)) => draw_qr(layer, value)?,
+                (Layer::Image(layer), Body::Qr(value)) => draw_qr(layer, value, self.tokens.radius(lumatv_tokens::Radius::Card) as u32)?,
                 (Layer::Image(layer), Body::Symbol(symbol, colour)) => symbols::draw(layer, *symbol, *colour),
                 _ => unreachable!(),
             }
@@ -490,7 +490,8 @@ fn items<'a>(words: &'a [paint::Word], marks: &[paint::Mark]) -> Vec<Item<'a>> {
         .chain(marks.iter().map(|m| Item::Mark(Mark { form: m.form, colour: m.colour, x: m.x as i32, y: m.y as i32 })))
         .collect()
 }
-fn draw_qr(layer: &mut ImageLayer, value: &str) -> io::Result<()> {
+/// The QR code on a white plate with the card's corners (`.qr` in the mock).
+fn draw_qr(layer: &mut ImageLayer, value: &str, radius: u32) -> io::Result<()> {
     let qr = qrcodegen::QrCode::encode_text(value, qrcodegen::QrCodeEcc::Medium).map_err(io::Error::other)?;
     let modules = qr.size() + 8;
     let side = layer.width().min(layer.height()) as i32;
@@ -515,6 +516,8 @@ fn draw_qr(layer: &mut ImageLayer, value: &str) -> io::Result<()> {
             }
         }
     }
+    let (width, height) = (layer.width(), layer.height());
+    art::round(layer.pixels_mut(), width, height, radius);
     layer.damage(None);
     Ok(())
 }
