@@ -1,0 +1,589 @@
+| walk | frames | layers | full-screen | draw calls | first-frames upload MB | key-frames upload MB | captures | broken |
+|---|---|---|---|---|---|---|---|---|
+| `01-home` | 172 | 60 | 2 | 104 | 8.3 | 1.4 | 2 | 167 |
+| `01-home-play-focus` | 156 | 67 | 2 | 125 | 8.3 | 5.5 | 5 | 108 |
+| `01-home-details-focus` | 156 | 67 | 2 | 125 | 8.3 | 6.4 | 4 | 107 |
+| `02-home-most-played` | 156 | 58 | 2 | 123 | 8.3 | 6.1 | 0 | 155 |
+| `03-home-genres` | 156 | 46 | 2 | 111 | 8.3 | 5.6 | 0 | 140 |
+| `04-home-native-plate` | 156 | 45 | 2 | 81 | 8.3 | 3.3 | 0 | 114 |
+| `05-home-cinematic` | 174 | 58 | 2 | 98 | 8.3 | 0.7 | 2 | 130 |
+| `06-home-compact` | 168 | 68 | 2 | 130 | 8.3 | 0.6 | 2 | 201 |
+| `07-library` | 181 | 72 | 1 | 159 | 8.3 | 1.3 | 0 | 130 |
+| `07-library-sort` | 156 | 73 | 1 | 252 | 0.0 | 4.7 | 1 | 157 |
+| `08-hub` | 203 | 39 | 1 | 107 | 8.3 | 0.0 | 2 | 2 |
+| `08-hub-ways` | 198 | 38 | 1 | 105 | 8.3 | 8.3 | 1 | 1 |
+| `08-hub-media` | 158 | 38 | 1 | 103 | 8.3 | 8.3 | 1 | 1 |
+| `09-chooser` | 181 | 37 | 2 | 141 | 8.3 | 0.0 | 2 | 158 |
+| `32-chooser-text200` | 167 | 38 | 2 | 108 | 0.1 | 0.0 | 1 | 168 |
+| `10-integrations` | 159 | 39 | 0 | 75 | 0.0 | 0.0 | 0 | 0 |
+| `13-settings-appearance` | 158 | 68 | 0 | 215 | 0.0 | 0.0 | 2 | 160 |
+| `14-settings-streaming` | 158 | 57 | 0 | 81 | 0.0 | 0.0 | 0 | 158 |
+| `14-settings-streaming-limited` | 157 | 58 | 0 | 82 | 0.0 | 0.0 | 0 | 157 |
+| `14-settings-streaming-wifi` | 156 | 58 | 0 | 82 | 0.0 | 0.0 | 0 | 156 |
+| `25-settings-controllers` | 159 | 51 | 0 | 69 | 0.0 | 0.0 | 0 | 159 |
+| `26-settings-about` | 157 | 67 | 0 | 109 | 6.9 | 0.0 | 0 | 134 |
+| `52-diagnostics-dark` | 158 | 46 | 0 | 121 | 0.0 | 0.0 | 0 | 158 |
+| `33-settings-text200` | 165 | 48 | 0 | 75 | 0.1 | 0.0 | 0 | 156 |
+| `33-settings-text200-limited` | 157 | 49 | 0 | 69 | 0.0 | 0.0 | 0 | 157 |
+| `54-diagnostics-token-masked` | 160 | 126 | 1 | 303 | 0.0 | 0.0 | 1 | 161 |
+| `55-diagnostics-long-text200-test-focused` | 159 | 42 | 0 | 89 | 0.1 | 0.0 | 0 | 0 |
+| `27-theme-picker` | 157 | 72 | 1 | 335 | 2.3 | 0.0 | 4 | 161 |
+| `11-pairing` | 157 | 51 | 1 | 273 | 0.0 | 0.0 | 0 | 106 |
+| `12-signin` | 157 | 48 | 1 | 211 | 0.5 | 0.0 | 0 | 106 |
+| `28-enter-pin` | 156 | 73 | 1 | 176 | 0.0 | 0.0 | 0 | 156 |
+| `29-approval` | 156 | 43 | 1 | 201 | 0.0 | 0.0 | 0 | 0 |
+| `17-state-checking` | 231 | 14 | 1 | 41 | 8.3 | 0.0 | 0 | 0 |
+| `18-state-queue` | 156 | 14 | 1 | 44 | 0.0 | 0.0 | 0 | 0 |
+| `17-state-queue-unknown` | 156 | 14 | 1 | 43 | 0.0 | 0.0 | 0 | 0 |
+| `17-state-long-title` | 221 | 14 | 1 | 41 | 8.3 | 0.0 | 0 | 0 |
+| `19-state-starting` | 156 | 14 | 1 | 45 | 8.9 | 0.0 | 0 | 0 |
+| `40-running-transparent` | 156 | 0 | 0 | 0 | 0.0 | 0.0 | 0 | 0 |
+| `52-idle-warning` | 156 | 2 | 0 | 5 | 0.0 | 0.0 | 0 | 0 |
+| `53-idle-ended` | 184 | 27 | 1 | 66 | 8.3 | 0.6 | 2 | 2 |
+| `48-stats-compact-healthy` | 157 | 2 | 0 | 6 | 0.0 | 0.0 | 0 | 0 |
+| `48-stats-full-healthy` | 157 | 2 | 0 | 3 | 2.3 | 0.0 | 0 | 0 |
+| `48-stats-compact-network` | 159 | 2 | 0 | 3 | 0.1 | 0.0 | 0 | 0 |
+| `48-stats-full-network` | 156 | 2 | 0 | 3 | 2.4 | 0.0 | 0 | 0 |
+| `48-stats-compact-host` | 156 | 2 | 0 | 3 | 0.1 | 0.0 | 0 | 0 |
+| `48-stats-full-host` | 156 | 2 | 0 | 3 | 2.4 | 0.0 | 0 | 0 |
+| `48-stats-compact-tv` | 156 | 2 | 0 | 3 | 0.1 | 0.0 | 0 | 0 |
+| `48-stats-full-tv` | 156 | 2 | 0 | 3 | 2.4 | 0.0 | 0 | 0 |
+| `51-stats-full-stale` | 156 | 2 | 0 | 3 | 2.3 | 0.0 | 0 | 0 |
+| `15-overlay` | 156 | 57 | 1 | 151 | 8.6 | 0.6 | 1 | 52 |
+| `45-controller-lab-stream` | 156 | 34 | 0 | 49 | 0.9 | 0.0 | 0 | 0 |
+| `45-controller-lab-stream-bottom` | 156 | 43 | 0 | 101 | 0.0 | 0.3 | 1 | 1 |
+| `16-overlay-end-confirm` | 156 | 0 | 0 | 0 | 0.0 | 0.0 | 0 | 0 |
+| `20-state-failed` | 156 | 40 | 1 | 104 | 8.5 | 0.4 | 3 | 3 |
+| `21-state-offline-pc` | 157 | 28 | 1 | 114 | 0.0 | 0.0 | 2 | 2 |
+| `22-state-first-run` | 156 | 30 | 0 | 69 | 2.1 | 0.0 | 0 | 0 |
+| `30-home-text200` | 171 | 54 | 2 | 105 | 8.3 | 0.9 | 2 | 151 |
+| `31-hub-text200` | 156 | 35 | 2 | 98 | 10.7 | 2.0 | 2 | 53 |
+| `37-search` | 160 | 104 | 0 | 158 | 0.0 | 0.4 | 0 | 79 |
+| `38-search-keyboard` | 175 | 118 | 0 | 333 | 0.9 | 3.9 | 1 | 176 |
+| `39-media-image` | 183 | 40 | 1 | 82 | 8.3 | 5.9 | 0 | 0 |
+| `35-hub-solarized` | 175 | 39 | 1 | 97 | 8.3 | 0.0 | 3 | 3 |
+| `41-add-pc` | 156 | 117 | 1 | 226 | 0.0 | 0.0 | 0 | 156 |
+| `42-edit-path` | 156 | 117 | 1 | 207 | 0.0 | 0.0 | 0 | 156 |
+| `43-controller-lab` | 156 | 106 | 0 | 166 | 0.8 | 0.0 | 0 | 156 |
+| `43-controller-sticks` | 156 | 106 | 0 | 166 | 0.0 | 0.0 | 0 | 156 |
+| `43-controller-buttons` | 156 | 106 | 0 | 283 | 0.0 | 0.3 | 2 | 158 |
+| `43-controller-timing` | 156 | 104 | 0 | 287 | 0.0 | 0.3 | 1 | 157 |
+| `43-controller-shaping` | 156 | 103 | 0 | 145 | 0.2 | 0.0 | 0 | 156 |
+| `43-controller-captured` | 156 | 57 | 0 | 83 | 0.3 | 0.0 | 0 | 156 |
+| `44-controller-flash` | 156 | 9 | 1 | 12 | 0.4 | 0.0 | 0 | 0 |
+| `46-gamesir-off` | 156 | 40 | 1 | 90 | 11.4 | 2.4 | 0 | 0 |
+| `46-gamesir-missing` | 156 | 40 | 1 | 90 | 11.4 | 3.8 | 0 | 0 |
+| `46-gamesir-ds4` | 156 | 40 | 1 | 90 | 11.4 | 2.4 | 0 | 0 |
+| `46-gamesir-ready` | 156 | 33 | 0 | 73 | 0.3 | 0.3 | 0 | 0 |
+| `46-gamesir-bottom` | 156 | 33 | 0 | 42 | 0.3 | 0.3 | 0 | 0 |
+| `46-gamesir-pending` | 156 | 33 | 0 | 42 | 0.0 | 0.0 | 0 | 0 |
+| `46-gamesir-error` | 156 | 33 | 0 | 42 | 0.3 | 0.0 | 0 | 0 |
+| `47-leadjoy-off` | 156 | 40 | 1 | 90 | 11.4 | 3.8 | 0 | 0 |
+| `47-leadjoy-missing` | 156 | 40 | 1 | 90 | 11.4 | 3.8 | 0 | 0 |
+| `47-leadjoy-unsupported` | 156 | 40 | 1 | 90 | 11.4 | 3.8 | 0 | 0 |
+| `47-leadjoy-ready` | 156 | 33 | 0 | 69 | 0.0 | 0.3 | 0 | 0 |
+| `47-leadjoy-pending` | 156 | 33 | 0 | 40 | 0.0 | 0.0 | 0 | 0 |
+| `47-leadjoy-error` | 156 | 32 | 0 | 39 | 0.3 | 0.0 | 0 | 0 |
+| `47-leadjoy-profiles` | 156 | 28 | 0 | 35 | 0.3 | 0.3 | 0 | 0 |
+| `47-leadjoy-rename` | 156 | 121 | 1 | 213 | 0.3 | 0.0 | 0 | 156 |
+| `47-leadjoy-buttons` | 156 | 34 | 0 | 41 | 0.0 | 0.0 | 0 | 0 |
+| `47-leadjoy-macros` | 156 | 34 | 0 | 41 | 0.0 | 0.3 | 0 | 0 |
+| `47-leadjoy-delete` | 156 | 38 | 1 | 140 | 0.5 | 0.2 | 2 | 2 |
+| `47-leadjoy-sticks` | 156 | 37 | 0 | 47 | 0.3 | 0.3 | 0 | 0 |
+| `47-leadjoy-curves` | 156 | 31 | 0 | 38 | 0.0 | 0.3 | 0 | 0 |
+| `47-leadjoy-directions` | 156 | 34 | 0 | 41 | 0.3 | 0.3 | 0 | 0 |
+| `47-leadjoy-triggers` | 156 | 34 | 0 | 41 | 0.1 | 0.3 | 0 | 0 |
+| `47-leadjoy-motion` | 156 | 40 | 0 | 50 | 0.6 | 0.0 | 0 | 0 |
+| `47-leadjoy-gestures` | 156 | 34 | 0 | 41 | 0.0 | 0.3 | 0 | 0 |
+| `47-leadjoy-rumble` | 156 | 38 | 0 | 47 | 0.0 | 0.3 | 0 | 0 |
+| `47-leadjoy-keyboard-dark` | 156 | 34 | 0 | 41 | 0.3 | 0.0 | 0 | 0 |
+| `47-leadjoy-mouse-dark` | 156 | 35 | 0 | 42 | 0.0 | 0.0 | 0 | 0 |
+| `47-leadjoy-motion-long-dark` | 156 | 35 | 0 | 42 | 0.0 | 0.0 | 0 | 0 |
+| `47-leadjoy-sticks-missing-dark` | 156 | 36 | 0 | 45 | 0.5 | 0.3 | 0 | 0 |
+| `47-leadjoy-profiles-sub-dark` | 156 | 36 | 0 | 44 | 0.0 | 0.3 | 0 | 0 |
+| `13-settings-appearance-text200` | 156 | 60 | 0 | 157 | 1.6 | 4.0 | 2 | 158 |
+| `14-settings-streaming-text200` | 156 | 51 | 0 | 71 | 0.0 | 0.1 | 0 | 156 |
+| `25-settings-controllers-text200` | 156 | 35 | 0 | 48 | 1.4 | 0.0 | 0 | 0 |
+| `26-settings-about-text200` | 157 | 25 | 0 | 38 | 2.0 | 0.0 | 0 | 0 |
+| `52-diagnostics-dark-text200` | 156 | 42 | 0 | 61 | 0.0 | 0.0 | 0 | 0 |
+| `11-pairing-text200` | 156 | 51 | 1 | 223 | 1.5 | 0.0 | 0 | 105 |
+| `12-signin-text200` | 156 | 39 | 1 | 190 | 3.5 | 0.0 | 1 | 1 |
+| `28-enter-pin-text200` | 156 | 73 | 1 | 176 | 1.2 | 0.0 | 0 | 156 |
+| `29-approval-text200` | 156 | 44 | 1 | 200 | 1.4 | 0.0 | 0 | 0 |
+| `17-state-checking-text200` | 201 | 14 | 1 | 44 | 8.3 | 0.6 | 0 | 0 |
+| `18-state-queue-text200` | 156 | 14 | 1 | 44 | 1.2 | 0.6 | 0 | 0 |
+| `17-state-queue-unknown-text200` | 156 | 14 | 1 | 44 | 0.7 | 0.6 | 0 | 0 |
+| `17-state-long-title-text200` | 205 | 14 | 1 | 44 | 8.3 | 0.6 | 0 | 0 |
+| `19-state-starting-text200` | 156 | 14 | 1 | 46 | 9.5 | 0.5 | 0 | 0 |
+| `48-stats-compact-healthy-text200` | 156 | 2 | 0 | 3 | 0.3 | 0.0 | 0 | 0 |
+| `48-stats-full-healthy-text200` | 156 | 2 | 0 | 3 | 3.3 | 0.0 | 0 | 0 |
+| `48-stats-compact-network-text200` | 156 | 2 | 0 | 3 | 0.3 | 0.0 | 0 | 0 |
+| `48-stats-full-network-text200` | 156 | 2 | 0 | 3 | 3.5 | 0.0 | 0 | 0 |
+| `48-stats-compact-host-text200` | 156 | 2 | 0 | 3 | 0.3 | 0.0 | 0 | 0 |
+| `48-stats-full-host-text200` | 156 | 2 | 0 | 3 | 3.5 | 0.0 | 0 | 0 |
+| `48-stats-compact-tv-text200` | 156 | 2 | 0 | 3 | 0.3 | 0.0 | 0 | 0 |
+| `48-stats-full-tv-text200` | 156 | 2 | 0 | 3 | 3.5 | 0.0 | 0 | 0 |
+| `51-stats-full-stale-text200` | 156 | 2 | 0 | 3 | 3.3 | 0.0 | 0 | 0 |
+| `15-overlay-text200` | 156 | 50 | 1 | 131 | 10.1 | 0.6 | 1 | 52 |
+| `45-controller-lab-stream-text200` | 156 | 24 | 0 | 39 | 3.3 | 0.0 | 0 | 0 |
+| `45-controller-lab-stream-bottom-text200` | 156 | 28 | 0 | 65 | 0.9 | 2.4 | 1 | 1 |
+| `16-overlay-end-confirm-text200` | 156 | 0 | 0 | 0 | 0.0 | 0.0 | 0 | 0 |
+| `22-state-first-run-text200` | 156 | 22 | 0 | 55 | 4.0 | 2.2 | 0 | 0 |
+| `38-search-keyboard-text200` | 156 | 118 | 0 | 333 | 1.4 | 6.3 | 1 | 157 |
+| `41-add-pc-text200` | 156 | 111 | 1 | 220 | 3.7 | 0.0 | 0 | 156 |
+| `42-edit-path-text200` | 156 | 111 | 1 | 201 | 2.5 | 0.5 | 0 | 156 |
+| `43-controller-lab-text200` | 156 | 38 | 0 | 66 | 3.1 | 0.9 | 0 | 0 |
+| `43-controller-sticks-text200` | 156 | 64 | 0 | 171 | 0.9 | 3.0 | 1 | 94 |
+| `43-controller-buttons-text200` | 156 | 64 | 0 | 90 | 0.0 | 2.4 | 0 | 63 |
+| `43-controller-timing-text200` | 156 | 47 | 0 | 64 | 0.0 | 2.4 | 0 | 93 |
+| `43-controller-shaping-text200` | 156 | 41 | 0 | 58 | 2.8 | 1.4 | 0 | 0 |
+| `43-controller-captured-text200` | 156 | 57 | 0 | 79 | 2.7 | 0.0 | 0 | 156 |
+| `44-controller-flash-text200` | 156 | 9 | 1 | 12 | 3.7 | 0.0 | 0 | 0 |
+| `46-gamesir-ds4-text200` | 156 | 40 | 1 | 90 | 13.2 | 4.5 | 0 | 0 |
+| `46-gamesir-ready-text200` | 156 | 29 | 0 | 67 | 2.4 | 0.5 | 0 | 0 |
+| `46-gamesir-bottom-text200` | 156 | 31 | 0 | 40 | 1.0 | 0.5 | 0 | 0 |
+| `46-gamesir-pending-text200` | 156 | 31 | 0 | 40 | 0.0 | 0.5 | 0 | 0 |
+| `46-gamesir-error-text200` | 156 | 27 | 0 | 36 | 0.8 | 0.0 | 0 | 0 |
+| `47-leadjoy-ready-text200` | 156 | 26 | 0 | 57 | 2.8 | 0.5 | 0 | 0 |
+| `47-leadjoy-pending-text200` | 156 | 29 | 0 | 36 | 0.0 | 0.8 | 0 | 0 |
+| `47-leadjoy-error-text200` | 156 | 25 | 0 | 32 | 0.0 | 0.0 | 0 | 0 |
+| `47-leadjoy-rename-text200` | 156 | 115 | 1 | 206 | 2.1 | 0.0 | 0 | 156 |
+| `47-leadjoy-buttons-text200` | 156 | 30 | 0 | 37 | 1.4 | 0.5 | 0 | 0 |
+| `47-leadjoy-macros-text200` | 156 | 30 | 0 | 37 | 0.6 | 0.4 | 0 | 0 |
+| `47-leadjoy-delete-text200` | 156 | 34 | 1 | 128 | 2.9 | 1.3 | 2 | 2 |
+| `47-leadjoy-sticks-text200` | 156 | 31 | 0 | 40 | 2.1 | 3.3 | 0 | 0 |
+| `47-leadjoy-motion-text200` | 156 | 34 | 0 | 44 | 4.1 | 1.5 | 0 | 0 |
+| `47-leadjoy-keyboard-dark-text200` | 156 | 30 | 0 | 37 | 1.4 | 1.4 | 0 | 0 |
+| `47-leadjoy-mouse-dark-text200` | 156 | 31 | 0 | 38 | 2.2 | 0.0 | 0 | 0 |
+| `47-leadjoy-motion-long-dark-text200` | 156 | 30 | 0 | 37 | 2.5 | 1.5 | 0 | 0 |
+| `47-leadjoy-sticks-missing-dark-text200` | 156 | 28 | 0 | 36 | 3.3 | 0.6 | 0 | 0 |
+| `47-leadjoy-profiles-sub-dark-text200` | 156 | 32 | 0 | 40 | 0.1 | 0.5 | 0 | 0 |
+| `60-steam-signed-out` | 156 | 19 | 0 | 45 | 0.0 | 0.0 | 0 | 0 |
+| `60-steam-signed-out-200` | 156 | 19 | 0 | 45 | 1.7 | 0.0 | 0 | 0 |
+| `61-steam-qr` | 156 | 28 | 1 | 125 | 0.5 | 0.0 | 0 | 0 |
+| `61-steam-qr-200` | 156 | 22 | 1 | 117 | 4.9 | 0.0 | 1 | 1 |
+| `62-steam-signed-in` | 156 | 32 | 1 | 126 | 0.0 | 0.0 | 2 | 2 |
+| `62-steam-signed-in-200` | 156 | 32 | 1 | 124 | 1.7 | 1.0 | 2 | 2 |
+| `63-steam-home` | 159 | 55 | 2 | 96 | 8.3 | 0.5 | 2 | 138 |
+| `63-steam-home-200` | 156 | 52 | 2 | 96 | 9.9 | 5.8 | 2 | 99 |
+| `64-steam-hub` | 193 | 28 | 1 | 77 | 8.3 | 0.0 | 2 | 2 |
+| `64-steam-hub-200` | 156 | 33 | 2 | 94 | 9.4 | 1.0 | 3 | 54 |
+| `65-steam-home-favourites` | 156 | 63 | 2 | 99 | 8.3 | 5.9 | 2 | 127 |
+| `65-steam-home-favourites-200` | 156 | 57 | 2 | 81 | 9.9 | 5.8 | 2 | 122 |
+| `70-refresh-working-dark100` | 157 | 70 | 2 | 129 | 8.4 | 1.4 | 4 | 127 |
+| `71-refresh-failed-dark100` | 156 | 70 | 2 | 129 | 8.4 | 5.0 | 4 | 127 |
+| `71-refresh-result-dark100` | 158 | 71 | 2 | 137 | 8.3 | 1.9 | 4 | 127 |
+| `72-library-refresh-dark100` | 156 | 74 | 0 | 155 | 0.1 | 5.2 | 0 | 105 |
+| `73-hub-steam-dark100` | 180 | 39 | 1 | 104 | 8.3 | 0.0 | 0 | 0 |
+| `74-hub-achievements-dark100` | 184 | 28 | 1 | 72 | 8.3 | 0.0 | 0 | 0 |
+| `75-hub-news-dark100` | 156 | 20 | 1 | 30 | 0.0 | 0.0 | 0 | 0 |
+| `76-hub-details-dark100` | 156 | 47 | 1 | 65 | 0.4 | 0.0 | 0 | 156 |
+| `77-hub-gfn-only-dark100` | 181 | 26 | 1 | 69 | 8.3 | 0.0 | 2 | 2 |
+| `78-hub-native-dark100` | 156 | 23 | 0 | 56 | 0.0 | 0.0 | 0 | 0 |
+| `70-refresh-working-dark200` | 161 | 66 | 2 | 119 | 10.2 | 0.9 | 4 | 86 |
+| `71-refresh-failed-dark200` | 156 | 66 | 2 | 119 | 10.9 | 4.1 | 4 | 86 |
+| `71-refresh-result-dark200` | 162 | 66 | 2 | 120 | 10.1 | 2.1 | 4 | 91 |
+| `72-library-refresh-dark200` | 178 | 63 | 0 | 161 | 1.8 | 1.3 | 1 | 128 |
+| `73-hub-steam-dark200` | 183 | 35 | 2 | 93 | 8.3 | 2.0 | 3 | 54 |
+| `74-hub-achievements-dark200` | 174 | 28 | 1 | 65 | 8.3 | 0.0 | 0 | 0 |
+| `75-hub-news-dark200` | 156 | 20 | 1 | 28 | 3.0 | 0.0 | 0 | 0 |
+| `76-hub-details-dark200` | 156 | 31 | 1 | 43 | 1.7 | 0.5 | 0 | 0 |
+| `77-hub-gfn-only-dark200` | 156 | 35 | 2 | 100 | 10.2 | 0.6 | 3 | 54 |
+| `78-hub-native-dark200` | 156 | 34 | 1 | 100 | 2.4 | 0.6 | 3 | 3 |
+
+01-home: 167 broken frames
+    frame 37 on Home: 1 backdrops captured after the page's first frames
+    frame 37 on Home: 2 full-screen layers
+    frame 38 on Home: 2 full-screen layers
+    frame 39 on Home: 2 full-screen layers
+01-home-play-focus: 108 broken frames
+    frame 21 on Home: 1 backdrops captured after the page's first frames
+    frame 35 on Home: 1 backdrops captured after the page's first frames
+    frame 35 on Home: 2 full-screen layers
+    frame 36 on Home: 2 full-screen layers
+01-home-details-focus: 107 broken frames
+    frame 35 on Home: 1 backdrops captured after the page's first frames
+    frame 35 on Home: 2 full-screen layers
+    frame 36 on Home: 2 full-screen layers
+    frame 37 on Home: 2 full-screen layers
+02-home-most-played: 155 broken frames
+    frame 0 on Home: 45 layers, the ceiling is 44
+    frame 0 on Home: 2 full-screen layers
+    frame 1 on Home: 51 layers, the ceiling is 44
+    frame 1 on Home: 2 full-screen layers
+03-home-genres: 140 broken frames
+    frame 0 on Home: 2 full-screen layers
+    frame 1 on Home: 45 layers, the ceiling is 44
+    frame 1 on Home: 2 full-screen layers
+    frame 2 on Home: 45 layers, the ceiling is 44
+04-home-native-plate: 114 broken frames
+    frame 0 on Home: 2 full-screen layers
+    frame 1 on Home: 2 full-screen layers
+    frame 2 on Home: 2 full-screen layers
+    frame 3 on Home: 2 full-screen layers
+05-home-cinematic: 130 broken frames
+    frame 39 on Home: 1 backdrops captured after the page's first frames
+    frame 39 on Home: 2 full-screen layers
+    frame 40 on Home: 2 full-screen layers
+    frame 41 on Home: 2 full-screen layers
+06-home-compact: 201 broken frames
+    frame 2 on Home: 45 layers, the ceiling is 44
+    frame 3 on Home: 45 layers, the ceiling is 44
+    frame 4 on Home: 48 layers, the ceiling is 44
+    frame 5 on Home: 51 layers, the ceiling is 44
+07-library: 130 broken frames
+    frame 0 on Library: 55 layers, the ceiling is 44
+    frame 1 on Library: 55 layers, the ceiling is 44
+    frame 2 on Library: 55 layers, the ceiling is 44
+    frame 3 on Library: 55 layers, the ceiling is 44
+07-library-sort: 157 broken frames
+    frame 0 on Library: 62 layers, the ceiling is 44
+    frame 1 on Library: 73 layers, the ceiling is 44
+    frame 2 on Library: 73 layers, the ceiling is 44
+    frame 3 on Library: 73 layers, the ceiling is 44
+08-hub: 2 broken frames
+    frame 68 on Hub: 1 backdrops captured after the page's first frames
+    frame 138 on Hub: 1 backdrops captured after the page's first frames
+08-hub-ways: 1 broken frames
+    frame 147 on Hub: 1 backdrops captured after the page's first frames
+08-hub-media: 1 broken frames
+    frame 107 on Hub: 1 backdrops captured after the page's first frames
+09-chooser: 158 broken frames
+    frame 25 on Hub: 2 full-screen layers
+    frame 26 on Hub: 2 full-screen layers
+    frame 27 on Hub: 2 full-screen layers
+    frame 28 on Hub: 2 full-screen layers
+32-chooser-text200: 168 broken frames
+    frame 0 on Hub: 2 full-screen layers
+    frame 1 on Hub: 2 full-screen layers
+    frame 2 on Hub: 2 full-screen layers
+    frame 3 on Hub: 2 full-screen layers
+13-settings-appearance: 160 broken frames
+    frame 0 on Settings: 61 layers, the ceiling is 44
+    frame 1 on Settings: 61 layers, the ceiling is 44
+    frame 2 on Settings: 67 layers, the ceiling is 44
+    frame 3 on Settings: 67 layers, the ceiling is 44
+14-settings-streaming: 158 broken frames
+    frame 0 on Settings: 56 layers, the ceiling is 44
+    frame 1 on Settings: 56 layers, the ceiling is 44
+    frame 2 on Settings: 57 layers, the ceiling is 44
+    frame 3 on Settings: 57 layers, the ceiling is 44
+14-settings-streaming-limited: 157 broken frames
+    frame 0 on Settings: 58 layers, the ceiling is 44
+    frame 1 on Settings: 58 layers, the ceiling is 44
+    frame 2 on Settings: 58 layers, the ceiling is 44
+    frame 3 on Settings: 58 layers, the ceiling is 44
+14-settings-streaming-wifi: 156 broken frames
+    frame 0 on Settings: 58 layers, the ceiling is 44
+    frame 1 on Settings: 58 layers, the ceiling is 44
+    frame 2 on Settings: 58 layers, the ceiling is 44
+    frame 3 on Settings: 58 layers, the ceiling is 44
+25-settings-controllers: 159 broken frames
+    frame 0 on Settings: 47 layers, the ceiling is 44
+    frame 1 on Settings: 47 layers, the ceiling is 44
+    frame 2 on Settings: 51 layers, the ceiling is 44
+    frame 3 on Settings: 51 layers, the ceiling is 44
+26-settings-about: 134 broken frames
+    frame 22 on Settings: 67 layers, the ceiling is 44
+    frame 23 on Settings: 67 layers, the ceiling is 44
+    frame 24 on Settings: 67 layers, the ceiling is 44
+    frame 25 on Settings: 67 layers, the ceiling is 44
+52-diagnostics-dark: 158 broken frames
+    frame 0 on Settings: 46 layers, the ceiling is 44
+    frame 1 on Settings: 46 layers, the ceiling is 44
+    frame 2 on Settings: 46 layers, the ceiling is 44
+    frame 3 on Settings: 46 layers, the ceiling is 44
+33-settings-text200: 156 broken frames
+    frame 9 on Settings: 48 layers, the ceiling is 44
+    frame 10 on Settings: 48 layers, the ceiling is 44
+    frame 11 on Settings: 48 layers, the ceiling is 44
+    frame 12 on Settings: 48 layers, the ceiling is 44
+33-settings-text200-limited: 157 broken frames
+    frame 0 on Settings: 48 layers, the ceiling is 44
+    frame 1 on Settings: 48 layers, the ceiling is 44
+    frame 2 on Settings: 48 layers, the ceiling is 44
+    frame 3 on Settings: 48 layers, the ceiling is 44
+54-diagnostics-token-masked: 161 broken frames
+    frame 0 on Settings: 117 layers, the ceiling is 44
+    frame 1 on Settings: 117 layers, the ceiling is 44
+    frame 2 on Settings: 119 layers, the ceiling is 44
+    frame 3 on Settings: 121 layers, the ceiling is 44
+27-theme-picker: 161 broken frames
+    frame 0 on Settings: 72 layers, the ceiling is 44
+    frame 1 on Settings: 72 layers, the ceiling is 44
+    frame 2 on Settings: 72 layers, the ceiling is 44
+    frame 3 on Settings: 72 layers, the ceiling is 44
+11-pairing: 106 broken frames
+    frame 0 on Settings: 51 layers, the ceiling is 44
+    frame 1 on Settings: 51 layers, the ceiling is 44
+    frame 2 on Settings: 51 layers, the ceiling is 44
+    frame 3 on Settings: 51 layers, the ceiling is 44
+12-signin: 106 broken frames
+    frame 0 on Settings: 48 layers, the ceiling is 44
+    frame 1 on Settings: 48 layers, the ceiling is 44
+    frame 2 on Settings: 48 layers, the ceiling is 44
+    frame 3 on Settings: 48 layers, the ceiling is 44
+28-enter-pin: 156 broken frames
+    frame 0 on Settings: 73 layers, the ceiling is 44
+    frame 1 on Settings: 73 layers, the ceiling is 44
+    frame 2 on Settings: 73 layers, the ceiling is 44
+    frame 3 on Settings: 73 layers, the ceiling is 44
+53-idle-ended: 2 broken frames
+    frame 49 on Hub: 1 backdrops captured after the page's first frames
+    frame 119 on Hub: 1 backdrops captured after the page's first frames
+15-overlay: 52 broken frames
+    frame 49 on Overlay: 1 backdrops captured after the page's first frames
+    frame 105 on Settings: 57 layers, the ceiling is 44
+    frame 106 on Settings: 57 layers, the ceiling is 44
+    frame 107 on Settings: 57 layers, the ceiling is 44
+45-controller-lab-stream-bottom: 1 broken frames
+    frame 35 on Lab: 1 backdrops captured after the page's first frames
+20-state-failed: 3 broken frames
+    frame 21 on Hub: 1 backdrops captured after the page's first frames
+    frame 35 on Hub: 1 backdrops captured after the page's first frames
+    frame 91 on Hub: 1 backdrops captured after the page's first frames
+21-state-offline-pc: 2 broken frames
+    frame 106 on Accounts: 2 backdrops captured after the page's first frames
+    frame 125 on Accounts: 1 backdrops captured after the page's first frames
+30-home-text200: 151 broken frames
+    frame 36 on Home: 1 backdrops captured after the page's first frames
+    frame 36 on Home: 2 full-screen layers
+    frame 37 on Home: 2 full-screen layers
+    frame 38 on Home: 2 full-screen layers
+31-hub-text200: 53 broken frames
+    frame 105 on Hub: 1 backdrops captured after the page's first frames
+    frame 105 on Hub: 2 full-screen layers
+    frame 106 on Hub: 2 full-screen layers
+    frame 107 on Hub: 1 backdrops captured after the page's first frames
+37-search: 79 broken frames
+    frame 81 on Search: 103 layers, the ceiling is 44
+    frame 82 on Search: 103 layers, the ceiling is 44
+    frame 83 on Search: 103 layers, the ceiling is 44
+    frame 84 on Search: 104 layers, the ceiling is 44
+38-search-keyboard: 176 broken frames
+    frame 0 on Search: 113 layers, the ceiling is 44
+    frame 1 on Search: 113 layers, the ceiling is 44
+    frame 2 on Search: 113 layers, the ceiling is 44
+    frame 3 on Search: 113 layers, the ceiling is 44
+35-hub-solarized: 3 broken frames
+    frame 40 on Hub: 1 backdrops captured after the page's first frames
+    frame 54 on Hub: 1 backdrops captured after the page's first frames
+    frame 110 on Hub: 1 backdrops captured after the page's first frames
+41-add-pc: 156 broken frames
+    frame 0 on Accounts: 117 layers, the ceiling is 44
+    frame 1 on Accounts: 117 layers, the ceiling is 44
+    frame 2 on Accounts: 117 layers, the ceiling is 44
+    frame 3 on Accounts: 117 layers, the ceiling is 44
+42-edit-path: 156 broken frames
+    frame 0 on Accounts: 117 layers, the ceiling is 44
+    frame 1 on Accounts: 117 layers, the ceiling is 44
+    frame 2 on Accounts: 117 layers, the ceiling is 44
+    frame 3 on Accounts: 117 layers, the ceiling is 44
+43-controller-lab: 156 broken frames
+    frame 0 on Lab: 106 layers, the ceiling is 44
+    frame 1 on Lab: 106 layers, the ceiling is 44
+    frame 2 on Lab: 106 layers, the ceiling is 44
+    frame 3 on Lab: 106 layers, the ceiling is 44
+43-controller-sticks: 156 broken frames
+    frame 0 on Lab: 106 layers, the ceiling is 44
+    frame 1 on Lab: 106 layers, the ceiling is 44
+    frame 2 on Lab: 106 layers, the ceiling is 44
+    frame 3 on Lab: 106 layers, the ceiling is 44
+43-controller-buttons: 158 broken frames
+    frame 0 on Lab: 106 layers, the ceiling is 44
+    frame 1 on Lab: 106 layers, the ceiling is 44
+    frame 2 on Lab: 106 layers, the ceiling is 44
+    frame 3 on Lab: 106 layers, the ceiling is 44
+43-controller-timing: 157 broken frames
+    frame 0 on Lab: 98 layers, the ceiling is 44
+    frame 1 on Lab: 98 layers, the ceiling is 44
+    frame 2 on Lab: 98 layers, the ceiling is 44
+    frame 3 on Lab: 98 layers, the ceiling is 44
+43-controller-shaping: 156 broken frames
+    frame 0 on Lab: 87 layers, the ceiling is 44
+    frame 1 on Lab: 87 layers, the ceiling is 44
+    frame 2 on Lab: 87 layers, the ceiling is 44
+    frame 3 on Lab: 87 layers, the ceiling is 44
+43-controller-captured: 156 broken frames
+    frame 0 on Lab: 57 layers, the ceiling is 44
+    frame 1 on Lab: 57 layers, the ceiling is 44
+    frame 2 on Lab: 57 layers, the ceiling is 44
+    frame 3 on Lab: 57 layers, the ceiling is 44
+47-leadjoy-rename: 156 broken frames
+    frame 0 on Leadjoy: 121 layers, the ceiling is 44
+    frame 1 on Leadjoy: 121 layers, the ceiling is 44
+    frame 2 on Leadjoy: 121 layers, the ceiling is 44
+    frame 3 on Leadjoy: 121 layers, the ceiling is 44
+47-leadjoy-delete: 2 broken frames
+    frame 49 on Leadjoy: 1 backdrops captured after the page's first frames
+    frame 91 on Leadjoy: 1 backdrops captured after the page's first frames
+13-settings-appearance-text200: 158 broken frames
+    frame 0 on Settings: 56 layers, the ceiling is 44
+    frame 1 on Settings: 56 layers, the ceiling is 44
+    frame 2 on Settings: 56 layers, the ceiling is 44
+    frame 3 on Settings: 56 layers, the ceiling is 44
+14-settings-streaming-text200: 156 broken frames
+    frame 0 on Settings: 48 layers, the ceiling is 44
+    frame 1 on Settings: 48 layers, the ceiling is 44
+    frame 2 on Settings: 48 layers, the ceiling is 44
+    frame 3 on Settings: 48 layers, the ceiling is 44
+11-pairing-text200: 105 broken frames
+    frame 0 on Settings: 51 layers, the ceiling is 44
+    frame 1 on Settings: 51 layers, the ceiling is 44
+    frame 2 on Settings: 51 layers, the ceiling is 44
+    frame 3 on Settings: 51 layers, the ceiling is 44
+12-signin-text200: 1 broken frames
+    frame 19 on Settings: 1 backdrops captured after the page's first frames
+28-enter-pin-text200: 156 broken frames
+    frame 0 on Settings: 73 layers, the ceiling is 44
+    frame 1 on Settings: 73 layers, the ceiling is 44
+    frame 2 on Settings: 73 layers, the ceiling is 44
+    frame 3 on Settings: 73 layers, the ceiling is 44
+15-overlay-text200: 52 broken frames
+    frame 49 on Overlay: 1 backdrops captured after the page's first frames
+    frame 105 on Settings: 50 layers, the ceiling is 44
+    frame 106 on Settings: 50 layers, the ceiling is 44
+    frame 107 on Settings: 50 layers, the ceiling is 44
+45-controller-lab-stream-bottom-text200: 1 broken frames
+    frame 22 on Lab: 1 backdrops captured after the page's first frames
+38-search-keyboard-text200: 157 broken frames
+    frame 0 on Search: 113 layers, the ceiling is 44
+    frame 1 on Search: 118 layers, the ceiling is 44
+    frame 2 on Search: 118 layers, the ceiling is 44
+    frame 3 on Search: 118 layers, the ceiling is 44
+41-add-pc-text200: 156 broken frames
+    frame 0 on Accounts: 111 layers, the ceiling is 44
+    frame 1 on Accounts: 111 layers, the ceiling is 44
+    frame 2 on Accounts: 111 layers, the ceiling is 44
+    frame 3 on Accounts: 111 layers, the ceiling is 44
+42-edit-path-text200: 156 broken frames
+    frame 0 on Accounts: 111 layers, the ceiling is 44
+    frame 1 on Accounts: 111 layers, the ceiling is 44
+    frame 2 on Accounts: 111 layers, the ceiling is 44
+    frame 3 on Accounts: 111 layers, the ceiling is 44
+43-controller-sticks-text200: 94 broken frames
+    frame 21 on Lab: 64 layers, the ceiling is 44
+    frame 21 on Lab: 1 backdrops captured after the page's first frames
+    frame 22 on Lab: 64 layers, the ceiling is 44
+    frame 23 on Lab: 64 layers, the ceiling is 44
+43-controller-buttons-text200: 63 broken frames
+    frame 0 on Lab: 64 layers, the ceiling is 44
+    frame 1 on Lab: 64 layers, the ceiling is 44
+    frame 2 on Lab: 64 layers, the ceiling is 44
+    frame 3 on Lab: 64 layers, the ceiling is 44
+43-controller-timing-text200: 93 broken frames
+    frame 21 on Lab: 47 layers, the ceiling is 44
+    frame 22 on Lab: 47 layers, the ceiling is 44
+    frame 23 on Lab: 47 layers, the ceiling is 44
+    frame 24 on Lab: 47 layers, the ceiling is 44
+43-controller-captured-text200: 156 broken frames
+    frame 0 on Lab: 57 layers, the ceiling is 44
+    frame 1 on Lab: 57 layers, the ceiling is 44
+    frame 2 on Lab: 57 layers, the ceiling is 44
+    frame 3 on Lab: 57 layers, the ceiling is 44
+47-leadjoy-rename-text200: 156 broken frames
+    frame 0 on Leadjoy: 115 layers, the ceiling is 44
+    frame 1 on Leadjoy: 115 layers, the ceiling is 44
+    frame 2 on Leadjoy: 115 layers, the ceiling is 44
+    frame 3 on Leadjoy: 115 layers, the ceiling is 44
+47-leadjoy-delete-text200: 2 broken frames
+    frame 49 on Leadjoy: 1 backdrops captured after the page's first frames
+    frame 91 on Leadjoy: 1 backdrops captured after the page's first frames
+61-steam-qr-200: 1 broken frames
+    frame 19 on Accounts: 1 backdrops captured after the page's first frames
+62-steam-signed-in: 2 broken frames
+    frame 105 on Accounts: 2 backdrops captured after the page's first frames
+    frame 124 on Accounts: 1 backdrops captured after the page's first frames
+62-steam-signed-in-200: 2 broken frames
+    frame 105 on Accounts: 2 backdrops captured after the page's first frames
+    frame 124 on Accounts: 2 backdrops captured after the page's first frames
+63-steam-home: 138 broken frames
+    frame 24 on Home: 1 backdrops captured after the page's first frames
+    frame 24 on Home: 2 full-screen layers
+    frame 25 on Home: 2 full-screen layers
+    frame 26 on Home: 2 full-screen layers
+63-steam-home-200: 99 broken frames
+    frame 21 on Home: 1 backdrops captured after the page's first frames
+    frame 21 on Home: 2 full-screen layers
+    frame 22 on Home: 2 full-screen layers
+    frame 23 on Home: 2 full-screen layers
+64-steam-hub: 2 broken frames
+    frame 58 on Hub: 1 backdrops captured after the page's first frames
+    frame 128 on Hub: 1 backdrops captured after the page's first frames
+64-steam-hub-200: 54 broken frames
+    frame 21 on Hub: 1 backdrops captured after the page's first frames
+    frame 105 on Hub: 1 backdrops captured after the page's first frames
+    frame 105 on Hub: 2 full-screen layers
+    frame 106 on Hub: 2 full-screen layers
+65-steam-home-favourites: 127 broken frames
+    frame 21 on Home: 1 backdrops captured after the page's first frames
+    frame 21 on Home: 2 full-screen layers
+    frame 22 on Home: 2 full-screen layers
+    frame 23 on Home: 2 full-screen layers
+65-steam-home-favourites-200: 122 broken frames
+    frame 21 on Home: 1 backdrops captured after the page's first frames
+    frame 21 on Home: 2 full-screen layers
+    frame 22 on Home: 2 full-screen layers
+    frame 23 on Home: 2 full-screen layers
+70-refresh-working-dark100: 127 broken frames
+    frame 22 on Home: 45 layers, the ceiling is 44
+    frame 23 on Home: 45 layers, the ceiling is 44
+    frame 24 on Home: 45 layers, the ceiling is 44
+    frame 25 on Home: 45 layers, the ceiling is 44
+71-refresh-failed-dark100: 127 broken frames
+    frame 21 on Home: 45 layers, the ceiling is 44
+    frame 22 on Home: 45 layers, the ceiling is 44
+    frame 23 on Home: 45 layers, the ceiling is 44
+    frame 24 on Home: 45 layers, the ceiling is 44
+71-refresh-result-dark100: 127 broken frames
+    frame 23 on Home: 45 layers, the ceiling is 44
+    frame 24 on Home: 45 layers, the ceiling is 44
+    frame 25 on Home: 45 layers, the ceiling is 44
+    frame 26 on Home: 45 layers, the ceiling is 44
+72-library-refresh-dark100: 105 broken frames
+    frame 0 on Library: 56 layers, the ceiling is 44
+    frame 1 on Library: 67 layers, the ceiling is 44
+    frame 2 on Library: 67 layers, the ceiling is 44
+    frame 3 on Library: 67 layers, the ceiling is 44
+76-hub-details-dark100: 156 broken frames
+    frame 0 on Hub: 47 layers, the ceiling is 44
+    frame 1 on Hub: 47 layers, the ceiling is 44
+    frame 2 on Hub: 47 layers, the ceiling is 44
+    frame 3 on Hub: 47 layers, the ceiling is 44
+77-hub-gfn-only-dark100: 2 broken frames
+    frame 46 on Hub: 1 backdrops captured after the page's first frames
+    frame 116 on Hub: 1 backdrops captured after the page's first frames
+70-refresh-working-dark200: 86 broken frames
+    frame 40 on Home: 1 backdrops captured after the page's first frames
+    frame 40 on Home: 2 full-screen layers
+    frame 41 on Home: 2 full-screen layers
+    frame 42 on Home: 2 full-screen layers
+71-refresh-failed-dark200: 86 broken frames
+    frame 35 on Home: 1 backdrops captured after the page's first frames
+    frame 35 on Home: 2 full-screen layers
+    frame 36 on Home: 2 full-screen layers
+    frame 37 on Home: 2 full-screen layers
+71-refresh-result-dark200: 91 broken frames
+    frame 41 on Home: 1 backdrops captured after the page's first frames
+    frame 41 on Home: 2 full-screen layers
+    frame 42 on Home: 2 full-screen layers
+    frame 43 on Home: 2 full-screen layers
+72-library-refresh-dark200: 128 broken frames
+    frame 0 on Library: 49 layers, the ceiling is 44
+    frame 1 on Library: 49 layers, the ceiling is 44
+    frame 2 on Library: 49 layers, the ceiling is 44
+    frame 3 on Library: 51 layers, the ceiling is 44
+73-hub-steam-dark200: 54 broken frames
+    frame 132 on Hub: 1 backdrops captured after the page's first frames
+    frame 132 on Hub: 2 full-screen layers
+    frame 133 on Hub: 2 full-screen layers
+    frame 134 on Hub: 2 backdrops captured after the page's first frames
+77-hub-gfn-only-dark200: 54 broken frames
+    frame 105 on Hub: 1 backdrops captured after the page's first frames
+    frame 105 on Hub: 2 full-screen layers
+    frame 106 on Hub: 2 full-screen layers
+    frame 107 on Hub: 2 full-screen layers
+78-hub-native-dark200: 3 broken frames
+    frame 105 on Hub: 1 backdrops captured after the page's first frames
+    frame 123 on Hub: 1 backdrops captured after the page's first frames
+    frame 124 on Hub: 1 backdrops captured after the page's first frames
