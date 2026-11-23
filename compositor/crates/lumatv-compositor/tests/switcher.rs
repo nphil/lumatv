@@ -479,7 +479,7 @@ fn reduced_motion_fades_and_does_not_travel() {
 }
 
 #[test]
-fn the_shell_that_does_not_place_the_cards_in_time_is_replaced_by_the_basic_screen() {
+fn the_shell_that_does_not_place_the_cards_in_time_is_restarted_once_and_then_replaced_by_the_basic_screen() {
     let rig = rig_home(&["switcher"]);
     rig.server.eval(|s| {
         let t0 = Instant::now();
@@ -487,12 +487,16 @@ fn the_shell_that_does_not_place_the_cards_in_time_is_replaced_by_the_basic_scre
         s.switcher_frame(t0 + MS(700));
         assert_eq!(s.switcher_report()["mode"], "ui", "the shell still has its time");
         s.switcher_frame(t0 + MS(800));
-        assert_eq!(s.switcher_report()["mode"], "fallback");
+        assert_eq!(s.switcher_report()["mode"], "ui", "a shell that is up is restarted and has its time again");
+        s.switcher_frame(t0 + MS(5700));
+        assert_eq!(s.switcher_report()["mode"], "ui", "five seconds from the restart are not yet up");
+        s.switcher_frame(t0 + MS(5900));
+        assert_eq!(s.switcher_report()["mode"], "fallback", "it is restarted once, not again");
         assert!(s.switcher_active() && backdrop_in_plan(s), "the basic screen is drawn instead of nothing");
         // it takes the keys itself: Back is its close, and the app never hears of it
-        s.key_event_at(SeatId(0), KEY_BACK, true, false, t0 + MS(900));
-        s.key_event_at(SeatId(0), KEY_BACK, false, false, t0 + MS(950));
-        s.switcher_frame(t0 + MS(1200));
+        s.key_event_at(SeatId(0), KEY_BACK, true, false, t0 + MS(6000));
+        s.key_event_at(SeatId(0), KEY_BACK, false, false, t0 + MS(6050));
+        s.switcher_frame(t0 + MS(6300));
         assert!(!s.switcher_active());
     });
 }
@@ -817,7 +821,7 @@ fn the_numbers_are_read_only_while_it_is_open() {
 }
 
 #[test]
-fn a_shell_that_stops_answering_its_numbers_is_replaced_by_the_basic_screen_and_one_that_answers_is_not() {
+fn a_shell_that_stops_answering_its_numbers_is_restarted_once_and_then_replaced_by_the_basic_screen_and_one_that_answers_is_not() {
     let rig = rig_home(&["switcher"]);
     rig.server.eval(|s| {
         let t0 = Instant::now();
@@ -834,7 +838,32 @@ fn a_shell_that_stops_answering_its_numbers_is_replaced_by_the_basic_screen_and_
         s.switcher_frame(t0 + MS(7400));
         assert_eq!(s.switcher_report()["mode"], "ui", "2.4 s is not yet 2.5");
         s.switcher_frame(t0 + MS(7600));
-        assert_eq!(s.switcher_report()["mode"], "fallback");
+        assert_eq!(s.switcher_report()["mode"], "ui", "it is restarted and has five seconds to place the cards again");
+        s.switcher_frame(t0 + MS(12500));
+        assert_eq!(s.switcher_report()["mode"], "ui");
+        s.switcher_frame(t0 + MS(12700));
+        assert_eq!(s.switcher_report()["mode"], "fallback", "it did not come back");
+    });
+}
+
+#[test]
+fn a_restarted_shell_that_places_the_cards_again_is_left_to_draw() {
+    let rig = rig_home(&["switcher"]);
+    rig.server.eval(|s| {
+        let t0 = Instant::now();
+        assert!(s.switcher_open(None, t0));
+        op(s, armed_layout());
+        s.switcher_frame(t0 + MS(300));
+        // it says nothing, is restarted, and the new one places the cards
+        s.switcher_frame(t0 + MS(3000));
+        assert_eq!(s.switcher_report()["mode"], "ui");
+        op(s, armed_layout());
+        for at in [4000, 5000, 6000, 9000, 14000] {
+            s.switcher_frame(t0 + MS(at));
+            let n = topic(s, "stats")["n"].as_u64().expect("the shell is sent the numbers");
+            op(s, json!({"op": "beat", "n": n}));
+        }
+        assert_eq!(s.switcher_report()["mode"], "ui", "the new shell answers: it is left to draw");
     });
 }
 

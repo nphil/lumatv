@@ -1,10 +1,11 @@
 //! The basic screen: what the task manager is when the shell cannot draw it, with the numbers and the watch on the shell that go with it.
 //!
-//! The shell draws the task manager. If it is not running, does not place the cards in time ([`LAYOUT_WAIT`](super)), stops answering the
-//! numbers it is sent ([`BEAT_WAIT`]) or goes away, the compositor draws a plain one itself (`taskmgr/fallback.rs`): the same cards, the
+//! The shell draws the task manager. If it is not running, goes away, does not place the cards in time ([`LAYOUT_WAIT`](super)) or stops
+//! answering the numbers it is sent ([`BEAT_WAIT`]), the compositor draws a plain one itself (`taskmgr/fallback.rs`): the same cards, the
 //! numbers and the same actions, in the palette the shell last sent. The CPU paints a few bands of it over a flat dim and the renderer draws
 //! the cards' pictures in their slots. It takes the keys itself, so that a hung shell cannot hold them. The shell is told (`mode` in the
-//! `switcher` topic) and stops drawing; one that is up and silent is restarted once, because its last frame would stay over this screen.
+//! `switcher` topic) and stops drawing. A shell that is up and silent is restarted once first and has [`RESTART_WAIT`] to place the cards
+//! again: its last frame would otherwise stay over the basic screen.
 //!
 //! The numbers (memory, CPU per core, GPU, temperature) are read only while the task manager is open, once a second (`taskmgr/stats.rs`).
 //! The same beat is the watch on the shell: it answers each `stats` topic with a `beat`.
@@ -26,6 +27,8 @@ use crate::{Rect, State};
 
 /// A `stats` topic the shell has not answered with a `beat` in this long: it is not drawing.
 const BEAT_WAIT: Duration = Duration::from_millis(2500);
+/// What a shell the compositor restarted has to place the cards again (start, connection, first layout) before the basic screen takes over.
+const RESTART_WAIT: Duration = Duration::from_secs(5);
 /// With no key for this long the basic screen closes itself: nobody is there, and a screen that stays wears the panel.
 const IDLE: Duration = Duration::from_secs(45);
 /// The dim behind the basic screen, over Home or an app: close to opaque, so that what is under it does not compete with the text.
@@ -70,7 +73,10 @@ pub(super) struct Basic {
     down: Vec<u32>,
     /// A line about what just failed, on the screen.
     pub(super) notice: Option<String>,
+    /// The shell was restarted by the compositor in this opening (it is done once).
     ui_restarted: bool,
+    /// When, until the new shell has sent its palette: it going away meanwhile is the restart, not a failure.
+    pub(super) restarting: Option<Instant>,
     pub(super) sampler: Sampler,
     stats_n: u64,
     /// The first `stats` topic the shell has not answered, and when it was sent.
@@ -86,6 +92,7 @@ impl Basic {
         self.overlays.clear();
         self.notice = None;
         self.ui_restarted = false;
+        self.restarting = None;
         self.last_key = Some(now);
         self.stats_n = 0;
         self.pending_beat = None;
@@ -108,9 +115,26 @@ impl Basic {
 }
 
 impl State {
-    /// The compositor draws the task manager itself from here on (see the module). `restart`: a shell that is up is restarted, as its last
-    /// frame would stay over this screen.
-    pub(super) fn basic_enter(&mut self, why: &'static str, now: Instant, restart: bool) {
+    /// The shell did not do what it owes (place the cards, answer the numbers). One that is up is restarted, once, and has [`RESTART_WAIT`]
+    /// to place the cards again, the apps staying dimmed meanwhile; one that has had its restart hands over to the basic screen.
+    pub(super) fn ui_failed(&mut self, why: &'static str, now: Instant) {
+        let b = &mut self.switcher.basic;
+        if self.shell_rust.connected && !b.ui_restarted && b.mode == Mode::Ui {
+            b.ui_restarted = true;
+            b.restarting = Some(now);
+            b.armed = false;
+            b.pending_beat = None;
+            self.switcher.phase = Phase::Waiting;
+            self.switcher.until = Some(now + RESTART_WAIT);
+            self.journal(format!("switcher: the interface is restarted once: {why}"));
+            self.shell_rust_restart();
+        } else {
+            self.basic_enter(why, now);
+        }
+    }
+
+    /// The compositor draws the task manager itself from here on (see the module).
+    pub(super) fn basic_enter(&mut self, why: &'static str, now: Instant) {
         if !self.switcher.accepting() || self.switcher.basic.mode == Mode::Fallback {
             return;
         }
@@ -119,6 +143,7 @@ impl State {
         let b = &mut sw.basic;
         b.mode = Mode::Fallback;
         b.why = why;
+        b.restarting = None;
         b.overlays.clear();
         b.notice = None;
         b.pending_beat = None;
@@ -134,16 +159,12 @@ impl State {
             t.retarget(now, Pose { alpha: SCRIM_ALPHA, ..Pose::new(Rect::default(), 0.0, 0.0) }, SCRIM_MS, Curve::Settle, true);
         }
         self.shell_sync_topics();
-        if restart && self.shell_rust.connected && !self.switcher.basic.ui_restarted {
-            self.switcher.basic.ui_restarted = true;
-            self.shell_rust_restart();
-        }
     }
 
     /// `ctl switcher basic`: the basic screen draws this opening and the shell is left as it is (the TV check of a screen that is meant for
     /// when the shell is not there).
     pub(crate) fn switcher_basic(&mut self, now: Instant) {
-        self.basic_enter("Asked for over the control socket.", now, false);
+        self.basic_enter("Asked for over the control socket.", now);
     }
 
     /// A key event while the task manager is open or one of its presses is still down. `true` when the basic screen took it: while it is
@@ -294,8 +315,17 @@ impl State {
             }
         }
         let b = &self.switcher.basic;
-        if b.mode == Mode::Ui && b.pending_beat.is_some_and(|(_, at)| now.saturating_duration_since(at) >= BEAT_WAIT) {
-            self.basic_enter("LumaTV's interface stopped answering.", now, true);
+        if b.mode == Mode::Ui {
+            if let Some(at) = b.restarting {
+                // the new shell is back when it has sent its palette
+                if b.armed {
+                    self.switcher.basic.restarting = None;
+                } else if now.saturating_duration_since(at) >= RESTART_WAIT {
+                    self.basic_enter("LumaTV's interface did not come back.", now);
+                }
+            } else if b.pending_beat.is_some_and(|(_, at)| now.saturating_duration_since(at) >= BEAT_WAIT) {
+                self.ui_failed("LumaTV's interface stopped answering.", now);
+            }
         } else if b.mode == Mode::Fallback && b.last_key.is_some_and(|t| now.saturating_duration_since(t) >= IDLE) {
             self.switcher_close("idle", now);
         }

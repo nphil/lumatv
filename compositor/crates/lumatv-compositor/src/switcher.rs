@@ -466,7 +466,7 @@ impl State {
         self.output.prepare_previews(&buffers);
         self.switcher_ask(now);
         if !self.shell_can("switcher") {
-            self.basic_enter("LumaTV's interface is not running.", now, false);
+            self.basic_enter("LumaTV's interface is not running.", now);
         }
         self.shell_sync_topics();
         true
@@ -705,7 +705,7 @@ impl State {
         changed_topic |= self.system_step(now, apps.len());
         match self.switcher.phase {
             Phase::Waiting if self.switcher.until.is_some_and(|t| now >= t) => {
-                self.basic_enter("LumaTV's interface did not place the cards in time.", now, true);
+                self.ui_failed("LumaTV's interface did not place the cards in time.", now);
             }
             Phase::Waiting | Phase::Open => {
                 // The app manager brought something else to the front (a launch by voice, by an app of its own): the task manager is not what is
@@ -777,7 +777,10 @@ impl State {
         match self.switcher.phase {
             Phase::Closed => {}
             Phase::Waiting | Phase::Open if self.switcher.basic.mode == basic::Mode::Ui => {
-                self.basic_enter("LumaTV's interface went away.", Instant::now(), false);
+                // a shell the compositor restarts itself goes away on purpose: it has its time to come back
+                if self.switcher.basic.restarting.is_none() {
+                    self.basic_enter("LumaTV's interface went away.", Instant::now());
+                }
             }
             Phase::Waiting | Phase::Open => {}
             _ => {
