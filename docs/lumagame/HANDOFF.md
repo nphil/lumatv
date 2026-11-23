@@ -40,6 +40,8 @@ Current state and how to resume. Main design docs: ARCHITECTURE.md, DESIGN.md, P
 
 ## In flight
 
+The rework's Home, Library, Game page, Settings and quick menu are on `main` and pass `GAME_BUDGET=all` (worst walk 44 layers); not yet installed on the TV.
+
 Installed app includes `037623ae21`, which avoids the vendor audio-buffer query for picture-only SMP/ES, and `544f58e573`, which handles offline targets before SignIn and preserves cached library/defaults until fresh status. ARM and host builds and policy tests for both identities passed; 47 core and 146 UI tests passed without ignored tests, as did both clippy gates. Log: /tmp/cs/3dc58534e64e/lumagame-disconnect-host-gates.log. The camera daemon remains on its intentionally unchanged older feeder.
 
 Historical GLib warning attribution remains unproven. REA candidate evidence: `/tmp/cs/3dc58534e64e/feeder-pipeline-lifetime-evidence.json`; libpf SHA-256 `e8a966b26476f647bfcebf02b08404fc52f0198c52195e37354baa3d712fc36f`, `getAudioBufferSize` at `0x147240`, unchecked `g_object_get` at `0x147278`, and conditional `createAudioPath`. This does not establish runtime attribution.

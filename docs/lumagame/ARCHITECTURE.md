@@ -273,8 +273,14 @@ Three parts under `rustui/app/src/game/`, so screens, rules and plumbing change 
 - **Shell** (`bin/lumagame.rs`, `host.rs`, `store.rs`, `helper.rs`, `native.rs`): window, engine processes, files, lease, lifecycle.
 - **Model** (`model.rs`): a pure reducer over `lumagame-core`. Inputs are keys, engine events and ticks; outputs are commands to
   the shell and a view. Tested without a window.
-- **Screens** (`screens/`): home, library, hub, chooser, integrations, settings, sign-in, pairing, overlay, states. Read the view;
-  colours, glass, radii and type only from tokens.
+- **Model** splits by subject under `model/` (accounts, quick, library and the rest); a fetched value is a `Fact`: `Present`,
+  `Loading`, `Absent` (with its reason) or `SignIn`.
+- **Screens** (`screens/`): home, library, game page, quick menu, settings, launch, stats and the rest, built from shared parts in
+  `screens/parts/` (focus, row, card, drawer, dialog, hints, topbar). Read the view; colours, glass, radii and type only from tokens.
+  `View.layers` is a stack over the page (Game sections, reader, chooser, quick menu, dialogs): a key opens one by pushing it and Back
+  pops one at a time. Focus is Lucent's raised state (`parts/focus.rs`), never an underline.
+- **Shots** (`shots/`): `GAME_SHOTS=all` renders every screen to PNG; `GAME_BUDGET=all` walks each flow and fails a frame over 44
+  layers or with a second full-screen layer. Both need the mock's art: `bash docs/lumagame/mock/fetch-assets.sh` (bash, not sh).
 
 While a game runs the window stays mapped and transparent and draws nothing unless the overlay is open.
 
