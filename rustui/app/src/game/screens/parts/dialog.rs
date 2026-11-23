@@ -108,7 +108,8 @@ pub fn modal(p: &mut Paint<'_>, title: &str, body: &str, actions: &[Action<'_>],
     let title_lines = wrap(p.fonts, title, p.ty(Type::Title), inner);
     let body_lines = wrap(p.fonts, body, p.ty(Type::Body), inner);
     let button_h = p.tokens.target.max(p.line(Type::Label) + 24.0);
-    let height = PAD_TOP + p.block(Type::Title, title_lines.len()) + TITLE_GAP + p.block(Type::Body, body_lines.len()) + BODY_GAP + button_h + PAD_BOTTOM;
+    let hint_h = (37.0 * p.scale).max(p.line(Type::Label));
+    let height = PAD_TOP + p.block(Type::Title, title_lines.len()) + TITLE_GAP + p.block(Type::Body, body_lines.len()) + BODY_GAP + button_h + ACTION_GAP + hint_h + PAD_BOTTOM;
     let panel = Frame::new((W - width) / 2.0, (H - height) / 2.0, width, height);
 
     p.arrives(Frame::new(0.0, 0.0, W, H), Enter::FADE);
@@ -125,7 +126,8 @@ pub fn modal(p: &mut Paint<'_>, title: &str, body: &str, actions: &[Action<'_>],
         left += p.button(8820 + 4 * i as u64, action.focus, action.label, action.icon, left, y, i == safe, false, SHEET_Z + 1) + ACTION_GAP;
     }
     opaque(p, buttons);
-    p.anchor = Frame::new(x, panel.y + PAD_TOP, inner, height - PAD_TOP - PAD_BOTTOM);
+    // The hints take their own row under the actions.
+    p.anchor = Frame::new(x, y + button_h + ACTION_GAP, inner, hint_h);
     panel
 }
 /// Marks the `modal`'s action `i` as the one that cannot be undone: its icon takes the danger colour, its label stays in ink.
@@ -162,6 +164,8 @@ mod tests {
             assert_eq!(panel.w, MODAL_W);
             assert!((panel.x * 2.0 + panel.w - W).abs() < 0.01 && (panel.y * 2.0 + panel.h - H).abs() < 0.01);
             assert!(p.anchor.x >= panel.x && p.anchor.y + p.anchor.h <= panel.y + panel.h);
+            let action = p.plan.nodes.iter().find(|n| n.id == 8820).unwrap().frame;
+            assert!(p.anchor.y >= action.y + action.h, "the hints sit under the actions");
             let backdrop = p.plan.nodes.iter().find(|n| n.id == 8810).unwrap();
             assert_eq!(backdrop.z, SCRIM_Z);
             assert_eq!(tint_of(p, 8810).3, 247, "the page is all but hidden");
