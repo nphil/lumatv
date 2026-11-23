@@ -417,9 +417,9 @@ after        G1b, cleanup, host passes, IPK, G2 (TV)
 - The quick menu has two views: Menu, and Quick settings behind its Settings row. Stats while playing is a switch there; Off, Compact and Full stay in All settings.
 - The "Featured game" size setting goes with Home A; its Settings row goes with the Settings slice.
 
-## 9. Owner questions, settled by default
+## 9. Owner answers (2026-11-23)
 
-1. **Community videos** hand off to the TV's YouTube app; Back returns to LumaGame. Untested on the TV.
-2. **Mature game pages:** no setting; age-gated parts show "Age-restricted on Steam".
+1. **Videos play inside LumaGame**, embedded, for both store trailers and Community Hub videos; Back returns to the page. The playback route (native HLS for trailers, YouTube's official embedded player for community videos) is being researched; the Media slice builds on its result. Extracting YouTube streams directly is out: it breaks YouTube's terms.
+2. **Mature game pages** is a switch in Settings (Accounts and PCs › Steam pane), off by default. On, community requests send `mature: true`; off, age-gated parts show "Age-restricted on Steam". Owned by the Settings and Accounts slice; F3 reads it when building the request.
 
 Everything else follows OPTIONS.md.
