@@ -245,9 +245,11 @@ class Decode:
                  "-of", "csv=p=0", path], capture_output=True, text=True, timeout=120).stdout.split()
             # a stream that is in a program is listed twice: the first line is the count
             frames = int(count[0]) if count and count[0].isdigit() else None
-            # the player cut the capture at 15 s wherever the bytes fell, so its last picture is partial: the last two are not judged
+            # the player cut the capture at 15 s wherever the bytes fell, so its last picture is partial: the last two are not judged. One
+            # decoder thread: with frame threads the decoder runs ahead of -frames:v and reports the partial picture anyway (every "damaged
+            # slice" of the first soaks was that picture: bytestream -5 to -11 at the last picture of the sample, none before it)
             upto = ["-frames:v", str(frames - 2)] if frames and frames > 2 else []
-            run = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-i", path, "-map", "0:v:0", *upto, "-f", "null", "-"],
+            run = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-threads", "1", "-i", path, "-map", "0:v:0", *upto, "-f", "null", "-"],
                                  capture_output=True, text=True, timeout=120)
             errors = [l for l in run.stderr.splitlines() if l.strip()]
             self.log.put("decode.jsonl", channel=channel, stream=stream, frames=frames, errors=len(errors), first_errors=errors[:5])
@@ -401,7 +403,7 @@ def main():
     ap.add_argument("--switch-every", type=int, default=180, help="seconds between channel switches")
     ap.add_argument("--kill-helper-at", type=float, default=-1, help="minute; -1 none")
     ap.add_argument("--app-at", type=float, default=-1, help="minute; -1 none")
-    ap.add_argument("--app", default="com.webos.app.settings", help="the app opened over Home")
+    ap.add_argument("--app", default="org.nphil.lumagame", help="the app opened over Home; Settings is an overlay that leaves Home in front, so it does not step the converter aside")
     ap.add_argument("--app-hold", type=int, default=20, help="seconds the app stays in front")
     ap.add_argument("--sample-every", type=int, default=15)
     args = ap.parse_args()
