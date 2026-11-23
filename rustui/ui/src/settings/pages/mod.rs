@@ -20,6 +20,7 @@ pub mod homeassistant;
 pub mod inputs;
 pub mod language;
 pub mod logging;
+pub mod audio_passthrough;
 pub mod multi_link;
 pub mod network;
 pub mod onhome;
@@ -86,6 +87,7 @@ pub fn all() -> Vec<Page> {
         ssgw::page(),
         gaming::page(),
         multi_link::page(),
+        audio_passthrough::page(),
         support::page(),
         support::delete_data(),
         support::permissions(),
