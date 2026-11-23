@@ -15,6 +15,7 @@ use crate::game::screens::{
         drawer,
         focus::{self, Kind},
         hints,
+        motion::Enter,
         stage::*,
         topbar::{self, Here},
     },
@@ -31,6 +32,8 @@ const TILE_W: f32 = 200.0;
 const FEATURED_W: f32 = 640.0;
 const TILE_H: f32 = 300.0;
 const TILE_GAP: f32 = 28.0;
+/// How far past its box a tile's art may draw: the lit game grows 22 px a side and lifts.
+const REACH: f32 = 40.0;
 const STAGE_FOOT: f32 = 482.0;
 const LOGO_H: f32 = 150.0;
 const LOGO_W: f32 = 560.0;
@@ -122,7 +125,13 @@ fn tile(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, x: f32, w: f32) 
     let kinds: &[ArtKind] = if w == FEATURED_W { &[ArtKind::Hero, ArtKind::Cover] } else { &[ArtKind::Cover] };
     let art = kinds.iter().find_map(|&kind| m.art_url(game, kind).and_then(|url| m.art_path(&url)));
     match art {
-        Some(path) => p.image(id, path, f, p.tokens.radius(Radius::Tile), false, None, 10),
+        Some(path) => {
+            p.image(id, path, f, p.tokens.radius(Radius::Tile), false, None, 10);
+            // The clip marks art that changes shape in place (`GameUi::keep`); at rest it is clear of the lit game's growth and lift.
+            if let Some(node) = p.plan.nodes.last_mut() {
+                node.props.clip = Some(compositor_protocol::Rect { x: x - REACH, y: ROW_Y - REACH, w: w + 2.0 * REACH, h: TILE_H + 2.0 * REACH });
+            }
+        }
         None => {
             p.surface(id, f, Fill::Sheet, Radius::Tile, false, false, false, 10);
             let title = m.game(game).map_or("", |g| g.title.as_str());
@@ -138,7 +147,12 @@ fn tile(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, x: f32, w: f32) 
         let side = 28.0 * p.scale;
         p.words(id + 2, Frame::new(x + 12.0, ROW_Y + 12.0, side, side), vec![], vec![p.mark(icon, side, 0.0, 0.0, Role::Ink, true)], 12);
     }
-    focus::treat(p, from, id + 3, f, if w == FEATURED_W { Kind::Hero } else { Kind::Tile }, p.focused(focus));
+    let lit = p.focused(focus);
+    focus::treat(p, from, id + 3, f, if w == FEATURED_W { Kind::Hero } else { Kind::Tile }, lit);
+    if lit {
+        // The lit glass fades in on the tile that takes focus and out on the one that gives it up, rather than appearing at full size.
+        p.plan.enters.insert(id + 3, Enter::FADE);
+    }
     p.hit(focus, f);
 }
 

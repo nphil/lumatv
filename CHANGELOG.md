@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+LumaGame's Home row morphs when focus moves: the portrait cover becoming the wide banner opens out of its own box while the art crossfades, and the banner closing back to a cover does the reverse (no jump); the lit banner grows to 1.07 (a cover 1.03), and the lit glass fades in and out between tiles.
+
 LumaGame has one game page: Down from Home's row opens it (the cards of Home's Down state are gone), the Activity card also shows the newest post, and Back from the page is always Home on the same game.
 
 LumaGame's focus is LumaTV Home's raised glass: no bright line along the top, the wash is the theme's own (5 %, not 9 %) with a soft half-strength sheen, a 1 px soft edge and the one shadow; the control still lifts and grows a little. The theme's selected wash is back at 4 %.

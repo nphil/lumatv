@@ -36,6 +36,9 @@ pub(super) fn screens(_base: &Model, add: &mut impl FnMut(&str, Model)) {
         press(&mut m, Key::Right);
     }
     add("home-a-spotlight-native", m);
+    let mut m = base.clone();
+    press(&mut m, Key::Down);
+    add("home-more-game-page", m);
 }
 pub(super) fn text200(base: &Model, add: &mut impl FnMut(&str, Model)) {
     for (name, page) in [("home-a-spotlight-text200", Page::Home), ("31-hub-text200", Page::Game)] {
@@ -109,10 +112,13 @@ fn carousel_motion_frames() -> io::Result<()> {
     shots.shot(&m)?;
     let key = if mode == "right" || mode == "1" { Key::Right } else { Key::Down };
     let mut peak = (0, 0);
+    let mut clock = 1_000;
     for press in 0..8 {
         m.step(Input::Key { key, down: true });
         m.step(Input::Key { key, down: false });
         for tick in 0..10 {
+            clock += 17;
+            m.step(Input::Tick { now_ms: clock, unix_s: 100 });
             shots.page.show(&m)?;
             shots.frame()?;
             let (_, groups) = shots.page.retained_counts();

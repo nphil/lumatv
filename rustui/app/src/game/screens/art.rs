@@ -465,9 +465,6 @@ impl GameUi {
 
 #[cfg(test)]
 impl GameUi {
-    pub(in crate::game) fn has_stage(&self) -> bool {
-        self.art.layer.is_some()
-    }
     /// The pictures put on the layer since the last call: the budget walks allow one a frame.
     pub(in crate::game) fn take_stage_uploads(&mut self) -> u32 {
         std::mem::take(&mut self.art.uploads)

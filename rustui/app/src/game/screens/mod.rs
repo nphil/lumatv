@@ -17,7 +17,7 @@ mod stats;
 
 use crate::game::model::{Focus, Model, Page};
 use art::Key;
-use compositor_protocol::{Ease, GroupPose, PoseBinding, PoseProperties, Props};
+use compositor_protocol::{Ease, Edges, GroupPose, PoseBinding, PoseProperties, Props, Rect};
 use lumagame_meta::Image;
 use lumatv_tokens::{Tokens, TypeRole};
 use paint::{Body, Node, Paint};
@@ -61,6 +61,8 @@ pub struct GameUi {
     groups: BTreeMap<u32, Scroll>,
     /// The nodes the plan dropped that are still going off the screen with their layer, and when each is let go.
     leaving: Leaving,
+    /// How many layers have been left to fade out under a morph; their ids count down from `u64::MAX`.
+    ghosts: u64,
     /// How the nodes of the last plan that arrive with a layer (`Paint::arrives`) come on and go off.
     enters: BTreeMap<u64, Enter>,
     /// The last plan was drawn on a page the screen already showed: a node of a layer that is new to it arrives, where on a page that has
@@ -112,7 +114,25 @@ impl Layer {
         if animate { self.ease(props, ms, Ease::Out) } else { self.jump(props) }
     }
 }
+/// The soft edge of the window a morphing tile opens through; the clip at rest is `REACH` clear of the art, so this never shows then.
+const MORPH_FEATHER: f32 = 28.0;
+/// Whether `new` is `old` changed in shape in place: art that opted into a clip (`home::REACH`), at the same height and place, of
+/// another width.
+fn reshaped(old: &Node, new: &Node) -> bool {
+    matches!((&old.body, &new.body), (Body::Image(_), Body::Image(_)))
+        && old.props.clip.is_some()
+        && new.props.clip.is_some()
+        && old.z == new.z
+        && old.frame.y == new.frame.y
+        && old.frame.h == new.frame.h
+        && old.frame.w != new.frame.w
+}
 impl GameUi {
+    /// How long a spring-eased move takes: the theme's focus time stretched to the spring's own period (Lucent's 260 ms response is a
+    /// 300 ms release, `motion::SPRING_K`).
+    fn spring_ms(&self) -> u32 {
+        self.tokens.motion.focus_ms * 300 / 260
+    }
     pub fn build(mut ui: Ui, _assets: &Path, land: &mut dyn FnMut(&mut Ui) -> io::Result<()>) -> io::Result<Self> {
         let host = Tokens::shipped();
         let tokens = lumatv_tokens::themes::game_tokens("rose-pine", Mode::Dark, &host).ok_or_else(|| io::Error::other("missing LumaGame default theme"))?;
@@ -146,6 +166,7 @@ impl GameUi {
             page: None,
             groups: BTreeMap::new(),
             leaving: Leaving::default(),
+            ghosts: 0,
             enters: BTreeMap::new(),
             settled: false,
         })
@@ -312,13 +333,19 @@ impl GameUi {
                 if spec.horizontal {
                     node.frame.x += spec.offset;
                     node.props.x += spec.offset;
+                    if let Some(clip) = &mut node.props.clip {
+                        clip.x += spec.offset;
+                    }
                 } else {
                     node.frame.y += spec.offset;
                     node.props.y += spec.offset;
+                    if let Some(clip) = &mut node.props.clip {
+                        clip.y += spec.offset;
+                    }
                 }
                 parent = spec.parent;
             }
-            self.keep(node, reduced, scrolled, group)?;
+            self.keep(node, reduced, scrolled, group, model.now_ms())?;
         }
         self.end_art(model)?;
         while self.bytes > 64 << 20 {
@@ -376,7 +403,7 @@ impl GameUi {
         }
         Ok(cleared)
     }
-    fn keep(&mut self, node: Node, reduced: bool, scrolled: bool, group: Option<u32>) -> io::Result<()> {
+    fn keep(&mut self, node: Node, reduced: bool, scrolled: bool, group: Option<u32>, now_ms: u64) -> io::Result<()> {
         if let Body::Image(key) = &node.body {
             if key.spec.stage.is_some() {
                 self.keep_art(node);
@@ -388,7 +415,10 @@ impl GameUi {
                 if !self.pending.contains(key) && !self.failed.contains(key) && self.loader.request(key.clone(), false) {
                     self.pending.insert(key.clone());
                 }
-                self.nodes.remove(&node.id);
+                // A tile that only changes shape keeps its old art on show until the new art has decoded.
+                if !self.nodes.get(&node.id).is_some_and(|kept| reshaped(&kept.node, &node)) {
+                    self.nodes.remove(&node.id);
+                }
                 return Ok(());
             }
         }
@@ -401,8 +431,10 @@ impl GameUi {
                 || kept.node.z != node.z
                 || std::mem::discriminant(&kept.node.body) != std::mem::discriminant(&node.body)
         });
+        // Art that only changes shape in place (a cover becoming the banner and back) morphs: the old layer is let go by the new one.
+        let morph = self.nodes.get(&node.id).filter(|kept| !reduced && self.settled && kept.group == group && reshaped(&kept.node, &node)).and_then(|kept| kept.node.props.clip);
         if recreate {
-            self.nodes.remove(&node.id);
+            let old = self.nodes.remove(&node.id);
             let mut layer = match &node.body {
                 Body::Surface(glass) => Layer::Surface(self.ui.scene.glass(node.frame.w.ceil() as u32, node.frame.h.ceil() as u32, node.z, *glass, node.props)),
                 Body::Text { words, marks } => {
@@ -441,7 +473,19 @@ impl GameUi {
                 result.map_err(|e| io::Error::other(e.to_string()))?;
             }
             // A cover whose art arrives after its tile is shown fades in rather than popping; the stage art (below 100) is not a tile.
-            if !reduced && node.id >= 100 && matches!(node.body, Body::Image(_)) {
+            if let (Some(start), Some(mut old)) = (morph, old) {
+                // The tile changed shape in place: the new art opens out of the old box while the old art fades and closes on the new one.
+                let ms = self.spring_ms();
+                let away = Props { opacity: 0.0, clip: Some(start), feather: Edges::horizontal(MORPH_FEATHER), ..node.props };
+                layer.jump(away);
+                layer.ease(node.props, ms, Ease::Spring);
+                let to = Rect { x: node.frame.x, y: node.frame.y, w: node.frame.w, h: node.frame.h };
+                old.layer.ease(Props { opacity: 0.0, clip: Some(to), ..old.node.props }, ms, Ease::Spring);
+                self.ghosts += 1;
+                let ghost = u64::MAX - self.ghosts;
+                self.leaving.begin(ghost, now_ms, ms);
+                self.nodes.insert(ghost, old);
+            } else if !reduced && node.id >= 100 && matches!(node.body, Body::Image(_)) {
                 layer.set(Props { opacity: 0.0, ..node.props }, false, 0);
                 layer.set(node.props, true, self.tokens.motion.focus_ms);
             } else {
