@@ -13,9 +13,10 @@ fn tile(m: &Model) -> Option<GameId> {
         _ => None,
     }
 }
-/// The fixture with Steam linked, so the featured game has every card, back on Home with Hades II featured.
+/// The fixture with Steam linked for Hades II and the game pages on, so the featured game has every card; back on Home with Hades II featured.
 fn home() -> Model {
-    let mut m = crate::game::model::tests::with_steam(fixture(), crate::game::model::tests::SteamShot::SignedIn);
+    let mut m = with_hades_community(fixture());
+    m.prefs.game_pages = true;
     m.view.page = Page::Home;
     m.view.pane = None;
     m.view.featured = Some(id(&m, "Hades II"));
@@ -37,7 +38,7 @@ pub(super) fn screens(_base: &Model, add: &mut impl FnMut(&str, Model)) {
     add("home-a-spotlight-light", m);
     add("home-a-spotlight-down", down(base));
     let mut m = base.clone();
-    let quake = m.home_games.iter().position(|g| m.facts(*g).activity.news == crate::game::model::facts::Fact::Absent(crate::game::model::facts::Reason::NoSteam)).expect("the row holds a game Steam does not know");
+    let quake = m.home_games.iter().position(|g| *g == id(&m, "Quake")).expect("Quake, which Steam does not know, is on the row");
     for _ in 0..quake {
         press(&mut m, Key::Right);
     }
@@ -57,11 +58,11 @@ pub(super) fn text200(base: &Model, add: &mut impl FnMut(&str, Model)) {
 pub(super) fn walks() -> Vec<Walk> {
     let mut right = taps(&[(Key::Right, 400), (Key::Right, 400), (Key::Right, 120), (Key::Right, 120)]);
     right.push(Step::Settle);
-    right.push(Step::Expect("the stage on the fifth tile", |m, _| m.view.focus == Focus::Home(Spot::Tile(4)) && m.view.featured == m.home_games.get(4).copied()));
+    right.push(Step::Expect("the stage four tiles on", |m, _| matches!(m.view.focus, Focus::Home(Spot::Tile(i)) if i >= 4 && m.view.featured == m.home_games.get(i).copied())));
     let mut down = taps(&[(Key::Down, 300)]);
     down.push(Step::Expect("on the first card", |m, _| matches!(m.view.focus, Focus::Home(Spot::Card(_)))));
     down.extend(taps(&[(Key::Right, 200), (Key::Up, 300)]));
-    down.push(Step::Expect("back on the tile", |m, _| m.view.focus == Focus::Home(Spot::Tile(0))));
+    down.push(Step::Expect("back on the tile", |m, _| m.view.focus == m.home_focus()));
     vec![Walk { name: "home-right-walk".into(), base: home(), script: right }, Walk { name: "home-down-up".into(), base: home(), script: down }]
 }
 
@@ -109,7 +110,7 @@ fn ok_on_a_tile_plays_and_ok_on_a_card_opens_the_game() {
 #[test]
 fn a_game_steam_does_not_know_has_no_steam_cards() {
     let mut m = home();
-    let quake = m.home_games.iter().position(|g| m.facts(*g).activity.news == crate::game::model::facts::Fact::Absent(crate::game::model::facts::Reason::NoSteam)).expect("the row holds a game Steam does not know");
+    let quake = m.home_games.iter().position(|g| *g == id(&m, "Quake")).expect("Quake, which Steam does not know, is on the row");
     for _ in 0..quake {
         press(&mut m, Key::Right);
     }

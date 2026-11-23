@@ -4,7 +4,7 @@
 //! Node ids: 2 and 3 the art, 10-48 the top bar, 100 the row's group and 1000 + 8 per row slot its tiles (`+0` the art or the plate,
 //! `+1` the title, `+2` the mark, `+3` the focus), 300-305 the logo, line and Play, 400 + 16 per card, 500-512 the empty Home.
 use crate::game::model::{
-    Focus,
+    Focus, Layer,
     facts::{Fact, Start, Why},
     home::{HomeCard, Spot, TILES_SHOWN},
 };
@@ -13,6 +13,7 @@ use crate::game::screens::{
     parts::{
         Side,
         card::{self, Card, Headline, Source},
+        drawer,
         focus::{self, Kind},
         hints,
         stage::*,
@@ -48,7 +49,8 @@ pub fn home(p: &mut Paint<'_>) {
     let down = matches!(m.view.focus, Focus::Home(Spot::Card(_)));
     // Down dims the art behind the cards with the stage's own darker copy; at rest the art fades out low on the left behind the words.
     if down { over_art(p, game, H, 0.0, H, false) } else { art(p, game, H, 560.0, H, false) }
-    p.art = true;
+    // The art changes with every tile, so the bar stays the flat tint: captured glass would capture again on each change.
+    p.art = false;
     let attention = topbar::needs_attention(p);
     topbar::bar(p, Here::Home, attention);
     if down {
@@ -84,17 +86,25 @@ fn play(p: &mut Paint<'_>, game: GameId, x: f32, y: f32) {
 /// The row: the focused tile always sits first, so the stage above it reads as its game; the row slides under it.
 fn row(p: &mut Paint<'_>) {
     let m = p.model;
+    // Under a layer focus is the layer's; the row stays where its featured game is.
     let at = match m.view.focus {
         Focus::Home(Spot::Tile(i)) => i,
-        _ => 0,
+        _ => m.home_tile().unwrap_or(0),
     };
+    // The quick menu's sheet hides the tiles that reach under it, and nothing slides while it is open.
+    let drawer = matches!(m.view.top(), Some(Layer::Quick | Layer::QuickSettings));
+    let edge = if drawer { W - p.x - drawer::WIDTH } else { W };
     let pitch = TILE + TILE_GAP;
     let offset = at as f32 * pitch;
     let start = p.plan.nodes.len();
     // The tile that just slid off to the left stays for its way out; the rest are the ones on screen.
-    let first = at.saturating_sub(1);
+    let first = if drawer { at } else { at.saturating_sub(1) };
     for (k, &id) in m.home_games.iter().enumerate().skip(first).take(TILES_SHOWN + at - first) {
-        tile(p, 1000 + k as u64 * 8, id, Focus::Home(Spot::Tile(k)), p.x + k as f32 * pitch - offset);
+        let x = p.x + k as f32 * pitch - offset;
+        if x + TILE > edge {
+            break;
+        }
+        tile(p, 1000 + k as u64 * 8, id, Focus::Home(Spot::Tile(k)), x);
     }
     let nodes = p.plan.nodes[start..].iter().map(|node| node.id).collect();
     p.plan.groups.push(ScrollGroup {
