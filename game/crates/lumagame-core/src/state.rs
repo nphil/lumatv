@@ -131,6 +131,10 @@ pub struct UserData {
     pub last_ok: BTreeMap<GameId, SourceKey>,
     #[serde(default)]
     pub preferred_engine: Option<EngineId>,
+    /// When this TV first listed each game, in Unix seconds. Only games that turned up after the first import are noted, which is
+    /// what "recently added" means; the app drops entries older than the 14 days it shows them for.
+    #[serde(default)]
+    pub first_seen: BTreeMap<GameId, u64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,6 +175,9 @@ impl UserData {
             } else {
                 collection.games.iter_mut().filter(|g| **g == from).for_each(|g| *g = into);
             }
+        }
+        if let Some(seen) = self.first_seen.remove(&from) {
+            self.first_seen.entry(into).and_modify(|at| *at = (*at).min(seen)).or_insert(seen);
         }
     }
 }
@@ -340,6 +347,7 @@ mod tests {
         user.hidden.insert(GameId(2));
         user.started(GameId(2), &cloud, true);
         user.started(GameId(5), &pc, true);
+        user.first_seen = BTreeMap::from([(GameId(2), 1_200), (GameId(5), 900)]);
         user.collections =
             vec![Collection { name: "Co-op".into(), games: vec![GameId(5), GameId(9)] }, Collection { name: "Both".into(), games: vec![GameId(2), GameId(5)] }];
         assert!(state.record(OpenSession { profile: kid.clone(), played: Played { game: GameId(5), source: pc.clone(), start: 1_000, seconds: 60 } }));
@@ -354,6 +362,7 @@ mod tests {
         assert_eq!(user.hidden, BTreeSet::from([GameId(2)]));
         assert_eq!(user.pinned, BTreeMap::from([(GameId(2), cloud.clone())]), "the older game's choice stands");
         assert_eq!(user.last_ok, BTreeMap::from([(GameId(2), cloud)]));
+        assert_eq!(user.first_seen, BTreeMap::from([(GameId(2), 900)]), "the earlier sighting stands");
         assert_eq!(user.collections[0].games, [GameId(2), GameId(9)]);
         assert_eq!(user.collections[1].games, [GameId(2)]);
         assert_eq!(state.profiles[&kid].history.total(GameId(2)).seconds, 60);
