@@ -13,6 +13,8 @@ and the standing rules; this file is the dated record behind it.
 
 Compositor `cf524489` -> `b9dcf75a` (with `lib/x1heapshim.so` `55c9aa5f` -> `9cc30c55`) is staged on the TV, not restarted, and applies at the next boot: holding Input opens LumaTV's input picker instead of LG's Home Hub. The Home Hub tile is hidden from the dock and Apps through `apps.hidden` in `theme/theme.json` and both profiles (backups `/var/lib/lumatv/backups/*.pre-hidehub`); its background agent is cancelled by declutter's `lgextras` group.
 
+UI `0d9068fa` -> `394496ce` and helper `32081d2c` -> `548ffd0e` were installed live from a clean worktree of main `92839bc5` (the staged compositor is untouched; its manifest holds no UI, so the boot apply leaves this UI in place): the dock closes up when a tile is hidden or removed, where before a tile that moved onto a removed neighbour's key vanished and left a hole; the capture after the swap shows 13 tiles with Prime Video and no gap, and the privacy menu answers in 0.11 s.
+
 ## Apps-grid frame fixes installed, 2026-11-22 (main 7fd12f38)
 
 Compositor `33af43c8` -> `cf524489` and UI `a9954312` -> `7edc0b0e` (helper unchanged), built from a clean worktree of `7fd12f38` (draw-on-arrival `c282b983`, lighter wallpaper scrim plates `7fd12f38`, input-picker fix `d8f2f1a6`) and applied live by `tv_install.py --now`; its video check passed. `apps-grid` at 120 Hz, 3 cycles, `gate.py` after `gate.sh refresh 120`: `arrival off` 3 dropped and 3 bursts over 20 ms over 1287 flips, first frame 21.9 ms; `arrival on` 1 dropped and 1 burst over 20 ms over 1293 flips, first frame 16.8 ms (previous baseline: 3 dropped over about 1290 flips). Both runs still miss the gate's zero-drop bar. Arrival is left on and the refresh is back on auto.
