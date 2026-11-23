@@ -564,77 +564,7 @@ impl Model {
     }
 }
 
-// STAND-IN for `super::quick::QuickSetting`, which the quick-menu slice adds. Once that has landed, delete this module and write
-// `use super::quick::QuickSetting;` in its place: the Picture drawer only calls what this offers.
-use stand_in::QuickSetting;
-mod stand_in {
-    use super::*;
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum QuickSetting {
-        Stream,
-        Hdr,
-        Stats,
-    }
-    /// Width, height and frame rate of each stream the Stream row steps through.
-    const STREAMS: [(u32, u32, u32); 8] =
-        [(1280, 720, 60), (1280, 720, 120), (1920, 1080, 60), (1920, 1080, 120), (2560, 1440, 60), (2560, 1440, 120), (3840, 2160, 60), (3840, 2160, 120)];
-    impl QuickSetting {
-        pub fn label(self) -> &'static str {
-            match self {
-                Self::Stream => "Stream",
-                Self::Hdr => "HDR",
-                Self::Stats => "Stats while playing",
-            }
-        }
-        pub fn icon(self) -> Icon {
-            match self {
-                Self::Stream => Icon::Sliders,
-                Self::Hdr => Icon::Sun,
-                Self::Stats => Icon::Info,
-            }
-        }
-        pub fn is_switch(self) -> bool {
-            !matches!(self, Self::Stream)
-        }
-        pub fn on(self, m: &Model) -> bool {
-            match self {
-                Self::Stream => false,
-                Self::Hdr => m.prefs.hdr,
-                Self::Stats => m.prefs.stats.mode.on(),
-            }
-        }
-        pub fn value(self, m: &Model) -> String {
-            match self {
-                Self::Stream => {
-                    let (h, fps) = (m.prefs.height, m.prefs.fps);
-                    if h >= 2160 { format!("4K, {fps} fps") } else { format!("{h}p, {fps} fps") }
-                }
-                _ => if self.on(m) { "On" } else { "Off" }.to_string(),
-            }
-        }
-        pub fn adjust(self, m: &mut Model, forward: bool, out: &mut Vec<Command>) {
-            match self {
-                Self::Stream => {
-                    let at = STREAMS.iter().position(|(_, h, f)| *h == m.prefs.height && *f == m.prefs.fps).unwrap_or(0);
-                    let next = if forward { (at + 1) % STREAMS.len() } else { (at + STREAMS.len() - 1) % STREAMS.len() };
-                    let (w, h, fps) = STREAMS[next];
-                    (m.prefs.width, m.prefs.height, m.prefs.fps) = (w, h, fps);
-                    if fps > 60 && m.prefs.codec == Some(Codec::Av1) {
-                        m.prefs.codec = None;
-                    }
-                    m.save_prefs(out);
-                    m.push_common(out);
-                }
-                Self::Hdr => {
-                    m.prefs.hdr = !m.prefs.hdr;
-                    m.save_prefs(out);
-                    m.push_common(out);
-                }
-                Self::Stats => m.set_stats(if m.prefs.stats.mode.on() { StatsMode::Off } else { StatsMode::Compact }, out),
-            }
-        }
-    }
-}
+use super::quick::QuickSetting;
 
 #[cfg(test)]
 mod tests {

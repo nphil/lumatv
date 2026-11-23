@@ -203,7 +203,7 @@ fn pin_and_hide_round_trip() {
 }
 
 #[test]
-fn menu_over_the_stream_menu_does_nothing() {
+fn menu_over_the_strip_does_nothing() {
     let mut m = fixture();
     m.view.page = Page::Game;
     m.view.selected = Some(id(&m, "Cyberpunk 2077"));
@@ -212,10 +212,10 @@ fn menu_over_the_stream_menu_does_nothing() {
     let session = m.session().unwrap().id;
     event(&mut m, "gfn", ipc::Event::Session { session, state: SessionState::Running { stream: None } });
     m.step(Input::Overlay);
-    assert!(m.stream_menu() && !m.menu_allowed());
+    assert!(m.strip_visible() && !m.menu_allowed());
     let stats = m.prefs.stats.mode;
     press(&mut m, Key::Menu);
-    assert_eq!((m.view.top(), m.prefs.stats.mode), (Some(Layer::StreamMenu), stats));
+    assert_eq!((m.view.top(), m.prefs.stats.mode), (None, stats));
 }
 
 #[test]
@@ -226,6 +226,7 @@ fn choosing_a_mode_in_quick_settings_mid_game_starts_and_stops_sampling() {
     activate(&mut m);
     let session=m.session().unwrap().id;
     event(&mut m,"gfn",ipc::Event::Session {session,state:SessionState::Running {stream:None}});
+    m.step(Input::Tick {now_ms:6_000,unix_s:0});
     let flags=|commands:Vec<Command>| commands.into_iter().find_map(|c| match c {
         Command::Send {request:ipc::Request::Stats {on,pad_timing,..},..}=>Some((on,pad_timing)),
         _=>None,
