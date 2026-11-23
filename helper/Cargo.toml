@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["app", "feeds", "denon", "privacy", "tuner", "remote", "voice", "plugins/home-assistant", "beszel-native", "ssgw"]
+members = ["app", "feeds", "denon", "privacy", "tuner", "xcode", "remote", "voice", "plugins/home-assistant", "beszel-native", "ssgw"]
 
 [workspace.package]
 version = "0.1.0"
@@ -61,6 +61,9 @@ lumatv-feeds = { path = "feeds" }
 lumatv-privacy = { path = "privacy" }
 # The antenna tuner as an HDHomeRun: the engine the helper's Live TV Tuner plugin runs, and a standalone app could.
 lumatuner = { path = "tuner" }
+# The transcode scheduler: the engine that owns the TV's one video encoder (priorities, preemption, a gate for apps that need the decoder, the supervised
+# `lumatv-venc xcode` child); the tuner's H.264 converter and LumaGame's recorder are its consumers.
+lumaxcode = { path = "xcode" }
 # The Live TV guide from online listings by zip code: the engine the helper's Guide data plugin runs, and the UI lays over LG's guide.
 lumaguide = { path = "../lumaguide" }
 # The phone remote: pairing, the Noise session and pointer datagrams; the engine the helper's Phone remote plugin runs.

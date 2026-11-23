@@ -816,6 +816,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumaxcode"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "log",
+ "parking_lot",
+ "serde",
+ "tempfile",
+]
+
+[[package]]
 name = "map"
 version = "0.1.0"
 dependencies = [
