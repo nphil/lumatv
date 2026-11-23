@@ -27,8 +27,9 @@ pub struct Image { pub width: u32, pub height: u32, pub rgba: Vec<u8> }
 pub(crate) fn read(bytes: &[u8]) -> Result<image::DynamicImage> {
     if bytes.len() > super::providers::IMAGE_LIMIT { return Err(Error::Invalid("image byte limit exceeded")); }
     let mut reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
-    if !matches!(reader.format(), Some(image::ImageFormat::Jpeg | image::ImageFormat::Png | image::ImageFormat::WebP)) {
-        return Err(Error::Invalid("artwork is not JPEG, PNG or WebP"));
+    // An animated GIF or WebP decodes to its first frame: moving pictures play on a video layer, never as artwork.
+    if !matches!(reader.format(), Some(image::ImageFormat::Jpeg | image::ImageFormat::Png | image::ImageFormat::WebP | image::ImageFormat::Gif)) {
+        return Err(Error::Invalid("artwork is not JPEG, PNG, WebP or GIF"));
     }
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(8192);
@@ -108,12 +109,19 @@ mod tests {
     #[test]
     fn supported_encodings_decode_but_garbage_and_oversized_output_do_not() {
         let source = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(2, 2, image::Rgb([60, 70, 80])));
-        for format in [image::ImageFormat::Png, image::ImageFormat::Jpeg, image::ImageFormat::WebP] {
+        for format in [image::ImageFormat::Png, image::ImageFormat::Jpeg, image::ImageFormat::WebP, image::ImageFormat::Gif] {
             let mut encoded = Cursor::new(Vec::new());
             source.write_to(&mut encoded, format).unwrap();
             assert_eq!(read(encoded.get_ref()).unwrap().dimensions(), (2, 2));
         }
         assert!(read(b"not an image").is_err());
         assert!(normalize(source, ImageSpec { width: 9000, height: 9000, contain: false, trim_alpha: false }).is_err());
+    }
+    #[test]
+    fn an_animated_gif_reads_as_its_first_frame() {
+        let frame = |rgb: [u8; 3]| image::Frame::new(RgbaImage::from_pixel(2, 2, image::Rgba([rgb[0], rgb[1], rgb[2], 255])));
+        let mut encoded = Vec::new();
+        image::codecs::gif::GifEncoder::new(&mut encoded).encode_frames([frame([255, 0, 0]), frame([0, 0, 255])]).unwrap();
+        assert_eq!(read(&encoded).unwrap().to_rgba8().get_pixel(0, 0).0, [255, 0, 0, 255]);
     }
 }
