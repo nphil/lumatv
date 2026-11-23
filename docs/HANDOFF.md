@@ -9,6 +9,12 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Voice helper reinstalled with the echo canceller on, 2026-11-23 (main 37ed9c82)
+
+Helper `4683577c` -> `2db91857` (both copies; only the helper restarted, standby, compositor and UI untouched), built from main `37ed9c82` against LumaShow `3344928f`. The plugin keeps its pairing and enabled state; the microphone opens at buffer 8192 and the canceller is on with reference `hw:1,2` read at 96 kHz, right channel. After the swap `arecord` on `hw:1,0` had run 2:24 with `hw_ptr` advancing 16 kHz, `aud_dsp_reset_count` stayed 0, `GET /v1/panel/refresher` answered `running:false`, and the Home Assistant entity is now `assist_satellite.living_room_lumatv_voice_bdae31_assist_satellite` (state idle; the area prefix was added since the first install).
+
+Not tested: the echo canceller with the TV playing (the set stayed in standby, where the reference stream is not opened), a spoken wake word, and the silent self-check.
+
 ## Voice assistant plugin installed, on and paired, 2026-11-23
 
 Installed from main `fe14bb50` under the TV lock: helper `be4c7d26` -> `4683577c` (both copies), UI `fa86d762` -> `542c9806` (shell client only; compositor, tool and feeder left as they were). The helper was built against LumaShow `3344928f` (`esphome-api`): its keyless gate closed the connection on `DeviceCapabilitiesRequest`, which Home Assistant sends before it sets the key, so the first helper (`100890df`) never paired; the request is now allowed without a key.
