@@ -215,7 +215,6 @@ impl Density {
 pub struct Preferences {
     pub family: String,
     pub light: bool,
-    pub hero: Density,
     pub covers: Density,
     pub text_percent: u16,
     /// Whose markings hints draw on a face button; automatic follows the pad in use.
@@ -245,7 +244,6 @@ impl Default for Preferences {
         Self {
             family: "rose-pine".into(),
             light: false,
-            hero: Density::Standard,
             covers: Density::Standard,
             text_percent: 100,
             button_labels: Labels::Automatic,
@@ -274,7 +272,6 @@ impl Preferences {
             p.family = s.into();
         }
         p.light = v["light"].as_bool().unwrap_or(p.light);
-        p.hero = Density::ALL[v["hero"].as_u64().unwrap_or(1).min(2) as usize];
         p.covers = Density::ALL[v["covers"].as_u64().unwrap_or(1).min(2) as usize];
         p.text_percent = match v["text_percent"].as_u64() {
             Some(150) => 150,
@@ -310,7 +307,7 @@ impl Preferences {
         p
     }
     fn json(&self) -> serde_json::Value {
-        serde_json::json!({"family":self.family,"light":self.light,"hero":self.hero.index(),"covers":self.covers.index(),"text_percent":self.text_percent,"button_labels":self.button_labels.key(),"reduce_motion":self.reduce_motion,"width":self.width,"height":self.height,"fps":self.fps,"hdr":self.hdr,"codec":self.codec.map_or("auto",Codec::as_str),"frame_pacing":self.frame_pacing(),"bitrate_mbps":self.bitrate_mbps,"stats":self.stats,"deadzone":self.deadzone,"anti_deadzone":self.anti_deadzone,"stick_curve":self.stick_curve.name(),"game_pages":self.game_pages,"mature_pages":self.mature_pages})
+        serde_json::json!({"family":self.family,"light":self.light,"covers":self.covers.index(),"text_percent":self.text_percent,"button_labels":self.button_labels.key(),"reduce_motion":self.reduce_motion,"width":self.width,"height":self.height,"fps":self.fps,"hdr":self.hdr,"codec":self.codec.map_or("auto",Codec::as_str),"frame_pacing":self.frame_pacing(),"bitrate_mbps":self.bitrate_mbps,"stats":self.stats,"deadzone":self.deadzone,"anti_deadzone":self.anti_deadzone,"stick_curve":self.stick_curve.name(),"game_pages":self.game_pages,"mature_pages":self.mature_pages})
     }
     fn frame_pacing(&self) -> &'static str {
         if self.smooth_pacing { "smooth" } else { "latency" }
