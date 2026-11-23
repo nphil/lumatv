@@ -110,6 +110,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "audiopass"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "sha2",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -691,6 +699,7 @@ dependencies = [
 name = "lumatv-helper"
 version = "0.1.0"
 dependencies = [
+ "audiopass",
  "esphome-api",
  "fetch",
  "gamesir-config",
