@@ -10,7 +10,7 @@ use crate::game::model::{
     quick::{Item, QuickSetting},
 };
 use crate::game::screens::{
-    paint::{Fill, Paint},
+    paint::{Fill, Mark, Paint},
     parts::{
         Side, drawer,
         focus::{self, Kind},
@@ -18,7 +18,7 @@ use crate::game::screens::{
     },
 };
 use lumatv_tokens::{Radius, TypeRole as Type};
-use ui::{components::{Icon, ellipsise}, geometry::Frame, lucent::palette::PaletteRole as Role};
+use ui::{components::{Form, Icon, ellipsise}, geometry::Frame, lucent::palette::PaletteRole as Role};
 
 /// The room between two rows.
 const GAP: f32 = 4.0;
@@ -81,8 +81,15 @@ fn line(p: &mut Paint<'_>, id: u64, f: Frame, Label { icon, name, sub }: Label<'
             marks.push(p.mark(Icon::Back, small, right, (f.h - small) / 2.0, Role::Ink, false));
         }
         End::Switch(on) => {
+            // The track is the switch's one layer; the knob and the tick ride in the row's text layer.
             right -= SWITCH_W;
-            p.toggle(id + 7, f.x + right, f.y + (f.h - 48.0) / 2.0, on, false, 13);
+            let top = (f.h - 48.0) / 2.0;
+            p.surface(id + 7, Frame::new(f.x + right, f.y + top, SWITCH_W, 48.0), if on { Fill::Accent } else { Fill::Track }, Radius::Pill, false, false, false, 11);
+            let knob = Mark { form: Form::Disc(36), colour: p.ink(if on { Role::AccentInk } else { Role::Ink2 }, false), x: right + if on { 40.0 } else { 6.0 }, y: top + 6.0 };
+            marks.push(knob);
+            if on {
+                marks.push(p.mark(Icon::Tick, 24.0, right + 46.0, top + 12.0, Role::Accent, false));
+            }
         }
     }
     let x = PAD_X + glyph + ROOM;

@@ -238,11 +238,12 @@ fn cover(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, f: Frame) {
     let Some(g) = m.game(game) else { return };
     let focused = p.focused(focus);
     let from = p.plan.nodes.len();
-    p.surface(id, f, Fill::Sheet, Radius::Tile, false, false, false, 10);
-    // The title stands in for the cover until its art is on disk.
+    // The title on a plate stands in for the cover until its art is on disk; an opaque cover needs no plate, which saves a layer a
+    // cover (15 on screen).
     if let Some(path) = m.art_url(game, ArtKind::Cover).and_then(|url| m.art_path(&url)) {
         p.image(id + 2, path, f, p.tokens.radius(Radius::Tile), false, None, 12);
     } else {
+        p.surface(id, f, Fill::Sheet, Radius::Tile, false, false, false, 10);
         let count = ui::components::wrap(p.fonts, &g.title, p.bold(Type::Body), f.w - 48.0).len();
         let h = count as f32 * p.line(Type::Body);
         p.wrapped(id + 1, &g.title, Frame::new(f.x + 24.0, f.y + (f.h - h) / 2.0, f.w - 48.0, h), Type::Body, Role::Ink, false, 11);

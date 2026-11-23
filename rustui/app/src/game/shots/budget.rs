@@ -96,7 +96,9 @@ impl Run<'_> {
         let cost = self.shots.frame()?;
         let busy = self.shots.page.art_busy();
         let entry = self.entering;
-        self.entering &= busy;
+        // A picture decoded on this frame lands on the GPU in the housekeeping after it, which the next frame's cost reports: the page's
+        // first frames end on the first frame with nothing to decode and nothing landing.
+        self.entering &= busy || cost.uploaded_bytes > 0;
         let full_screen = self.shots.page.full_screen_layers();
         let frame = self.report.frames;
         self.report.frames += 1;
