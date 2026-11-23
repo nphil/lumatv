@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Camera pop-ups alert only when a detection newly starts: a repeat of the same class on the same camera stays quiet for the cool-down (default now 10 min, set in the Cameras plugin page), and a source that keeps reporting it (a stuck sensor) restarts the window each time. Other classes still alert, `other` (visit) never does, and every event is still listed.
+
 Audio passthrough arms for a player in a webOS app jail: the helper recognises the player's `/dev/lg/aren0` by its device number, since a jailed player's descriptor reads under `/var/palm/jail/<app>/` from the helper and was counted as no renderer (Marquee's TrueHD arm was refused with "holds 0 /dev/lg/aren0 descriptors"). The renderer-closed wait on release matches the same way.
 The task manager's numbers are a slim header line across the top (CPU with a tiny bar per core, Memory, GPU, Temp) instead of a card at the bottom, and the cards are centred in the room that frees.
 The Live TV tuner changes channels faster: each channel's PAT/PMT is kept (in `tuner/channels.json`) and a tune routes from them at once while the live tables are checked, and a channel on the RF channel the last stream left is read without playing or waiting for a lock again. A moved program is routed again before its picture, and a cached one that brings no picture is forgotten.

@@ -134,7 +134,7 @@ pub fn schema_json(cameras: &[(String, String)], revision: u32) -> Value {
              "default": {"type": "integer", "value": 12}, "apply": "on-commit"},
             {"key": "popups.cooldown", "label": "Same event again after",
              "kind": {"type": "integer", "min": 0, "max": 600, "step": 5, "unit": "s"},
-             "default": {"type": "integer", "value": 30}, "apply": "on-commit"},
+             "default": {"type": "integer", "value": 600}, "apply": "on-commit"},
             {"key": "popups.over_apps", "label": "Show pop-ups over playing apps", "kind": {"type": "bool"},
              "default": {"type": "bool", "value": true}, "apply": "on-commit"}]}),
     ];
@@ -443,7 +443,7 @@ mod tests {
             Rules {
                 on: true,
                 seconds: 12,
-                cooldown: 30,
+                cooldown: 600,
                 over_apps: true
             }
         );

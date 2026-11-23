@@ -55,7 +55,7 @@ impl Default for Rules {
         Self {
             on: true,
             seconds: 12,
-            cooldown: 30,
+            cooldown: 600,
             over_apps: true,
         }
     }
@@ -156,9 +156,11 @@ pub fn decide(
     }
     let key = (camera.to_owned(), kind.to_owned());
     let cooldown_ms = i64::from(rules.cooldown.min(*COOLDOWN.end())) * 1000;
-    if let Some(last) = cooldowns.last.get(&key)
+    if let Some(last) = cooldowns.last.get_mut(&key)
         && now_ms - *last < cooldown_ms
     {
+        // a source that keeps reporting the same thing (a stuck sensor) stays quiet: each repeat restarts the window
+        *last = now_ms;
         return Decision::Held(Held::Cooldown);
     }
     cooldowns.last.insert(key, now_ms);
@@ -229,6 +231,74 @@ mod tests {
     }
 
     #[test]
+    fn a_source_that_keeps_repeating_stays_quiet_until_it_pauses_for_the_cooldown() {
+        let rules = Rules::default();
+        assert_eq!(rules.cooldown, 600);
+        let mut c = Cooldowns::default();
+        let picked = ["animal", "person"];
+        assert!(matches!(
+            run(&rules, &picked, "240", "animal", Phase::New, 0, &mut c),
+            Decision::Pop { .. }
+        ));
+        // a cat every 4 minutes never pops again, each repeat restarting the window
+        for n in 1..=10 {
+            assert_eq!(
+                run(
+                    &rules,
+                    &picked,
+                    "240",
+                    "animal",
+                    Phase::New,
+                    n * 240_000,
+                    &mut c
+                ),
+                Decision::Held(Held::Cooldown)
+            );
+        }
+        assert!(matches!(
+            run(
+                &rules,
+                &picked,
+                "240",
+                "person",
+                Phase::New,
+                2_400_000,
+                &mut c
+            ),
+            Decision::Pop { .. }
+        ));
+        assert!(matches!(
+            run(
+                &rules,
+                &picked,
+                "240",
+                "animal",
+                Phase::New,
+                3_000_000,
+                &mut c
+            ),
+            Decision::Pop { .. }
+        ));
+    }
+
+    #[test]
+    fn a_visit_is_never_a_card_even_when_every_kind_is_picked() {
+        let mut c = Cooldowns::default();
+        assert_eq!(
+            run(
+                &Rules::default(),
+                &["other", "animal"],
+                "240",
+                "other",
+                Phase::New,
+                0,
+                &mut c
+            ),
+            Decision::Held(Held::Kind)
+        );
+    }
+
+    #[test]
     fn the_same_camera_and_kind_are_held_for_the_cooldown_but_another_camera_kind_or_a_doorbell_is_not()
      {
         let rules = Rules {
@@ -254,16 +324,11 @@ mod tests {
             Decision::Pop { .. }
         ));
         assert!(matches!(
-            run(&rules, &picked, "a", "person", Phase::New, 30_000, &mut c),
+            run(&rules, &picked, "a", "person", Phase::New, 35_000, &mut c),
             Decision::Pop { .. }
         ));
-        // a held event does not push the cooldown back
-        assert_eq!(
-            run(&rules, &picked, "a", "person", Phase::New, 59_999, &mut c),
-            Decision::Held(Held::Cooldown)
-        );
         assert!(matches!(
-            run(&rules, &picked, "a", "person", Phase::New, 60_000, &mut c),
+            run(&rules, &picked, "a", "person", Phase::New, 70_000, &mut c),
             Decision::Pop { .. }
         ));
         // two rings in a row are two cards
@@ -377,7 +442,10 @@ mod tests {
 
     #[test]
     fn an_event_the_bridge_replays_after_a_reconnect_is_history_and_never_a_card() {
-        let rules = Rules::default();
+        let rules = Rules {
+            cooldown: 30,
+            ..Rules::default()
+        };
         let mut c = Cooldowns::default();
         let notify = kinds(&["person", "doorbell"]);
         let seen = |kind, age_ms| Seen {
