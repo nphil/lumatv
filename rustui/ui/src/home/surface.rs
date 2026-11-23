@@ -777,6 +777,26 @@ impl HomeSurface {
         }
         d.cols = home.dock.cols();
         let mut old: Vec<Option<Tile>> = std::mem::take(&mut d.tiles).into_iter().map(Some).collect();
+        // Lifts are keyed by the tile's index. Every tile that stays is lifted off its old key, and every tile that goes lets its key go, before any
+        // key is written: a tile moving up onto the key of a removed neighbour would otherwise replace that lift, and the neighbour's drop
+        // would then take the moved tile's lift (and with it the tile) away, leaving a hole in the dock.
+        let mut carried: Vec<Option<(Tile, Option<Lifted>)>> = home
+            .dock
+            .points
+            .iter()
+            .map(|p| old.iter().position(|t| t.as_ref().is_some_and(|t| t.app == p.id)).and_then(|j| old[j].take()).map(|t| (t, None)))
+            .collect();
+        for mut t in old.into_iter().flatten() {
+            engine.flow.drop_lift(t.id);
+            d.arts.extend(t.art.take());
+        }
+        for (i, c) in carried.iter_mut().enumerate() {
+            if let Some((t, held)) = c
+                && t.id != Id(model::DOCK_ID + i as u32)
+            {
+                *held = engine.flow.take_lift(t.id);
+            }
+        }
         let tile = home.dock.tile as f32;
         let lift = lift_scale(tile, kit.tokens.focus.tile_scale);
         let radius = kit.tokens.radius(Radius::Tile);
@@ -787,15 +807,12 @@ impl HomeSurface {
             let (sx, sy) = home.dock.slot(i);
             let rest = GroupPose { x: sx as f32, y: sy as f32, pivot_x: tile / 2.0, pivot_y: tile / 2.0, ..GroupPose::IDENTITY };
             // a tile that was already made for this app moves to its slot
-            if let Some(j) = old.iter().position(|t| t.as_ref().is_some_and(|t| t.app == p.id)) {
-                let mut t = old[j].take().expect("found");
-                if t.id != id {
+            if let Some((mut t, held)) = carried[i].take() {
+                if let Some(l) = held {
                     // the lift keeps the app's group: it is given the tile's new name
-                    if let Some(l) = engine.flow.take_lift(t.id) {
-                        engine.flow.lift(id, l);
-                    }
-                    t.id = id;
+                    engine.flow.lift(id, l);
                 }
+                t.id = id;
                 t.slot = (sx, sy);
                 let _ = engine.flow.place(id, rest);
                 d.tiles.push(t);
@@ -860,9 +877,14 @@ impl HomeSurface {
             engine.flow.lift(id, Lifted { group, rest, scale: lift, rise: 6.0, lit: None });
             d.tiles.push(Tile { id, plate: plate_layer, icon, lifted_icon: None, art, apps_mark, app: p.id.clone(), slot: (sx, sy) });
         }
-        for mut t in old.into_iter().flatten() {
-            engine.flow.drop_lift(t.id);
-            d.arts.extend(t.art.take());
+        // tiles left over when the list could not be made whole: a tile that kept its key lets it go with it
+        for (i, c) in carried.into_iter().enumerate() {
+            if let Some((mut t, _)) = c {
+                if t.id == Id(model::DOCK_ID + i as u32) {
+                    engine.flow.drop_lift(t.id);
+                }
+                d.arts.extend(t.art.take());
+            }
         }
         // a dock the scene had no room for keeps no key and the pictures of the tiles it lacks: the next apply makes the rest
         if let Some(e) = failed {
@@ -2928,5 +2950,46 @@ mod tests {
             assert_eq!(bar.items.last().and_then(|i| i.ticker.as_ref()).and_then(|t| t.shown.as_deref()), Some("Title 1"));
             std::mem::forget(h);
         }
+    }
+
+    #[test]
+    fn tiles_after_a_removed_or_hidden_one_close_up_with_every_tile_still_drawn_where_the_dock_puts_it() {
+        let (h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        let mut engine = Engine::new(&kit).expect("an engine");
+        let mut home = Home::new(lumatv_tokens::Tokens::shipped().json().clone(), super::super::grid::shipped(), json!({}));
+        fixtures(&mut home);
+        let mut lps: Vec<Value> = std::iter::once(json!({"id": "com.webos.app.discovery", "title": "Apps", "unmovable": true, "icon": ""}))
+            .chain((0..11).map(|i| json!({"id": format!("app{i}"), "title": format!("App {i}"), "icon": "", "iconColor": "#101010"})))
+            .collect();
+        home.update(&Input::Luna { tag: model::LP_TAG, payload: json!({"launchPoints": lps}) }, 1500);
+        let mut s = HomeSurface::new(1000);
+        s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+        let check = |s: &mut HomeSurface, home: &mut Home, engine: &mut Engine, kit: &mut Kit, at: u64| {
+            s.apply(kit, engine, home, at).expect("Home drawn");
+            let d = s.dock.as_ref().expect("the dock");
+            let apps: Vec<&str> = d.tiles.iter().map(|t| t.app.as_str()).collect();
+            assert_eq!(apps, home.dock.ids().iter().map(String::as_str).collect::<Vec<_>>(), "one tile per app, in the dock's order");
+            for (i, t) in d.tiles.iter().enumerate() {
+                assert_eq!((t.id, t.slot), (Id(model::DOCK_ID + i as u32), home.dock.slot(i)), "{}: tile {i} sits in slot {i}", t.app);
+                assert!(engine.flow.has(t.id), "{}: its lift is kept, so it is drawn", t.app);
+            }
+            for i in d.tiles.len() as u32..model::DOCK_MAX {
+                assert!(!engine.flow.has(Id(model::DOCK_ID + i)), "no lift is left on the unused key {i}");
+            }
+        };
+        check(&mut s, &mut home, &mut engine, &mut kit, 2000);
+        // one tile goes: its neighbour moves onto its key
+        lps.remove(4);
+        home.update(&Input::Luna { tag: model::LP_TAG, payload: json!({"launchPoints": lps}) }, 2100);
+        check(&mut s, &mut home, &mut engine, &mut kit, 2200);
+        // two next to each other are hidden by the theme, and one further on goes
+        home.update(&Input::Fetched { tag: model::THEME_TAG, status: 200, data: json!({"apps": {"dockHide": ["app5", "app6"]}}) }, 2300);
+        lps.remove(9);
+        home.update(&Input::Luna { tag: model::LP_TAG, payload: json!({"launchPoints": lps}) }, 2400);
+        check(&mut s, &mut home, &mut engine, &mut kit, 2500);
+        // they come back
+        home.update(&Input::Fetched { tag: model::THEME_TAG, status: 200, data: json!({}) }, 2600);
+        check(&mut s, &mut home, &mut engine, &mut kit, 2700);
+        std::mem::forget(h);
     }
 }

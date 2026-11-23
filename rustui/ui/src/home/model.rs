@@ -534,11 +534,14 @@ impl Home {
         }
         self.status_gaps = status_gaps(&theme);
         self.theme = theme;
+        let on_dock = self.focus_on_dock();
         self.dock.refresh(&self.theme);
+        self.apps.set_points(&self.dock, &self.theme);
         self.rest_ms = self.theme.pointer("/motion/restMs").and_then(Value::as_u64).unwrap_or(150);
         self.hold_ms = self.theme.pointer("/motion/holdMs").and_then(Value::as_u64).unwrap_or(700);
         self.search.configure(&self.theme, self.text_scale);
         self.register();
+        self.keep_dock_focus(on_dock);
         if self.layer == Layer::Search { self.search.register(&mut self.focus); }
         self.dirty = true;
     }
@@ -996,6 +999,18 @@ impl Home {
         }
     }
 
+    fn focus_on_dock(&self) -> bool {
+        self.focus.current().is_some_and(|id| Self::dock_index_of(id).is_some())
+    }
+
+    /// The focus back on the dock after its tiles were registered again for a changed list: re-registering lets go of a focus that sat on a tile that
+    /// is gone or moved, and the dock's own index already names the tile that was kept or the one that took its place.
+    fn keep_dock_focus(&mut self, was_on_dock: bool) {
+        if was_on_dock && !self.dock.points.is_empty() {
+            self.focus.focus(Id(DOCK_ID + self.dock.index as u32));
+        }
+    }
+
     fn dock_index_of(id: Id) -> Option<usize> {
         id.0.checked_sub(DOCK_ID).filter(|i| *i < DOCK_MAX).map(|i| i as usize)
     }
@@ -1335,9 +1350,11 @@ impl Home {
                     if self.dock.moving {
                         return;
                     }
+                    let on_dock = self.focus_on_dock();
                     self.dock.set_points(list, &self.theme);
                     self.apps.set_points(&self.dock, &self.theme);
                     self.register_dock();
+                    self.keep_dock_focus(on_dock);
                     self.redraw(out);
                 }
             }
@@ -2000,9 +2017,11 @@ impl Home {
         let mut apps = self.theme.get("apps").cloned().unwrap_or_else(|| json!({}));
         lumatv_tokens::merge(&mut apps, &part);
         self.theme["apps"] = apps.clone();
+        let on_dock = self.focus_on_dock();
         self.dock.refresh(&self.theme);
         self.apps.set_points(&self.dock, &self.theme);
         self.register_dock();
+        self.keep_dock_focus(on_dock);
         // the owner's file plus the patch, one level deep
         let mut file: Value = serde_json::from_str(&self.theme_text).unwrap_or_else(|_| json!({}));
         if !file.is_object() {
@@ -4368,6 +4387,32 @@ mod tests {
         assert_eq!(h.state()["widgetFocusId"], "clock");
         press(&mut h, "up", 2850);
         assert_eq!(h.state()["focusLayer"], "statusbar");
+    }
+
+    #[test]
+    fn a_theme_that_hides_a_tile_or_a_launch_point_that_goes_closes_the_dock_up_and_keeps_the_focus_on_the_dock() {
+        let mut h = home();
+        let mut lps = vec![json!({"id": APPS_TILE, "title": "Apps", "unmovable": true, "icon": "/a.png"})];
+        lps.extend((1..6).map(|n| json!({"id": format!("app{n}"), "title": format!("App {n}"), "icon": "/a.png", "iconColor": "#101010"})));
+        h.update(&Input::Luna { tag: LP_TAG, payload: json!({"launchPoints": lps}) }, 1100);
+        h.dock.focus(2);
+        h.register_dock();
+        h.focus.focus(Id(DOCK_ID + 2));
+        h.update(&Input::Fetched { tag: THEME_TAG, status: 200, data: json!({"apps": {"dockHide": ["app1"]}}) }, 1200);
+        assert_eq!(h.dock.ids(), [APPS_TILE, "app2", "app3", "app4", "app5"]);
+        assert_eq!((h.dock.index, h.focus.current()), (1, Some(Id(DOCK_ID + 1))), "the focus follows app2 to its new place");
+        assert!(h.focus.focus(Id(DOCK_ID + 4)) && !h.focus.focus(Id(DOCK_ID + 5)), "five tiles are registered, no stale sixth");
+        assert!(h.apps.by_id("app1").is_some_and(|a| !a.on_dock) && h.apps.by_id("app2").is_some_and(|a| a.on_dock), "the Apps library sees the same dock");
+        lps.remove(3);
+        h.update(&Input::Luna { tag: LP_TAG, payload: json!({"launchPoints": lps}) }, 1300);
+        assert_eq!(h.dock.ids(), [APPS_TILE, "app2", "app4", "app5"]);
+        assert_eq!(h.focus.current(), Some(Id(DOCK_ID + 1)), "the focused app was not the one that went");
+        h.dock.focus(2);
+        h.register_dock();
+        h.focus.focus(Id(DOCK_ID + 2));
+        lps.remove(3);
+        h.update(&Input::Luna { tag: LP_TAG, payload: json!({"launchPoints": lps}) }, 1400);
+        assert_eq!((h.dock.index, h.focus.current()), (2, Some(Id(DOCK_ID + 2))), "the focused app went: the tile that took its place");
     }
 
     #[test]

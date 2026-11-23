@@ -179,11 +179,20 @@ impl Dock {
         // the tiles are focus ids `DOCK_ID..DOCK_ID + DOCK_MAX`; the next id is the dock card's lift, so a longer list cannot be shown
         list.truncate(super::model::DOCK_MAX as usize);
         let points = Self::points_of(&list, theme);
+        // the focus stays on its app wherever the list moved it; an app that is gone leaves it on the tile that took its place (the last one at the end)
+        let on = self.points.get(self.index).map(|p| p.id.clone());
         // a title or an icon that changed is carried by the tile's own redraw, not by making the tiles again
         if points.len() != self.points.len() || points.iter().zip(&self.points).any(|(a, b)| a.id != b.id) {
             self.rev += 1;
         }
         self.points = points;
+        if let Some(on) = on
+            && self.points.get(self.index).map(|p| &p.id) != Some(&on)
+            && let Some(i) = self.points.iter().position(|p| p.id == on)
+        {
+            self.index = i;
+        }
+        self.index = self.index.min(self.points.len().saturating_sub(1));
         self.clamp();
     }
 
@@ -591,5 +600,24 @@ mod tests {
         assert_eq!(d.rev, rev + 1);
         d.refresh(&json!({"apps": {"dockHide": ["plex"]}}));
         assert_eq!(d.rev, rev + 2);
+    }
+    #[test]
+    fn a_tile_hidden_by_the_theme_or_gone_from_lgs_list_leaves_no_gap_and_the_focus_stays_on_its_app_or_its_neighbour() {
+        let mut d = dock(json!({}));
+        let ids = |d: &Dock| d.ids();
+        assert_eq!(ids(&d), [APPS_TILE, "netflix", "youtube", "plex", "hidden"]);
+        d.focus(3);
+        d.refresh(&json!({"apps": {"dockHide": ["netflix"]}}));
+        assert_eq!(ids(&d), [APPS_TILE, "youtube", "plex", "hidden"]);
+        assert_eq!((0..4).map(|i| d.slot(i).0).collect::<Vec<_>>(), (0..4).map(|i| d.pad_x() + i * d.pitch()).collect::<Vec<_>>(), "the slots are the first four");
+        assert_eq!(d.focused().map(|p| p.id.as_str()), Some("plex"), "the focused app keeps the focus");
+        // the focused app itself hidden: the tile that took its place
+        d.refresh(&json!({"apps": {"dockHide": ["netflix", "plex"]}}));
+        assert_eq!((ids(&d), d.index), (vec![APPS_TILE.to_owned(), "youtube".into(), "hidden".into()], 2));
+        // the last tile gone from LG's list while focused: the new last one
+        d.focus(2);
+        let kept: Vec<Value> = vec![lp(APPS_TILE, "Apps"), lp("youtube", "YouTube")];
+        d.set_points(&kept, &json!({}));
+        assert_eq!((ids(&d), d.index), (vec![APPS_TILE.to_owned(), "youtube".into()], 1));
     }
 }

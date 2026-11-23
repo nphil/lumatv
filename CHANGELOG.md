@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Home's dock closes up at once when a tile is hidden by the theme or removed from LG's launch points: a tile that moved onto the key of a removed neighbour lost its group and vanished, leaving an empty slot, and the Apps library kept the old hiding. The focus stays on its app, or on the tile that took the place of the one that went.
+
 LumaGame and the camera feeder no longer write core dumps: a crash left a 160 to 290 MB `core.<pid>` in the app's install directory, which nothing removed and reinstalls kept. The previous run's log stays beside the current one as `feeder.log.prev`, so a crash's panic message survives the relaunch.
 
 The old GeForce NOW app and the LumaGame native proof are gone; LumaGame streams GeForce NOW. `lumatv gfn` and the package's `payload/gfn` are removed with them.
