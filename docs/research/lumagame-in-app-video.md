@@ -38,3 +38,22 @@ The owner wants them inside LumaGame (2026-11-23); the YouTube app hand-off is o
 2. Plain embed: one public embeddable video on the BeastNAS page at 480×270; it plays without error 153.
 3. Go/no-go for Route 2: the embed's video shows as a video window and the panel stays at 120 Hz with a 30 fps video (count refresh pulses). On a fail, Route 2 stops.
 4. Frame over a card, nothing bright over the player; keys and full screen with Back returning; autoplay rule; memory, first-picture time and cache size after 20 plays; picture-mode check; a blocked video.
+
+## Embed probe 2026-11-23
+
+Experiments 2 and 3, run 10:04 to 10:08 on the C4 with the LumaTV compositor and LumaGame in front. The page (`docs/research/youtube-embed/index.html`, IFrame API, muted autoplay, `playsinline`, `controls=0`, `disablekb=1`, `rel=0`) was served over plain http from BeastNAS's LAN address and opened in `org.nphil.lumatv.frame` with `{url, mode: "web", rect}`; the video was the Stardew Valley trailer `ot7uXNQskhs` (30 fps, public, embeddable). Receipts: `/data/home/tmp/lumagame-ytembed-20261123/` (LG display capture, LG video capture and the compositor's capture side by side, card and full screen).
+
+**Route 2 is a go.**
+
+- Plays without error: pass. The page loaded 1.0 s after the launch, `onReady` came 2.1 s later and `playing` 8.8 s after the page load; no `onError` (no 153, 101 or 150). WAM is Chrome 120.
+- Video plane: pass. WAM decodes in hardware (AV1, a `com.webos.media` pipeline owned by the frame app, sub type `overlay`) on the main window, exports it through `wl_webos_foreign`, and the compositor lists it as a video window at the card's rectangle (720,405 480×270) and attaches the punch-through. LG's video capture shows the picture; the compositor's capture shows a transparent hole (alpha 0) there. 631 frames written, 0 dropped.
+- 120 Hz: pass. `osd_irq` ran at 118.4 to 121.8 a second over 8 one-second windows in the card and 6 at full screen, as before the launch; the main window's `vFreq` read 29.9.
+- Picture mode: unchanged. `eco` and `sdr` before, during and after; no `sdrALLM` or game preset. Backlight went from 27 to 35 during the run, which matches LumaTV's auto brightness's last write (35).
+- Keys: the frame holds keyboard focus while open. Right and Down did not move LumaGame's focus and did not reach the page (no `keydown` logged inside the frame's iframe). Back (412) closed the frame through the compositor's overlay handling: the renderer exited, the video window was released and LumaGame came back in front with focus, the panel still at 120 Hz.
+- Full screen: relaunching the frame with rect 0,0,1920,1080 played 1080p30 on the main window (`fullScreen: true`, 0 dropped, 120 Hz). The relaunch reloads the iframe, so playback restarted; growing in place needs a frame change. A small mute glyph (the receiver was muted for the run) stayed drawn above the video, which the embed rule forbids.
+- First picture: 9.2 s from a cold frame launch (new renderer) to the video window, 4.7 s on a relaunch; the YouTube player's load and buffering take most of it.
+- Memory: the frame's renderer 104 to 113 MB resident (64 MB anonymous), on top of a WAM that was already running (browser 85 MB, zygote 28 MB, network 35 MB). Available memory went from 696 to 454 MB with LumaGame and the frame up.
+- Storage: WAM's profile `/var/lib/wam` (21.7 MB, its HTTP cache 11.7 MB) gained 40 files and 1.2 MB, YouTube's cookies and IndexedDB among them; the profile is shared by every web app.
+- The page must size the player by CSS: the frame hides its iframe until load, so the page sees a 0×0 viewport when it starts. The iframe's white background shows until the page loads.
+
+Not tested: sound, the autoplay rule, a blocked video, cache growth over 20 plays, the frame over a real card.

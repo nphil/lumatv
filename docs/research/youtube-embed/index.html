@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- Embed probe (docs/research/lumagame-in-app-video.md, "Embed probe 2026-11-23"): YouTube's IFrame API player at x,y,w,h
+     (default 0,0 480x270), muted autoplay. Every event goes to the console and, as a GET to /log?..., to the serving
+     host's access log, which is the record when the page runs nested inside the frame app on the set.
+     Query: v (video id, default the 30 fps Stardew Valley trailer), x, y, w, h, fill=1 (player fills the page). -->
+<html lang="en"><head><meta charset="utf-8"><title>YouTube embed probe</title>
+<style>
+  html, body { margin: 0; background: #000; overflow: hidden; width: 100%; height: 100%; }
+  #player { position: absolute; }
+</style></head>
+<body>
+<div id="player"></div>
+<script>
+(function () {
+  'use strict';
+  var q = new URLSearchParams(location.search);
+  // fill sizes by CSS: the frame app keeps its iframe hidden until load, so innerWidth is 0 when this runs.
+  var fill = q.get('fill') === '1';
+  var box = {
+    x: +(q.get('x') || 0), y: +(q.get('y') || 0),
+    w: fill ? '100%' : +(q.get('w') || 480), h: fill ? '100%' : +(q.get('h') || 270)
+  };
+  var t0 = performance.now();
+  function log(ev, data) {
+    var ms = Math.round(performance.now() - t0);
+    var line = ev + (data === undefined ? '' : ' ' + JSON.stringify(data));
+    console.log('[ytprobe] +' + ms + 'ms ' + line);
+    new Image().src = '/log?ms=' + ms + '&ev=' + encodeURIComponent(line) + '&n=' + Math.random().toString(36).slice(2);
+  }
+  var states = { '-1': 'unstarted', 0: 'ended', 1: 'playing', 2: 'paused', 3: 'buffering', 5: 'cued' };
+  var el = document.getElementById('player');
+  el.style.left = box.x + 'px'; el.style.top = box.y + 'px';
+  log('load', { href: location.href, ua: navigator.userAgent, inner: [window.innerWidth, window.innerHeight], box: box });
+  window.addEventListener('keydown', function (e) { log('keydown', { keyCode: e.keyCode, key: e.key }); });
+  window.addEventListener('error', function (e) { log('jserror', { msg: e.message }); });
+
+  window.onYouTubeIframeAPIReady = function () {
+    log('apiReady');
+    var player = new YT.Player('player', {
+      width: box.w, height: box.h, videoId: q.get('v') || 'ot7uXNQskhs',
+      playerVars: { autoplay: 1, mute: 1, playsinline: 1, controls: 0, disablekb: 1, rel: 0, origin: location.origin },
+      events: {
+        onReady: function () { log('onReady'); player.mute(); player.playVideo(); },
+        onStateChange: function (e) {
+          log('onStateChange', { state: e.data, name: states[e.data], t: player.getCurrentTime && +player.getCurrentTime().toFixed(2),
+            quality: player.getPlaybackQuality && player.getPlaybackQuality() });
+        },
+        onPlaybackQualityChange: function (e) { log('onPlaybackQualityChange', { q: e.data }); },
+        onError: function (e) { log('onError', { code: e.data }); }
+      }
+    });
+    setInterval(function () {
+      if (player.getPlayerState) log('tick', { state: player.getPlayerState(), t: +player.getCurrentTime().toFixed(2),
+        loaded: +(player.getVideoLoadedFraction() || 0).toFixed(3), quality: player.getPlaybackQuality() });
+    }, 5000);
+  };
+  var s = document.createElement('script');
+  s.src = 'https://www.youtube.com/iframe_api';
+  s.onerror = function () { log('apiScriptError'); };
+  document.head.appendChild(s);
+})();
+</script>
+</body></html>
