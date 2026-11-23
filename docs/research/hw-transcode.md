@@ -1,6 +1,8 @@
-# Transcoding the antenna stream to H.264 on the TV's own hardware (phase 1)
+# Transcoding the antenna stream to H.264 on the TV's own hardware (phases 1 and 2)
 
 Nitin asked on 2026-11-05 whether the set can turn its antenna stream (ATSC 1.0: MPEG-2 video at 480i, 720p or 1080i, AC-3 audio) into H.264 in real time on its own hardware, so Plex and phones could play it without Plex's transcoder. It is only worth doing with under ~300 ms of added latency, a first H.264 keyframe within ~0.5 s of the MPEG-2 keyframe, no effect on the TV's own viewing, and no wedge risk in the chosen path. This note is phase 1: routes, what each costs, what Plex gains, and a probe plan. Nothing in it touched the decoder or encoder nodes on the set.
+
+Phase 1's verdict is about Plex and stands. Phase 2 (the last section) asks the same of the clients that read the tuner directly, the phone apps, and holds the chosen route, the tuner's API and the on-set plan that replaces phase 1's. Nothing in phase 2 ran on the set.
 
 ## Verdict
 
@@ -18,7 +20,7 @@ Nitin asked on 2026-11-05 whether the set can turn its antenna stream (ATSC 1.0:
 |---|---|---|
 | Video decoders | UMS counts `VDEC` 4, `G1_MSVC` (the MPEG-2 core) 4, `VDEC_BUS` 6; MPEG-2 up to 1920x1088 at 30 frames, 40 Mb/s | TV: `/etc/umediaserver/umediaserver_resource_config.txt`, `device_codec_capability_config.json` (copies in `gfn/tv-2026-10-26/`) |
 | Video encoder | one Hantro H1 behind the video MCU: H.264 (Baseline/Main/High, CAVLC/CABAC) and VP8, I and P frames only, 1920x1080 at most; UMS counts `VENC` 1 and `AENC` 1 | `venc-result.md`; TV: same config |
-| Who holds decoders while the tuner streams | the windowless `SCAN` pipeline the facade opens claims `ADTU`, `SDEC`, `VTP`, two `VDEC`, `G1_H264`, `G1_MSVC`; LG's Live TV claims two `VDEC` and preempts it | `live-tv-capture.md` |
+| Who holds decoders while the tuner streams | none for the helper's tuner path: its windowless pipeline (`playSignaling`, purpose `WATCH_SECTION_PARSE`) claims `ADTU` and `SDEC` only. LG's Live TV and `utp changeChannel` claim the whole watch chain (`ADTU`, `SDEC`, `VTP`, two `VDEC`, `G1_H264`, `G1_MSVC`), and `changeChannel` failed while Netflix 4K held all four `VDEC` | `live-tv-capture.md` (The path), `second-window-4k.md` |
 | Memory pools | `cpb` 66 MB at 0x77200000 (the V4L2 decoder's bitstream and capture buffers, the encoder's 10 MB, `photofb`), `vpb` 300 MB (the decoders' picture stores), `venc1` 12 MB (secure encode), `de-vt-m0/m1` 24/12 MB; `CmaFree` 49 MB of 692 MB at Home | TV: `/proc/hma/status`, `/proc/meminfo` |
 | Kernel pieces of route b on this firmware | `dma_start` and `gps_if_*` (the tiled-to-NV12 DMA); two local `__mem_ops_attach_dmabuf`, the name of the dma-buf import in `vb2_hma.c` and `vb2_cpb.c` | TV: `/proc/kallsyms` |
 | Nodes | `video20` `v4l2_live` (LG's broadcast decode path), `video21` `lgsoc-vdec-decoder`, `video22` `lgsoc-vdec-sink`, `video24` `sic-encoder`, `video27-29` `v4l2_conn0-2`, `video30-33` `vsc-video-dev0-3`, `video60` `vt-capture-dev`, `video70` `gps-capture-dev`, `/dev/venc` | TV: `/sys/class/video4linux/*/name` |
@@ -47,7 +49,7 @@ The decoder is a V4L2 stateful memory-to-memory node; the encoder is the `/dev/v
 - **Latency knobs:** encoder: GOP 1-300 frames and IDR on demand (`LX_VENC_IOWR_ENC_PARAM`, `h1encode.c:2806-2880`), VBR/CBR/fixed QP (`ENC_SetRateCtrl`, `:2757`), no B frames, no lookahead (one blocking `ENC_ENCODE` per frame), SPS/PPS in front of every I frame (`:2386-2399`). Decoder: no low-delay control exists (controls `:1260-1300`); MPEG-2 B frames hold each anchor until the next one arrives.
 - **Expected latency [INFERENCE]:** MPEG-2 reorder 2-3 frames (50-100 ms), decode 5-10 ms, NV12 DMA up to one display period (17 ms), encode 10-25 ms at 1080 and 5-12 ms at 720p (H1 1080p30-60, `venc-result.md`), TS mux and send under 10 ms: **100-170 ms added**. First H.264 keyframe: the first decodable MPEG-2 I picture leaves the decoder with the next anchor, then one encode: **about 100-200 ms after the I picture has arrived**.
 - **Audio:** AC-3 is copied from the tap with its own timestamps. The decoder carries each bitstream buffer's timestamp to the picture it produces (`write_buf` and `process_picture`, `v4l2_vdec.c:901-920, 705`; `V4L2_BUF_FLAG_TIMESTAMP_COPY`, `:1850, 1866`), so video keeps the broadcast's timestamps and lip sync needs no retiming [INFERENCE].
-- **Contention:** one more decoder, outside UMS's count unless the process registers and acquires `VDEC` itself. The facade's `SCAN` pipeline already holds two `VDEC`; Live TV takes two and preempts it. An uncounted third decoder lets UMS hand out a fourth and fifth to an app, which then fails. The transcoder must therefore acquire `VDEC` and `VENC` through UMS at background level and stop on its policy action, and keep the facade's rule (stop when Live TV is in front or has a pipeline). `VENC` is single: LG's Miracast transmit and camera encode cannot run beside it.
+- **Contention:** one more decoder, outside UMS's count unless the process registers and acquires `VDEC` itself (how a plain root process does that is unproven). The helper's tuner path holds no `VDEC` (`ADTU` and `SDEC` only); Live TV holds two, YouTube two, Netflix 4K all four (`second-window-4k.md`). An uncounted decoder lets UMS hand an app decoders the MCU no longer has, and that app fails. Phase 2 therefore converts only while no app has a video pipeline and stops within 1 s when one appears. `VENC` is single: LG's Miracast transmit and camera encode cannot run beside it.
 - **Memory:** decoder bitstream buffer 6 MB from `cpb` (`VDEC_CPB_SIZE`, `core/vdec/hal/o22/vdec_base.h:264`; `v4l2_vdec.c:841-847`), its picture store in `vpb`, four NV12 capture buffers (4 x 3.1 MB at 1080) and the encoder's 10 MB, all from `cpb`: about 29 MB of 66 MB. What LG's own playback takes from `cpb` at the same time is not measured.
 - **Wedge risk: medium, and different from `/dev/video24`'s.** That node's mmap turns the buffer's address into a kernel page with `page_address(vmalloc_to_page(...))` and maps it writable (`PAGE_SHARED`) into the caller (SRC `v4l2_venc.c:1594-1631`): the first slot's test picture went into kernel memory and the task spun in `v4l_dqbuf` → `__dma_inv_area` → `do_page_fault` with SIGKILL pending (`venc-result.md`). Route b never opens that node. `video21`'s own mmap is a size-checked `remap_pfn_range` of the HMA address (`vb2_hma.c:51-84`), and with dma-buf import no driver memory is mapped at all. `/dev/venc`'s mmap maps the ES and AUI buffers the MCU allocated (`venc.c:484-514`). What remains is a call into the MCU that never returns (decoder or encoder IPC) or a bad sequence of decoder ioctls; both stop one process, and the slot's watchdog detects a process that survives SIGKILL. Calls route b must never make: `LX_VENC_IOWR_ENC_SCALE` (a DMA between two physical addresses the caller supplies, unchecked, `venc.c:386-410`), anything on `/dev/video24`, `/dev/lg/venc0` (mode 0777, maps any physical page) or `/dev/mem`.
 - **Verdict:** the only route on the set that can meet the target; unproven at every step.
@@ -66,7 +68,7 @@ The decoder is a V4L2 stateful memory-to-memory node; the encoder is the `/dev/v
 | Route | For | Against | Verdict |
 |---|---|---|---|
 | d1. Sub scaler into the encoder's record mode (`V4L2_EXT_VSC_INPUT_SRC_VDEC` → `V4L2_EXT_VSC_DEST_VENC`) | all hardware: deinterlace and scale in the display engine, no buffers | the sub scaler is the Multi View and picture-in-picture window LumaTV's camera pop-ups use (`multiview-result.md`); `video31` belongs to `videooutputd`; 1080p capped at 30 frames; display-timed | no-go |
-| d2. The graphic scaler's capture (`video70`, `GP_SCALER` 4) of the decoder LG's `SCAN` pipeline already runs, into `/dev/venc` | no second decode, NV12 dma-buf ready for the encoder | whether a windowless pipeline's decoder can be connected to it at all; the connection belongs to LG's GAV pipeline (`videooutputd`, VDO) | park |
+| d2. The graphic scaler's capture (`video70`, `GP_SCALER` 4) of the decoder an LG `utp` watch pipeline runs (the helper's tuner path runs none), into `/dev/venc` | no second decode, NV12 dma-buf ready for the encoder | whether a windowless pipeline's decoder can be connected to it at all; the connection belongs to LG's GAV pipeline (`videooutputd`, VDO) | park |
 | d3. MPEG-2 decoded on the CPU (FFmpeg's MPEG-2 decoder added to the build the feeder already ships for H.264/H.265) into an HMA buffer, into `/dev/venc` | no `VDEC` taken from LG; only the encoder node is new | about half a core for 1080i30 on one A76 [INFERENCE], plus the field split | fallback for b |
 | d4. Off the set: BeastNAS transcodes (Plex itself on the Intel GPU, or a relay) | no risk on the TV; Plex's hardware transcode starts as fast as a copy (below) | it is what happens today | baseline |
 
@@ -90,37 +92,12 @@ A throwaway relay on the host (`/data/home/tmp/tx264`, stopped afterwards, not i
 - **The codec costs Plex no start-up time:** its own transcoder, from a recording at its own pace into 1 s segments, had the first segment after 0.63 s copying H.264 1080p and after 0.64-0.65 s transcoding MPEG-2 1080i on the Intel GPU; 720p MPEG-2 took 0.91 s, while a copy of the 720p H.264 took 1.62 s because a copy can only cut at the source's keyframes.
 - **Where the time goes:** the tune (the facade answers 1.1-3.0 s after the request, with the first whole picture) and Plex's probe of the stream before its grab writes (about 0.5-1 s). The live H.264 rows also carry the relay's own start-up (facade's first byte to the relay's first IDR, 0.9-1.3 s, mostly FFmpeg's probe); an encoder on the set would add about 0.1-0.2 s instead [INFERENCE], which brings H.264 level with MPEG-2, not ahead of it.
 
-## Phase 2 probe plan
-
-Not run: with the payoff above, no probe touches the encoder or decoder nodes. The plan stands for the case where a client is shown to direct-stream live H.264 and start faster. Every step is its own process under the `venc/` probe's per-call watchdog (exit 75 names the call) and the slot script's budget (SIGKILL when over; a process still there 5 s later is stuck in the kernel: `WEDGED` with its `/proc/PID/stack`, and the slot stops). Preconditions for steps 2-8: Home in front, nothing playing, the facade idle, receiver muted, Nitin's OK for the slot. Nothing is written outside `/tmp`.
-
-| # | Step and call | Expected | Deadline | Wedge risk |
-|---|---|---|---|---|
-| 0 | Read only: `/proc/hma/status`, `/proc/meminfo`, UMS `getActivePipelines`, the holders of `video21` and `/dev/venc`, once at Home and once while Nitin plays Live TV | how much of `cpb` LG's own playback uses; no holder of either node | 10 s | none |
-| 1 | Host only: a fake stateful decoder with dma-buf import beside `venc/tests/fake_sys.c`, the TS demux (video PES to access units) and the TS mux (H.264 + copied AC-3, PCR from video), tested against FFmpeg's decode of the 2.1 capture | tests pass | - | none |
-| 2 | `vdec-caps`: open `video21`, `QUERYCAP`, `ENUM_FMT` on both queues, `QUERY_EXT_CTRL` walk, close; no buffers | driver `lgsoc-vdec-decoder`; `MPG2` on the bitstream queue; `NV12`, `LFBC` on the capture queue; `RES_INFO` among the controls | 5 s per call, 10 s | very low (read-only ioctls) |
-| 3 | The encoder's own second slot (`venc-result.md`, steps 3-10, call order fixed): KADP gate, create 1280x720, buffer info, ES map, one then 60 synthetic NV12 frames from `photofb` | ES and AUI inside `cpb`; a decodable H.264 stream; `hw_ms` per frame | 10-40 s per step; three encodes over 500 ms stop it | low-medium (MCU calls) |
-| 4 | `vdec-mmap-720p`: VDEC acquired through UMS first; 120 pictures of the 2.1 capture's MPEG-2 into driver-allocated `NV12` capture buffers; one plane read back for a checksum | 120 pictures at 40 dB or better against FFmpeg's decode; `QBUF`-to-`DQBUF` time per picture; no change in other pipelines | `poll` 1 s per `DQBUF`, 30 s | medium (first use of the node by LumaTV) |
-| 5 | `vdec-mmap-1080i`: the same with a 1080i recording (11.11 or 46.1) | how the woven frame arrives (field order, one buffer per frame); the conversion time per picture | as 4 | medium |
-| 6 | `vdec-dmabuf`: capture buffers from HMA (`HMA_IOCTL_ALLOC` on `cpb`, `HMA_IOCTL_GET_DMABUF`), queued as `V4L2_MEMORY_DMABUF` | pictures land at the HMA addresses (read through the HMA mapping) and equal step 4's | as 4 | medium |
-| 7 | `chain-720p`: step 6 into `ENC_ENCODE` by physical address, 300 pictures; then 1080i split into fields | decodable H.264; bitstream-in to ES-out under 100 ms at the 95th percentile; first IDR under 200 ms after the first I picture is queued; under 10 % of a core | as 4, plus 500 ms per encode | medium |
-| 8 | `chain-live`: the facade's tap into the chain, a TS over HTTP on its own port, the test DVR pulls it; then Live TV opened mid-run | Plex numbers as above; the chain stops within 1 s of UMS's policy action or Live TV in front, Live TV's picture and sound unaffected (Nitin at the set) | stream length | medium |
-
-Recovery, in order:
-
-1. A call that blocks: the watchdog ends the process (exit 75).
-2. A process stuck in the kernel with the rest of the set alive (the first slot's case: one core spinning, SSH and the decoder still working): `sync; reboot` over SSH, which comes back powered on. If shutdown hangs on that process: `echo 1 > /proc/sys/kernel/sysrq; echo b > /proc/sysrq-trigger` (immediate restart, no sync) [INFERENCE: not tried on this set]. Nitin's OK for either.
-3. The kernel hung, no SSH: `watchdogd` stops feeding `/dev/watchdog`, and the hardware watchdog should restart the SoC [INFERENCE: its timeout is unknown and it has never been seen to fire]. `panic` is 0, so a panic restarts the set only through that watchdog. Last resort: power at the plug, Nitin at the set.
-4. Standby or off after a restart: Wake-on-LAN.
-
-Active Standby is no recovery: the same kernel keeps running. Calls no step makes: `LX_VENC_IOWR_ENC_SCALE`, anything on `video24`, `/dev/lg/venc0` or `/dev/mem`.
-
 ## Recommendation
 
 | Route | Against the target (< 300 ms added, first keyframe < 0.5 s) | Go / no-go |
 |---|---|---|
 | a. LG's record service | DASH output, seconds; scaler-timed; request format unknown | no-go |
-| b. V4L2 decoder into `/dev/venc` | 100-170 ms added, first IDR 0.1-0.2 s after the I picture [INFERENCE] | the only candidate; no-go while no client direct-streams live H.264 |
+| b. V4L2 decoder into `/dev/venc` | 100-170 ms added, first IDR 0.1-0.2 s after the I picture [INFERENCE] | the only candidate; no-go for Plex, probes first for the phone apps (phase 2) |
 | c. LG's GStreamer elements | route b plus CPU copies | no-go |
 | d1. Sub scaler into record mode | display-timed, 1080p30 cap, takes the sub window | no-go |
 | d2. Graphic scaler capture of LG's decode | unknown whether it can be connected | park |
@@ -128,3 +105,141 @@ Active Standby is no recovery: the same kernel keeps running. Calls no step make
 | d4. Transcode on BeastNAS (today) | Plex's hardware transcode adds no start-up time | keep |
 
 For Plex: keep the broadcast as MPEG-2 and let Plex transcode on BeastNAS. Plex transcodes live video for both phones whatever the codec, so H.264 from the set would not change what they play; the start-up time worth chasing is the tune (1.1-3.0 s from request to the facade's first byte here), Plex's probe and segmenting, and the player's buffer.
+
+## Phase 2: direct clients, the tuner's API and the first on-set run (2026-11-23)
+
+Added evidence labels: `PUB:` SiliconDust's HTTP API page (`info.hdhomerun.com/info/http_api`, read 2026-11-23); `HOST:` measured on the build host (i9-9900K, FFmpeg 5.1.9, CPU seconds of one thread over 20 s of video, the host loaded at 35-60).
+
+### Who gains, and by how much
+
+The Marquee app for webOS has no Live TV and never reads the tuner. The clients that do are Marquee for iPhone and Marquee for Android (`marquee-ios/docs/LIVE-TV.md`; the Android `DirectTuner.kt` finds LumaTV by `DeviceAuth` `lumatv`). Both decode the station's MPEG-2 and AC-3 in software and give H.264 to the phone's hardware decoder. The iPhone deinterlaces on the CPU (`bwdif`, or Metal `yadif`); the Android app has no deinterlacer, so 1080i shows combing [INFERENCE]. Plex gains nothing (phase 1). VLC, Jellyfin, Emby, Channels, TiviMate and Kodi are untested.
+
+| Station picture | MPEG-2 decode | with `bwdif` | H.264 on the phone |
+|---|---|---|---|
+| 480i | 0.04 core | 0.07 | hardware, about 0 [INFERENCE] |
+| 720p60 (2.1) | 0.13 | not needed | same |
+| 1080i (11.11, 46.1, 69.1) | 0.16 | 0.31 | same |
+
+`HOST:` AC-3 decode adds 0.003-0.006 core to each row; `bwdif` ran in frame mode (field mode costs 0.44 at 1080i). x86 with AVX2 is a proxy: phone cores decode MPEG-2 slower per clock and `bwdif` has no NEON path, so the phone pays more [INFERENCE]. The phone's own CPU and energy were never measured (slice L0 of `LIVE-TV.md` was not run). A 1080i station is 19.4 Mb/s of MPEG-2 on the wire against about 3-4 Mb/s for `mobile` H.264 [INFERENCE], which matters at the edge of the Wi-Fi and over the tailnet. The iPhone engine's soak on BeastNAS (30 min of 2.1: 29 of 107,011 pictures dropped) shows the software path works: the gain is battery, heat and bandwidth, not a broken picture. On the TV the pixels stay in hardware except where a profile needs a scale (Geometry); the pipes and the mux are small [INFERENCE].
+
+### The route
+
+Route b with the hardware in a child process. Route d3 (CPU decode into the encoder) is its fallback; a relay on BeastNAS serving the same request is the alternative with no wedge risk.
+
+- **Child.** A child process (`lumatv-xcode`, name proposed) holds the decoder and the encoder; the helper never opens `video21` or `/dev/venc`. The engine talks to it through `Codec` and `Convert` (`helper/tuner/src/transcode.rs`: pictures in, H.264 units out, over pipes). Every blocking call runs under the `venc/` watchdog (exit 75), and a child stuck in the kernel is `Fault::Wedged`. It is written after the probes pass, against a fake `video21` with dma-buf import beside `venc/tests/fake_sys.c`.
+- **Never called:** `LX_VENC_IOWR_ENC_SCALE` (unchecked physical addresses, SRC: `venc.c`), `video24`, `/dev/lg/venc0`, `/dev/mem`.
+- **Buffer flow:** TS, then the engine (PES gather), a pipe, a bitstream buffer, the decoder, the graphic scaler's DMA into an NV12 buffer in `cpb`, the encoder by physical address, the ES ring, a pipe, the engine (PES, TS, PCR), the client. The CPU touches pixels only where a profile needs a scale or a field select.
+
+Decoder calls, in order (`/dev/video21`, V4L2 multi-planar):
+
+1. `open`: a context only, no hardware (SRC: `v4l2_vdec.c` `fops_open`).
+2. `QUERYCAP`, `ENUM_FMT`; `S_FMT` on the bitstream queue: `MPG2`, one access unit per buffer.
+3. `S_EXT_CTRLS` `RES_INFO` (1920x1088, 30 fps); `SUBSCRIBE_EVENT` `SOURCE_CHANGE`.
+4. `REQBUFS` on the bitstream queue (MMAP, 4), then `STREAMON`: this creates the decoder and takes its 6 MB bitstream buffer from `cpb` (SRC: `start_vdec`, `VDEC_CPB_SIZE`).
+5. `QBUF` each access unit with its PTS as the timestamp; the picture comes back with it (SRC: `V4L2_BUF_FLAG_TIMESTAMP_COPY`).
+6. On `SOURCE_CHANGE`: `G_FMT` and `G_SELECTION` for the size; NV12 buffers from `/dev/hma` (`HMA_IOCTL_ALLOC` on `cpb`, `GET_DMABUF`); `REQBUFS` on the capture queue as `DMABUF`; `QBUF` all; `STREAMON`.
+7. Per picture: `poll` (1 s cap), `DQBUF`, the encoder, `QBUF` the buffer back.
+8. End: `DECODER_CMD` `STOP`, `STREAMOFF` on both queues, close (SRC: `stop_vdec` frees the instance and its buffer).
+
+Encoder calls, in order (`/dev/venc`, `venc/venc_abi.h`):
+
+1. The KADP gate (`"SIC"`, `"KADP"`, `"VENC"`), then `ENC_CREATE` (size, whole fps, kbit/s, a GOP of one second, NV12).
+2. `GET_BUFFER_INFO`; map the ES ring.
+3. Per picture `ENC_ENCODE`: the luma bus address of the capture buffer and the chroma at + width x height (the H1 reads it in place); an IDR for the first picture and each GOP; the Annex B unit is read from the ring.
+4. `ENC_DESTROY`, close.
+
+### Memory and decoders beside LG's own playback
+
+- **`cpb`** is 66 MB; `CmaFree` was 49 MB at Home. At 1080 the chain needs about 30 MB: bitstream buffers 2 MB, the decoder's bitstream 6 MB, four NV12 buffers 12.5 MB (3.1 MB each), the encoder 10 MB. At 720p about 24 MB (1.4 MB per NV12 buffer); a CPU scale adds one or two output frames. What Live TV and Marquee's playback use of `cpb` has not been read: P0 reads `/proc/hma/status` at Home, with Live TV and with Marquee playing. The chain starts only with 16 MB more free than it needs.
+- **UMS counts** (MEAS, `second-window-4k.md`): totals `VDEC` 4, `VDEC_BUS` 6, `VENC` 1. Held: Live TV `VDEC` 2, `VDEC_BUS` 2, `G1_MSVC` 2, `G1_H264` 2; YouTube `VDEC` 2, `VDEC_BUS` 4; Netflix 4K `VDEC` 4. The chain would need one `VDEC`, one `G1_MSVC` and the `VENC` [INFERENCE]; P0 reads the config's totals and P3 what an acquire counts. By `VDEC` it fits beside Live TV and YouTube and never beside Netflix 4K; a Marquee 1080p H.264 stream has not been counted.
+- **The kernel node does not tell UMS.** UMS preempts the oldest holder when an acquire is short (error 600), but only among holders it knows, and a plain process on `video21` is not one; how such a process registers `VDEC` and `VENC` is unproven. An app opened later could be told the decoders are free when the MCU has no instance left, and fail to start.
+- **Rule for the first release:** convert only while no app has a video pipeline (`luna://com.webos.media/getActivePipelines` shows nothing but LumaTV's own; `free = TOTAL - held` as in `second-window-4k.md`), and stop within 1 s when the foreground app changes or a pipeline appears, as the facade already stops for Live TV. Otherwise the request is served as the station sends it. Beside Live TV and Marquee the chain yields instead of sharing until P0 and P3 show what fits.
+
+### Geometry
+
+What the engine asks for (`Profile::want`, tested on the host). The first row needs no pixel work, so it is first light:
+
+| Station | `heavy` | `mobile` | Pixel work |
+|---|---|---|---|
+| 720p60 | 1280x720 at 59.94, every picture | 1280x720 at 29.97: every other decoded picture is not encoded | none |
+| 1080i | 1920x1080 interlaced (H1 field mode: a CPU field split, 1.5 MB per frame) | 1280x720 at 29.97 from one field | CPU scale of a 1920x540 field; hardware scaling only if P3 shows a smaller capture is possible [INFERENCE] |
+| 480i | 720x480 interlaced | 640x480 (4:3) or 848x480 (16:9), square pixels | CPU deinterlace and scale; `heavy` needs the SPS aspect ratio written, the H1 wrapper has none |
+| 34.4 (H.264) | not touched | not touched | `Unsupported`: served as sent |
+
+A shape the backend was not taught answers `Unsupported` and the request goes out as MPEG-2, so the first build can ship 720p60 to `mobile` alone. Whether phones play field-coded H.264 for `heavy` 1080i is untested [INFERENCE]. The `internet` profiles are the same path with smaller boxes and lower rates; the kbit/s each asks for (`mobile` 3500, `heavy` 9000 at 1080) are starting points to tune on the set.
+
+### The tuner's API (HDHomeRun EXTEND)
+
+- **Request:** `GET /auto/v<channel>?transcode=<profile>`. The names are SiliconDust's (`PUB:`): `heavy` (H.264 at the source's size, rate and interlacing), `mobile` (progressive, at most 1280x720 and 30 fps), `internet540`, `internet480`, `internet360`, `internet240` (progressive, at most 30 fps, within 960x540, 848x480, 640x360, 432x240; 4:3 stations within 720x540, 640x480, 480x360, 320x240). Case is ignored and `duration=` is ignored (the client closes the connection). Only a request that asks is converted: Plex and every other client keep MPEG-2 byte for byte.
+- **Errors** (`PUB:` numbers, as the tuner already answers 805): 802 Unknown Transcode Profile (HTTP 400) for a name that is none of these, before the tuner is touched; 806 Tune Failed (HTTP 502) when the converter fails while the stream runs. 801, 805 and 807 are as before.
+- **Gate:** the query is acted on only when a converter is installed in the engine (`Tuner::transcode(Some(codec))`); without one it is ignored, even a name nobody knows, so a client that always asks gets MPEG-2 from a tuner that cannot. The plugin's setting (off by default) arrives with the backend: a toggle with nothing behind it would do nothing.
+- **Output:** the station's PIDs; a PAT and a PMT whose video type is 0x1B (audio entries kept; the closed-caption descriptor dropped, since captions ride in the MPEG-2 user data and are lost); H.264 with a PTS and an access unit delimiter in front; nothing goes out before the first key unit (SPS, PPS, IDR); PCR regenerated from the pictures, with a 40 ms keepalive when they are slow. `discover.json` is unchanged: a player reads the PMT, and the transcode capability is not advertised since Plex gains nothing.
+
+### Audio
+
+The station's AC-3 goes through unchanged on its PID, held back by the time the first picture took through the converter (measured at the first key unit), so lip sync is the broadcast's. Both phone apps decode AC-3 in software at 0.003-0.006 core (`HOST:`). AAC would need an audio encoder (UMS counts `AENC` 1) or a CPU one, and no client without AC-3 is known; it is added only if one appears.
+
+### Latency [INFERENCE until P4]
+
+| Stage | Added |
+|---|---|
+| The engine waits for the next PES to know a picture is whole | one frame, 17-33 ms |
+| MPEG-2 reordering in the decoder | 50-100 ms |
+| Decode | 5-10 ms |
+| NV12 DMA into the capture buffer | up to 17 ms |
+| Encode | 5-12 ms at 720p, 10-25 ms at 1080 |
+| Mux and send | under 10 ms |
+| Total | about 100-200 ms; the target is under 300 ms |
+
+The first H.264 key unit follows the first MPEG-2 I picture by 0.1-0.2 s, so a stream starts that much later than a raw one; the tune (1.1-3.0 s) is the same. The phone's jitter buffer (about 0.33 s on the iPhone) is larger than all of it.
+
+### Failure and fallback
+
+Built and tested on the host against a fake converter (`transcode.rs`, `stream.rs`; the crate's 107 tests run in under 2 s). A client never loses its stream to the converter:
+
+1. Not installed, or the station is already H.264 (34.4): MPEG-2 as the station sends it, byte for byte as without the query.
+2. The converter cannot take this picture (a shape it was not taught, an app has the decoders, `cpb` short): `Fault::Unsupported`, MPEG-2, no penalty; the next request asks again.
+3. It fails to open or stalls before the first unit: MPEG-2, and no request asks it for 60 s.
+4. It fails or stops answering mid-stream (no unit for 2 s, or a picture that took over 1.5 s): the stream ends cleanly (HTTP 502, 806) and the client's reconnect gets MPEG-2 until the rest is over. There is no switch inside one connection: the PMT would change under a running player.
+5. A hardware call that never returns: `Fault::Wedged`; no request tries a converter again until the helper restarts, and the set needs the recovery below.
+6. Conversion requests get no tuning slate (slates are MPEG-2); the "tuner busy" slate stays MPEG-2.
+
+### Wedge risks and recovery
+
+- MPEG-2 on LG's V4L2 decoder is outside what LG validates (`media-vda-vea.rst`: H.264 only); the format table lists it and it has never run on the set.
+- The decoder's write can block (SRC: `vdec_api_write_data()`, `v4l2_vdec.c:914`): the child never queues faster than pictures return, and every `poll` is capped at 1 s.
+- An uncounted decoder instance (above): an app opened meanwhile can fail; the rule and the 1 s stop contain it.
+- The encoder's second slot has not run, and the first ended with a process stuck in the kernel (one core spinning, the rest of the set alive; `venc-result.md`). `ENC_ENCODE` is one blocking call per picture, under the watchdog. A wedge has ended in a reboot before: the ALSA control lock of 2026-11-22 (`lgtv/research/truehd-from-marquee/WEDGE.md`).
+
+Recovery, in order:
+
+1. A blocked call: the watchdog ends the child (exit 75).
+2. A child stuck in the kernel with the set alive: `sync; reboot` over SSH, which comes back powered on. If shutdown hangs on it: `echo 1 > /proc/sys/kernel/sysrq; echo b > /proc/sysrq-trigger` (immediate restart, no sync) [INFERENCE: not tried on this set].
+3. A hung kernel, no SSH: the hardware watchdog should restart the SoC [INFERENCE: its timeout is unknown and it has never been seen to fire; `panic` is 0]. Last resort: the plug, Nitin at the set.
+4. Standby or off after a restart: Wake-on-LAN. Active Standby is no recovery: the same kernel keeps running.
+
+Each needs Nitin's OK.
+
+### On-set probe plan (not run)
+
+Each slot needs Nitin's OK and the TV lock (`/data/home/Marquee/tools/tv-lock.sh`). Start: Home in front, nothing playing, `/status.json` holder `null`, the receiver muted. Every step is its own process under the `venc/` watchdog (exit 75 names the call) and a budget; `venc/tv_slot.sh` kills at the budget (SIGKILL), and a process still there 5 s later is `WEDGED` (its `/proc/PID/stack` saved) and the slot stops. Nothing is written outside `/tmp`.
+
+Health check, before the first step and after each: `/proc/hma/status` and `CmaFree`; holders of `video21`, `venc`, `video24` and `hma`; `getActivePipelines`; `systemctl --failed`; the `dmesg` tail; LumaTV's video check (a picture after 1 s). A step passes only if the holders end empty, `cpb` equals what it was, no unit has failed, `dmesg` has no new `vdec`, `venc`, `hma`, `oom` or `watchdog` line, `getActivePipelines` is unchanged and the video check passes. The slot stops at the first step that does not.
+
+| Step | What runs | Passes when | Also stops on |
+|---|---|---|---|
+| P0 read-only, 10 s each: at Home, with Live TV, with Marquee playing 1080p (Nitin starts each) | the health check; UMS's resource config; `cpb` and `CmaFree` | no holder of the nodes; the chain's need plus 16 MB free in `cpb` at Home; the counts a Live TV and a Marquee stream hold are on record | a holder of `video21` or `venc` |
+| P1 `vdec-caps`, 5 s per call | open `video21`, `QUERYCAP`, `ENUM_FMT` on both queues, `ENUM_FRAMESIZES`, `G_FMT`, `QUERY_EXT_CTRL`, close; no buffers, no `STREAMON` | driver `lgsoc-vdec-decoder`; `MPG2` on the bitstream queue; `NV12` (and `LFBC`) on capture; `RES_INFO` and `MIN_BUFFERS_FOR_CAPTURE` listed | any error but `EINVAL` |
+| P2 encoder, 20 s per step (`tv_slot.sh`: `caps`, `gate`, `create-320`, `map-320`, `hma-320`, `one-320`; then `create-720`, `synth-720`) | the second encoder slot: one synthetic NV12 frame, then 60 at 720p | the host decodes the frame and the 60; 5-12 ms per picture at 720p | a non-zero exit; `WEDGED`; an encode over 500 ms; `ENC_CREATE` over 2 s |
+| P3 `vdec-ts`, 30 s: 10 s of 720p60 and 10 s of 1080i, each recorded from the tuner to a file on the host first, FFmpeg's decode as the reference | `STREAMON`, access units in, pictures into driver MMAP buffers and then into HMA dma-bufs; `DECODER_CMD` `STOP`, `STREAMOFF`, close | pictures at 40 dB PSNR or better against the host decode; MMAP and HMA bytes equal; the `DQBUF` interval at 720p60; the DMA time per picture; how 1080i arrives (woven or fields, field order); the `VDEC_BUS` and `G1_MSVC` the acquire holds; every buffer returned | a `poll` over 1 s with a buffer queued; an unexpected event; a second pipeline in `getActivePipelines`; `CmaFree` under 20 MB |
+| P4 `chain`, 40 s: P3's files through decoder and encoder (720p30 from 720p60 first, then 1080i with a CPU scale) | `DQBUF`, `ENC_ENCODE` by address, the Annex B unit out | the output decodes; bitstream in to unit out under 100 ms at the 95th percentile; the first IDR under 200 ms after the first I picture is queued; the child under 10 % of a core at 720p; no dropped picture | an encode over 500 ms; as P3 |
+| P5 `live`, 60 s cap: the engine and the child, `?transcode=mobile` on 2.1 from a host client, then from Marquee for iPhone | (a) Live TV opened mid-run; (b) a Marquee H.264 stream opened mid-run; (c) the helper killed mid-run; (d) the same with the screen off | the client plays; the PMT says 0x1B; the first key unit within 0.5 s of the I picture; (a), (b): the chain stops within 1 s and the app's picture and sound are unaffected (Nitin at the set); (c): the holders are empty | (a) or (b) not met within 1 s; any `WEDGED` |
+
+Before the slot: the fake `video21` with dma-buf import, the child and the probe binary. The engine side is done and tested on the host.
+
+### What needs Nitin
+
+1. The OK for the slot: P0 is read-only and P1 takes no hardware; P2 to P5 take the decoder and the encoder, and a wedge ends in a reboot.
+2. Slice L0 (the phone's CPU and energy on 1080i MPEG-2 against `mobile` H.264): it says what this is worth, and needs no TV hardware.
+3. The phone apps asking `?transcode=mobile` (Marquee for iPhone and for Android, on LumaTV only); the tuner side is ready behind its gate, with no converter installed yet.
+4. A choice: the TV's own hardware (this plan, a wedge risk, one conversion at a time, only while the TV is idle) or a relay on BeastNAS (the same request, no risk to the TV, one more hop).

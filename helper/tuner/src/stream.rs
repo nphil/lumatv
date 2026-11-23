@@ -10,9 +10,11 @@
 use crate::Status;
 use crate::docs::{self, Entry, Identity};
 use crate::health::{Health, Known, Seen, Verdict, lost_before};
+use crate::mpeg2::Format;
 use crate::psi::{self, PACKET};
 use crate::slate::{Look, Says};
 use crate::slated::Slated;
+use crate::transcode::{Breaker, Codec, Fault, Profile, Stage};
 use parking_lot::{Condvar, Mutex};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -42,6 +44,10 @@ pub enum Failure {
     Protected,
     /// The tuner, the demux or the luna call said no.
     Hardware(String),
+    /// `?transcode=` names a profile the converter does not have (an HDHomeRun's error 802).
+    UnknownProfile(String),
+    /// The converter failed while the stream ran: the stream ends, and the next request is served as the station sends it.
+    Converter(Fault),
 }
 
 impl Failure {
@@ -55,7 +61,8 @@ impl Failure {
             | Self::WeakSignal(_)
             | Self::OffAir(_) => 503,
             Self::Protected => 403,
-            Self::Hardware(_) => 502,
+            Self::UnknownProfile(_) => 400,
+            Self::Hardware(_) | Self::Converter(_) => 502,
         }
     }
 
@@ -69,6 +76,8 @@ impl Failure {
             Self::OffAir(why) => format!("not on air: {why}"),
             Self::Protected => "the program is protected".to_owned(),
             Self::Hardware(why) => format!("tuner failure: {why}"),
+            Self::UnknownProfile(name) => format!("no such transcode profile: {name}"),
+            Self::Converter(fault) => format!("converter failure: {fault}"),
         }
     }
 
@@ -77,9 +86,10 @@ impl Failure {
         match self {
             Self::UnknownChannel => "801 Unknown Channel",
             Self::Busy | Self::TvInUse(_) => "805 All Tuners In Use",
-            Self::Hardware(_) => "806 Tune Failed",
+            Self::Hardware(_) | Self::Converter(_) => "806 Tune Failed",
             Self::NoSignal(_) | Self::WeakSignal(_) | Self::OffAir(_) => "807 No Video Data",
             Self::Protected => "811 Content Protection Required",
+            Self::UnknownProfile(_) => "802 Unknown Transcode Profile",
         }
     }
 }
@@ -285,6 +295,12 @@ pub struct Limits {
     /// The meter: how often it reads the demodulator, and how long it goes on after a reading was last asked for.
     pub meter_every: Duration,
     pub meter_lease: Duration,
+    /// With a converter ([`crate::transcode`]): how long pictures may go in without one coming back before the stream ends, and the
+    /// longest one may take through it: past either the converter is stuck, or too slow for a live stream.
+    pub convert_stall: Duration,
+    pub convert_lag: Duration,
+    /// How long a converter that failed rests: the requests meanwhile are served as the station sends them.
+    pub convert_rest: Duration,
 }
 
 impl Default for Limits {
@@ -310,6 +326,9 @@ impl Default for Limits {
             listen: Duration::from_secs(3),
             meter_every: Duration::from_secs(1),
             meter_lease: Duration::from_secs(5),
+            convert_stall: Duration::from_secs(2),
+            convert_lag: Duration::from_millis(1500),
+            convert_rest: Duration::from_secs(60),
         }
     }
 }
@@ -383,6 +402,7 @@ pub(crate) struct Tuning {
     status: Mutex<Status>,
     wake: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     pub(crate) options: Mutex<Options>,
+    pub(crate) breaker: Breaker,
     known: Mutex<HashMap<String, Known>>,
 }
 
@@ -390,13 +410,14 @@ pub(crate) struct Tuning {
 /// serves it without slates.
 pub(crate) type LookSource = Arc<dyn Fn() -> Option<Look> + Send + Sync>;
 
-/// How streams are served: with slates or without (no source); the channels the owner left out of the lineup; and the names of clients
-/// the host knows by their address (its Plex server).
+/// How streams are served: with slates or without (no source); the channels the owner left out of the lineup; the names of clients the
+/// host knows by their address (its Plex server); and what makes H.264 for `?transcode=` (none serves every request as the station sends it).
 #[derive(Clone, Default)]
 pub(crate) struct Options {
     pub(crate) look: Option<LookSource>,
     pub(crate) hidden: HashSet<String>,
     pub(crate) names: HashMap<IpAddr, String>,
+    pub(crate) codec: Option<Arc<dyn Codec>>,
 }
 
 impl Tuning {
@@ -713,21 +734,56 @@ impl Facade {
     /// The stream for a request. With the owner's slates on, and a channel whose picture a slate can stand in for (MPEG-2, or not seen
     /// yet), it is answered at once and tuned while the slate shows ([`Facade::play`]), and a tuner in use is answered with a short slate
     /// that says who has it ([`Facade::refuse`]); otherwise it is tuned here and answered from its first whole picture, and a channel that
-    /// cannot start is still an HTTP status. Nothing of a failure is kept but the channel's health: the next request tunes again.
-    pub(crate) fn admit(&self, guide: &str, peer: IpAddr, agent: Option<&str>) -> Result<Admitted, Failure> {
+    /// cannot start is still an HTTP status. A request for H.264 (`transcode`, with a converter installed) is not answered with a slate,
+    /// whose pictures are MPEG-2. Nothing of a failure is kept but the channel's health: the next request tunes again.
+    pub(crate) fn admit(&self, guide: &str, peer: IpAddr, agent: Option<&str>, transcode: Option<&str>) -> Result<Admitted, Failure> {
         let entry = self.entry(guide)?;
+        let convert = self.conversion(transcode)?;
         let source = self.tuning.options.lock().look.clone();
         let look = source
             .and_then(|look| look())
             .filter(|_| self.tuning.seen(guide).is_none_or(|s| s.layout.video_type == 0x02));
         match (self.take_for(&entry, peer, agent), look) {
-            (Ok(lease), Some(look)) => Ok(Admitted::Slated(Slated { entry, lease, look })),
-            (Ok(lease), None) => self.found(entry, lease).map(|stream| Admitted::Plain(Box::new(stream))),
+            (Ok(lease), Some(look)) if convert.is_none() => Ok(Admitted::Slated(Slated { entry, lease, look })),
+            (Ok(lease), _) => self.found(entry, lease).map(|mut stream| {
+                if let Some(Conversion { codec, profile }) = convert {
+                    self.engage(&mut stream, codec.as_ref(), profile);
+                }
+                Admitted::Plain(Box::new(stream))
+            }),
             (Err(failure @ (Failure::Busy | Failure::TvInUse(_))), Some(look)) => {
                 let says = Says::Busy(matches!(failure, Failure::Busy).then(|| self.busy_line()));
                 Ok(Admitted::Refused(Refusal { entry, look, says, failure }))
             }
             (Err(failure), _) => Err(failure),
+        }
+    }
+
+    /// What a request's `?transcode=` asks for: nothing without one, or while no converter is installed (the request is served as the
+    /// station sends it, as before); a profile that is not one of SiliconDust's is an error 802.
+    fn conversion(&self, transcode: Option<&str>) -> Result<Option<Conversion>, Failure> {
+        let Some(name) = transcode else { return Ok(None) };
+        let Some(codec) = self.tuning.options.lock().codec.clone() else {
+            return Ok(None);
+        };
+        let profile = Profile::parse(name).ok_or_else(|| Failure::UnknownProfile(name.to_owned()))?;
+        Ok(Some(Conversion { codec, profile }))
+    }
+
+    /// Makes `stream` H.264 unless the converter is resting or cannot start: the stream is then as the station sends it.
+    fn engage(&self, stream: &mut Stream, codec: &dyn Codec, profile: Profile) {
+        let now = (self.clock)();
+        if !self.tuning.breaker.allows(now) {
+            log::info!("tuner: {} is served as the station sends it: the converter is resting", stream.guide);
+            return;
+        }
+        match stream.convert(codec, profile) {
+            Ok(()) => log::info!("tuner: {} is converted to H.264 ({})", stream.guide, profile.name()),
+            Err(Fault::Unsupported(why)) => log::info!("tuner: {} is served as the station sends it: {why}", stream.guide),
+            Err(fault) => {
+                log::warn!("tuner: {} is served as the station sends it: the converter did not start: {fault}", stream.guide);
+                self.tuning.breaker.failed(&fault, now, self.limits.convert_rest);
+            }
         }
     }
 
@@ -925,6 +981,7 @@ impl Facade {
         let pictured = (self.clock)();
         self.tuning.streaming(entry);
         Ok(Stream {
+            stage: None,
             tap,
             hw: self.hw.clone(),
             pat: psi::build_pat(pat.tsid, channel.program, pmt_pid),
@@ -1038,6 +1095,12 @@ pub(crate) struct Refusal {
     pub(crate) failure: Failure,
 }
 
+/// A request for H.264: the converter that makes it and what it is to make.
+struct Conversion {
+    codec: Arc<dyn Codec>,
+    profile: Profile,
+}
+
 /// What a client is called: the name the host knows its address by, `Plex` for a Plex user agent, else its user agent's product.
 pub(crate) fn client_name(claim: &Claim, names: &HashMap<IpAddr, String>) -> Option<String> {
     if let Some(name) = names.get(&claim.peer) {
@@ -1076,9 +1139,12 @@ pub(crate) enum End {
     Failed(Failure),
 }
 
-/// A stream that is tuned and routed, its picture arriving, and has not yet written a byte. Fields drop in order: the tap lets go of the TV,
-/// the tuner says it is free, then the lease lets the next request have it (which then says what it streams).
+/// A stream that is tuned and routed, its picture arriving, and has not yet written a byte. Fields drop in order: the converter, if
+/// there is one, is given back first (the next request may want it), the tap lets go of the TV, the tuner says it is free, then the lease
+/// lets the next request have it (which then says what it streams).
 pub(crate) struct Stream {
+    /// The picture as H.264 and the program's PMT of it, when the request asked for it and the converter started.
+    stage: Option<Stage>,
     tap: Box<dyn Tap>,
     hw: Arc<dyn Hardware>,
     pat: Vec<u8>,
@@ -1101,11 +1167,33 @@ pub(crate) struct Stream {
 }
 
 impl Stream {
+    /// Makes the stream H.264 ([`crate::transcode`]): `codec` is opened for the picture's size and rate to make what `profile` asks.
+    /// The stream is left as it is when that cannot be done.
+    pub(crate) fn convert(&mut self, codec: &dyn Codec, profile: Profile) -> Result<(), Fault> {
+        let unsupported = |why: &str| Fault::Unsupported(why.to_owned());
+        let pmt = psi::parse_pmt(&self.pmt).ok_or_else(|| unsupported("no PMT"))?;
+        if !pmt.streams.iter().any(|e| e.pid == self.watch && e.stream_type == 0x02) {
+            return Err(unsupported("the picture is not MPEG-2"));
+        }
+        let format = self
+            .first
+            .chunks_exact(PACKET)
+            .filter(|p| psi::pid_of_packet(p) == self.watch)
+            .find_map(|p| Format::of_sequence(&p[4..]))
+            .ok_or_else(|| unsupported("no sequence header in the first picture"))?;
+        let convert = codec.open(&format, &profile.want(&format))?;
+        self.stage = Some(Stage::new(convert, &pmt, self.pmt_pid, self.watch, &format, &self.limits));
+        Ok(())
+    }
+
     /// Writes the program until the client goes, `stop` is set, another request takes the tuner or the TV does: a PAT that names only
-    /// this program, ten times a second, the program's PMT once at the start, and the packets as they arrive. However it ends, the stream
-    /// is over from then on.
+    /// this program, ten times a second, the program's PMT once at the start, and the packets as they arrive. A converted stream sends
+    /// its own PMT with every PAT, and its picture as H.264. However it ends, the stream is over from then on.
     pub(crate) fn pump(&mut self, out: &mut dyn Write, stop: &AtomicBool) -> io::Result<End> {
         let end = self.run(out, stop);
+        if let Ok(End::Failed(Failure::Converter(fault))) = &end {
+            self.over.tuning.breaker.failed(fault, (self.clock)(), self.limits.convert_rest);
+        }
         self.lease.over();
         let (got, lost) = self.counted;
         let share = if got + lost == 0 { 0.0 } else { lost as f32 / (got + lost) as f32 };
@@ -1127,6 +1215,7 @@ impl Stream {
 
     fn run(&mut self, out: &mut dyn Write, stop: &AtomicBool) -> io::Result<End> {
         let lim = &self.limits;
+        let mut stage = self.stage.take();
         let (mut pat, mut pmt) = (
             psi::SectionPackets::default(),
             psi::SectionPackets::default(),
@@ -1134,8 +1223,9 @@ impl Stream {
         // the PAT and the PMT lead, so a player knows the program from the first packet (the station's PMT comes up to 0.4 s later), then
         // the first whole picture and what came after it; the station's PMT packets go on from the count of the one written here
         let mut buf = Vec::with_capacity(PACKET * 512);
+        let mut staged = Vec::new();
         pat.write(psi::PID_PAT, &self.pat, &mut buf);
-        pmt.write(self.pmt_pid, &self.pmt, &mut buf);
+        pmt.write(self.pmt_pid, stage.as_ref().map_or(&self.pmt[..], Stage::pmt), &mut buf);
         let mut first = std::mem::take(&mut self.first);
         for p in first.chunks_exact_mut(PACKET) {
             if psi::pid_of_packet(p) == self.pmt_pid {
@@ -1143,7 +1233,15 @@ impl Stream {
             }
         }
         out.write_all(&buf)?;
-        out.write_all(&first)?;
+        match stage.as_mut() {
+            Some(stage) => {
+                if let Err(fault) = stage.feed(&first, (self.clock)(), &mut staged) {
+                    return Ok(End::Failed(Failure::Converter(fault)));
+                }
+                out.write_all(&staged)?;
+            }
+            None => out.write_all(&first)?,
+        }
         drop(first);
         let mut last_pat = (self.clock)();
         let mut last_watch = last_pat;
@@ -1159,6 +1257,9 @@ impl Stream {
             if now.saturating_sub(last_pat) >= lim.pat_every {
                 buf.clear();
                 pat.write(psi::PID_PAT, &self.pat, &mut buf);
+                if let Some(stage) = &stage {
+                    pmt.write(self.pmt_pid, stage.pmt(), &mut buf);
+                }
                 out.write_all(&buf)?;
                 last_pat = now;
             }
@@ -1195,7 +1296,15 @@ impl Stream {
             if pictured {
                 last_watch = (self.clock)();
             }
-            if !buf.is_empty() {
+            if let Some(stage) = stage.as_mut() {
+                staged.clear();
+                if let Err(fault) = stage.feed(&buf, (self.clock)(), &mut staged) {
+                    return Ok(End::Failed(Failure::Converter(fault)));
+                }
+                if !staged.is_empty() {
+                    out.write_all(&staged)?;
+                }
+            } else if !buf.is_empty() {
                 out.write_all(&buf)?;
             }
         }
@@ -1206,6 +1315,7 @@ impl Stream {
 pub(crate) mod tests {
     use super::psi::tests::{pat, pmt, tvct, tvct_part};
     use super::*;
+    use crate::transcode::{Want, tests as converter};
     use serde_json::json;
     use std::collections::{HashMap, VecDeque};
     use std::net::Ipv4Addr;
@@ -2035,10 +2145,12 @@ pub(crate) mod tests {
                 Failure::WeakSignal("x".into()),
                 Failure::OffAir("x".into()),
                 Failure::Protected,
-                Failure::Hardware("x".into())
+                Failure::Hardware("x".into()),
+                Failure::UnknownProfile("x".into()),
+                Failure::Converter(Fault::Failed("x".into()))
             ]
             .map(|f| f.status()),
-            [404, 503, 503, 503, 503, 503, 403, 502]
+            [404, 503, 503, 503, 503, 503, 403, 502, 400, 502]
         );
         assert_eq!(Failure::Busy.reason(), "all tuners in use");
         assert_eq!(
@@ -2049,6 +2161,8 @@ pub(crate) mod tests {
             Failure::OffAir("no picture (16.9)".into()).reason(),
             "not on air: no picture (16.9)"
         );
+        assert_eq!(Failure::UnknownProfile("fast".into()).reason(), "no such transcode profile: fast");
+        assert_eq!(Failure::Converter(Fault::Stalled("no picture came back".into())).reason(), "converter failure: no picture came back");
     }
 
     #[test]
@@ -2079,5 +2193,129 @@ pub(crate) mod tests {
         assert_eq!(line(Some("Lavf/60.3"), &HashMap::from([(OTHER, "Plex".into())]), None), "Plex is recording 2.1 WSB-HD");
         assert_eq!(line(Some("VLC/3.0.20 LibVLC/3.0.20"), &none, None), "In use by VLC");
         assert_eq!(line(None, &none, None), "In use by 192.168.1.70");
+    }
+
+    /// 2.4 as the antenna sends it for a converter to take: `n` MPEG-2 pictures (a PES with a sequence header, a PTS and a PCR), each
+    /// followed by a packet of its AC-3.
+    pub(crate) fn program(n: u8) -> Vec<Vec<u8>> {
+        let mut cc = 0;
+        (0..n)
+            .map(|i| {
+                let pts = 90_000 + u64::from(i) * 3003;
+                let pcr = 1_000_000 + u64::from(i) * 2970;
+                [converter::picture(&mut cc, pts, i, Some(pcr)), converter::sound(i, 0x10 + i)].concat()
+            })
+            .collect()
+    }
+
+    /// One request for 2.4, pumped until it ends: how it ended and what it sent.
+    fn ask(f: &Facade, transcode: Option<&str>) -> (End, Vec<u8>) {
+        let Ok(Admitted::Plain(mut stream)) = f.admit("2.4", PLEX, None, transcode) else {
+            panic!("not a plain stream");
+        };
+        let mut out = Vec::new();
+        let end = stream.pump(&mut out, &AtomicBool::new(false)).unwrap();
+        (end, out)
+    }
+
+    /// What the first PMT in `out` says the picture is.
+    pub(crate) fn video_type(out: &[u8]) -> u8 {
+        let pmt = out.chunks(PACKET).find(|p| psi::pid_of_packet(p) == 0x60).and_then(|p| psi::parse_pmt(&p[5..]));
+        pmt.expect("a PMT").streams[0].stream_type
+    }
+
+    #[test]
+    fn a_request_for_h264_is_the_converters_pictures_under_a_pmt_that_says_so_and_the_sound_goes_as_it_was() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), program(6));
+        let codec = converter::Fake::default();
+        let f = facade(&fake, &time);
+        f.tuning.options.lock().codec = Some(Arc::new(codec.clone()));
+        let Ok(Admitted::Plain(mut stream)) = f.admit("2.4", PLEX, None, Some("MOBILE")) else {
+            panic!("not a plain stream");
+        };
+        let source = Format { width: 1920, height: 1080, rate: 4, aspect: 3, progressive: false };
+        let made = Want { width: 1280, height: 720, rate: (30000, 1001), progressive: true, kbps: 3500 };
+        assert_eq!(codec.0.lock().opened, [(source, made)], "opened for the station's picture and what mobile is");
+        let mut out = Vec::new();
+        assert_eq!(stream.pump(&mut out, &AtomicBool::new(false)).unwrap(), End::Silent);
+        let ts = converter::read(&out);
+        assert_eq!(ts.iter().take(2).map(|p| p.pid).collect::<Vec<_>>(), [0, 0x60], "a PAT, then a PMT");
+        let pmt = psi::parse_pmt(&out[PACKET + 5..PACKET * 2]).unwrap();
+        assert_eq!(
+            pmt.streams.iter().map(|e| (e.stream_type, e.pid)).collect::<Vec<_>>(),
+            [(0x1B, 0x61), (0x81, 0x64)],
+            "which says the picture is H.264 and keeps the sound"
+        );
+        let pts: Vec<u64> = converter::pictures(&ts).iter().map(|p| p.0).collect();
+        assert_eq!(pts, (0..5).map(|i| 90_000 + i * 3003).collect::<Vec<u64>>(), "each picture keeps its PTS; the last waits for the next to start");
+        let heard: Vec<u8> = ts.iter().filter(|p| p.pid == 0x64).map(|p| p.payload[0]).collect();
+        assert_eq!(heard, [0x10, 0x11, 0x12, 0x13, 0x14, 0x15], "the sound is as it was");
+        let pats = ts.iter().filter(|p| p.pid == 0).count();
+        assert!(pats > 10 && ts.iter().filter(|p| p.pid == 0x60).count() == pats, "every PAT comes with the PMT while the stream runs");
+        drop(stream);
+        assert_eq!((codec.0.lock().closed, fake.released.load(Ordering::Relaxed)), (1, 1), "the converter and the TV are let go");
+    }
+
+    #[test]
+    fn a_request_for_h264_is_served_as_the_station_sends_it_without_a_converter_or_when_it_cannot_start_and_a_failed_one_rests() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), program(6));
+        let f = facade(&fake, &time);
+        let (_, plain) = ask(&f, None);
+        assert_eq!(video_type(&plain), 0x02);
+        assert_eq!(ask(&f, Some("mobile")).1, plain, "no converter is installed: the query changes nothing");
+        assert_eq!(ask(&f, Some("faster")).1, plain, "not even one that names a profile there is none of");
+
+        let codec = converter::Fake::default();
+        f.tuning.options.lock().codec = Some(Arc::new(codec.clone()));
+        codec.0.lock().open = Some(Fault::Unsupported("more than the hardware takes".into()));
+        for _ in 0..2 {
+            assert_eq!(ask(&f, Some("heavy")).1, plain, "a picture the converter cannot take goes out as it is");
+        }
+        assert_eq!(codec.0.lock().opens, 2, "that is no failure: it is asked again");
+
+        codec.0.lock().open = Some(Fault::Failed("the encoder did not open".into()));
+        assert_eq!(ask(&f, Some("mobile")).1, plain);
+        assert_eq!(ask(&f, Some("mobile")).1, plain);
+        assert_eq!(codec.0.lock().opens, 3, "one that failed rests, and is not asked meanwhile");
+        time.advance(Duration::from_secs(61));
+        codec.0.lock().open = None;
+        assert_eq!(video_type(&ask(&f, Some("mobile")).1), 0x1B, "and is tried again once it has rested");
+        assert_eq!(codec.0.lock().opens, 4);
+    }
+
+    #[test]
+    fn a_converter_that_fails_while_the_stream_runs_ends_it_and_rests_so_the_next_request_is_as_the_station_sends_it() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), program(6));
+        let f = facade(&fake, &time);
+        let codec = converter::Fake::default();
+        codec.0.lock().fail_at = Some(3);
+        f.tuning.options.lock().codec = Some(Arc::new(codec.clone()));
+        let (end, out) = ask(&f, Some("mobile"));
+        assert_eq!(end, End::Failed(Failure::Converter(Fault::Failed("the encoder said no".into()))));
+        assert_eq!(video_type(&out), 0x1B, "it was H.264 as far as it went");
+        let (end, out) = ask(&f, Some("mobile"));
+        assert_eq!((end, video_type(&out)), (End::Silent, 0x02), "the converter rests: the next request is the station's own");
+        time.advance(Duration::from_secs(61));
+        let (end, out) = ask(&f, Some("mobile"));
+        assert_eq!((end, video_type(&out)), (End::Silent, 0x1B), "and it is tried again once it has rested");
+    }
+
+    #[test]
+    fn a_station_that_already_sends_h264_is_served_as_it_is_and_the_converter_is_not_opened() {
+        let time = Time::default();
+        let mut mux = rf32(&[]);
+        mux.pmts.insert(0x60, pmt(4, 0x61, &[], &[(0x1B, 0x61, &[]), (0x81, 0x64, &[])]));
+        let mut sps = vec![0x47, 0x40, 0x61, 0x10, 0, 0, 1, 0x67];
+        sps.resize(PACKET, 0xAB);
+        let fake = fake_with(&time, mux, vec![sps]);
+        let f = facade(&fake, &time);
+        let (_, plain) = ask(&f, None);
+        let codec = converter::Fake::default();
+        f.tuning.options.lock().codec = Some(Arc::new(codec.clone()));
+        assert_eq!(ask(&f, Some("mobile")).1, plain);
+        assert_eq!((codec.0.lock().opens, video_type(&plain)), (0, 0x1B));
     }
 }

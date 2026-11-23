@@ -80,6 +80,11 @@ impl Format {
         n * 90_000 * den / num
     }
 
+    /// The frame rate as a numerator and a denominator of frames a second (30000 and 1001 for 29.97).
+    pub fn frame_rate(&self) -> (u64, u64) {
+        RATES[usize::from(self.rate)]
+    }
+
     /// Frames a second, near enough to space them by.
     pub fn fps(&self) -> f64 {
         let (num, den) = RATES[usize::from(self.rate)];

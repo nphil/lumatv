@@ -174,9 +174,12 @@ struct Request {
     path: String,
     host: Option<String>,
     agent: Option<String>,
+    /// The profile `?transcode=` names, as written; the rest of the query (`duration=`) is not read.
+    transcode: Option<String>,
 }
 
 /// The request line, the Host header and the User-Agent; a request that is not read whole within a moment, or is not HTTP, is nothing.
+/// Of the query only `transcode` is read.
 fn read_request(stream: &TcpStream) -> Option<Request> {
     stream.set_read_timeout(Some(REQUEST_WAIT)).ok()?;
     let mut lines = BufReader::new(stream.take(REQUEST_LIMIT)).lines();
@@ -201,12 +204,17 @@ fn read_request(stream: &TcpStream) -> Option<Request> {
             }
         }
     }
-    let path = target.split('?').next().unwrap_or(target).to_owned();
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    let transcode = query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("transcode="))
+        .map(|name| name.chars().take(40).collect());
     Some(Request {
         method: method.to_owned(),
-        path,
+        path: path.to_owned(),
         host,
         agent,
+        transcode,
     })
 }
 
@@ -243,6 +251,7 @@ fn answer(
 ) -> io::Result<()> {
     let reason = match status {
         200 => "OK",
+        400 => "Bad Request",
         403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
@@ -313,7 +322,7 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
             let guide = &path["/auto/v".len()..];
             let asked = Instant::now();
             const HEAD: &str = "HTTP/1.0 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-cache\r\n\r\n";
-            let sent = match facade.admit(guide, peer, request.agent.as_deref()) {
+            let sent = match facade.admit(guide, peer, request.agent.as_deref(), request.transcode.as_deref()) {
                 Err(f) => {
                     refusals.refused(peer, guide, f.reason(), Instant::now()).iter().for_each(|l| log::info!("{l}"));
                     return drop(refuse(&mut stream, &f));
@@ -360,7 +369,8 @@ mod tests {
     use super::*;
     use crate::docs::Identity;
     use crate::stream::Limits;
-    use crate::stream::tests::{Fake, Shared, Time, fake_with, packet, picture, rf32, served};
+    use crate::stream::tests::{Fake, Shared, Time, fake_with, packet, picture, program, rf32, served, video_type};
+    use crate::transcode::tests as converter;
     use std::net::Ipv4Addr;
 
     fn start(fake: &Arc<Fake>, time: &Time, peers: &[&str]) -> Server {
@@ -498,6 +508,44 @@ mod tests {
             body.windows(chunk.len()).any(|w| w == &chunk[..]),
             "the tuner's packets arrive whole"
         );
+    }
+
+    #[test]
+    fn transcode_in_the_query_asks_for_h264_when_a_converter_is_installed_and_a_profile_it_does_not_know_is_error_802() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), program(4));
+        let tuning = served();
+        let facade = Facade::new(
+            Arc::new(Shared(fake.clone())),
+            Identity { name: "LumaTV".into(), device_id: "0A1B2C3D".into() },
+            Limits::default(),
+            time.clock(),
+            tuning.clone(),
+            None,
+        );
+        let peers = vec![Cidr::parse("127.0.0.0/8").unwrap()];
+        let server = Server::start(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), Arc::new(facade), peers).unwrap();
+        let asked = |query: &str| get(&server, &format!("GET /auto/v2.4{query} HTTP/1.1\r\nHost: x\r\n\r\n"));
+        let answer = asked("?transcode=mobile&duration=5");
+        let (head, body) = split(&answer);
+        assert!(head.starts_with("HTTP/1.0 200 OK"), "{head}");
+        assert_eq!(video_type(body), 0x02, "without a converter the query is not read");
+
+        tuning.options.lock().codec = Some(Arc::new(converter::Fake::default()));
+        let answer = asked("?transcode=mobile&duration=5");
+        let (head, body) = split(&answer);
+        assert!(head.starts_with("HTTP/1.0 200 OK") && head.contains("video/mp2t"), "{head}");
+        assert_eq!(video_type(body), 0x1B, "with one it is H.264");
+        let answer = asked("");
+        let (head, body) = split(&answer);
+        assert!(head.starts_with("HTTP/1.0 200 OK"), "{head}");
+        assert_eq!(video_type(body), 0x02, "and a request that does not ask is as before");
+
+        let answer = asked("?duration=5&transcode=faster");
+        let (head, body) = split(&answer);
+        assert!(head.starts_with("HTTP/1.1 400 Bad Request"), "{head}");
+        assert!(head.contains("X-HDHomeRun-Error: 802 Unknown Transcode Profile"), "{head}");
+        assert_eq!(String::from_utf8_lossy(body), "no such transcode profile: faster");
     }
 
     #[test]

@@ -20,7 +20,7 @@ pub const CLOCK: u16 = 0x10F;
 /// The sounds carried at most (ATSC stations send one to three).
 pub const MAX_AUDIO: usize = 8;
 
-const WRAP: u64 = 1 << 33;
+pub(crate) const WRAP: u64 = 1 << 33;
 /// How far a slate frame is stamped ahead of its clock: as far as the stations measured on 2026-11-05 (0.46 to 1.0 s), so the clock
 /// does not step back when the programme comes in.
 const SLATE_DELAY: u64 = 90_000;
@@ -43,12 +43,12 @@ pub const SILENCE: [u8; 128] = [
 ];
 
 /// `a - b` on the 33-bit clock: the short way round.
-fn diff(a: u64, b: u64) -> i64 {
+pub(crate) fn diff(a: u64, b: u64) -> i64 {
     let d = (a.wrapping_sub(b)) & (WRAP - 1);
     if d >= WRAP / 2 { d as i64 - WRAP as i64 } else { d as i64 }
 }
 
-fn add(a: u64, b: u64) -> u64 {
+pub(crate) fn add(a: u64, b: u64) -> u64 {
     (a + b) & (WRAP - 1)
 }
 
@@ -165,7 +165,7 @@ pub(crate) struct Head {
     pub(crate) payload: usize,
 }
 
-fn payload_at(p: &[u8]) -> Option<usize> {
+pub(crate) fn payload_at(p: &[u8]) -> Option<usize> {
     let control = (p[3] >> 4) & 3;
     let at = match control {
         1 => 4,
@@ -216,7 +216,7 @@ pub(crate) fn pcr(p: &[u8]) -> Option<u64> {
     Some((u64::from(b[0]) << 25) | (u64::from(b[1]) << 17) | (u64::from(b[2]) << 9) | (u64::from(b[3]) << 1) | u64::from(b[4] >> 7))
 }
 
-fn write_pcr(p: &mut [u8], base: u64) {
+pub(crate) fn write_pcr(p: &mut [u8], base: u64) {
     let b = base & (WRAP - 1);
     p[6] = (b >> 25) as u8;
     p[7] = (b >> 17) as u8;

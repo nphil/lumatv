@@ -1094,7 +1094,7 @@ OSD path's delay is unmeasured. Picture cost: 1080p, 8-bit, no HDR and none
 of LG's video processing.
 
 Decisive TV test, only if the zero-copy bar is relaxed for 1080p SDR: the
-`/dev/video21` tool of hw-transcode step 4 (`VDEC` acquired through UMS, NV12
+`/dev/video21` tool of hw-transcode probe P3 (NV12
 MMAP capture) with a 1080p HEVC game clip fed at alternating 7 and 12 ms
 gaps, logging QBUF and DQBUF times per frame. It shows whether completions
 follow the feed or an 8.33 ms grid and bounds decode plus copy; one 4K clip

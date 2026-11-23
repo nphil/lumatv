@@ -13,6 +13,7 @@
 //! | [`Clock`] | monotonic time: [`real_clock`], or a test's that moves only when told |
 //! | [`Guide`] | optional ([`Tuner::with_guide`]): a better guide than the TV's own for `/xmltv.xml`, made from the TV's own listings |
 //! | [`Look`] | optional ([`Tuner::slates`]): the theme slates are drawn in (colours and faces); without one, streams have no slates |
+//! | [`Codec`] | optional ([`Tuner::transcode`]): what makes H.264 of a station's MPEG-2 for `?transcode=`; without one the query is ignored |
 //! | the `log` facade | what it served and why it refused, under the target `lumatuner` |
 //!
 //! It is a network entrance and the tuner is shared with the TV's own use, so a host serves it only when the owner says so, on a private
@@ -28,11 +29,13 @@
 //! | `GET /lineup.m3u` | the same lineup as an M3U playlist: `tvg-id` and `tvg-chno` are the guide number, the URL is `/auto/v<number>`, `url-tvg` names `/xmltv.xml` |
 //! | `GET /xmltv.xml` | the TV's own broadcast guide (`iepg/getEventList`, a day back to six days ahead, read once per channel and kept 30 minutes, or until the host's [`Guide`] changes) as XMLTV, UTC, channel ids the guide numbers, or the host's guide made from it when it has one; a channel nobody has listings for has no programmes |
 //! | `GET /auto/v<number>` | MPEG-TS of that channel. With slates ([`slated`]): answered at once with a slate while the channel is tuned, then the programme from its first whole picture, a slate whenever its picture stops or breaks up, and a last slate before the end, on one program and one clock of the tuner's own ([`splice`]). Without: from its first whole picture, a PAT naming the one program, its PMT, then its clock, picture and sound from that picture on; 503 for a channel that cannot start, the reason saying which: no signal (no lock), weak signal (a locked multiplex whose tables did not come whole within 8 s or picture within 5 s, or that the demodulator counts packet errors on), not on air (a clean multiplex whose whole tables do not list it, or that carries no packets of its picture); 403 for a protected program. Either way the client whose stream has the tuner takes it over with its next request; another client gets 503 while it runs, and every client while the TV is in use (with slates: 200 and `last_word` of a slate saying who has it, `Tuner busy: Plex is recording …` or `The TV is using its tuner`, then the end); 404 for no such channel. Each refusal names its HDHomeRun error in `X-HDHomeRun-Error`; none is remembered |
+//! | `GET /auto/v<number>?transcode=<profile>` | H.264 instead of MPEG-2, when the host has installed a converter ([`Tuner::transcode`]): `heavy`, `mobile`, `internet540`, `internet480`, `internet360` or `internet240` as an HDHomeRun EXTEND names them (400 with error 802 for another). The stream is as the station sends it when no converter is installed, when one that failed is resting, or when it cannot take that picture; a converter that fails while the stream runs ends it |
 //! | `GET`/`POST /lineup.post` | 200, nothing to start (the lineup is the TV's) |
 //!
 //! Pieces: [`psi`] reads and writes the transport stream's tables; [`docs`] makes the HDHomeRun documents, the playlist and the guide;
 //! [`stream`] holds the lease on the one tuner and says what a stream is, over two small traits, so it runs in tests on a fake; [`slated`]
 //! is a stream with slates, [`slate`] draws them and [`mpeg2`] codes them, [`splice`] is the program they and the programme share;
+//! [`transcode`] makes H.264 of a program's MPEG-2 picture over a [`Codec`] the host gives it (the TV's own hardware);
 //! [`health`] is what each channel's streams and checks found; [`meter`] is the reading that helps aim the antenna; [`webos`] is LG's TV
 //! (luna, the DVB nodes and the demodulator's reading); `server` is the listener; [`Tuner`] serves it and says what it is doing.
 
@@ -47,6 +50,7 @@ pub mod slate;
 pub mod slated;
 pub mod splice;
 pub mod stream;
+pub mod transcode;
 pub mod webos;
 
 pub use health::{Health, Reception, Verdict};
@@ -54,6 +58,7 @@ pub use meter::Reading;
 pub use net::Cidr;
 pub use slate::{Look, Type};
 pub use stream::{Clock, Failure, Grade, Guide, Hardware, Hold, Limits, Signal, Tap, real_clock};
+pub use transcode::{Codec, Convert, Fault, Profile, Unit, Want};
 
 use docs::Identity;
 use health::Seen;
@@ -229,6 +234,12 @@ impl Tuner {
     /// it gives none.
     pub fn slates(&self, look: impl Fn() -> Option<Look> + Send + Sync + 'static) {
         self.tuning.options.lock().look = Some(Arc::new(look));
+    }
+
+    /// Streams asked for from now on with `?transcode=` are H.264 made by `codec`; with `None` the query is ignored and they are as the
+    /// station sends them.
+    pub fn transcode(&self, codec: Option<Arc<dyn Codec>>) {
+        self.tuning.options.lock().codec = codec;
     }
 
     /// The channels (guide numbers) the owner leaves out of the lineup: the playlist and the documents do not list them.

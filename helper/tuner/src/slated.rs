@@ -861,7 +861,7 @@ pub(crate) mod tests {
     }
 
     fn play(f: &Facade) -> (Vec<u8>, End) {
-        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX, None) else {
+        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX, None, None) else {
             panic!("not slated");
         };
         let mut out = Vec::new();
@@ -958,7 +958,7 @@ pub(crate) mod tests {
         let script = Script::new(&time, stops_at_two());
         let f = facade(&script, quick());
         f.tuning.saw("2.4", Seen { format: SHAPE, layout: Layout::fallback(1), tsid: 1 });
-        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX, None) else {
+        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX, None, None) else {
             panic!("not slated");
         };
         let mut out = Writes::default();
@@ -1082,7 +1082,7 @@ pub(crate) mod tests {
         f.tuning.options.lock().hidden = ["2.1".to_owned()].into();
         assert_eq!(f.lineup().unwrap().iter().map(|e| e.guide.as_str()).collect::<Vec<_>>(), ["2.4"]);
         f.tuning.options.lock().look = Some(Arc::new(|| None));
-        assert!(!matches!(f.admit("2.4", PLEX, None), Ok(Admitted::Slated(_))));
+        assert!(!matches!(f.admit("2.4", PLEX, None, None), Ok(Admitted::Slated(_))));
     }
 
     #[test]
