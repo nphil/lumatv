@@ -409,14 +409,14 @@ SURFACES = [
              'DOWNx2@0.15 UPx2@0.15 UPx6@0.12',
      'close': '@home-widgets-close', 'settle_s': 0.6, 'close_settle_s': 0.5,
      'thresholds': {'burst_end_ms': None}},
-    # `switcher`: the app switcher (Settings > Remote & pointer > App switcher, switched on for the run with `lumatv theme set` and put back) opened
-    # by a press of Home on Home with apps running (setup starts three), walked with Left and Right (taps, then held), closed with Back. The compositor
-    # marks its own opening `Q:switcher-show`, so each open window says when the shell was asked. Pictures move in 200 ms (app-switcher-result.md).
-    {'name': 'switcher', 'default': False, 'act': 'release', 'transition': False,
-     'switches': {'app-switcher': True}, 'setup': SWITCHER_SETUP, 'teardown': SWITCHER_TEARDOWN,
-     'open': '@switcher-open HOME s0.9 RIGHTx2@0.2 LEFTx2@0.2 RIGHT:700 s0.2 LEFT:700 s0.2 BACK',
+    # `switcher`: the task manager (a Back held 600 ms) over Home with apps running (setup starts three), walked with Left and Right (taps, then
+    # held), closed with Back. The key-to-first-frame and burst-end checks are off: the open comes 600 ms into the hold, and the frames over 20 ms
+    # apart and the render cost are what is asked. The compositor marks its own opening `Q:switcher-show`.
+    {'name': 'switcher', 'default': False, 'transition': False,
+     'setup': SWITCHER_SETUP, 'teardown': SWITCHER_TEARDOWN,
+     'open': '@switcher-open BACK:700 s0.9 RIGHTx2@0.2 LEFTx2@0.2 RIGHT:700 s0.2 LEFT:700 s0.2 BACK',
      'close': '@switcher-close', 'settle_s': 0.8, 'close_settle_s': 0.5,
-     'thresholds': {'burst_end_ms': None}},
+     'thresholds': {'first_frame_ms': None, 'burst_end_ms': None}},
     # `transitions-netflix`, `transitions-settings`: an app launched and Home pressed in it, with smooth transitions on for the run (`lumatv
     # transitions on`, put back). The app is running already (setup), so the launch is a resume and the compositor's grow out of the tile (220 ms)
     # and shrink into it (180 ms) are what the windows hold; the key-to-first-frame and burst-end checks measure the app's resume and SAM's round
