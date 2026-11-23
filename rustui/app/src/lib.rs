@@ -8,6 +8,7 @@ pub mod card;
 pub mod card_ui;
 pub mod game;
 pub mod home;
+pub mod hook;
 pub mod lifecycle;
 pub mod look;
 pub mod raster;

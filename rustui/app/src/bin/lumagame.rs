@@ -8,6 +8,7 @@ use lumatv_rustui::game::helper::{OverlayClient, Sample};
 use lumatv_rustui::game::diagnostics::{Diagnostics, Event as DiagnosticEvent, Level};
 use lumatv_rustui::game::input::Face;
 use lumatv_rustui::game::{uplink, video};
+use lumatv_rustui::hook::{self, Command as HookCommand, Hook};
 use lumatv_rustui::game::model::game::media::VideoRect;
 use lumatv_rustui::game::observer::{Observer, engine_word, phase_word};
 use std::{collections::VecDeque, io, net::SocketAddr, os::fd::AsRawFd, os::unix::net::UnixDatagram, path::{Path, PathBuf}, sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering}, mpsc::{self, Receiver, SyncSender}}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
@@ -565,6 +566,8 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
     let mut ready = false;
     let mut want_frame = true;
     let mut painted_ui = true;
+    // Not fatal: without the socket LumaTV's task manager has no card or quit hook for LumaGame, and the app runs as before.
+    let hook = Hook::start(&spec.app_id).map_err(|e| eprintln!("lumagame: the task-manager hook is off: {e}")).ok();
     let mut signalled = false;
     let mut fds = Vec::new();
     let mut frame = 0u64;
@@ -585,6 +588,13 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
             inputs.push(Input::DiagnosticsStatus(shell.diagnostics.status()));
         }
         if END.load(Ordering::Relaxed) && !signalled { inputs.push(Input::Close); signalled = true; }
+        for command in hook.as_ref().map(Hook::poll).unwrap_or_default() {
+            match command {
+                // the same path as SAM's close and SIGTERM: the model stops any session, saves state and exits
+                HookCommand::Quit => if !signalled { inputs.push(Input::Close); signalled = true; },
+                HookCommand::Snapshot { path, w, h, reply } => { let _ = reply.send(hook_snapshot(&renderer, frame, &path, w, h)); }
+            }
+        }
         for event in window.events() {
             match event {
                 Event::State(state) => { trace_events |= 2; trace_window_state = Some(state); if let Some(ch) = &mut shell.channel { ch.send(&FromApp::State(state)); } inputs.push(Input::Foreground(state != MINIMIZED)); }
@@ -716,10 +726,18 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
             if let Demand::At(at) = demand { wait_ms = wait_ms.min(at.saturating_sub(now_ns()) / 1_000_000); }
             if let Some(at) = renderer.idle_wake_at(demand == Demand::Idle) { wait_ms = wait_ms.min(at.saturating_sub(now_ns()) / 1_000_000); }
         }
-        fds.clear(); fds.push(pads.receive.as_raw_fd());
+        fds.clear(); fds.push(pads.receive.as_raw_fd()); fds.extend(hook.as_ref().map(Hook::fd));
         fds.extend(shell.channel.as_ref().map(Channel::fd)); shell.host.fds(&mut fds);
         window.wait_fds(wait_ms.min(1000) as i32, &fds)?;
     }
+}
+
+/// The task manager's card: the UI's last presented frame (the render target keeps it whatever the window swapped since). A stream or
+/// video on the hardware layer is not in it, so over a playing game the card is the UI's frame, mostly transparent and so black.
+fn hook_snapshot(renderer: &Engine, frame: u64, path: &Path, w: u32, h: u32) -> Result<(), String> {
+    if frame == 0 { return Err("no frame has been presented yet".into()); }
+    let rows = renderer.read_page(0);
+    hook::write_snapshot(path, &hook::scale(&rows, W, H, w, h)).map_err(|e| e.to_string())
 }
 
 struct ThemeWatch {
