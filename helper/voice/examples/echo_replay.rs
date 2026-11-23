@@ -351,6 +351,7 @@ struct Wake {
     /// Seconds of each detection that passed its cutoff and the strictness.
     wakes: Vec<(f32, f32)>,
     refused: u64,
+    window_secs: f32,
 }
 
 struct Listener {
@@ -366,7 +367,10 @@ impl Listener {
         engine.set_strictness(opts.extra);
         Ok(Self {
             engine,
-            wake: Wake::default(),
+            wake: Wake {
+                window_secs: opts.window_secs,
+                ..Wake::default()
+            },
             window: (opts.window_secs * RATE as f32) as usize,
         })
     }
@@ -400,7 +404,16 @@ impl Listener {
     }
 
     fn describe(wake: &Wake, name: &str, out: &mut String) {
-        let windows: Vec<String> = wake.windows.iter().map(|s| format!("{s:.2}")).collect();
+        // Windows that came near a wake (0.1 and up) by their time; a long capture is mostly zeros.
+        let step = wake.window_secs;
+        let windows: Vec<String> = wake
+            .windows
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| **s >= 0.1)
+            .map(|(i, s)| format!("{:.0}s:{s:.2}", i as f32 * step))
+            .collect();
+        let best = wake.windows.iter().copied().fold(0.0f32, f32::max);
         let times: Vec<String> = wake
             .wakes
             .iter()
@@ -408,7 +421,7 @@ impl Listener {
             .collect();
         let _ = writeln!(
             out,
-            "  {name}: {} wakes {}, {} refused by the strictness; best score per window: {}",
+            "  {name}: {} wakes {}, {} refused by the strictness; best score {best:.2}; windows at 0.1 or over: {}",
             wake.wakes.len(),
             times.join(" "),
             wake.refused,
@@ -641,7 +654,18 @@ fn replay(mic: &[u8], reference: &[u8], opts: &Options) -> Result<Report, String
         percentile(&per_window, 0.9)
     );
     if !series.is_empty() {
-        let _ = writeln!(text, "  {}", series.join("  "));
+        let shown = series.len().min(40);
+        let more = series.len() - shown;
+        let _ = writeln!(
+            text,
+            "  {}{}",
+            series[..shown].join("  "),
+            if more > 0 {
+                format!("  ... {more} more")
+            } else {
+                String::new()
+            }
+        );
     }
 
     let (raw, cleaned) = (raw_ear.finish(), clean_ear.finish());
