@@ -13,7 +13,7 @@
 
 use super::env::Env;
 use super::life::Life;
-use super::{K, Out};
+use super::{Ask, K, Out};
 use crate::host::inputs::Tile;
 use crate::host::previews::Shot;
 use crate::kit::screen::Effect;
@@ -201,17 +201,19 @@ impl Picker {
         Effect::Luna { tag: super::env::tags::LAUNCH, uri: "luna://com.webos.applicationManager/launch".into(), payload: json!({"id": app_id}), subscribe: false }
     }
 
-    /// OK on a device behind the receiver: its port's app is launched when not in front, then the receiver is set to the device's input.
+    /// OK on a device behind the receiver. With its port in front the receiver is set to the device's input at once; otherwise the port's
+    /// app is launched and the receiver is set once the port is in front (`Env::follow_switch`).
     fn activate_child(env: &Env, tiles: &[Tile], i: usize, c: usize) -> Out {
         let Some(tile) = tiles.get(i) else { return Out::default() };
         let Some(code) = tile.children.get(c).and_then(|d| d.source.clone()) else { return Out::default() };
         let Some(switch) = env.denon_switch().filter(|s| s.writable) else { return Out::default() };
-        let mut effects = Vec::new();
-        if !tile.front {
-            effects.push(Self::launch(&tile.app_id));
-        }
-        effects.push(Effect::Post { path: "/v1/receiver/set".into(), body: json!({"setting": "input", "value": code, "session": switch.session}) });
-        let mut out = Out::effects(effects);
+        let mut out = if tile.front {
+            Out::effects(vec![Effect::Post { path: "/v1/receiver/set".into(), body: json!({"setting": "input", "value": code, "session": switch.session}) }])
+        } else {
+            let mut out = Out::effects(vec![Self::launch(&tile.app_id)]);
+            out.asks.push(Ask::FollowSwitch { app: tile.app_id.clone(), code });
+            out
+        };
         out.close = true;
         out
     }

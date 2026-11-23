@@ -32,7 +32,9 @@ Under the tile of the port the receiver is on, the input picker lists what can b
 receiver's own video inputs, by the names the owner gave them on the receiver (the settings document's `input` options, minus the sound-only
 ones: TV Audio, network, Bluetooth, tuner, phono, CD, USB and the like), so a source LG's HDMI-CEC list does not know (a Blu-ray player that
 does not answer CEC) still has a row. The row the receiver's current input is carries the mark, only while that port is in front. OK on a row
-launches the port's app when it is not in front, then posts `/v1/receiver/set` `input` with the input's code.
+posts `/v1/receiver/set` `input` with the input's code. When the port is not in front, the picker launches its app and posts once the port is
+in front, then again (at most three times, 1.5 s apart, for 8 s) if the receiver moves off that input: LG's switch to the port lets the
+HDMI-CEC device that answers take the receiver (2026-11-22: a set sent with the launch for the Blu-ray input ended on Apple TV's).
 
 The HDMI-CEC list (`subList` entries at `depth` 2) adds to a row: a device whose name matches the input's (equal, else one name contains the
 other, three letters at least, spaces and case aside; two inputs that fit equally match none) shows its power ("Off") after the name. A CEC

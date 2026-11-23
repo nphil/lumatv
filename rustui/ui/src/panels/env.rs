@@ -65,6 +65,27 @@ impl Capture {
     }
 }
 
+/// A device chosen behind the receiver while its port was not in front. Launching the port lets the device that answers HDMI-CEC take
+/// the receiver: on the set (2026-11-22) a set sent with the launch of HDMI 2 for the Blu-ray input ended on Apple TV's. So the receiver is
+/// set once the port is in front, and again when it moves off that input within `FOLLOW_HOLD_MS`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Follow {
+    pub app: String,
+    pub code: String,
+    pub asked_at: u64,
+    pub front_at: Option<u64>,
+    pub sets: u8,
+    pub last_set: Option<u64>,
+}
+
+/// How long a chosen device waits for its port to come to the front.
+pub const FOLLOW_WAIT_MS: u64 = 15_000;
+/// How long after the port came to the front the receiver is put back on the chosen input, how often at most, and how far apart (the
+/// receiver's report of a set comes within about a second).
+pub const FOLLOW_HOLD_MS: u64 = 8_000;
+pub const FOLLOW_SETS: u8 = 3;
+pub const FOLLOW_GAP_MS: u64 = 1_500;
+
 pub struct Env {
     pub sio: Sio,
     pub inputs: Inputs,
@@ -86,6 +107,8 @@ pub struct Env {
     pub previews: Previews,
     /// Nothing else of the shell is on the screen (the shell says so before a tick): the previews' quiet timers wait for it.
     pub quiet: bool,
+    /// The receiver input to set once its port is in front (`follow_switch`).
+    pub follow: Option<Follow>,
 }
 
 impl Env {
@@ -105,7 +128,39 @@ impl Env {
             audio_output: String::new(),
             previews: Previews::new(),
             quiet: true,
+            follow: None,
         }
+    }
+
+    /// The receiver is to be set to `code` once `app` is in front (the picker launched it).
+    pub fn follow_switch(&mut self, app: String, code: String, now: u64) {
+        self.follow = Some(Follow { app, code, asked_at: now, front_at: None, sets: 0, last_set: None });
+    }
+
+    /// What the pending receiver switch asks for now: a set when the port is in front and the receiver is not on the chosen input.
+    fn follow_effects(&mut self, now: u64) -> Vec<Effect> {
+        let Some(f) = self.follow.as_ref() else { return Vec::new() };
+        let front = self.fg.known && self.fg.app == f.app;
+        let expired = match f.front_at {
+            Some(at) => now.saturating_sub(at) > FOLLOW_HOLD_MS || f.sets >= FOLLOW_SETS || !front,
+            None => now.saturating_sub(f.asked_at) > FOLLOW_WAIT_MS,
+        };
+        if expired {
+            self.follow = None;
+            return Vec::new();
+        }
+        if !front {
+            return Vec::new();
+        }
+        let Some(switch) = self.denon_switch().filter(|s| s.writable) else { return Vec::new() };
+        let f = self.follow.as_mut().expect("checked above");
+        f.front_at.get_or_insert(now);
+        if switch.current.as_deref() == Some(f.code.as_str()) || f.last_set.is_some_and(|at| now.saturating_sub(at) < FOLLOW_GAP_MS) {
+            return Vec::new();
+        }
+        f.sets += 1;
+        f.last_set = Some(now);
+        vec![Effect::Post { path: "/v1/receiver/set".into(), body: serde_json::json!({"setting": "input", "value": f.code, "session": switch.session}) }]
     }
 
     /// What goes out at the start: the network's subscription (the panel shows it from its first frame).
@@ -237,6 +292,7 @@ impl Env {
         {
             self.gate.helper(self.helper_up, now);
         }
+        out.extend(self.follow_effects(now));
         (out, changed)
     }
 
@@ -253,7 +309,9 @@ impl Env {
     }
 
     pub fn due_at(&self) -> Option<u64> {
-        [self.sio.due_at(), self.inputs.due_at(), self.power.due_at(), self.gate.due_at(), self.previews.due_at()].into_iter().flatten().min()
+        // once the port is in front, a receiver report is what calls for another set; the timer only ends the hold
+        let follow = self.follow.as_ref().map(|f| f.front_at.map_or(f.asked_at + FOLLOW_WAIT_MS + 1, |at| at + FOLLOW_HOLD_MS + 1));
+        [self.sio.due_at(), self.inputs.due_at(), self.power.due_at(), self.gate.due_at(), self.previews.due_at(), follow].into_iter().flatten().min()
     }
 }
 
@@ -319,5 +377,34 @@ mod tests {
         assert!(e.gate.doc().is_some());
         e.update(&Input::Helper { topic: "up".into(), data: json!(false) }, 200);
         assert!(e.gate.doc().is_none());
+    }
+
+    #[test]
+    fn a_device_chosen_with_its_port_away_is_set_once_the_port_is_in_front_and_again_when_cec_moves_the_receiver() {
+        let at = 1_000_000u64;
+        let rx = |t: u64, input: &str| {
+            json!({"enabled": true, "fresh": true, "reachable": true, "updatedAt": t, "settingsSession": "s1", "input": input,
+                   "settings": {"input": {"support": "supported", "writable": true, "value": input, "options": [{"value": "MPLAY", "label": "Apple TV"}, {"value": "BD", "label": "MAGNAVOX 4K BD"}]}}})
+        };
+        let posts = |fx: &[Effect]| fx.iter().filter(|f| matches!(f, Effect::Post { path, body } if path == "/v1/receiver/set" && body["value"] == "BD")).count();
+        let mut e = Env::new(json!({}));
+        e.update(&Input::Helper { topic: "up".into(), data: json!(true) }, at);
+        e.update(&Input::Helper { topic: "plugins".into(), data: json!({"plugins": [], "firstParty": [{"id": "denon-receiver", "state": "on"}]}) }, at);
+        e.gate.set_active(true, at);
+        e.update(&Input::Helper { topic: "receiver".into(), data: rx(at, "TV") }, at);
+        e.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.home", "home": true}) }, at);
+        e.follow_switch("com.webos.app.hdmi2".into(), "BD".into(), at);
+        assert_eq!(posts(&e.update(&Input::Tick, at + 100).0), 0, "not before the port is in front");
+        assert_eq!(posts(&e.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.hdmi2", "home": false}) }, at + 900).0), 1);
+        // HDMI-CEC hands the receiver to the device that answers it
+        assert_eq!(posts(&e.update(&Input::Helper { topic: "receiver".into(), data: rx(at + 1200, "MPLAY") }, at + 1200).0), 0, "within the gap");
+        assert_eq!(posts(&e.update(&Input::Helper { topic: "receiver".into(), data: rx(at + 2600, "MPLAY") }, at + 2600).0), 1, "set again");
+        assert_eq!(posts(&e.update(&Input::Helper { topic: "receiver".into(), data: rx(at + 4500, "BD") }, at + 4500).0), 0);
+        e.update(&Input::Tick, at + 900 + FOLLOW_HOLD_MS + 1);
+        assert!(e.follow.is_none(), "the hold ends");
+        e.follow_switch("com.webos.app.hdmi2".into(), "BD".into(), at + 20_000);
+        e.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "netflix", "home": false}) }, at + 20_100);
+        e.update(&Input::Tick, at + 20_000 + FOLLOW_WAIT_MS + 1);
+        assert!(e.follow.is_none(), "a port that never came to the front is let go");
     }
 }

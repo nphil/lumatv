@@ -547,7 +547,13 @@ impl Panels {
         out.extend(o.effects);
         let mut opened_settings = false;
         for a in o.asks {
-            let Ask::Settings(page) = a;
+            let page = match a {
+                Ask::Settings(page) => page,
+                Ask::FollowSwitch { app, code } => {
+                    self.env.follow_switch(app, code, now);
+                    continue;
+                }
+            };
             opened_settings = true;
             self.events.push(("settings.open".into(), json!({"page": page})));
             if !kinds.settings {

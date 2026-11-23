@@ -73,6 +73,8 @@ impl K {
 pub enum Ask {
     /// LumaTV's Settings, at a page (`""` its first).
     Settings(String),
+    /// Set the receiver to input `code` once `app` (its HDMI port) is in front: see `Env::follow_switch`.
+    FollowSwitch { app: String, code: String },
 }
 
 /// What was typed on the entry sheet, for the one screen that asked: handed back once and never made an event (events are fed to every
