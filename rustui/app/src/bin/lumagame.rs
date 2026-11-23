@@ -1,7 +1,7 @@
 //! The feeder launches this 64-bit card window; engine decisions stay in the model and media stays out of this loop.
 use lumagame_core::{catalog::ArtKind, engine::Codec, ids::GameId, ipc::{Display, Request}};
 use lumagame_meta::{Artwork, Cache, CacheLimits, Client, Http, Job, Kind, Loader, Metadata, secrets::Secrets};
-use lumatv_gfn_pad::{MAX_PADS, PadConfig, PadEvent, PadRuntime, PadSink, PadState, RawReport, button, menu::{MenuKeys, STICK}};
+use lumatv_gfn_pad::{MAX_PADS, PadConfig, PadEvent, PadRuntime, PadSink, PadState, RawReport, button, menu::{MenuKey, MenuKeys, STICK_RELEASE, strength}};
 use lumatv_render::{Demand, now_ns, host::{Engine, HostConfig}};
 use lumatv_rustui::{card::{FULLSCREEN, MINIMIZED}, game::{helper::{ControllerClient, ControllerRequest, ControllerReply, Lease}, host::{self, HostEvent, Supervisor}, model::{Command, GameDetails, Input, Key, Model, settings::PadMode}, screens::GameUi, store::{self, Store}}, lifecycle::{Channel, FromApp, ToApp}, window::{self, Event, Spec}};
 use lumatv_rustui::game::helper::{OverlayClient, Sample};
@@ -124,21 +124,31 @@ fn main() {
 
 /// `held` is the direction the pad has sent and not yet released: the model repeats a direction while it is down.
 #[derive(Default)]
-struct PadKeys { menu: MenuKeys, buttons: u16, held: Option<Key> }
+struct PadKeys { menu: MenuKeys, buttons: u16, held: Option<Key>, pushed: u8 }
 #[derive(Default)]
 struct LabBuffer { reports: VecDeque<(u8, RawReport)>, names: [Option<String>; MAX_PADS] }
 struct MenuSink { active: AtomicBool, mode: AtomicU8, connected: AtomicU32, keys: Mutex<[PadKeys; MAX_PADS]>, lab: Mutex<LabBuffer>, send: UnixDatagram }
 struct MenuPads { runtime: PadRuntime, sink: Arc<MenuSink>, receive: UnixDatagram, announced: Mutex<[Option<String>; MAX_PADS]> }
 
+/// The direction a held key stands for, to read its push from the pad's state.
+fn direction(key: Key) -> MenuKey {
+    match key {
+        Key::Up => MenuKey::Up,
+        Key::Down => MenuKey::Down,
+        Key::Left => MenuKey::Left,
+        _ => MenuKey::Right,
+    }
+}
+
 const KEYS: [Key; 10] = [Key::Up, Key::Down, Key::Left, Key::Right, Key::Ok, Key::Back, Key::Guide, Key::Menu, Key::Prev, Key::Next];
 
-/// Whether the pad still holds `key`'s direction: its d-pad button, or the left stick pushed past the menu's threshold.
+/// Whether the pad still holds `key`'s direction: its d-pad button, or the left stick not yet back under the menu's lower threshold.
 fn holds(key: Key, state: &PadState) -> bool {
     match key {
-        Key::Up => state.buttons & button::DPAD_UP != 0 || state.left_y > STICK,
-        Key::Down => state.buttons & button::DPAD_DOWN != 0 || state.left_y < -STICK,
-        Key::Left => state.buttons & button::DPAD_LEFT != 0 || state.left_x < -STICK,
-        Key::Right => state.buttons & button::DPAD_RIGHT != 0 || state.left_x > STICK,
+        Key::Up => state.buttons & button::DPAD_UP != 0 || state.left_y > STICK_RELEASE,
+        Key::Down => state.buttons & button::DPAD_DOWN != 0 || state.left_y < -STICK_RELEASE,
+        Key::Left => state.buttons & button::DPAD_LEFT != 0 || state.left_x < -STICK_RELEASE,
+        Key::Right => state.buttons & button::DPAD_RIGHT != 0 || state.left_x > STICK_RELEASE,
         _ => false,
     }
 }
@@ -146,7 +156,11 @@ fn holds(key: Key, state: &PadState) -> bool {
 impl MenuSink {
     /// One key datagram: the key's index, whether it went down, and the slot of the pad that pressed it.
     fn send(&self, slot: u8, key: Key, down: bool) {
-        if let Some(index) = KEYS.iter().position(|k| *k == key) { let _ = self.send.send(&[index as u8, u8::from(down), slot]); }
+        if let Some(index) = KEYS.iter().position(|k| *k == key) { let _ = self.send.send(&[index as u8, u8::from(down), slot, 0]); }
+    }
+    /// How hard a held direction is pushed (the fourth byte, sent as a third state of "down"), for the model's repeat to step by.
+    fn push(&self, slot: u8, key: Key, strength: u8) {
+        if let Some(index) = KEYS.iter().position(|k| *k == key) { let _ = self.send.send(&[index as u8, 2, slot, strength]); }
     }
 }
 impl PadSink for MenuSink {
@@ -160,16 +174,27 @@ impl PadSink for MenuSink {
                 if let Some(keys) = keys.get_mut(usize::from(slot)) {
                     // Stick movement belongs to the lab; held buttons still track their real release across mode changes.
                     if mode != PadMode::Menu as u8 { state.left_x = 0; state.left_y = 0; state.right_x = 0; state.right_y = 0; }
-                    keys.menu.feed(&state, |key| if navigating {
-                        let key = Key::from_menu(key);
+                    keys.menu.feed(&state, |menu_key| if navigating {
+                        let key = Key::from_menu(menu_key);
                         if matches!(key, Key::Up | Key::Down | Key::Left | Key::Right) {
                             if let Some(old) = keys.held.replace(key).filter(|old| *old != key) { self.send(slot, old, false); }
+                            keys.pushed = strength(&state, menu_key);
+                            self.send(slot, key, true);
+                            self.push(slot, key, keys.pushed);
+                        } else {
+                            self.send(slot, key, true);
                         }
-                        self.send(slot, key, true);
                     });
                     if let Some(key) = keys.held.filter(|key| !holds(*key, &state)) {
                         keys.held = None;
                         if navigating { self.send(slot, key, false); }
+                    } else if let Some(key) = keys.held.filter(|_| navigating) {
+                        // A stick that is pushed further or eased off changes the repeat's pace; a nudge of 6 % is not worth a message.
+                        let now = strength(&state, direction(key));
+                        if now.abs_diff(keys.pushed) >= 16 {
+                            keys.pushed = now;
+                            self.push(slot, key, now);
+                        }
                     }
                     if navigating {
                         // The menus act on release, so every face button that sends a key on press owes one on release.
@@ -227,12 +252,14 @@ impl MenuPads {
         }
     }
     fn poll(&self, inputs: &mut Vec<Input>, frame: u64) {
-        let mut bytes = [0; 3];
+        let mut bytes = [0; 4];
         let names = self.sink.lab.lock().unwrap_or_else(|e| e.into_inner()).names.clone();
         if std::mem::replace(&mut *self.announced.lock().unwrap_or_else(|e| e.into_inner()), names.clone()) != names { inputs.push(Input::Controllers(names)); }
         while let Ok(n) = self.receive.recv(&mut bytes) {
-            if n == 3 && self.sink.active.load(Ordering::Acquire) {
-                if let Some(key) = KEYS.get(usize::from(bytes[0])) { inputs.push(Input::PadKey { slot: bytes[2], key: *key, down: bytes[1] != 0 }); }
+            if n == 4 && self.sink.active.load(Ordering::Acquire) {
+                if let Some(key) = KEYS.get(usize::from(bytes[0])) {
+                    inputs.push(if bytes[1] == 2 { Input::PadPush { key: *key, strength: bytes[3] } } else { Input::PadKey { slot: bytes[2], key: *key, down: bytes[1] != 0 } });
+                }
             }
         }
         if self.sink.active.load(Ordering::Acquire) && self.sink.mode.load(Ordering::Acquire) != PadMode::Menu as u8 {

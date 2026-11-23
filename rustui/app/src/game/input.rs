@@ -127,28 +127,47 @@ impl Sources {
     }
 }
 
-/// A direction a pad holds, which repeats: the first move after 300 ms, then one every 100 ms. A call gives at most one move, so a slow
-/// frame takes a single step and not a burst.
+/// A direction a pad holds, which repeats: the first move after 300 ms, then one every `interval`, which a held stick sets by how far it
+/// is pushed (a nudge steps at 200 ms, a full push at 100) and which quickens by up to 30 % over the next 1.2 s of holding. Release
+/// stops it; the springs the screens move on carry what is left. A call gives at most one move, so a slow frame takes a single step and
+/// not a burst.
 #[derive(Clone, Copy, Debug)]
 pub struct Repeat {
     key: Key,
+    since_ms: u64,
     next_ms: u64,
+    strength: f32,
 }
 impl Repeat {
     const FIRST_MS: u64 = 300;
-    const EVERY_MS: u64 = 100;
+    const GENTLE_MS: f32 = 200.0;
+    const FULL_MS: f32 = 100.0;
+    const RAMP_MS: f32 = 1_200.0;
+    const QUICKEST: f32 = 0.7;
+    /// A d-pad direction, which is held at full strength.
     pub fn start(key: Key, now_ms: u64) -> Self {
-        Self { key, next_ms: now_ms + Self::FIRST_MS }
+        Self { key, since_ms: now_ms, next_ms: now_ms + Self::FIRST_MS, strength: 1.0 }
     }
     pub fn key(&self) -> Key {
         self.key
+    }
+    /// How hard the direction is held now, 0 to 255 as the pad reader sends it.
+    pub fn push(&mut self, strength: u8) {
+        self.strength = f32::from(strength) / 255.0;
+    }
+    /// Milliseconds between moves once `held_ms` of holding have gone.
+    fn interval(&self, held_ms: u64) -> u64 {
+        let base = Self::GENTLE_MS + (Self::FULL_MS - Self::GENTLE_MS) * self.strength;
+        let warm = ((held_ms.saturating_sub(Self::FIRST_MS)) as f32 / Self::RAMP_MS).min(1.0);
+        let warm = warm * warm * (3.0 - 2.0 * warm);
+        (base * (1.0 - (1.0 - Self::QUICKEST) * warm)).round() as u64
     }
     /// The key to move with, once its time has come.
     pub fn due(&mut self, now_ms: u64) -> Option<Key> {
         if now_ms < self.next_ms {
             return None;
         }
-        self.next_ms = now_ms + Self::EVERY_MS;
+        self.next_ms = now_ms + self.interval(now_ms - self.since_ms);
         Some(self.key)
     }
     /// Milliseconds until the next move is due.
@@ -332,15 +351,44 @@ mod tests {
         assert_eq!(engine, [Some(Key::Prev), Some(Key::Next)], "a stream's engine forwarding its menu keys");
     }
     #[test]
-    fn a_held_direction_repeats_after_300_ms_then_every_100_with_one_move_per_frame() {
+    fn a_held_direction_repeats_after_300_ms_with_one_move_per_frame() {
         let mut held = Repeat::start(Key::Down, 1_000);
         assert_eq!(held.due(1_299), None);
         assert_eq!(held.wake_in(1_299), 1);
         assert_eq!(held.due(1_300), Some(Key::Down));
-        assert_eq!(held.due(1_399), None);
+        assert_eq!(held.wake_in(1_300), 100, "the d-pad starts at the full push's 100 ms");
         // A slow frame gets one move, and the next waits its full interval.
         assert_eq!(held.due(1_900), Some(Key::Down));
         assert_eq!(held.due(1_950), None);
-        assert_eq!(held.due(2_000), Some(Key::Down));
+    }
+
+    #[test]
+    fn a_stick_pushed_further_steps_faster_and_holding_quickens_it() {
+        let gap = |strength: u8, held_ms: u64| {
+            let mut held = Repeat::start(Key::Right, 0);
+            held.push(strength);
+            let mut now = Repeat::FIRST_MS;
+            while now < held_ms {
+                held.due(now);
+                now += held.wake_in(now);
+            }
+            held.due(now);
+            held.wake_in(now)
+        };
+        assert_eq!(gap(0, 300), 200, "a nudge");
+        assert_eq!(gap(255, 300), 100, "a full push");
+        assert!(gap(128, 300) > 140 && gap(128, 300) < 160, "between");
+        assert!(gap(255, 900) < gap(255, 300), "holding quickens it");
+        assert_eq!(gap(255, 5_000), 70, "to 70 % and no further");
+        assert_eq!(gap(0, 5_000), 140);
+    }
+
+    #[test]
+    fn easing_the_stick_off_slows_the_next_step_after_the_one_due() {
+        let mut held = Repeat::start(Key::Left, 0);
+        assert_eq!(held.due(300), Some(Key::Left));
+        held.push(0);
+        assert_eq!(held.due(400), Some(Key::Left), "the step already due was timed at the full push");
+        assert!(held.wake_in(400) > 190, "a nudge's 200 ms, barely quickened");
     }
 }

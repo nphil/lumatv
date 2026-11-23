@@ -107,6 +107,11 @@ pub enum Input {
         key: Key,
         down: bool,
     },
+    /// How hard the pad holds the direction `key` now, 0 to 255 (a stick's deflection; the d-pad is 255).
+    PadPush {
+        key: Key,
+        strength: u8,
+    },
     /// The connected controllers' names by slot, whenever they change.
     Controllers([Option<String>; MAX_PADS]),
     Engine {
@@ -866,6 +871,11 @@ impl Model {
                 let switched = down && self.sources.used_pad(usize::from(slot));
                 self.hold(key, down);
                 changed = self.key(key, down, &mut out) | switched | self.touched();
+            }
+            Input::PadPush { key, strength } => {
+                if let Some(held) = self.repeat.as_mut().filter(|held| held.key() == key) {
+                    held.push(strength);
+                }
             }
             Input::Controllers(names) => changed = self.sources.connected(&names),
             Input::Click { focus, down } => {
