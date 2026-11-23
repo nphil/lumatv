@@ -11,6 +11,7 @@ srv=
 
 "$b/venc_test" || fail "unit tests"
 "$b/xcode_test" || fail "xcode unit tests"
+"$b/scale_test" || fail "scale tests"
 
 # the transcode child as the engine runs it: records on stdin, units on stdout, real pipes, the fake decoder and encoder
 python3 - "$tmp/x.in" <<'EOF' || fail "xcode input"

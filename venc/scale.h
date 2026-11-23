@@ -7,6 +7,10 @@
  * integers: a 2:1 reduction is the mean of four samples, 3:2 weighs them 1, 1/2, 1/2 and 1/4 in the middle. The
  * chroma plane is scaled per channel (Cb and Cr stay interleaved), so a 4:2:0 picture stays 4:2:0.
  *
+ * On AArch64 the work runs in NEON, 16 output bytes at a time, and gives the scalar code's bytes exactly; the scalar
+ * code stays as scale_run_ref, which defines the result, and is what other builds and the sizes the vector code does
+ * not cover (scale_vector) run.
+ *
  *   s = scale_new(1920, 1080, 1280, 720); scale_run(s, ...) per picture; scale_free(s). */
 #ifndef LUMATV_SCALE_H
 #define LUMATV_SCALE_H
@@ -24,6 +28,18 @@ struct scaler *scale_new(unsigned sw, unsigned sh, unsigned dw, unsigned dh);
  * rows sc_stride apart), to the same two planes at dw x dh. Not reentrant on one scaler. */
 void scale_run(struct scaler *s, const uint8_t *sy, unsigned sy_stride, const uint8_t *sc, unsigned sc_stride, uint8_t *dy,
                unsigned dy_stride, uint8_t *dc, unsigned dc_stride);
+
+/* The scalar code scale_run must match byte for byte. The tests and `lumatv-venc scalebench` call it; the engine does not. */
+void scale_run_ref(struct scaler *s, const uint8_t *sy, unsigned sy_stride, const uint8_t *sc, unsigned sc_stride, uint8_t *dy,
+                   unsigned dy_stride, uint8_t *dc, unsigned dc_stride);
+
+/* The passes scale_run does in vector code, as SCALE_VEC_* bits. A build without NEON has none, nor has the identity
+ * scale. A plane of 512 samples or less is all scalar, and so is the horizontal pass above about 3.8:1. */
+#define SCALE_VEC_LUMA_H 1u
+#define SCALE_VEC_LUMA_V 2u
+#define SCALE_VEC_CHROMA_H 4u
+#define SCALE_VEC_CHROMA_V 8u
+unsigned scale_vector(const struct scaler *s);
 
 void scale_free(struct scaler *s);
 

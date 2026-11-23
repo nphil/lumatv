@@ -17,6 +17,7 @@
  *   lumatv-venc serve  [opts] -p PORT    the screen as an H.264 byte stream to one TCP client at a time
  *   lumatv-venc feed   [opts]            NV12 frames on stdin, H.264 access units on stdout: the compositor's screen recorder (feed_proto.h)
  *   lumatv-venc xcode                    access units on stdin, H.264 units on stdout: the transcode engine's child (xcode_proto.h, xcode.c)
+ *   lumatv-venc scalebench [-w -h -W -H -n] the CPU scaler, scalar and vector, on synthetic pictures: ms per picture and whether the two agree; no hardware (scale.h)
  *
  * /dev/video24 (the V4L2 M2M node) is never used: its mmap maps the kernel page at vmalloc_to_page(<physical
  * address>), so a frame written through it lands in kernel memory; the first slot wedged the kernel that way
@@ -25,6 +26,7 @@
  * Options: -w WIDTH -h HEIGHT (default 1280x720) -r FPS (30) -b KBPS (4000; 0 = fixed QP -q) -g GOP (30)
  *          -n FRAMES (300) -l blended|osd|display|scaler-output (blended) -d DIVIDE (1) -P profile high|main|baseline
  *          --pool NAME (photofb) --csv FILE --cbr --nbuf N (4) --active-file PATH (serve)
+ *          -W DWIDTH -H DHEIGHT (scalebench: the size scaled to, 1280x720; -w -h are then the size scaled from, 1920x1088)
  * Every run prints one JSON line with the numbers at the end. Nothing is written outside the paths given.
  * Every call that can block is under a watchdog (watchdog.h): exit 75 names the call that hung.
  */
@@ -54,6 +56,7 @@
 #include "feed_proto.h"
 #include "hma.h"
 #include "pools.h"
+#include "scale.h"
 #include "synth.h"
 #include "sysops.h"
 #include "vdec.h"
@@ -84,15 +87,16 @@ static double cpu_s(void)
 
 struct opts {
     const char *mode, *out, *csv, *pool, *active_file, *location;
-    uint32_t w, h, fps, kbps, qp, gop, frames, divide, nbuf, port;
+    uint32_t w, h, dw, dh, fps, kbps, qp, gop, frames, divide, nbuf, port;
     int cbr, profile;
 };
 
 static void usage(void)
 {
-    fputs("usage: lumatv-venc caps|vtcaps|vdeccaps|gate|create|map|hma|synth|tapopen|vt|serve|feed [-w W] [-h H] [-r FPS] [-b KBPS] [-q QP]\n"
+    fputs("usage: lumatv-venc caps|vtcaps|vdeccaps|gate|create|map|hma|synth|tapopen|vt|serve|feed|scalebench [-w W] [-h H] [-r FPS] [-b KBPS] [-q QP]\n"
           "       [-g GOP] [-n FRAMES] [-l blended|osd|display|scaler-output] [-d DIVIDE] [-P high|main|baseline]\n"
-          "       [--pool NAME] [--cbr] [--nbuf N] [--csv FILE] [--active-file PATH] [-p PORT] [-o OUT.h264 (not feed)]\n",
+          "       [--pool NAME] [--cbr] [--nbuf N] [--csv FILE] [--active-file PATH] [-p PORT] [-o OUT.h264 (not feed)]\n"
+          "       [-W DW] [-H DH] (scalebench: the size to scale to)\n",
           stderr);
 }
 
@@ -104,12 +108,15 @@ static int parse(int argc, char **argv, struct opts *o)
     o->active_file = "/tmp/lumatv/venc-active";
     if (argc < 2) return -1;
     o->mode = argv[1];
+    if (!strcmp(o->mode, "scalebench")) { o->w = 1920; o->h = 1088; o->dw = 1280; o->dh = 720; }
     for (int i = 2; i < argc; i++) {
         const char *a = argv[i];
         const char *v = i + 1 < argc ? argv[i + 1] : NULL;
 #define NEED if (!v) return -1; i++
         if (!strcmp(a, "-w")) { NEED; o->w = (uint32_t)atoi(v); }
         else if (!strcmp(a, "-h")) { NEED; o->h = (uint32_t)atoi(v); }
+        else if (!strcmp(a, "-W")) { NEED; o->dw = (uint32_t)atoi(v); }
+        else if (!strcmp(a, "-H")) { NEED; o->dh = (uint32_t)atoi(v); }
         else if (!strcmp(a, "-r")) { NEED; o->fps = (uint32_t)atoi(v); }
         else if (!strcmp(a, "-b")) { NEED; o->kbps = (uint32_t)atoi(v); }
         else if (!strcmp(a, "-q")) { NEED; o->qp = (uint32_t)atoi(v); }
@@ -865,6 +872,110 @@ static int do_feed(const struct opts *o)
     return rc;
 }
 
+/* ---- scalebench: the CPU scaler on synthetic pictures, no hardware ---- */
+
+#define SB_PICTURES 8 /* distinct source pictures, taken in turn, so a run reads memory the caches no longer hold */
+
+struct sbench {
+    struct scaler *s;
+    const uint8_t *src;
+    size_t pic; /* bytes of one source picture */
+    uint8_t *dst;
+    uint32_t sw, sh, dw, dh;
+};
+
+typedef void (*scale_fn)(struct scaler *, const uint8_t *, unsigned, const uint8_t *, unsigned, uint8_t *, unsigned, uint8_t *, unsigned);
+
+static void sb_one(const struct sbench *b, scale_fn fn, unsigned i)
+{
+    const uint8_t *y = b->src + (size_t)(i % SB_PICTURES) * b->pic;
+    fn(b->s, y, b->sw, y + (size_t)b->sw * b->sh, b->sw, b->dst, b->dw, b->dst + (size_t)b->dw * b->dh, b->dw);
+}
+
+static int cmp_double(const void *a, const void *b)
+{
+    double x = *(const double *)a, y = *(const double *)b;
+    return (x > y) - (x < y);
+}
+
+/* n timings in ms as the JSON object scalebench prints: the fastest, the mean and the 95th percentile (nearest rank) */
+static void sb_print(const char *name, double *ms, unsigned n)
+{
+    double sum = 0;
+    for (unsigned i = 0; i < n; i++)
+        sum += ms[i];
+    qsort(ms, n, sizeof(*ms), cmp_double);
+    printf("\"%s\":{\"min\":%.3f,\"mean\":%.3f,\"p95\":%.3f}", name, ms[0], sum / n, ms[(n * 95 + 99) / 100 - 1]);
+}
+
+static int do_scalebench(const struct opts *o)
+{
+    const uint32_t n = o->frames;
+    if (!n) {
+        fputs("scalebench: -n must be at least 1\n", stderr);
+        return 64;
+    }
+    struct sbench b = { .sw = o->w, .sh = o->h, .dw = o->dw, .dh = o->dh };
+    b.s = scale_new(b.sw, b.sh, b.dw, b.dh);
+    if (!b.s) {
+        fprintf(stderr, "scalebench: %ux%u cannot be scaled to %ux%u (even sizes, no enlarging, at most 16:1, source at most 3840x2176)\n", b.sw, b.sh,
+                b.dw, b.dh);
+        return 2;
+    }
+    b.pic = (size_t)b.sw * b.sh * 3 / 2;
+    uint8_t *src = malloc(SB_PICTURES * b.pic), *ref = malloc((size_t)b.dw * b.dh * 3 / 2), *vec = malloc((size_t)b.dw * b.dh * 3 / 2);
+    double *t_ref = malloc(n * sizeof(double)), *t_vec = malloc(n * sizeof(double));
+    if (!src || !ref || !vec || !t_ref || !t_vec) {
+        fputs("scalebench: out of memory\n", stderr);
+        return 1;
+    }
+    uint32_t x = 0x9E3779B9u;
+    for (size_t i = 0; i < SB_PICTURES * b.pic; i++) {
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        src[i] = (uint8_t)(x >> 11);
+    }
+    b.src = src;
+
+    /* one path at a time, so the other cannot leave the next picture in the cache; the first call faults the output in */
+    b.dst = ref;
+    sb_one(&b, scale_run_ref, 0);
+    for (uint32_t i = 0; i < n; i++) {
+        double t0 = now_s();
+        sb_one(&b, scale_run_ref, i);
+        t_ref[i] = (now_s() - t0) * 1e3;
+    }
+    b.dst = vec;
+    sb_one(&b, scale_run, 0);
+    for (uint32_t i = 0; i < n; i++) {
+        double t0 = now_s();
+        sb_one(&b, scale_run, i);
+        t_vec[i] = (now_s() - t0) * 1e3;
+    }
+    int same = 1;
+    for (unsigned i = 0; i < SB_PICTURES; i++) {
+        b.dst = ref;
+        sb_one(&b, scale_run_ref, i);
+        b.dst = vec;
+        sb_one(&b, scale_run, i);
+        same &= !memcmp(ref, vec, (size_t)b.dw * b.dh * 3 / 2);
+    }
+    printf("{");
+    sb_print("scalar_ms", t_ref, n);
+    printf(",");
+    sb_print("vector_ms", t_vec, n);
+    printf(",\"identical\":%s,\"w\":%u,\"h\":%u,\"dw\":%u,\"dh\":%u,\"frames\":%u,\"pictures\":%d,\"vector_passes\":%u}\n", same ? "true" : "false", b.sw,
+           b.sh, b.dw, b.dh, n, SB_PICTURES, scale_vector(b.s));
+    free(src);
+    free(ref);
+    free(vec);
+    free(t_ref);
+    free(t_vec);
+    scale_free(b.s);
+    return same ? 0 : 3;
+}
+
 int main(int argc, char **argv)
 {
     if (argc >= 2 && !strcmp(argv[1], "xcode"))
@@ -876,6 +987,8 @@ int main(int argc, char **argv)
         usage();
         return 64;
     }
+    if (!strcmp(o.mode, "scalebench")) /* CPU only: no signals, no watchdog */
+        return do_scalebench(&o);
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
     setvbuf(stdout, NULL, _IOLBF, 0);
