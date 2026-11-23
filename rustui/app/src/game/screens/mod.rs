@@ -226,8 +226,13 @@ impl GameUi {
         }
         self.art.poll();
         let dipped = self.step_art(model)?;
-        if model.view.page == Page::Running && model.stream_bare() && !model.hud_visible() && model.idle_left().is_none() {
-            let changed = !self.nodes.is_empty();
+        let bare_stream = model.view.page == Page::Running && model.stream_bare() && !model.hud_visible() && model.idle_left().is_none();
+        // A full-screen player in the frame app sits on the video plane under this window: the page and its art leave the screen clear.
+        if bare_stream || model.video_full {
+            if model.video_full {
+                self.art.reset();
+            }
+            let changed = !self.nodes.is_empty() || (model.video_full && self.revision != Some(model.revision()));
             self.nodes.clear();
             self.hits.clear();
             self.groups.clear();

@@ -1,8 +1,11 @@
 //! In-app video: a trailer or a community video plays in LumaTV's frame app (`org.nphil.lumatv.frame`, an overlay web app) on the
 //! TV's main hardware video window, never as a texture of LumaGame's. The frame loads the player page (`frame/player.html`) in mode
 //! `video` over the still's card; Up there grows it to full screen and Down returns it, Back closes it and LumaGame has the keys again.
+//! While the player fills the screen the frame keeps the file `flag` (a launch parameter, [`FULL_FLAG`] in LumaGame's data directory),
+//! and LumaGame draws nothing: its window sits over the video plane, so any page left up would show through as a ghost over the video.
 use crate::game::model::game::media::{VideoKind, VideoRect};
 use serde_json::{Value, json};
+use std::path::Path;
 
 pub const FRAME_APP: &str = "org.nphil.lumatv.frame";
 /// The player page (game/player), served by the LumaTV server. YouTube's embed needs a real http(s) page for its Referer: from
@@ -12,14 +15,16 @@ pub const PLAYER: &str = "https://lumatv.nateshome.net/player/";
 const MIN_W: f32 = 480.0;
 const MIN_H: f32 = 270.0;
 const SCREEN: VideoRect = VideoRect::FULL;
+/// The frame's full-screen mark, in LumaGame's data directory.
+pub const FULL_FLAG: &str = "video-full";
 
-/// The frame's launch parameters for `source` of `kind` at `rect`.
-pub fn launch(kind: VideoKind, source: &str, rect: VideoRect) -> Value {
+/// The frame's launch parameters for `source` of `kind` at `rect`; `flag` is the file it keeps while the player fills the screen.
+pub fn launch(kind: VideoKind, source: &str, rect: VideoRect, flag: &Path) -> Value {
     let query = match kind {
         VideoKind::YouTube => format!("yt={}", encode(source)),
         VideoKind::Trailer => format!("hls={}", encode(source)),
     };
-    json!({"url": format!("{PLAYER}?{query}"), "mode": "video", "rect": {"x": rect.x.round(), "y": rect.y.round(), "w": rect.w.round(), "h": rect.h.round()}})
+    json!({"url": format!("{PLAYER}?{query}"), "mode": "video", "rect": {"x": rect.x.round(), "y": rect.y.round(), "w": rect.w.round(), "h": rect.h.round()}, "flag": flag})
 }
 
 /// What closes the frame when LumaGame leaves with a video still up.
@@ -55,10 +60,10 @@ mod tests {
 
     #[test]
     fn the_frame_gets_the_player_in_video_mode_at_the_card() {
-        let p = launch(VideoKind::Trailer, "https://v.steam/a b.m3u8?t=1", VideoRect { x: 10.4, y: 20.0, w: 480.0, h: 270.0 });
+        let p = launch(VideoKind::Trailer, "https://v.steam/a b.m3u8?t=1", VideoRect { x: 10.4, y: 20.0, w: 480.0, h: 270.0 }, Path::new("/d/video-full"));
         assert_eq!(p["url"], format!("{PLAYER}?hls=https%3A%2F%2Fv.steam%2Fa%20b.m3u8%3Ft%3D1"));
-        assert_eq!((p["mode"].as_str(), p["rect"]["x"].as_f64()), (Some("video"), Some(10.0)));
-        assert_eq!(launch(VideoKind::YouTube, "dQw4w9WgXcQ", VideoRect::FULL)["url"], format!("{PLAYER}?yt=dQw4w9WgXcQ"));
+        assert_eq!((p["mode"].as_str(), p["rect"]["x"].as_f64(), p["flag"].as_str()), (Some("video"), Some(10.0), Some("/d/video-full")));
+        assert_eq!(launch(VideoKind::YouTube, "dQw4w9WgXcQ", VideoRect::FULL, Path::new("/d/f"))["url"], format!("{PLAYER}?yt=dQw4w9WgXcQ"));
     }
 
     #[test]

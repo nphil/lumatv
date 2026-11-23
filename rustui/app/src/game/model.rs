@@ -155,6 +155,8 @@ pub enum Input {
     DiagnosticsStatus(DiagnosticsStatus),
     /// The TV's uplink as the shell read it; absent when the TV has no default route.
     Uplink(Option<Uplink>),
+    /// Whether the frame app's player fills the screen; false again when the player closes or returns to the card.
+    VideoFull(bool),
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
@@ -574,6 +576,8 @@ pub struct Model {
     pub integrations: Vec<Integration>,
     pub prefs: Preferences,
     pub uplink: Option<Uplink>,
+    /// The frame app's player fills the screen: the page draws nothing, so the UI plane over the video stays clear.
+    pub video_full: bool,
     pub view: View,
     pub details: BTreeMap<GameId, GameDetails>,
     pub art: BTreeMap<String, PathBuf>,
@@ -649,6 +653,7 @@ impl Model {
             },
             prefs,
             uplink: None,
+            video_full: false,
             view: View::default(),
             details: BTreeMap::new(),
             art: BTreeMap::new(),
@@ -988,6 +993,7 @@ impl Model {
                     self.follow_uplink(&mut out);
                 }
             }
+            Input::VideoFull(full) => { changed = self.video_full != full; self.video_full = full; }
             Input::GameSir(result) => {
                 self.gamesir.pending = false;
                 match result {

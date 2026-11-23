@@ -15,6 +15,8 @@ use ui::{SceneOptions, Ui};
 
 const W: u32 = 1920;
 const H: u32 = 1080;
+/// How soon the page clears after the player grows to full screen, and comes back after it returns to the card.
+const VIDEO_FLAG_MS: u64 = 100;
 static END: AtomicBool = AtomicBool::new(false);
 static SWAP_SINCE_MS: AtomicU64 = AtomicU64::new(0);
 
@@ -292,6 +294,8 @@ struct Shell {
     card: Option<VideoRect>,
     /// The frame app is playing a video over LumaGame; it holds the keys until Back closes it.
     video_up: bool,
+    /// The file the frame app keeps while its player fills the screen (it has no other way to tell LumaGame); in the app's data directory.
+    video_full_flag: PathBuf,
 }
 impl Shell {
     /// Hands what the observer found to the diagnostics queue, which keeps only what the level asks for.
@@ -376,7 +380,8 @@ impl Shell {
                 }
                 // The frame app plays it on the main hardware video window over the still's card (`rect` when no card was drawn).
                 Command::PlayVideo { kind, source, rect } => {
-                    let launched = self.launch_app(video::FRAME_APP, video::launch(kind, &source, self.card.unwrap_or(rect)));
+                    let _ = std::fs::remove_file(&self.video_full_flag);
+                    let launched = self.launch_app(video::FRAME_APP, video::launch(kind, &source, self.card.unwrap_or(rect), &self.video_full_flag));
                     self.video_up = launched.is_ok();
                     launched
                 }
@@ -493,6 +498,7 @@ fn local_art(model: &Model, data: &Path, url: &str) -> Option<PathBuf> {
 fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
     let (data, temporary) = store::data_dir(&o.data)?;
     let (store, snapshot) = Store::open(data.clone())?;
+    let video_full_flag = data.join(video::FULL_FLAG);
     diagnostics.configure(snapshot.diagnostics.clone());
     let (installed, notices) = host::discover(&o.engines)?;
     let mut model = Model::new(snapshot.state, snapshot.listing, installed.iter().map(|engine| engine.manifest.clone()).collect());
@@ -508,7 +514,7 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
     inputs.extend(uplink_watch.poll(0, uplink::read).map(Input::Uplink));
     // Seed wall-clock time before any engine can report Running.
     model.step(Input::Tick { now_ms: 0, unix_s: unix_seconds() });
-    let mut shell = Shell { model, host, store, channel, lease: Lease::new(o.helper)?, controllers: ControllerClient::new(o.helper)?, stats: OverlayClient::new(o.helper)?, frames_on: false, art, art_waiting: VecDeque::new(), details, details_waiting: VecDeque::new(), state_saved: true, media_seq: u64::MAX, diagnostics: diagnostics.clone(), observer: Observer::default(), events: Vec::new(), card: None, video_up: false };
+    let mut shell = Shell { model, host, store, channel, lease: Lease::new(o.helper)?, controllers: ControllerClient::new(o.helper)?, stats: OverlayClient::new(o.helper)?, frames_on: false, art, art_waiting: VecDeque::new(), details, details_waiting: VecDeque::new(), state_saved: true, media_seq: u64::MAX, diagnostics: diagnostics.clone(), observer: Observer::default(), events: Vec::new(), card: None, video_up: false, video_full_flag };
     let pads = MenuPads::new()?;
     if shell.inputs(inputs, &pads, 0)? { return Ok(()); }
     let began = Instant::now();
@@ -588,6 +594,9 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
                 Event::Focus(has) => if has { shell.video_up = false; },
             }
         }
+        // One stat a pass, only while the player is up; the pass wakes every VIDEO_FLAG_MS for it (below).
+        let video_full = shell.video_up && shell.video_full_flag.exists();
+        if video_full != shell.model.video_full { inputs.push(Input::VideoFull(video_full)); }
         if let Some(channel) = &mut shell.channel {
             match channel.read() {
                 Ok(messages) => for message in messages {
@@ -699,6 +708,7 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
         if page.art_busy() || shell.art.inflight() > 0 || !shell.art_waiting.is_empty() { wait_ms = wait_ms.min(16); }
         if let Some(ms) = page.wake_ms(now_ms) { wait_ms = wait_ms.min(ms); }
         if let Some(ms) = shell.model.wake_in(now_ms) { wait_ms = wait_ms.min(ms); }
+        if shell.video_up { wait_ms = wait_ms.min(VIDEO_FLAG_MS); }
         if shell.channel.as_ref().is_some_and(Channel::pending) { wait_ms = wait_ms.min(16); }
         if shell.model.pad_mode() != PadMode::Menu || shell.model.gamesir.pending || shell.model.leadjoy.pending { wait_ms = wait_ms.min(50); }
         if visible {

@@ -44,16 +44,22 @@
   var PAUSED_MS = 90000;
   // How long "not available here" stays before the frame closes.
   var REFUSED_MS = 5000;
-  var card = null, full = false, dwell = 0;
+  var card = null, full = false, dwell = 0, flag = null;
 
   function place(r) {
     pane.style.left = r.x + 'px'; pane.style.top = r.y + 'px'; pane.style.width = r.w + 'px'; pane.style.height = r.h + 'px';
     document.documentElement.dataset.full = (r.w >= FULL.w && r.h >= FULL.h) ? '1' : '';
   }
+  // The app under the frame (LumaGame) clears its page while this file exists: its window sits over the video plane.
+  function setFull(on) {
+    full = on;
+    place(on ? FULL : card);
+    if (flag) exec((on ? 'touch ' : 'rm -f ') + shq(flag)).catch(function () {});
+  }
   function layout(p) {
     card = p.rect || { x: 200, y: 150, w: 1520, h: 860 };
-    full = false;
-    place(card);
+    flag = p.flag || null;
+    setFull(false);
     document.documentElement.dataset.theme = p.light ? 'light' : 'dark';      // the material: theme.css has both (tools/tokens.py web)
     document.documentElement.dataset.mode = p.mode || '';
   }
@@ -172,8 +178,8 @@
   });
   var VIDEO_KEYS = { 13: 'ok', 37: 'left', 39: 'right', 412: 'left', 417: 'right', 415: 'play', 19: 'pause' };
   function videoKey(k) {
-    if (k === 38 && !full) { full = true; place(FULL); return true; }
-    if (k === 40 && full) { full = false; place(card); return true; }
+    if (k === 38 && !full) { setFull(true); return true; }
+    if (k === 40 && full) { setFull(false); return true; }
     var key = VIDEO_KEYS[k];
     if (key && web.contentWindow) web.contentWindow.postMessage({ lumaframe: 'key', key: key }, '*');
     return !!key;
