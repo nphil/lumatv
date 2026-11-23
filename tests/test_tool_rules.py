@@ -242,6 +242,41 @@ class MaintenanceGuards(unittest.TestCase):
             with open(os.path.join(root, 'dropped')) as f:
                 self.assertEqual(f.read().strip(), 'lg')
 
+
+class RefresherGuard(unittest.TestCase):
+    """A verb that restarts the compositor refuses while LG's pixel refresher runs (state file starts with 2), except at boot."""
+
+    def guard(self, state, boot=False):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "state")
+            if state is not None:
+                with open(path, "w") as f:
+                    f.write(state)
+            source = "".join(function(n) for n in ("json_escape", "emit_error", "refresher_running", "refresher_guard"))
+            env = dict(os.environ, LUMATV_PNWASH_STATE=path)
+            env.pop("LUMA_BOOT", None)
+            if boot:
+                env["LUMA_BOOT"] = "1"
+            r = subprocess.run(["sh", "-c", source + "\nrefresher_guard\n"], capture_output=True, text=True, timeout=8, env=env)
+            return r.returncode, r.stdout
+
+    def test_a_run_in_progress_is_refused_with_the_reason(self):
+        rc, out = self.guard("2 1\n")
+        self.assertEqual(rc, 1)
+        self.assertIn('"ok":false', out)
+        self.assertIn("pixel refresher is running", out)
+
+    def test_idle_done_on_unreadable_or_missing_state_is_not_refused(self):
+        for state in ("1 0\n", "8 2\n", "0 0\n", "", "garbage", None):
+            self.assertEqual(self.guard(state), (0, ""), repr(state))
+
+    def test_the_boot_is_never_refused(self):
+        self.assertEqual(self.guard("2 1\n", boot=True), (0, ""))
+
+    def test_the_compositor_on_and_restart_verbs_call_the_guard(self):
+        text = open(os.path.join(TOOLS, "lumatv"), encoding="utf-8").read()
+        self.assertRegex(text, r'case "\$VERB:\$\{2:-\}" in\n  compositor:on\|restart:\*\) refresher_guard \|\| exit 1 ;;')
+
     
 
 

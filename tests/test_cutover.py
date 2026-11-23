@@ -2865,6 +2865,30 @@ class StagedInstall(FakeSet):
         self.assertEqual(rc, 10, out)
         self.assertIn("power state is unknown", out)
 
+    def test_a_running_pixel_refresher_makes_an_apply_wait_until_it_is_done(self):
+        state = os.path.join(self.tmp.name, "pnwash")
+        env = {"LUMATV_PNWASH_STATE": state}
+        self.stage({"bin/lumatv-compositor": "new compositor\n", "bin/lumatv-sm": NEW_SM_OK})
+        write(state, "2 1\n")
+        for mode in ("--standby", "--now"):
+            rc, out = self.cutover("staged", "apply", mode, env=env)
+            self.assertEqual(rc, 10, out)
+            self.assertIn("pixel refresher is running", out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "the compositor\n")
+        write(state, "8 2\n")
+        rc, out = self.cutover("staged", "apply", "--standby", env=env)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(read(self.st("bin/lumatv-compositor")), "new compositor\n")
+
+    def test_the_boot_applies_whatever_the_refreshers_state_says(self):
+        state = os.path.join(self.tmp.name, "pnwash")
+        write(state, "2 1\n")
+        self.fake("mountinfo")
+        os.remove(os.path.join(self.tmp.name, "compositor.up"))
+        self.stage({"bin/lumatv-compositor": "new compositor\n", "bin/lumatv-sm": NEW_SM_OK})
+        rc, out = self.cutover("staged", "apply", "--boot", env={"LUMATV_PNWASH_STATE": state})
+        self.assertEqual(rc, 0, out)
+
     def test_in_active_standby_the_set_is_applied_and_brought_back_up(self):
         self.stage({"bin/lumatv-compositor": "new compositor\n", "bin/lumatv-sm": NEW_SM_OK})
         rc, out = self.cutover("staged", "apply", "--standby")
@@ -3392,8 +3416,9 @@ class TvInstallRun(unittest.TestCase):
         self.tmp.cleanup()
 
     def fake_tv(self, apply_rc=10, inventory_rc=0, sentinel=True, marks=(), discard_rc=0, helper_runs=(), parse_rc=0, status_rc=0, corrupt=(),
-                corrupt_once=(), lost_ack=(), mv_rc=0):
+                corrupt_once=(), lost_ack=(), mv_rc=0, pnwash=("1 0\n",)):
         installed, ran, old_files = self.installed, [], self.old_files
+        reads = []   # `pnwash`: what the state file says at each read, the last repeating
         helper = {"starts": 0, "running": True, "pid": 1000, "healthy": True}
         uploaded = {}  # remote path -> hash of what was put there
         self.uploaded = uploaded
@@ -3418,6 +3443,11 @@ class TvInstallRun(unittest.TestCase):
 
         class Tv:
             def run(tv, cmd, timeout=0):
+                if "pnwash/state" in cmd:    # the refresher guard's reads are not steps of the install
+                    reads.append(cmd)
+                    return 0, pnwash[min(len(reads) - 1, len(pnwash) - 1)]
+                if "18731/v1/panel/refresher" in cmd:
+                    return 7, "curl: (7) connection refused"
                 ran.append(cmd)
                 if cmd.startswith("nice -n 19 sha256sum"):
                     out = "".join("%s  %s\n" % (h, p) for p, h in installed.items()) + "".join(m + "\n" for m in marks)
@@ -3545,6 +3575,24 @@ class TvInstallRun(unittest.TestCase):
         self.assertEqual(self.run_install(tv), 0)
         self.assertEqual([c for c in ran if not c.startswith("nice")], [])
         self.assertIn("nothing differs", self.said[0])
+
+    def test_nothing_is_written_while_lgs_pixel_refresher_runs_but_a_check_still_reads(self):
+        self.helper_set()
+        self.tool_set()
+        tv, ran = self.fake_tv(pnwash=("2 1\n",))
+        self.assertEqual(self.run_install(tv), 4, self.said)
+        self.assertIn("FAILED before any change", self.said[0])
+        self.assertIn("pixel refresher is running", self.said[0])
+        self.assertEqual([c for c in ran if not c.startswith("nice")], [])
+        self.assertEqual(self.run_install(tv, check=True), 0, self.said)
+
+    def test_a_run_that_starts_between_two_steps_stops_the_install_before_the_next_one(self):
+        self.helper_set()
+        self.tool_set()
+        tv, ran = self.fake_tv(pnwash=("1 0\n", "2 1\n"))
+        self.assertEqual(self.run_install(tv), 1, self.said)
+        self.assertTrue(any(line.startswith("FAILED: ") and "pixel refresher is running" in line for line in self.said), self.said)
+        self.assertFalse(any(c.startswith("put ") or "helper start" in c for c in ran), ran)
 
     def test_helper_and_ui_changes_restart_only_the_helper_and_the_shell_client(self):
         # What the set holds of the helper and the ui, as files the backup can fetch and check.

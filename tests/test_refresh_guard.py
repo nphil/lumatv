@@ -96,9 +96,10 @@ class Rule(unittest.TestCase):
 class Fake:
     """The set's shell: answers luna-send, the helper's topic and the clock; `infos` is (count, last, interval, panel hours) for the next reads (the last repeats)."""
 
-    def __init__(self, infos, standby=None, tv_now=1_000_000):
+    def __init__(self, infos, standby=None, tv_now=1_000_000, states=(), helper=None):
         self.infos, self.standby, self.tv_now = list(infos), standby, tv_now
-        self.reads = 0
+        self.states, self.helper = list(states), helper    # what the state file reads on each call (the last repeats; none: no file), the helper's /v1/panel/refresher
+        self.reads = self.state_reads = 0
         self.cmds = []
 
     def run(self, cmd, timeout=20):
@@ -116,6 +117,13 @@ class Fake:
             if self.standby is None:
                 raise RuntimeError("curl: (7) connection refused")
             return json.dumps({"ok": True, "topic": "panel", "value": {"standby": self.standby}}) + "\n%d\n" % self.tv_now
+        if rg.PNWASH_STATE in cmd:
+            self.state_reads += 1
+            return self.states[min(self.state_reads - 1, len(self.states) - 1)] if self.states else ""
+        if "18731/v1/panel/refresher" in cmd:
+            if self.helper is None:
+                raise RuntimeError("curl: (7) connection refused")
+            return json.dumps(dict(self.helper, ok=True))
         raise AssertionError(cmd)
 
 
@@ -195,6 +203,65 @@ class Wait(unittest.TestCase):
         self.assertTrue(waited)
         self.assertAlmostEqual(sum(clock.slept), 15 * MIN, delta=1)
         self.assertIn("not known", said[0])
+
+
+class DirectSignal(unittest.TestCase):
+    """eplmanager's state file (first field 2 while a run is in progress, 8 when done) is believed over the inference."""
+
+    def go(self, fake, **kw):
+        clock, said = Clock(), []
+        waited = rg.wait_out_refresh(fake.run, now=clock.now, sleep=clock.sleep, say=said.append, **kw)
+        return waited, clock, said
+
+    def test_a_run_the_file_reports_is_waited_out_until_it_says_done_even_when_none_was_due(self):
+        fake = Fake([(5, 100, 4, 103)], states=["2 1\n", "2 1\n", "8 2\n"])
+        waited, clock, said = self.go(fake, standby_since=5000 - 60)
+        self.assertTrue(waited)
+        self.assertEqual(sum(clock.slept), 2 * rg.POLL_S)
+        self.assertIn("state file says 2", said[0])
+        self.assertIn("state file says 8", said[-1])
+
+    def test_a_file_stuck_at_2_is_waited_for_15_minutes_from_when_it_was_first_seen_and_no_longer(self):
+        fake = Fake([(5, 100, 4, 103)], states=["2 1\n"])
+        waited, clock, said = self.go(fake, standby_since=5000 - 20 * MIN)
+        self.assertTrue(waited)
+        self.assertAlmostEqual(sum(clock.slept), 15 * MIN, delta=1)
+        self.assertIn("running 15 minutes", said[-1])
+
+    def test_a_done_that_was_never_a_running_does_not_end_a_wait(self):
+        fake = Fake([(5, 100, 4, 104)], states=["8 2\n"])
+        waited, clock, said = self.go(fake, standby_since=5000 - 3 * MIN)
+        self.assertTrue(waited)
+        self.assertAlmostEqual(sum(clock.slept), 12 * MIN, delta=1)
+
+    def test_a_running_file_holds_the_wake_when_lgs_own_numbers_cannot_be_read(self):
+        class NoLuna(Fake):
+            def run(self, cmd, timeout=20):
+                if "luna-send" in cmd:
+                    raise OSError("no luna")
+                return super().run(cmd, timeout)
+        waited, clock, said = self.go(NoLuna([], states=["2 1\n", "8 2\n"]), standby_since=5000)
+        self.assertTrue(waited)
+        self.assertEqual(sum(clock.slept), rg.POLL_S)
+
+    def test_the_state_is_read_through_a_ptys_noise_and_unreadable_is_none(self):
+        self.assertEqual(rg.read_state(lambda c, t=20: "cat /mnt/lg/cmn_data/pnwash/state 2>/dev/null; true\r\n2 1\r\n"), 2)
+        self.assertEqual(rg.read_state(lambda c, t=20: "8\n"), 8)
+        self.assertIsNone(rg.read_state(lambda c, t=20: ""))
+        self.assertIsNone(rg.read_state(lambda c, t=20: "cat: can't open: No such file or directory\n"))
+
+        def dead(c, t=20):
+            raise OSError("reset")
+        self.assertIsNone(rg.read_state(dead))
+
+    def test_refusal_follows_the_file_first_and_the_helper_only_when_the_file_is_silent(self):
+        self.assertIn("state file says so", rg.refusal(Fake([], states=["2 1\n"]).run))
+        self.assertIsNone(rg.refusal(Fake([], states=["8 2\n"], helper={"running": True}).run), "done")
+        self.assertIsNone(rg.refusal(Fake([], states=["0 0\n"], helper={"running": True}).run), "screen on")
+        self.assertIn("helper's reading", rg.refusal(Fake([], states=["1 0\n"], helper={"running": True}).run))
+        self.assertIn("helper's reading", rg.refusal(Fake([], helper={"running": True}).run), "no file")
+        self.assertIsNone(rg.refusal(Fake([], helper={"running": False}).run))
+        self.assertIsNone(rg.refusal(Fake([]).run), "neither can be read")
 
 
 class Wake(unittest.TestCase):

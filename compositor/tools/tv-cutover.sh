@@ -266,18 +266,26 @@ staged_video() {
     grep -q '^connect_src=VDEC' "$COMP_VC_SCALER" 2>/dev/null && grep -q '^mute=0' "$COMP_VC_SCALER" 2>/dev/null
 }
 
+# LG's pixel refresher is running: eplmanager's state file starts with 2 (1 idle in standby, 8 done, 0 on). A switch of the compositor or a
+# restart of the surface manager in that window wakes the panel and cuts the run short (docs/research/oled-cleaning-signal.md).
+staged_refresher_running() {
+    read -r r_state _ 2>/dev/null < "${LUMATV_PNWASH_STATE:-/mnt/lg/cmn_data/pnwash/state}" || return 1
+    [ "$r_state" = 2 ]
+}
+
 # staged_decide MODE: whether a staged set may be applied now. Prints "apply" (exit 0) or "wait: WHY" (exit 10).
 #   boot      LumaTV's compositor has not started yet: always
 #   now       the panel is on (Active) with Home in front and no game or app that a restart would end running; with an app in front (video
 #             playing among them), or any other power state, the answer is wait
 #   standby   Active Standby only. Run by hand to prove that a compositor switch there does not wake the panel; nothing calls it by itself.
-# A power state that cannot be read is wait: the set is never assumed to be asleep.
+# A power state that cannot be read is wait: the set is never assumed to be asleep. A refresher run in progress is wait in every mode but boot.
 staged_decide() {
     case "$1" in
     boot) echo apply; return 0 ;;
     standby|now) ;;
     *) echo "wait: unknown mode $1"; return 10 ;;
     esac
+    if staged_refresher_running; then echo "wait: LG's pixel refresher is running; applying now would wake the panel and cut it short (it takes about 7 minutes)"; return 10; fi
     d_power=$(staged_power)
     if [ -z "$d_power" ]; then echo "wait: the power state is unknown"; return 10; fi
     if [ "$1" = standby ]; then

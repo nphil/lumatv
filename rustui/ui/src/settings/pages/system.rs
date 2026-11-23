@@ -61,7 +61,7 @@ fn timer_text(c: &Ctx, which: &str) -> String {
 }
 
 /// The switches of `oledcare` that are on when the theme does not say (the compositor's own defaults, `paneldim::Settings`).
-const CARE_ON_BY_DEFAULT: &[&str] = &["enabled", "panelDim"];
+const CARE_ON_BY_DEFAULT: &[&str] = &["enabled", "panelDim", "refreshGuard"];
 
 /// Whether one of LumaTV's panel-care switches (the theme's `oledcare`) is on.
 fn care_on(c: &Ctx, key: &str) -> bool {

@@ -25,8 +25,9 @@ HELPER = os.path.join(ROOT, "helper", "app", "src")
 SWITCHES = [("enabled", "Protect LumaTV screens"), ("appDim", "Dim still apps"), ("appShift", "Shift still apps"), ("boxDim", "Dim bright still areas"),
             ("panelDim", "Dim with the panel"), ("refreshGuard", "Protect panel refresh")]
 # The switches that are on in what ships: the care's own (an idle Home dims without anyone turning it on) and the panel dim, which fails safe
-# (the GPU dim and the saver's own dim take over when the panel cannot be dimmed).
-ON_BY_DEFAULT = {"enabled", "panelDim"}
+# (the GPU dim and the saver's own dim take over when the panel cannot be dimmed), and the refresh guard, which only ever defers a wake (the
+# panel's own refresher is read from eplmanager's state file, so a run is not cut short on a set whose owner never opened the page).
+ON_BY_DEFAULT = {"enabled", "panelDim", "refreshGuard"}
 
 
 def read(path):
@@ -127,7 +128,7 @@ class OledCare(unittest.TestCase):
         self.assertTrue(5 <= floor <= 30, "the panel is never taken to a dark screen, nor kept at full light")
         # the Rust Settings page and the QML one say the same about what is on without a key in the theme
         system_rs = read(os.path.join(ROOT, "rustui", "ui", "src", "settings", "pages", "system.rs"))
-        self.assertIn('CARE_ON_BY_DEFAULT: &[&str] = &["enabled", "panelDim"]', system_rs)
+        self.assertIn('CARE_ON_BY_DEFAULT: &[&str] = &["enabled", "panelDim", "refreshGuard"]', system_rs)
 
     def test_the_compositor_or_the_helper_reads_every_key_the_theme_has(self):
         sources = ""

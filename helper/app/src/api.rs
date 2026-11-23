@@ -151,6 +151,7 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/v1/autobright", "auto brightness: the room's light, the level, its target and the owner's level"),
     ("POST", "/v1/autobright/level", "OLED pixel brightness set by hand: {\"value\": 0 to 100}, learned as the level wanted in this light while auto brightness is on"),
     ("POST", "/v1/autobright/reset", "forget only the active profile's learned OLED pixel brightness choices"),
+    ("GET", "/v1/panel/refresher", "whether LG's pixel refresher is running in standby, {running, since, source, minutesLeft, state}: what installs and wakes check first"),
 ];
 
 /// The API's handler.
@@ -828,6 +829,7 @@ impl Handler for Api {
                 None => error_response(503, "autobright_unavailable", "the auto brightness thread has not started"),
             },
             ["v1", "autobright", "level"] if post => self.autobright_level(request),
+            ["v1", "panel", "refresher"] if get => self.ok(crate::refreshguard::refresher_current()),
             ["v1", "autobright", "reset"] if post => self.autobright_reset(),
             ["v1", "wx", rest @ ..] => self.wx.handle(request, rest),
             ["v1", "onhome", rest @ ..] => {

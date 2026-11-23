@@ -524,6 +524,15 @@ class ProbeAgainstAStandInSet(unittest.TestCase):
         self.assertIn("NOT RUN: wake", self.verdict(result))
         self.assertFalse([c for c in self.calls("luna-calls") if "powerOff" in c], "the set was not put in standby")
 
+    def test_the_wake_is_not_run_while_the_state_file_says_a_run_is_in_progress(self):
+        state = self.tv / "pnwash-state"
+        state.write_text("2 1\n")
+        result = self.probe(PNWASH_STATE=str(state))
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("NOT RUN", self.line(result, "wake"))
+        self.assertIn("refresh is running", self.line(result, "wake"))
+        self.assertFalse([c for c in self.calls("luna-calls") if "powerOff" in c], "the set was not put in standby")
+
     def test_a_revert_that_does_not_take_is_said_loudly_and_fails(self):
         self.flag("revert_fails")
         result = self.probe()

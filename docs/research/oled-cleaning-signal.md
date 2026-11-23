@@ -73,6 +73,8 @@ A run was due (usage 27375 ticks = 4562 h against `offrsLastTime` 4524 + 4). The
 - The reads every 5 s (two luna calls and a file read over SSH) did not wake the set or stop the run.
 - What this changes for LumaTV: `pnwash/state` first field `2` is a direct "running" flag, and `1` with a due count is "about to start", so the 15-minute cap is only a fallback. The subscription replaces the poll for the end.
 
+Adopted: the helper (`refreshguard.rs`) holds on `state` 2 (capped at 15 minutes from when it was first seen), releases on `8` after a `2` or on the pushed count, and falls back to the standby-time inference when the file says neither. `GET /v1/panel/refresher` and `compositor/tools/refresh_guard.py check` report it.
+
 ## TV test to confirm (all read-only; no wake, no write)
 
 Needs one standby of 8 to 10 minutes with a run due, using the usual SSH path (Active Standby keeps SSH; Always Ready on). The existing `python3 compositor/tools/refresh_guard.py status` shows whether a run is due. Do not use `--force-wake`; do not touch the remote.

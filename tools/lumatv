@@ -321,6 +321,21 @@ emit_error() {
   printf '{"ok":false,"error":"%s"}\n' "$msg"
 }
 
+# LG's pixel refresher is running: eplmanager's pnwash state file starts with 2 (1 idle in standby, 8 done, 0 on). A run takes about
+# 7 minutes and a wake or a restart of the surface manager ends it early (docs/research/oled-cleaning-signal.md).
+refresher_running() {
+  read -r rr_state _ 2>/dev/null < "${LUMATV_PNWASH_STATE:-/mnt/lg/cmn_data/pnwash/state}" || return 1
+  [ "$rr_state" = 2 ]
+}
+
+# Refuses, with the reason, while the refresher runs. The boot is never refused: it already is what woke the set.
+refresher_guard() {
+  [ "${LUMA_BOOT:-0}" = 1 ] && return 0
+  refresher_running || return 0
+  emit_error "LG's pixel refresher is running; this would wake the panel and cut it short. Try again in a few minutes"
+  return 1
+}
+
 mtime_epoch() {
   date -r "$1" +%s 2>/dev/null || echo 0
 }
@@ -3614,6 +3629,10 @@ case "$VERB:${2:-}" in
     MAINTENANCE_ACCESS=emergency ;;
 esac
 maintenance_guard || exit 1
+# The verbs that restart the compositor wake a set in standby, which cuts LG's pixel refresher short: they wait for it (never at boot).
+case "$VERB:${2:-}" in
+  compositor:on|restart:*) refresher_guard || exit 1 ;;
+esac
 
 # The escape of an earlier boot lapses before anything else of this boot looks at the stock UI hold (the lock below refuses while it is
 # held). Boot direct (opt-in, docs/research/boot-direct.md): the boot worker's `compositor-boot` puts the Home stub in before anything

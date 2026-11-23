@@ -219,7 +219,7 @@
     "boxDimMinLuma": 0.35,
     "panelDim": true,
     "panelDimStepSec": 2,
-    "refreshGuard": false
+    "refreshGuard": true
   },
   "remote": {
     "numberKeys": true

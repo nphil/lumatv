@@ -307,6 +307,11 @@ impl Service {
             "refreshguard",
             refreshguard::spawn(ctx.stop.clone(), guard.clone(), panel_rx)?,
         ));
+        refreshguard::install(guard.clone());
+        threads.push((
+            "refresh-follow",
+            refreshguard::follow(ctx.stop.clone(), guard.clone(), config.luna.send.clone())?,
+        ));
         // The ESPHome device (the Bluetooth proxy and the TV sensors plugins): nothing but one idle thread until the owner has linked it
         // (`ble-link`) and switched one of them on.
         let sensor_board = Arc::new(crate::tvsensors::Board::default());

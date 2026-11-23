@@ -441,6 +441,9 @@ no_flutter_mark
 # ---- standby and wake: bootd launches Home at a wake. Skipped when LG's panel refresh may be due: waking cuts it short, and waiting it out
 # (15 minutes of standby) is not what a four minute probe can do.
 refresh_due() {
+    # eplmanager's own word: the state file starts with 2 while a run is in progress.
+    rs=; read -r rs _ 2>/dev/null < "${PNWASH_STATE:-/mnt/lg/cmn_data/pnwash/state}"
+    if [ "$rs" = 2 ]; then echo running; return; fi
     a=$(ls1 com.webos.service.oledepl/getPixelRefresherInfoList '{}'); b=$(timeout 20 luna-send -n 1 -f luna://com.webos.service.panelcontroller/getPanelUsageTime '{"subscribe":false}' 2>/dev/null)
     python3 - "$a" "$b" <<'PY' 2>/dev/null
 import json, sys

@@ -181,6 +181,14 @@ impl Host for TvHost {
             Act::Guide => self.key(GUIDE, None),
             Act::Input => self.key(INPUT, None),
             Act::Power(on) if *on == self.power_on() => Ok(()),
+            // The key that turns a standby TV on would cut LG's pixel refresher short; the physical remote still can.
+            Act::Power(true) => {
+                crate::refreshguard::check_current("turn the TV on from the phone").map_err(|e| {
+                    crate::log_info!("phone remote: power on refused: {}", e.message);
+                    Fault::Unavailable
+                })?;
+                self.key(lumaremote::proto::POWER, None)
+            }
             Act::Power(_) => self.key(lumaremote::proto::POWER, None),
             Act::Settings(page) => self.show("settings", page.as_deref()),
             Act::Notifications => self.show("drawer", None),

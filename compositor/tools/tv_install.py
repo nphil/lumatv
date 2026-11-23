@@ -530,6 +530,18 @@ def discard_staged(tv):
         raise RuntimeError("the old staged set could not be discarded (exit %s): %s" % (rc, out.strip()[-200:]))
 
 
+def refresher_problem(tv):
+    """Why nothing may be written to the set now: LG's pixel refresher is running, and anything that wakes the set or restarts what is on
+    screen cuts it short (compositor/tools/refresh_guard.py reads eplmanager's state file and the helper). None when it is not running."""
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    import refresh_guard
+
+    def run(cmd, timeout=20):
+        return tv.run(cmd, timeout)[1]
+    return refresh_guard.refusal(run)
+
+
 def install(tv, repo, deploy, helper, backup_dir, check=False, now=False, only=None, say=print, lease=None, defer=False):
     if defer and now:
         raise ValueError("--defer and --now cannot be used together")
@@ -557,6 +569,10 @@ def install(tv, repo, deploy, helper, backup_dir, check=False, now=False, only=N
     if boot_pending:
         say("a boot apply is awaiting confirmation, with the previous files kept for its rollback")
     if not check:
+        why = refresher_problem(tv)
+        if why:
+            say("FAILED before any change: " + why)
+            return 4
         if boot_pending:
             say("FAILED before any change: nothing is written while it is pending. Confirm it by hand with `tools/lumatv staged accept` "
                 "(panel on, Home in front, a picture on the video check), then run this again")
@@ -573,7 +589,7 @@ def install(tv, repo, deploy, helper, backup_dir, check=False, now=False, only=N
         return 4
 
     def held():
-        problem = lease() if lease else None
+        problem = (lease() if lease else None) or refresher_problem(tv)
         if problem:
             raise RuntimeError(problem)
 

@@ -10,10 +10,15 @@
 //!   getPixelRefresherInfoList`: `offrsCount`, `offrsLastTime`, `offrsInterval`) and the panel's usage (`panelcontroller/
 //!   getPanelUsageTime`: `panelUsageTime` in ten-minute ticks, 6 to the hour). Read at start, at every change of the screen and
 //!   every ten minutes while the screen is on; never polled during standby. `due` is the usage reaching last run + interval.
-//! - [`RefreshGuard`], on while `theme.oledcare.refreshGuard` is true (off when the key is missing): a wake that LumaTV starts
-//!   itself (an assistant opening an app, switching an input or pressing a transport key on a TV in standby, see [`GuardedTv`]) is
-//!   refused while a run may be in progress, which is: the TV is in standby, it has been for under [`SAFE_STANDBY_MS`], the run
-//!   was due when standby began, and the run count has not gone up since. Each refusal is logged and counted in the topic.
+//! - [`RefreshGuard`], on unless `theme.oledcare.refreshGuard` is false: a wake that LumaTV starts itself (an assistant opening an
+//!   app, switching an input or pressing a transport key on a TV in standby, see [`GuardedTv`]; the phone remote's power key; the
+//!   installers, through `GET /v1/panel/refresher`) is refused while a run is in progress. A run is in progress when eplmanager's
+//!   state file (`/mnt/lg/cmn_data/pnwash/state`, first field `2`, measured on the C4 2026-11-23: `1` idle at standby, `2` running,
+//!   `8` done, `0` on) says so, for at most [`SAFE_STANDBY_MS`] from the first read of `2`. Where the file says neither (`1`, a
+//!   missing or unreadable file) the older inference stands: the TV has been in standby for under [`SAFE_STANDBY_MS`], the run was
+//!   due when standby began, and the run count has not gone up since. The end of a run is pushed by a `getPixelRefresherInfoList`
+//!   subscription (`offrsCount` goes up; see [`follow`]), so nothing polls during standby. Each refusal is logged and counted in
+//!   the topic.
 //!
 //! The owner is never held up. The guard looks only at standby, and a key on the remote wakes the TV by itself in LG's own code;
 //! from then on the screen is on and nothing is refused. If LG does not answer, the guard lets the call through (it is blind, and
@@ -32,9 +37,9 @@ use crate::screen;
 use crate::timeutil::now_ms;
 use parking_lot::Mutex;
 use serde_json::{Map, Value, json};
-use std::io::Read;
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::io::{BufRead, BufReader, Read};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
@@ -57,6 +62,22 @@ const READ_EVERY: Duration = Duration::from_secs(600);
 const DEADLINE: Duration = Duration::from_secs(4);
 /// The most of a reply that is read.
 const MAX_REPLY: u64 = 64 * 1024;
+/// eplmanager's state file: its first field is `1` idle at standby, `2` running, `8` done (`0` while the TV is on).
+pub const PNWASH_STATE: &str = "/mnt/lg/cmn_data/pnwash/state";
+const PNWASH_RUNNING: u32 = 2;
+const PNWASH_DONE: u32 = 8;
+/// A subscription that ended is made again after this.
+const RESUBSCRIBE: Duration = Duration::from_secs(30);
+
+/// The first field of the state file; `None` where the file is missing or does not start with a number.
+fn read_pnwash(path: &Path) -> Option<u32> {
+    std::fs::read_to_string(path)
+        .ok()?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()
+}
 
 /// What LG says about the refresher and the panel's hours.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -256,6 +277,26 @@ pub fn verdict(info: Option<&Info>, standby: Option<&Standby>, now_ms: u64) -> V
     }
 }
 
+/// What said a run is in progress.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Signal {
+    /// The state file says `2`.
+    Pnwash,
+    /// A due standby under [`SAFE_STANDBY_MS`] whose count has not risen.
+    Inferred,
+}
+
+/// A run that is in progress.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Run {
+    /// When it was first seen (Unix ms): the state file's first `2`, or the start of the standby for an inferred one.
+    pub since_ms: u64,
+    pub signal: Signal,
+    /// Minutes of standby so far, and minutes until the cap lets go.
+    pub standby_minutes: u64,
+    pub minutes_left: u64,
+}
+
 #[derive(Default)]
 struct State {
     standby: Option<Standby>,
@@ -265,6 +306,10 @@ struct State {
     last_standby_minutes: Option<u64>,
     deferrals: u64,
     last_deferral: Option<(u64, String, u64)>,
+    /// When the state file was first read as `2` in this run.
+    run_since: Option<u64>,
+    /// The standby (its `since_ms`) whose run is known to be over: the state file went from `2` to `8`, or the count was pushed up.
+    finished_standby: Option<u64>,
 }
 
 /// The guard and the topic's state.
@@ -272,6 +317,7 @@ pub struct RefreshGuard {
     source: Arc<dyn Source>,
     hub: Arc<Hub>,
     theme_file: PathBuf,
+    pnwash: PathBuf,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     state: Mutex<State>,
     /// Serialises [`RefreshGuard::sync`]: the watcher and a call can both see the same change of the screen.
@@ -294,23 +340,35 @@ impl RefreshGuard {
         source: Arc<dyn Source>,
         clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     ) -> Arc<Self> {
+        Self::with_paths(hub, theme_file, PathBuf::from(PNWASH_STATE), source, clock)
+    }
+
+    /// [`RefreshGuard::with_clock`] reading another state file (a test's).
+    pub fn with_paths(
+        hub: Arc<Hub>,
+        theme_file: PathBuf,
+        pnwash: PathBuf,
+        source: Arc<dyn Source>,
+        clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             source,
             hub,
             theme_file,
+            pnwash,
             clock,
             state: Mutex::new(State::default()),
             sync_lock: Mutex::new(()),
         })
     }
 
-    /// `theme.oledcare.refreshGuard`; off when the file, the object or the key is missing or not a boolean.
+    /// `theme.oledcare.refreshGuard`; on unless the key is the boolean `false`.
     pub fn enabled(&self) -> bool {
         std::fs::read_to_string(&self.theme_file)
             .ok()
             .and_then(|t| serde_json::from_str::<Value>(&t).ok())
             .and_then(|v| v.get("oledcare")?.get("refreshGuard")?.as_bool())
-            .unwrap_or(false)
+            .unwrap_or(true)
     }
 
     /// The screen as the watcher last published it: `(on, since)`; `None` before it has.
@@ -425,6 +483,80 @@ impl RefreshGuard {
         self.hub.set(TOPIC, self.value());
     }
 
+    /// The run in progress now, if any. The state file is read here, so a run that began a second ago is seen. `info` is a reading of
+    /// this moment where the caller has one; the one kept from the last read stands in.
+    pub fn run_now(&self, info: Option<&Info>) -> Option<Run> {
+        let now = (self.clock)();
+        let code = read_pnwash(&self.pnwash);
+        let mut st = self.state.lock();
+        if code == Some(PNWASH_RUNNING) {
+            let since = *st.run_since.get_or_insert(now);
+            let elapsed = now.saturating_sub(since);
+            // A state that stays `2` past the cap is not believed: a stuck file must not hold the TV forever.
+            if elapsed >= SAFE_STANDBY_MS {
+                return None;
+            }
+            let from = st.standby.map_or(since, |s| s.since_ms.min(since));
+            return Some(Run {
+                since_ms: since,
+                signal: Signal::Pnwash,
+                standby_minutes: now.saturating_sub(from) / 60_000,
+                minutes_left: (SAFE_STANDBY_MS - elapsed).div_ceil(60_000),
+            });
+        }
+        let was_running = st.run_since.take().is_some();
+        let standby = st.standby?;
+        if code == Some(PNWASH_DONE) && was_running {
+            st.finished_standby = Some(standby.since_ms);
+        }
+        if st.finished_standby == Some(standby.since_ms) {
+            return None;
+        }
+        match verdict(info.or(st.info.as_ref()), Some(&standby), now) {
+            Verdict::Hold {
+                standby_minutes,
+                minutes_left,
+            } => Some(Run {
+                since_ms: standby.since_ms,
+                signal: Signal::Inferred,
+                standby_minutes,
+                minutes_left,
+            }),
+            Verdict::Clear => None,
+        }
+    }
+
+    /// `GET /v1/panel/refresher`: `{running, since, source, minutesLeft, state}`; `state` is the state file's first field.
+    pub fn refresher(&self) -> Value {
+        let run = self.run_now(None);
+        json!({
+            "running": run.is_some(),
+            "since": run.map(|r| r.since_ms),
+            "source": run.map(|r| match r.signal {
+                Signal::Pnwash => "pnwash",
+                Signal::Inferred => "inferred",
+            }),
+            "minutesLeft": run.map(|r| r.minutes_left),
+            "state": read_pnwash(&self.pnwash),
+        })
+    }
+
+    /// The count LG pushed (`offrsCount`): one above the count at the start of the standby means the run is over.
+    pub fn note_count(&self, count: u64) {
+        {
+            let mut st = self.state.lock();
+            if let Some(i) = st.info.as_mut() {
+                i.count = i.count.max(count);
+            }
+            if let Some(s) = st.standby
+                && s.count_at_start.is_some_and(|c| count > c)
+            {
+                st.finished_standby = Some(s.since_ms);
+            }
+        }
+        self.publish();
+    }
+
     /// Whether `what` (a wake LumaTV starts itself) may go ahead. `Err` carries what to tell the caller.
     pub fn check(&self, what: &str) -> Result<(), ActionError> {
         if !self.enabled() {
@@ -438,16 +570,8 @@ impl RefreshGuard {
         // The reading of this moment: a run that finished since the standby began has raised the count.
         let fresh = self.read_info();
         let now = (self.clock)();
-        let v = {
-            let st = self.state.lock();
-            verdict(
-                fresh.as_ref().or(st.info.as_ref()),
-                st.standby.as_ref(),
-                now,
-            )
-        };
-        match v {
-            Verdict::Clear => {
+        match self.run_now(fresh.as_ref()) {
+            None => {
                 if fresh.is_none() {
                     crate::log_warn!(
                         "refresh guard: {what} let through unchecked, LG's panel refresh state could not be read"
@@ -455,23 +579,23 @@ impl RefreshGuard {
                 }
                 Ok(())
             }
-            Verdict::Hold {
-                standby_minutes,
-                minutes_left,
-            } => {
+            Some(run) => {
                 {
                     let mut st = self.state.lock();
                     st.deferrals += 1;
-                    st.last_deferral = Some((now, what.to_owned(), standby_minutes));
+                    st.last_deferral = Some((now, what.to_owned(), run.standby_minutes));
                 }
                 crate::log_info!(
-                    "refresh guard: {what} deferred, the TV has been in standby {standby_minutes} min with a panel refresh due ({minutes_left} min to go)"
+                    "refresh guard: {what} deferred, the TV has been in standby {} min with a panel refresh running ({} min to go)",
+                    run.standby_minutes,
+                    run.minutes_left
                 );
                 self.publish();
                 Err(ActionError::new(
                     "refresh_in_progress",
                     format!(
-                        "the TV is running its panel refresh (in standby {standby_minutes} min); it is safe to wake it in about {minutes_left} min"
+                        "the TV is running its panel refresh (in standby {} min); it is safe to wake it in about {} min",
+                        run.standby_minutes, run.minutes_left
                     ),
                 ))
             }
@@ -558,6 +682,116 @@ pub fn spawn(
 /// The channel the watcher listens on.
 pub fn channel() -> (Sender<Cmd>, Receiver<Cmd>) {
     mpsc::channel()
+}
+
+/// The guard the helper runs, for the callers that have no way to be handed it (the phone remote, the API's route).
+static CURRENT: Mutex<Option<Arc<RefreshGuard>>> = Mutex::new(None);
+
+/// Makes `guard` the one [`check_current`] and [`refresher_current`] answer from.
+pub fn install(guard: Arc<RefreshGuard>) {
+    *CURRENT.lock() = Some(guard);
+}
+
+/// [`RefreshGuard::check`] on the installed guard; allowed where there is none.
+pub fn check_current(what: &str) -> Result<(), ActionError> {
+    let guard = CURRENT.lock().clone();
+    guard.map_or(Ok(()), |g| g.check(what))
+}
+
+/// [`RefreshGuard::refresher`] on the installed guard; not running where there is none.
+pub fn refresher_current() -> Value {
+    let guard = CURRENT.lock().clone();
+    guard.map_or_else(
+        || json!({"running": false, "since": null, "source": null, "minutesLeft": null, "state": null}),
+        |g| g.refresher(),
+    )
+}
+
+/// The count in one pushed reply of the subscription.
+fn pushed_count(text: &str) -> Option<u64> {
+    let v = first_json(text)?;
+    number(refresher_object(&v)?.get("offrsCount")?).map(|n| n as u64)
+}
+
+/// Hands every reply read from `out` to the guard. A reply is one line, or several that parse together once joined.
+fn pump(guard: &RefreshGuard, out: impl Read) {
+    let mut pending = String::new();
+    for line in BufReader::new(out.take(1024 * 1024))
+        .lines()
+        .map_while(Result::ok)
+    {
+        pending.push_str(&line);
+        pending.push('\n');
+        // Anything before the reply's opening brace is noise, not the start of one.
+        if !pending.trim_start().starts_with('{') {
+            pending.clear();
+            continue;
+        }
+        if first_json(&pending).is_some() {
+            if let Some(count) = pushed_count(&pending) {
+                guard.note_count(count);
+            }
+            pending.clear();
+        } else if pending.len() > 8192 {
+            pending.clear();
+        }
+    }
+}
+
+/// Follows `getPixelRefresherInfoList` with `subscribe:true` (measured 2026-11-23: it pushes the new `offrsCount` when a run ends, also
+/// in standby, and nothing at its start). The child is killed when the stop is requested and made again 30 s after it ends.
+pub fn follow(
+    stop: Stop,
+    guard: Arc<RefreshGuard>,
+    program: String,
+) -> std::io::Result<JoinHandle<()>> {
+    let slot: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
+    stop.on_stop({
+        let slot = slot.clone();
+        move || end_child(&slot)
+    });
+    thread::Builder::new()
+        .name("refresh-follow".to_owned())
+        .stack_size(256 * 1024)
+        .spawn(move || {
+            loop {
+                if stop.is_set() {
+                    return;
+                }
+                let spawned = Command::new(&program)
+                    .args(["-n", "1000000", REFRESHER_URI, r#"{"subscribe":true}"#])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .spawn();
+                match spawned {
+                    Ok(mut child) => {
+                        let out = child.stdout.take();
+                        *slot.lock() = Some(child);
+                        // A stop that came while the child was being made has already run its hook against an empty slot.
+                        if stop.is_set() {
+                            end_child(&slot);
+                            return;
+                        }
+                        if let Some(out) = out {
+                            pump(&guard, out);
+                        }
+                        end_child(&slot);
+                    }
+                    Err(e) => crate::log_debug!("refresh guard: could not run {program}: {e}"),
+                }
+                if stop.sleep(RESUBSCRIBE) {
+                    return;
+                }
+            }
+        })
+}
+
+fn end_child(slot: &Mutex<Option<Child>>) {
+    if let Some(mut child) = slot.lock().take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 }
 
 #[cfg(test)]
@@ -716,6 +950,7 @@ mod tests {
         src: Arc<Fake>,
         now: Arc<AtomicU64>,
         dir: tempfile::TempDir,
+        pnwash: PathBuf,
     }
 
     const T0: u64 = 2_000_000_000_000;
@@ -740,13 +975,15 @@ mod tests {
             let now = now.clone();
             Arc::new(move || now.load(Ordering::SeqCst))
         };
-        let guard = RefreshGuard::with_clock(hub.clone(), theme, src.clone(), clock);
+        let pnwash = dir.path().join("pnwash-state");
+        let guard = RefreshGuard::with_paths(hub.clone(), theme, pnwash.clone(), src.clone(), clock);
         Rig {
             guard,
             hub,
             src,
             now,
             dir,
+            pnwash,
         }
     }
 
@@ -759,15 +996,22 @@ mod tests {
         fn advance(&self, minutes: u64) {
             self.now.fetch_add(minutes * MIN, Ordering::SeqCst);
         }
+        /// What eplmanager's state file says.
+        fn pnwash(&self, text: &str) {
+            std::fs::write(&self.pnwash, text).unwrap();
+        }
     }
 
     #[test]
-    fn the_guard_is_off_without_the_theme_key() {
-        for enabled in [None, Some(false)] {
+    fn the_guard_is_on_unless_the_theme_key_is_false() {
+        let r = rig(Some(false));
+        r.screen(false);
+        assert!(r.guard.check("open an app").is_ok(), "switched off");
+        assert_eq!(r.guard.value()["guard"]["deferrals"], 0);
+        for enabled in [None, Some(true)] {
             let r = rig(enabled);
             r.screen(false);
-            assert!(r.guard.check("open an app").is_ok(), "{enabled:?}");
-            assert_eq!(r.guard.value()["guard"]["deferrals"], 0);
+            assert!(r.guard.check("open an app").is_err(), "{enabled:?}");
         }
         let r = rig(None);
         std::fs::write(
@@ -775,7 +1019,7 @@ mod tests {
             r#"{"oledcare": {"refreshGuard": "yes"}}"#,
         )
         .unwrap();
-        assert!(!r.guard.enabled(), "a wrong type is off");
+        assert!(r.guard.enabled(), "a wrong type is the default, on");
     }
 
     #[test]
@@ -1047,5 +1291,86 @@ esac
         assert_eq!(r.hub.get(TOPIC).unwrap()["standby"]["dueAtStart"], true);
         tx.send(Cmd::Stop).unwrap();
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn a_state_file_that_says_running_holds_a_standby_that_was_not_due_until_the_cap() {
+        let r = rig(Some(true));
+        *r.src.info.lock() = Ok(info(5, 100.0, 103.0));
+        r.screen(false);
+        assert!(r.guard.check("open an app").is_ok(), "not due, file silent");
+        r.advance(1);
+        r.pnwash("2 1\n");
+        let e = r.guard.check("open an app").unwrap_err();
+        assert_eq!(e.code, "refresh_in_progress");
+        let v = r.guard.refresher();
+        assert_eq!(
+            (v["running"].clone(), v["since"].clone(), v["source"].clone(), v["state"].clone()),
+            (json!(true), json!(T0 + MIN), json!("pnwash"), json!(2))
+        );
+        r.advance(14);
+        assert_eq!(r.guard.refresher()["minutesLeft"], 1);
+        r.advance(1);
+        assert_eq!(
+            r.guard.refresher()["running"],
+            false,
+            "a file stuck at 2 is not believed past 15 minutes"
+        );
+        assert!(r.guard.check("open an app").is_ok());
+    }
+
+    #[test]
+    fn done_in_the_state_file_releases_the_guard_though_the_count_has_not_been_read_up() {
+        let r = rig(Some(true));
+        r.screen(false);
+        r.pnwash("2 1\n");
+        assert!(r.guard.check("open an app").is_err());
+        r.advance(7);
+        r.pnwash("8 2\n");
+        assert!(
+            r.guard.check("open an app").is_ok(),
+            "the reading still says 5 and a run due, which the file overrules"
+        );
+        assert_eq!(r.guard.refresher()["running"], false);
+    }
+
+    #[test]
+    fn idle_or_unreadable_state_falls_back_to_the_inference_with_its_15_minute_cap() {
+        for text in ["1 0\n", "", "x"] {
+            let r = rig(Some(true));
+            r.screen(false);
+            r.pnwash(text);
+            let v = r.guard.refresher();
+            assert_eq!((v["running"].clone(), v["source"].clone()), (json!(true), json!("inferred")), "{text:?}");
+            assert!(r.guard.check("open an app").is_err(), "{text:?}");
+            r.advance(15);
+            assert!(r.guard.check("open an app").is_ok(), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_pushed_count_ends_the_run_and_the_topic_follows() {
+        let r = rig(Some(true));
+        r.screen(false);
+        assert_eq!(r.guard.refresher()["running"], true);
+        r.guard.note_count(5);
+        assert_eq!(r.guard.refresher()["running"], true, "the same count");
+        r.guard.note_count(6);
+        assert_eq!(r.guard.refresher()["running"], false);
+        assert_eq!(r.hub.get(TOPIC).unwrap()["offrsCount"], 6);
+    }
+
+    #[test]
+    fn the_subscription_is_read_from_compact_and_pretty_replies_and_noise() {
+        let r = rig(Some(true));
+        r.screen(false);
+        let pushes = concat!(
+            "not json\n",
+            "{\"returnValue\":true,\"subscribed\":true,\"offrsCount\":5,\"offrsLastTime\":100,\"offrsInterval\":4}\n",
+            "{\n  \"returnValue\": true,\n  \"subscribed\": true,\n  \"offrsCount\": 6\n}\n",
+        );
+        pump(&r.guard, std::io::Cursor::new(pushes));
+        assert_eq!(r.guard.refresher()["running"], false);
+        assert_eq!(pushed_count("{\"returnValue\":true}"), None);
     }
 }
