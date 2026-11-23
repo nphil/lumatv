@@ -81,10 +81,11 @@ pub struct Follow {
 
 /// How long a chosen device waits for its port to come to the front.
 pub const FOLLOW_WAIT_MS: u64 = 15_000;
-/// How long after the port came to the front the receiver is put back on the chosen input, how often at most, and how far apart (the
-/// receiver's report of a set comes within about a second).
+/// How long after the port came to the front the receiver is put back on the chosen input, how often at most, and how far apart. On the set
+/// (2026-11-22) Apple TV took the receiver about 2 s after HDMI 2 came to the front and no second set followed from the receiver's reports,
+/// so the sets go on a clock until the receiver reads the chosen input.
 pub const FOLLOW_HOLD_MS: u64 = 8_000;
-pub const FOLLOW_SETS: u8 = 3;
+pub const FOLLOW_SETS: u8 = 4;
 pub const FOLLOW_GAP_MS: u64 = 1_500;
 
 pub struct Env {
@@ -322,8 +323,11 @@ impl Env {
     }
 
     pub fn due_at(&self) -> Option<u64> {
-        // once the port is in front, a receiver report is what calls for another set; the timer only ends the hold
-        let follow = self.follow.as_ref().map(|f| f.front_at.map_or(f.asked_at + FOLLOW_WAIT_MS + 1, |at| at + FOLLOW_HOLD_MS + 1));
+        let follow = self.follow.as_ref().map(|f| match (f.front_at, f.last_set) {
+            (Some(_), Some(at)) if f.sets < FOLLOW_SETS => at + FOLLOW_GAP_MS,
+            (Some(at), _) => at + FOLLOW_HOLD_MS + 1,
+            (None, _) => f.asked_at + FOLLOW_WAIT_MS + 1,
+        });
         [self.sio.due_at(), self.inputs.due_at(), self.power.due_at(), self.gate.due_at(), self.previews.due_at(), follow].into_iter().flatten().min()
     }
 }
@@ -413,10 +417,12 @@ mod tests {
         assert!(e.denon_switch().is_none(), "the gate is off once the picker has gone");
         assert_eq!(posts(&e.update(&Input::Tick, at + 100).0), 0, "not before the port is in front");
         assert_eq!(posts(&e.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.hdmi2", "home": false}) }, at + 900).0), 1);
-        // HDMI-CEC hands the receiver to the device that answers it
+        // HDMI-CEC hands the receiver to the device that answers it, and the receiver may not report it: the clock sets again
         assert_eq!(posts(&e.update(&Input::Helper { topic: "receiver".into(), data: rx(at + 1200, "MPLAY") }, at + 1200).0), 0, "within the gap");
-        assert_eq!(posts(&e.update(&Input::Helper { topic: "receiver".into(), data: rx(at + 2600, "MPLAY") }, at + 2600).0), 1, "set again");
-        assert_eq!(posts(&e.update(&Input::Helper { topic: "receiver".into(), data: rx(at + 4500, "BD") }, at + 4500).0), 0);
+        assert!(e.due_at().is_some_and(|d| d <= at + 900 + FOLLOW_GAP_MS), "the next set is on the clock");
+        assert_eq!(posts(&e.update(&Input::Tick, at + 900 + FOLLOW_GAP_MS).0), 1, "set again without a new report");
+        assert_eq!(posts(&e.update(&Input::Helper { topic: "receiver".into(), data: rx(at + 3000, "BD") }, at + 3000).0), 0);
+        assert_eq!(posts(&e.update(&Input::Tick, at + 4500).0), 0, "on the chosen input: no more sets");
         e.update(&Input::Tick, at + 900 + FOLLOW_HOLD_MS + 1);
         assert!(e.follow.is_none(), "the hold ends");
         e.follow_switch("com.webos.app.hdmi2".into(), "BD".into(), at + 20_000);
