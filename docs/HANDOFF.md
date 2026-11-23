@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Task manager header strip, 2026-11-23 (main e5ff3d58)
+
+Installed ui c1f65816592022c8b81fde581fb3152871a8337276f5f7eaad5b4666e4fec2b0 (replaces 501c86c3) by `cutover.sh ui-swap`; compositor untouched. The stats are one muted header line across the top (CPU with a bar per core, Memory, GPU, Temp) and the cards are centred below it. Checked on the set: task manager opened over Marquee and LumaGame, the strip and the cards drawn as in the host scene, closed again (`open` false). Untested: 200 % text on the set, the frame gate.
+
 ## Channel change timing, the second soak and the damaged slice, 2026-11-23 (main f35c05f2 on the set, setting off again)
 
 A converted stream reaches its first whole key frame as soon as a raw one does. Over 12 channel changes each (5.1, 11.11, 30.1 and 2.1; the page's slates off for the raw ones), the first whole key frame reached a client at a median 1.75 s raw (0.83-3.41) and 1.72 s with `?transcode=mobile` (1.23-3.22). The helper logs the phases of every change (`streams 11.11 after 2.2 s (tune 0.5, tables 0.6, picture 1.0)`): the tune takes 0.4-0.9 s, the tables 0.1-0.7 s and the wait for the station's next key frame 0.1-2.0 s (30.1 sends them furthest apart). Opening the converter takes 17-33 ms. The first H.264 key frame follows the stream's first bytes by a median 0.25 s (0.11-0.49); a raw stream's whole key frame follows its first bytes by 0.19 s. With slates on, a raw stream starts with its slate at 0.08 s and the channel's picture comes at the figures above. Cuts that remain, by size: starting from a cache of the channel's last PAT and PMT instead of reading the tables (up to 0.7 s, and the seconds a weak multiplex takes); routing a channel's last PIDs from the lock after a helper restart (the first visit's picture wait was 1.0-2.0 s against 0.1-0.7 s later); the player's own probe and start threshold. `venc/tools/chbench.py` times a change as a player sees it.
