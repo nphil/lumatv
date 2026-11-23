@@ -2,7 +2,8 @@
 //!
 //! A node tagged with an [`Enter`] (`Paint::arrives`) starts away from its own pose and moves to it over the theme's `layerMs`
 //! (`tokens.motion.layer_ms`, 220 ms: the in time). A tagged node the plan drops stays on screen and moves back to that pose over
-//! [`LAYER_OUT_MS`] before it is let go. Only opacity, x, y and scale move, so the compositor eases layers it already holds. With
+//! [`LAYER_OUT_MS`] before it is let go, except content changed in place ([`Enter::CONTENT`]), which goes at once so that a slot never
+//! holds the old content and the new together. Only opacity, x, y and scale move, so the compositor eases layers it already holds. With
 //! reduced motion both are a linear fade of at most `REDUCED_MAX_MS`.
 use compositor_protocol::{Ease, Props};
 use std::collections::BTreeMap;
@@ -10,7 +11,7 @@ use ui::lucent::tokens::motion::REDUCED_MAX_MS;
 
 /// A layer leaves in 180 ms; the theme's `layerMs` is its 220 ms in.
 pub const LAYER_OUT_MS: u32 = 180;
-/// A card's or a section's content fades in and out in 180 ms, on the spot.
+/// A section's content fades in in 180 ms, on the spot.
 pub const CONTENT_MS: u32 = 180;
 /// Focus rests this long on a game before the stage art changes (`parts::stage`).
 pub const ART_REST_MS: u32 = 250;
@@ -26,14 +27,14 @@ pub struct Enter {
     pub dy: f32,
     /// A factor of the node's own scale.
     pub scale: f32,
-    /// One duration for both ways (content fades); `None` takes the layer's in and out.
+    /// Content that changes in place: it fades in over this and goes at once when the plan drops it. `None` takes the layer's in and out.
     pub fade_ms: Option<u32>,
 }
 
 impl Enter {
     /// Opacity only, over the layer's in and out.
     pub const FADE: Self = Self { dx: 0.0, dy: 0.0, scale: 1.0, fade_ms: None };
-    /// Opacity only, in [`CONTENT_MS`] both ways: content that changes in place.
+    /// Opacity only, in [`CONTENT_MS`]; it goes at once.
     pub const CONTENT: Self = Self { fade_ms: Some(CONTENT_MS), ..Self::FADE };
     pub const fn slide(dx: f32, dy: f32) -> Self {
         Self { dx, dy, ..Self::FADE }
@@ -65,10 +66,16 @@ pub fn arrive(rest: Props, enter: Enter, reduced: bool, layer_ms: u32) -> Move {
     if reduced { Move { away: away(rest, enter, true), ms: ms.min(REDUCED_MAX_MS), ease: Ease::Linear } } else { Move { away: away(rest, enter, false), ms, ease: Ease::Out } }
 }
 
-/// The move that takes a node from its pose `rest` to away, easing in.
-pub fn leave(rest: Props, enter: Enter, reduced: bool) -> Move {
-    let ms = enter.fade_ms.unwrap_or(LAYER_OUT_MS);
-    if reduced { Move { away: away(rest, enter, true), ms: ms.min(REDUCED_MAX_MS), ease: Ease::Linear } } else { Move { away: away(rest, enter, false), ms, ease: Ease::In } }
+/// The move that takes a node from its pose `rest` to away, easing in; none for content, which goes at once.
+pub fn leave(rest: Props, enter: Enter, reduced: bool) -> Option<Move> {
+    if enter.fade_ms.is_some() {
+        return None;
+    }
+    if reduced {
+        Some(Move { away: away(rest, enter, true), ms: LAYER_OUT_MS.min(REDUCED_MAX_MS), ease: Ease::Linear })
+    } else {
+        Some(Move { away: away(rest, enter, false), ms: LAYER_OUT_MS, ease: Ease::In })
+    }
 }
 
 /// The nodes the plan dropped that are still on their way out, and when each is let go.
@@ -117,21 +124,21 @@ mod tests {
         let enter = Enter { dx: 40.0, dy: -24.0, scale: 0.96, fade_ms: None };
         let come = arrive(REST, enter, false, 220);
         assert_eq!(come, Move { away: Props { x: 140.0, y: 176.0, scale: 0.96, opacity: 0.0, ..REST }, ms: 220, ease: Ease::Out });
-        let go = leave(REST, enter, false);
+        let go = leave(REST, enter, false).unwrap();
         assert_eq!((go.away, go.ms, go.ease), (come.away, LAYER_OUT_MS, Ease::In));
     }
 
     #[test]
-    fn content_fades_in_place_for_the_same_time_both_ways() {
+    fn content_fades_in_place_and_goes_at_once() {
         let come = arrive(REST, Enter::CONTENT, false, 220);
-        let go = leave(REST, Enter::CONTENT, false);
-        assert_eq!((come.away, come.ms, go.away, go.ms), (Props { opacity: 0.0, ..REST }, CONTENT_MS, Props { opacity: 0.0, ..REST }, CONTENT_MS));
+        assert_eq!((come.away, come.ms), (Props { opacity: 0.0, ..REST }, CONTENT_MS));
+        assert_eq!(leave(REST, Enter::CONTENT, false), None);
     }
 
     #[test]
     fn reduced_motion_is_a_short_linear_fade_that_moves_nothing() {
         let enter = Enter { dx: 40.0, dy: 24.0, scale: 0.9, fade_ms: None };
-        for mv in [arrive(REST, enter, true, 220), leave(REST, enter, true)] {
+        for mv in [arrive(REST, enter, true, 220), leave(REST, enter, true).unwrap()] {
             assert_eq!(mv, Move { away: Props { opacity: 0.0, ..REST }, ms: REDUCED_MAX_MS, ease: Ease::Linear });
         }
     }

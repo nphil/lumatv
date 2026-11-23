@@ -101,8 +101,10 @@ pub(super) fn walks() -> Vec<Walk> {
     let mut reader = base.clone();
     reader.view.focus = Focus::Card(0);
     let mut page = vec![Step::Tap(Key::Ok), Step::Settle];
+    page.extend(taps(&[(Key::Down, 300), (Key::Down, 300)]));
     page.extend([Step::Tap(Key::Ok), Step::Settle]);
     page.extend(taps(&[(Key::Down, 300), (Key::Down, 300)]));
+    page.push(Step::Expect("the long post in the reader", |model, _| model.reader_text().is_some_and(|r| r.title.starts_with("Development update"))));
     page.push(Step::Expect("the reader on its third page", |model, _| model.view.top() == Some(Layer::Reader) && model.view.focus == Focus::ReaderPage(2)));
     vec![
         Walk { name: "game-section-open-close".into(), base: base.clone(), script: open_close },

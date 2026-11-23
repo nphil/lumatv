@@ -187,14 +187,13 @@ impl GameUi {
         !due.is_empty()
     }
     /// Drops the nodes the plan no longer has. One that arrived with a layer goes off the screen the way it came and is let go when that
-    /// ends (`expire`); every other node goes at once.
+    /// ends (`expire`); content and every other node go at once.
     fn depart(&mut self, ids: &BTreeSet<u64>, now_ms: u64, reduced: bool) {
         self.nodes.retain(|id, kept| {
             if ids.contains(id) || self.leaving.contains(*id) {
                 return true;
             }
-            let Some(enter) = kept.enter else { return false };
-            let go = motion::leave(kept.node.props, enter, reduced);
+            let Some(go) = kept.enter.and_then(|enter| motion::leave(kept.node.props, enter, reduced)) else { return false };
             kept.layer.ease(go.away, go.ms, go.ease);
             self.leaving.begin(*id, now_ms, go.ms);
             true

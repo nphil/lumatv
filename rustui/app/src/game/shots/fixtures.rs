@@ -355,7 +355,14 @@ pub(super) fn hades_community(now: u64) -> lumagame_core::community::Community {
         news: Section::list(vec![
             news("Patch 1.2: new boons and fixes", "Adds a set of boons, rebalances several weapons and fixes the co-op menu focus. Saves carry over.", 112),
             news("Summer sale", "Hades II is on sale for the next week.", 171),
-            news("Development update: the road to 1.0", "A look at what is next for the Underworld, from new bosses to controller improvements.", 213),
+            // Long enough for three pages, so the reader walk pages through it.
+            news(
+                "Development update: the road to 1.0",
+                &"A look at what is next for the Underworld, from new bosses to controller improvements. The team shares the plan for the \
+                  coming patches, the changes to the late game that players asked for, and how saves carry over between them. "
+                    .repeat(9),
+                213,
+            ),
         ]),
         players: Section::Present { value: 8_412 },
         rarity: Section::Present { value: HADES_ACHIEVEMENTS.iter().map(|(api, _, permille, _)| ((*api).to_owned(), *permille)).collect() },

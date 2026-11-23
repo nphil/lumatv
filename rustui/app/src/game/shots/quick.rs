@@ -57,15 +57,13 @@ pub(super) fn walks() -> Vec<Walk> {
     script.push(Step::Expect("back on the menu", |m, _| m.view.top() == Some(Layer::Quick)));
     script.extend(taps(&[(Key::Menu, 300)]));
     script.push(Step::Expect("the menu closed", |m, _| m.view.layers.is_empty()));
-    let mut news = home();
-    news.view.page = Page::Game;
-    news.view.selected = Some(id(&news, "Hades II"));
-    news.view.hub_tab = 3;
-    news.view.focus = Focus::Tab(3);
-    news.rebuild_navigation();
+    let mut game = home();
+    let hades = id(&game, "Hades II");
+    game.open_game(hades, None);
+    game.rebuild_navigation();
     vec![
         Walk { name: "quick-drawer-over-home".into(), base: home(), script: script.clone() },
-        Walk { name: "quick-drawer-over-game-news".into(), base: news, script },
+        Walk { name: "quick-drawer-over-game".into(), base: game, script },
     ]
 }
 
@@ -207,7 +205,7 @@ fn menu_over_the_strip_does_nothing() {
     let mut m = fixture();
     m.view.page = Page::Game;
     m.view.selected = Some(id(&m, "Cyberpunk 2077"));
-    m.view.focus = Focus::HubAction(0);
+    m.view.focus = Focus::Play;
     activate(&mut m);
     let session = m.session().unwrap().id;
     event(&mut m, "gfn", ipc::Event::Session { session, state: SessionState::Running { stream: None } });

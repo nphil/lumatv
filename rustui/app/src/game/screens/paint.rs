@@ -302,6 +302,15 @@ impl<'a> Paint<'a> {
         };
         self.plan.nodes.push(Node { id, frame, props: Props::at(frame.x, frame.y), z, body: Body::Surface(glass) });
     }
+    /// Leaves glass node `id` with its tint alone, without a backdrop: for glass over art that dips, where a cached backdrop would be
+    /// captured again after every dip.
+    pub fn tint_only(&mut self, id: u64, stage: bool) {
+        let tint = self.colour(Fill::Tint(0.06), stage);
+        if let Some(Node { body: Body::Surface(glass), .. }) = self.plan.nodes.iter_mut().find(|n| n.id == id) {
+            glass.backdrop = Backdrop::None;
+            glass.tint = tint;
+        }
+    }
     pub fn solid(&mut self, id: u64, frame: Frame, colour: Rgba, radius: f32, z: i32) {
         self.plan.nodes.push(Node {
             id,

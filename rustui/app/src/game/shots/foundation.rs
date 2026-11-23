@@ -39,12 +39,6 @@ fn art(p: &mut Paint<'_>) {
         p.solid(3 + i as u64, Frame::new(W * x, H * y, W * w, H * h), colour, 0.0, 1);
     }
 }
-/// What a layer's own content rides on: above its sheet.
-fn above_sheet(p: &mut Paint<'_>, from: usize) {
-    for node in &mut p.plan.nodes[from..] {
-        node.z += 30;
-    }
-}
 fn keys() -> Hints {
     Hints(vec![(Key::Back, "Back"), (Key::Ok, "Choose"), (Key::Menu, "Menu")])
 }
@@ -115,13 +109,11 @@ fn rows(p: &mut Paint<'_>) {
 fn drawer_menu(p: &mut Paint<'_>) {
     art(p);
     let content = drawer::open(p, Side::Right, drawer::WIDTH, "Menu");
-    let from = p.plan.nodes.len();
     let at = |i: usize| Frame::new(content.x, content.y + i as f32 * 84.0, content.w, 80.0);
     let line = |lead, name, sub| Line { lead, name, sub };
     row::link(p, 7100, at(0), &line(Leading::Glyph(Icon::Refresh), "Refresh libraries", Some("Updated 2 min ago")), true);
     row::link(p, 7120, at(1), &line(Leading::Glyph(Icon::Person), "Accounts and PCs", Some("Desk PC is offline")), false);
     row::link(p, 7140, at(2), &line(Leading::Glyph(Icon::Cog), "Settings", None), false);
-    above_sheet(p, from);
     hints::bar(p, &Hints(vec![(Key::Back, "Close")]), Side::Left, false);
 }
 fn confirm(p: &mut Paint<'_>) {
@@ -144,9 +136,7 @@ fn quick_strip(p: &mut Paint<'_>) {
 fn reader(p: &mut Paint<'_>) {
     art(p);
     let slot = layer::section(p, &["Activity", "Community", "Media", "About"], 1);
-    let from = p.plan.nodes.len();
     row::value(p, 7100, Frame::new(slot.x, slot.y, slot.w, 80.0), &Line { lead: Leading::Glyph(Icon::Message), name: "Patch notes", sub: Some("12 Nov") }, "128 replies", None, false);
-    above_sheet(p, from);
 }
 fn settings_shell(p: &mut Paint<'_>) {
     canvas(p);

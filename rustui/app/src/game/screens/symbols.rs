@@ -6,9 +6,6 @@ use ui::ImageLayer;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Symbol {
     Library,
-    Heart,
-    More,
-    Controller,
     /// The marking printed on one face button of a pad that is not Xbox-styled, in a 24-unit box the size of the button. `ring` adds the
     /// button's rim, for a button that must not vanish into a dark sheet.
     Face { kind: PadKind, face: Face, ring: bool },
@@ -124,19 +121,6 @@ fn shapes(symbol: Symbol) -> (Vec<Shape>, f32) {
             Line(23.0, 18.0, 19.0, 2.0),
             Line(19.0, 2.0, 16.0, 3.0),
         ],
-        Symbol::Heart => &[
-            Line(12.0, 21.0, 3.0, 12.0),
-            Line(3.0, 12.0, 2.0, 8.0),
-            Line(2.0, 8.0, 4.0, 4.0),
-            Line(4.0, 4.0, 8.0, 3.0),
-            Line(8.0, 3.0, 12.0, 7.0),
-            Line(12.0, 7.0, 16.0, 3.0),
-            Line(16.0, 3.0, 20.0, 4.0),
-            Line(20.0, 4.0, 22.0, 8.0),
-            Line(22.0, 8.0, 21.0, 12.0),
-            Line(21.0, 12.0, 12.0, 21.0),
-        ],
-        Symbol::More => &[Dot(4.0, 12.0, 1.4), Dot(12.0, 12.0, 1.4), Dot(20.0, 12.0, 1.4)],
         Symbol::Ring => return (vec![Ring(12.0, 12.0, SPIN_R, SPIN_HALF)], SPIN_HALF),
         Symbol::Spinner { turn, of } => {
             let from = 360.0 * f32::from(turn) / f32::from(of.max(1));

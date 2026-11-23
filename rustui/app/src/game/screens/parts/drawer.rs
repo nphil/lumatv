@@ -3,10 +3,11 @@
 //! The sheet sits at the screen's edge insets and is as tall as the safe area. Its head holds the title, and over it a crumb back to the
 //! view before when there is one; below it is the content the caller fills, and under that the foot, where the layer's key hints go
 //! (`p.anchor`). The scrim covers only the screen beside the sheet: a full-screen layer under an opaque sheet would be drawn for nothing.
+//! Over the art's pre-dimmed copy (`stage::over_art`) the page is dim already and there is no scrim.
 //!
 //! Node ids: 8800 the scrim, 8801 the sheet, 8802 the title, 8803 and 8804 the crumb.
 use crate::game::screens::{
-    paint::{Fill, H, Paint, W},
+    paint::{Body, Fill, H, Paint, W},
     parts::{SHEET_Z, Side, dialog::veil, motion::Enter},
 };
 use crate::game::model::Focus;
@@ -30,8 +31,8 @@ const FOOT_CLEAR: f32 = 18.0;
 /// The crumb is 64 px tall; the title sits right under it.
 const CRUMB_H: f32 = 64.0;
 
-/// Opens a drawer of `width` on `side` with `title`, and returns the frame for its content. Sets `p.art` off (the drawer is a sheet)
-/// and `p.anchor` to the foot, so `hints::bar(.., Side::Left, ..)` sits inside the sheet.
+/// Opens a drawer of `width` on `side` with `title`, and returns the frame for its content. Sets `p.art` off (the drawer is a sheet),
+/// `p.anchor` to the foot, so `hints::bar(.., Side::Left, ..)` sits inside the sheet, and `p.content_z` to the sheet's.
 pub fn open(p: &mut Paint<'_>, side: Side, width: f32, title: &str) -> Frame {
     shell(p, side, width, None, title)
 }
@@ -57,15 +58,20 @@ fn shell(p: &mut Paint<'_>, side: Side, width: f32, crumb: Option<(&str, Focus)>
     let sheet = Frame::new(x, p.y, width, H - 2.0 * p.y);
     let toward = if side == Side::Left { -SLIDE } else { SLIDE };
 
-    let beside = match side {
-        Side::Left => Frame::new(sheet.x + width, 0.0, W - sheet.x - width, H),
-        Side::Right => Frame::new(0.0, 0.0, sheet.x, H),
-    };
-    p.arrives(beside, Enter::FADE);
-    veil(p, 8800, beside, false);
+    // Over the pre-dimmed art a scrim would dim the page twice.
+    let dimmed = p.plan.nodes.iter().any(|n| matches!(&n.body, Body::Image(key) if key.dim()));
+    if !dimmed {
+        let beside = match side {
+            Side::Left => Frame::new(sheet.x + width, 0.0, W - sheet.x - width, H),
+            Side::Right => Frame::new(0.0, 0.0, sheet.x, H),
+        };
+        p.arrives(beside, Enter::FADE);
+        veil(p, 8800, beside, false);
+    }
 
     p.arrives(sheet, Enter::slide(toward, 0.0));
     p.surface(8801, sheet, Fill::Sheet, Radius::Sheet, false, false, false, SHEET_Z);
+    p.content_z = SHEET_Z;
     let inner_x = sheet.x + PAD_SIDE + HEAD_SIDE;
     let inner_w = width - 2.0 * (PAD_SIDE + HEAD_SIDE);
     let mut title_y = sheet.y + PAD_TOP + HEAD_TOP;

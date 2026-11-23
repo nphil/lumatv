@@ -60,7 +60,10 @@ pub fn page(p: &mut Paint<'_>) {
             let y = head(p, id, W - 2.0 * p.x);
             let y = actions(p, id, y);
             cards(p, id, y);
-            hints::bar(p, &m.hints(), Side::Right, m.hints_dim);
+            // A layer over the page (the quick menu, a dialog) brings its own hints.
+            if m.view.top().is_none() {
+                hints::bar(p, &m.hints(), Side::Right, m.hints_dim);
+            }
         }
     }
 }
@@ -105,6 +108,8 @@ fn actions(p: &mut Paint<'_>, id: GameId, y: f32) -> f32 {
     let w = p.button(20, Focus::Play, label, Some(Icon::Play), p.x, y, true, on_art, 12);
     let target = target_label(p, id);
     p.button(30, Focus::Where, &target, Some(Icon::ChevronDown), p.x + w + CARD_GAP, y, false, on_art, 12);
+    // The art dips under it each time a section opens or closes, and a cached backdrop would be captured again after each dip.
+    p.tint_only(30, on_art);
     y + p.tokens.target.max(p.line(Type::Label) + 24.0)
 }
 
@@ -240,21 +245,11 @@ fn row_height(p: &Paint<'_>) -> f32 {
     (p.line(Type::Body) + p.line(Type::Caption) + 28.0).max(p.tokens.target)
 }
 
-/// Rows drawn inside a sheet lie above it.
-fn lift(p: &mut Paint<'_>, from: usize) {
-    for node in &mut p.plan.nodes[from..] {
-        if node.z < SHEET_Z {
-            node.z += SHEET_Z;
-        }
-    }
-}
-
 fn section_layer(p: &mut Paint<'_>, id: GameId, section: Section) {
     let m = p.model;
     let names = SECTIONS.map(section_name);
     let slot = layer::section(p, &names, section_index(section));
     let items = section_items(m, id, section);
-    let from = p.plan.nodes.len();
     let base = 1000 + section_index(section) as u64 * 1000;
     let (rh, fh) = (row_height(p), p.line(Type::Body));
     // Where each item starts; the list moves up just far enough to keep the focused row inside the slot.
@@ -307,15 +302,14 @@ fn section_layer(p: &mut Paint<'_>, id: GameId, section: Section) {
     if let Some(run) = run.take() {
         facts_block(p, base, (x, names_w, values_w), run);
     }
-    lift(p, from);
     hints::bar(p, &m.hints(), Side::Right, m.hints_dim);
 }
 
 /// A run of facts from item `first` at `y`: the names in one node, the values beside them in another.
 fn facts_block(p: &mut Paint<'_>, base: u64, (x, names_w, values_w): (f32, f32, f32), (first, y, names, values): (usize, f32, Vec<String>, Vec<String>)) {
     let id = base + first as u64 * 20;
-    p.lines(id, names, Frame::new(x, y, names_w, 0.0), Type::Body, Role::Ink2, false, 12);
-    p.lines(id + 1, values, Frame::new(x + names_w, y, values_w, 0.0), Type::Body, Role::Ink, false, 12);
+    p.lines(id, names, Frame::new(x, y, names_w, 0.0), Type::Body, Role::Ink2, false, SHEET_Z + 1);
+    p.lines(id + 1, values, Frame::new(x + names_w, y, values_w, 0.0), Type::Body, Role::Ink, false, SHEET_Z + 1);
 }
 
 fn thousands(n: u64) -> String {
@@ -445,34 +439,37 @@ fn section_items(m: &Model, id: GameId, section: Section) -> Vec<Item> {
     items
 }
 
-/// The reader over the section it was opened from: the crumb, the title, the byline, one page of the body and where it is.
+/// The reader over the section it was opened from, in two text layers: the crumb, the title and the byline; then one page of the body
+/// and where it is.
 fn reader(p: &mut Paint<'_>) {
     let m = p.model;
     let under = m.view.layers.iter().rev().find_map(|l| if let Layer::Section(s) = l { Some(*s) } else { None }).unwrap_or(Section::Activity);
     let names = SECTIONS.map(section_name);
     let slot = layer::section(p, &names, section_index(under));
-    let from = p.plan.nodes.len();
     if let Some(text) = m.reader_text() {
         let page = if let Focus::ReaderPage(i) = m.view.focus { i.min(text.pages.len() - 1) } else { 0 };
         let (x, w) = (slot.x + 28.0, slot.w - 56.0);
-        let mut y = slot.y;
-        p.text(9800, section_name(under), Frame::new(x, y, w, p.line(Type::Caption)), Type::Caption, Role::Ink2, false, 12);
-        y += p.line(Type::Caption) + 12.0;
-        let title = p.fit(&text.title, Type::Title, w, 2);
-        y += p.lines(9801, title, Frame::new(x, y, w, 2.0 * p.line(Type::Title)), Type::Title, Role::Ink, false, 12) + 8.0;
+        let (ink, quiet) = (p.ink(Role::Ink, false), p.ink(Role::Ink2, false));
+        let mut head = vec![p.word(section_name(under), Type::Caption, quiet, 0.0, 0.0, w)];
+        let mut y = p.line(Type::Caption) + 12.0;
+        for line in p.fit(&text.title, Type::Title, w, 2) {
+            head.push(p.word(line, Type::Title, ink, 0.0, y, w));
+            y += p.line(Type::Title);
+        }
+        y += 8.0;
         if !text.byline.is_empty() {
-            p.text(9802, &text.byline, Frame::new(x, y, w, p.line(Type::Caption)), Type::Caption, Role::Ink2, false, 12);
+            head.push(p.word(text.byline.clone(), Type::Caption, quiet, 0.0, y, w));
             y += p.line(Type::Caption);
         }
-        y += 20.0;
+        p.words(9800, Frame::new(x, slot.y, w, y), head, vec![], SHEET_Z + 1);
+        let top = slot.y + y + 20.0;
         let foot = slot.y + slot.h - p.line(Type::Caption);
-        let body = text.pages[page].clone();
-        // Each page has its own id, so the next page fades in.
-        p.lines(9810 + page as u64, body, Frame::new(x, y, w, (foot - 16.0 - y).max(0.0)), Type::Body, Role::Ink, false, 12);
-        p.text(9803, &format!("Page {} of {}", page + 1, text.pages.len()), Frame::new(x, foot, w, p.line(Type::Caption)), Type::Caption, Role::Ink2, false, 12);
+        let mut body: Vec<_> = text.pages[page].iter().enumerate().map(|(i, line)| p.word(line.clone(), Type::Body, ink, 0.0, i as f32 * p.line(Type::Body), w)).collect();
+        body.push(p.word(format!("Page {} of {}", page + 1, text.pages.len()), Type::Caption, quiet, 0.0, foot - top, w));
+        // Each page has its own id, so the next page fades in; content goes at once, so paging never holds two pages.
+        p.words(9810 + page as u64, Frame::new(x, top, w, foot + p.line(Type::Caption) - top), body, vec![], SHEET_Z + 1);
         p.hit(Focus::ReaderPage(page), slot);
     }
-    lift(p, from);
     hints::bar(p, &m.hints(), Side::Right, m.hints_dim);
 }
 
@@ -489,7 +486,6 @@ fn way_word(m: &Model, key: &lumagame_core::ids::SourceKey) -> (&'static str, Ro
 fn chooser(p: &mut Paint<'_>, id: GameId) {
     let m = p.model;
     let slot = drawer::open(p, Side::Right, drawer::WIDTH, "Where to play");
-    let from = p.plan.nodes.len();
     let rh = row_height(p);
     let mut y = slot.y;
     for (i, source) in m.game(id).map_or(&[][..], |g| g.sources.as_slice()).iter().enumerate() {
@@ -512,7 +508,6 @@ fn chooser(p: &mut Paint<'_>, id: GameId) {
     let focused = p.focused(Focus::Remember);
     row::switch(p, 8700, frame, &Line { lead: Leading::None, name: "Remember for this game", sub: None }, m.view.remember, focused);
     p.hit(Focus::Remember, frame);
-    lift(p, from);
     hints::bar(p, &m.hints(), Side::Left, m.hints_dim);
 }
 
