@@ -16,6 +16,8 @@ use ui::{components::Icon, geometry::Frame, lucent::palette::PaletteRole as Role
 
 /// The one width of every side panel.
 pub const WIDTH: f32 = 640.0;
+/// The sheet's node id.
+pub const SHEET: u64 = 8801;
 /// The sheet comes in from this far toward its edge.
 const SLIDE: f32 = 40.0;
 /// Sheet padding: top, sides, bottom.
@@ -70,7 +72,7 @@ fn shell(p: &mut Paint<'_>, side: Side, width: f32, crumb: Option<(&str, Focus)>
     }
 
     p.arrives(sheet, Enter::slide(toward, 0.0));
-    p.surface(8801, sheet, Fill::Sheet, Radius::Sheet, false, false, false, SHEET_Z);
+    p.surface(SHEET, sheet, Fill::Sheet, Radius::Sheet, false, false, false, SHEET_Z);
     p.content_z = SHEET_Z;
     let inner_x = sheet.x + PAD_SIDE + HEAD_SIDE;
     let inner_w = width - 2.0 * (PAD_SIDE + HEAD_SIDE);

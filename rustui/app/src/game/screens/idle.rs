@@ -1,7 +1,10 @@
 //! The prompt over a running stream while the far side's idle countdown runs. It is on screen only for that countdown (about a minute),
 //! never otherwise: a veil as dark as the stats strip's, in the top centre (below the stats strip when that shows), whose only change is
 //! the countdown's digits once a second.
-use super::paint::{Fill, HUD, Mark, Paint, W};
+use super::{
+    paint::{Fill, HUD, Mark, Paint, W},
+    parts::drawer,
+};
 use lumatv_tokens::{Radius, TypeRole};
 use ui::{components::Form, geometry::Frame, lucent::palette::PaletteRole as Role};
 
@@ -38,7 +41,13 @@ pub fn show(p: &mut Paint<'_>) {
     let frame_h = pad_y * 2.0 + title + 6.0 * scale + label;
     let marks = vec![Mark { form: Form::Disc(12), colour: p.ink(Role::Warning, true), x: pad_x, y: pad_y + (title - dot) / 2.0 }];
     let top = p.plan.nodes.iter().find(|n| n.id == HUD.start).map_or(p.y, |hud| hud.frame.y + hud.frame.h + 14.0 * scale);
-    let frame = Frame::new((W - frame_w) / 2.0, top, frame_w, frame_h);
+    // An open drawer keeps its side of the screen; the prompt centres in the room beside it.
+    let (from, to) = match p.plan.nodes.iter().find(|n| n.id == drawer::SHEET) {
+        Some(sheet) if sheet.frame.x > W / 2.0 => (0.0, sheet.frame.x),
+        Some(sheet) => (sheet.frame.x + sheet.frame.w, W),
+        None => (0.0, W),
+    };
+    let frame = Frame::new(from + (to - from - frame_w) / 2.0, top, frame_w, frame_h);
     p.surface(SURFACE, frame, Fill::Veil(0.80), Radius::Card, true, false, false, 22);
     p.words(WORDS, frame, words, marks, 23);
     #[cfg(test)]
