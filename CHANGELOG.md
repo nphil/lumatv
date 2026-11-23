@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The input picker shows the devices behind an AV receiver (HDMI-CEC) under its HDMI tile. With the Denon receiver plugin on, the device the receiver is playing is marked and OK on a device with a matching receiver input switches to it. With the plugin off the devices are only named.
+
 Auto brightness learns OLED pixel brightness separately for each profile. Repeated manual corrections at similar room light and local times distinguish morning from evening, games from movies, and playback from browsing. Learning adjusts the SDR backlight, not the picture’s black level; HDR and Dolby Vision remain untouched. Within one sitting the last choice replaces earlier ones, so passing above the limit on the way to a lower level raises nothing; a changed habit takes over after three or four days.
 
 Steam QR sign-in uses the access token returned with approval and checks once more before declaring a code expired. A replacement polling ID no longer depends on receiving a new QR image at the same time.

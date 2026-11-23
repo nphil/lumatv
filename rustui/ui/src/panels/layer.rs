@@ -665,6 +665,7 @@ impl Panels {
             },
             Which::Picker => match self.picker_s.pointer(kit, engine, now_ns, s) {
                 Some(PickerTarget::Tile(i)) => self.picker.click(i, &self.env),
+                Some(PickerTarget::Child(i, c)) => self.picker.click_child(i, c, &self.env),
                 Some(PickerTarget::Backdrop) => Out::close(),
                 None => return out,
             },

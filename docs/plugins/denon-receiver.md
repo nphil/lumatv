@@ -26,6 +26,16 @@ ZMON`, `receiver: on`, `receiver: not on within 3000 ms: the TV's own speakers m
 output is not the receiver: left alone`). The keeper's commands: `receiver: the screen is on and the receiver is off: power on`, `...
 the TV input`, `receiver: the receiver does not answer|stays off: the TV's own speakers`, `receiver: on again: back to external_arc`.
 
+## Devices behind the receiver
+
+The input picker lists the HDMI-CEC devices plugged into the receiver (`subList` entries at `depth` 2 of the port the receiver is on) under
+that port's tile, with the one the receiver is playing marked. A device is matched to a receiver input by name: the input's own name (as
+renamed on the receiver, from the settings document's `input` options) equal to the device's, else the one input whose name contains it or
+is contained in it (three letters at least, spaces and case aside); two inputs that fit equally match none. OK on a matched device
+launches the port's app when it is not in front, then posts `/v1/receiver/set` `input`. Unmatched devices are named only. The mark and
+the switch need the plugin on, the receiver's reading in date and the input setting writable; otherwise the devices are only named. Code:
+`rustui/ui/src/host/inputs.rs` (`source_for`, `children`), `rustui/ui/src/panels/picker.rs`, `picker_surface.rs`.
+
 ## Receiver settings
 
 Settings › Sound › Receiver shows the receiver's own settings while the plugin is on and the page is open. Code:

@@ -16,6 +16,9 @@ use crate::kit::screen::{Effect, Input};
 use serde_json::Value;
 
 pub const TAG: u64 = 0x5200_0001;
+/// The settings read: the helper builds the receiver's settings (its inputs and their names) only for five seconds after one, and the answer
+/// is the topic's copy like `TAG`'s.
+pub const SETTINGS_TAG: u64 = 0x5200_0002;
 pub const STALE_MS: u64 = 6000;
 
 #[derive(Clone, Debug)]
@@ -122,6 +125,12 @@ impl Gate {
         vec![Effect::Fetch { tag: TAG, path: "/v1/state/receiver".into() }]
     }
 
+    /// Asks the helper for the receiver's settings, which it reads only while someone has asked in the last five seconds. A surface that
+    /// shows what the settings say asks again every two seconds.
+    pub fn ask_settings(&self) -> Vec<Effect> {
+        if self.helper_up { vec![Effect::Fetch { tag: SETTINGS_TAG, path: "/v1/receiver/settings".into() }] } else { Vec::new() }
+    }
+
     /// The surface is on screen (`true`) or gone: on becoming active the gate looks again and, if the copy it has is old, asks.
     pub fn set_active(&mut self, active: bool, now: u64) -> Vec<Effect> {
         if self.active == active {
@@ -154,8 +163,8 @@ impl Gate {
                 self.topic_at = now;
                 out = self.evaluate(now);
             }
-            Input::Fetched { tag, status, data } if *tag == TAG => {
-                self.asking = false;
+            Input::Fetched { tag, status, data } if *tag == TAG || *tag == SETTINGS_TAG => {
+                self.asking &= *tag != TAG;
                 if *status == 200
                     && let Some(v) = data.get("value").filter(|v| !v.is_null())
                 {

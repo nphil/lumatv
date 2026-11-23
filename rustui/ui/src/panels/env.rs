@@ -5,7 +5,7 @@
 //! reads) are only asked for by a panel that is coming up.
 
 use super::hub::Topics;
-use crate::host::inputs::Inputs;
+use crate::host::inputs::{Inputs, Switch};
 use crate::host::net::Net;
 use crate::host::power::Power;
 use crate::host::previews::{Facts, Previews};
@@ -135,6 +135,19 @@ impl Env {
     /// Whether a surface that owns the remote is up that a panel must not open over: the AI prompt waiting for an answer.
     pub fn ai_prompt_up(&self) -> bool {
         self.topics.get("ai.prompt").is_some_and(|p| !p.is_null() && p.as_object().is_none_or(|o| !o.is_empty()))
+    }
+
+    /// The Denon receiver plugin is switched on (an entry of `plugins` that does not say `off`; none from a helper that is not there).
+    pub fn denon_on(&self) -> bool {
+        self.topics.get("plugins").and_then(|p| super::hub::plugin_of(p, "denon-receiver")).and_then(|e| e.get("state")).and_then(Value::as_str).is_some_and(|s| s != "off")
+    }
+
+    /// What the receiver says of its inputs, for the devices behind it: only while the plugin is on and the receiver's reading is in date.
+    pub fn denon_switch(&self) -> Option<Switch> {
+        if !self.denon_on() {
+            return None;
+        }
+        Switch::from_doc(self.gate.doc()?)
     }
 
     /// Takes an input: the topics, the services' answers. Returns the effects the services ask for and whether anything a panel

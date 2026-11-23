@@ -5,6 +5,11 @@
 //!
 //! OK on a tile launches that input's app (`com.webos.app.hdmiN`, `com.webos.app.livetv`); pressing the input key again, or Right,
 //! goes on to the next tile; Back closes. The tile of the input in front is chosen first, so OK on opening keeps what is on.
+//!
+//! A port with an audio system on it shows the devices behind it (HDMI-CEC) under its tile. With the Denon receiver plugin on, the one the
+//! receiver is playing is marked, and Down reaches the devices whose name is an input of the receiver: OK on one launches the port's app
+//! when it is not in front and sets the receiver to that input (`/v1/receiver/set`, the way Settings does); Up or Left and Right leave them.
+//! With the plugin off the devices are only named.
 
 use super::env::Env;
 use super::life::Life;
@@ -16,6 +21,8 @@ use serde_json::{Value, json};
 
 /// How long after it opens the picker waits to ask the TV for its readings: after the slide and the burst of frames the key started.
 pub const READ_AFTER_MS: u64 = 200;
+/// How often an open picker asks for the receiver's settings again (the helper keeps them for five seconds after each ask).
+const SETTINGS_EVERY_MS: u64 = 2000;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct View {
@@ -29,6 +36,8 @@ pub struct View {
     pub pictures: bool,
     /// What each tile shows of its picture (tile by tile); none when it has none.
     pub shots: Vec<Option<Shot>>,
+    /// The device under the chosen tile that has the focus.
+    pub child: Option<usize>,
 }
 
 pub struct Picker {
@@ -37,6 +46,10 @@ pub struct Picker {
     /// A key has moved the choice since the picker came up.
     moved: bool,
     read_due: Option<u64>,
+    /// The device under the chosen tile that has the focus, in its `children`; none while the tile has it.
+    child: Option<usize>,
+    /// When the receiver's settings are asked for again: the helper reads them only for five seconds after each ask.
+    settings_due: Option<u64>,
 }
 
 impl Default for Picker {
@@ -87,11 +100,16 @@ pub fn sound_line(env: &Env) -> String {
 
 impl Picker {
     pub fn new() -> Self {
-        Self { life: Life::default(), index: 0, moved: false, read_due: None }
+        Self { life: Life::default(), index: 0, moved: false, read_due: None, child: None, settings_due: None }
     }
 
     pub fn tiles(env: &Env) -> Vec<Tile> {
-        env.inputs.tiles(env.theme.get("inputs").unwrap_or(&Value::Null), to_receiver(env))
+        env.inputs.tiles(env.theme.get("inputs").unwrap_or(&Value::Null), to_receiver(env), env.denon_switch().as_ref())
+    }
+
+    /// The devices of `tile` OK can switch to.
+    pub fn stops(tile: &Tile) -> Vec<usize> {
+        tile.children.iter().enumerate().filter(|(_, c)| c.can_switch).map(|(i, _)| i).collect()
     }
 
     fn pick_front(&mut self, tiles: &[Tile]) {
@@ -101,20 +119,26 @@ impl Picker {
     /// The picker is wanted: the tile of the input in front is chosen first; the readings wait for the slide to be over.
     pub fn open(&mut self, env: &mut Env, now: u64) -> Out {
         self.moved = false;
+        self.child = None;
         let tiles = Self::tiles(env);
         self.pick_front(&tiles);
         self.read_due = Some(now + u64::from(self.life.enter_ms) + READ_AFTER_MS);
+        self.settings_due = self.read_due;
         env.inputs.watch(true, now);
         // the pictures: the index, and one of the input in front at once (the live tile follows); they are decoded once the sheet is in
         env.previews.hold_until(now + u64::from(self.life.enter_ms) + 100);
-        Out::effects(env.previews_opened(now))
+        let mut effects = env.previews_opened(now);
+        effects.extend(env.gate.set_active(true, now));
+        Out::effects(effects)
     }
 
     pub fn close(&mut self, env: &mut Env, now: u64) -> Out {
         self.read_due = None;
+        self.settings_due = None;
+        self.child = None;
         env.inputs.watch(false, now);
         env.previews_closed(now);
-        Out::default()
+        Out::effects(env.gate.set_active(false, now))
     }
 
     /// The inputs changed while the picker is up: if the input in front turns out to be another and no key has moved the choice, the
@@ -128,11 +152,18 @@ impl Picker {
             self.pick_front(&tiles);
         }
         self.index = self.index.min(tiles.len().saturating_sub(1));
+        // a device that is no longer one OK can switch to loses the focus to its tile
+        if let Some(c) = self.child
+            && !tiles.get(self.index).is_some_and(|t| Self::stops(t).contains(&c))
+        {
+            self.child = None;
+        }
     }
 
     /// The input key again: on to the next tile (it wraps).
     pub fn next(&mut self, env: &Env) {
         self.moved = true;
+        self.child = None;
         let n = Self::tiles(env).len();
         self.index = if n == 0 { 0 } else { (self.index + 1) % n };
     }
@@ -143,18 +174,51 @@ impl Picker {
             return Out::close();
         }
         self.moved = true;
+        let stops = tiles.get(self.index).map(Self::stops).unwrap_or_default();
         match k {
-            K::Left => self.index = self.index.saturating_sub(1),
-            K::Right => self.index = (self.index + 1).min(tiles.len().saturating_sub(1)),
-            K::Ok => return self.activate(&tiles, self.index),
+            K::Left | K::Right => {
+                self.child = None;
+                self.index = if k == K::Left { self.index.saturating_sub(1) } else { (self.index + 1).min(tiles.len().saturating_sub(1)) };
+            }
+            K::Down => self.child = self.child.map_or_else(|| stops.first(), |c| stops.iter().find(|s| **s > c)).copied().or(self.child),
+            K::Up => {
+                if let Some(c) = self.child {
+                    self.child = stops.iter().rev().find(|s| **s < c).copied();
+                }
+            }
+            K::Ok => {
+                return match self.child {
+                    Some(c) => Self::activate_child(env, &tiles, self.index, c),
+                    None => self.activate(&tiles, self.index),
+                };
+            }
             _ => {}
         }
         Out::default()
     }
 
+    fn launch(app_id: &str) -> Effect {
+        Effect::Luna { tag: super::env::tags::LAUNCH, uri: "luna://com.webos.applicationManager/launch".into(), payload: json!({"id": app_id}), subscribe: false }
+    }
+
+    /// OK on a device behind the receiver: its port's app is launched when not in front, then the receiver is set to the device's input.
+    fn activate_child(env: &Env, tiles: &[Tile], i: usize, c: usize) -> Out {
+        let Some(tile) = tiles.get(i) else { return Out::default() };
+        let Some(code) = tile.children.get(c).and_then(|d| d.source.clone()) else { return Out::default() };
+        let Some(switch) = env.denon_switch().filter(|s| s.writable) else { return Out::default() };
+        let mut effects = Vec::new();
+        if !tile.front {
+            effects.push(Self::launch(&tile.app_id));
+        }
+        effects.push(Effect::Post { path: "/v1/receiver/set".into(), body: json!({"setting": "input", "value": code, "session": switch.session}) });
+        let mut out = Out::effects(effects);
+        out.close = true;
+        out
+    }
+
     fn activate(&mut self, tiles: &[Tile], i: usize) -> Out {
         let Some(t) = tiles.get(i) else { return Out::default() };
-        let mut out = Out::effects(vec![Effect::Luna { tag: super::env::tags::LAUNCH, uri: "luna://com.webos.applicationManager/launch".into(), payload: json!({"id": t.app_id}), subscribe: false }]);
+        let mut out = Out::effects(vec![Self::launch(&t.app_id)]);
         out.close = true;
         out
     }
@@ -163,7 +227,20 @@ impl Picker {
     pub fn click(&mut self, i: usize, env: &Env) -> Out {
         self.moved = true;
         self.index = i;
+        self.child = None;
         self.activate(&Self::tiles(env), i)
+    }
+
+    /// A click on device `c` under tile `i`; a device with no switch does nothing.
+    pub fn click_child(&mut self, i: usize, c: usize, env: &Env) -> Out {
+        let tiles = Self::tiles(env);
+        if !tiles.get(i).is_some_and(|t| Self::stops(t).contains(&c)) {
+            return Out::default();
+        }
+        self.moved = true;
+        self.index = i;
+        self.child = Some(c);
+        Self::activate_child(env, &tiles, i, c)
     }
 
     pub fn tick(&mut self, env: &mut Env, now: u64) -> Out {
@@ -173,11 +250,18 @@ impl Picker {
             out.effects.extend(env.inputs.refresh());
             out.effects.extend(env.sio.read("sound", &["soundOutput"], None, now));
         }
+        if self.settings_due.is_some_and(|d| now >= d) {
+            self.settings_due = Some(now + SETTINGS_EVERY_MS);
+            // only a plugin that is on is asked, and only when a port has devices behind it to name
+            if env.denon_on() && env.inputs.list().iter().any(|e| e.connected && !e.devices.is_empty()) {
+                out.effects.extend(env.gate.ask_settings());
+            }
+        }
         out
     }
 
     pub fn due_at(&self) -> Option<u64> {
-        [self.read_due, self.life.due_at()].into_iter().flatten().min()
+        [self.read_due, self.settings_due, self.life.due_at()].into_iter().flatten().min()
     }
 
     pub fn index(&self) -> usize {
@@ -193,6 +277,7 @@ impl Picker {
             title: "Inputs",
             sound: sound_line(env),
             index: self.index.min(tiles.len().saturating_sub(1)),
+            child: self.child,
             tiles,
             over_video: !env.fg.home,
             pictures: env.previews.is_on(),

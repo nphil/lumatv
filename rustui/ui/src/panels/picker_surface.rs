@@ -17,7 +17,7 @@ use super::picker::View;
 use super::shot_tile::{CHIP, CHIP_GROUND, ON_PICTURE, ON_PICTURE_2, ShotTile, WORST_GROUND, dress};
 use super::stage::{Stage, Touch};
 use super::ui::{Arrive, WordLine, Words};
-use crate::host::inputs::Tile;
+use crate::host::inputs::{Child, Tile};
 use crate::host::previews::{Previews, Shot};
 use crate::kit::focus::{Id, Region, Scope};
 use crate::kit::icon;
@@ -53,11 +53,16 @@ const SCRIM_RAMP: f32 = 40.0;
 /// The corner of the chip behind a port's name: a pill for one line, no rounder than this for two.
 const CHIP_RADIUS: f32 = 20.0;
 const MARK: f32 = 26.0;
+/// Ids of the devices behind a receiver start here, above the tiles'; a tile has room for this many.
+const CHILD_BASE: u32 = 0x100;
+const CHILDREN_MAX: u32 = 16;
 
 /// What the pointer can land on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
     Tile(usize),
+    /// A device behind the receiver on a tile: the tile, then the device.
+    Child(usize, usize),
     Backdrop,
 }
 
@@ -65,6 +70,7 @@ impl Target {
     pub fn id(self) -> Id {
         match self {
             Target::Tile(i) => Id(BASE + i as u32),
+            Target::Child(i, c) => Id(BASE + CHILD_BASE + (i as u32) * CHILDREN_MAX + c as u32),
             Target::Backdrop => Id(BASE + 0xFF00),
         }
     }
@@ -73,9 +79,23 @@ impl Target {
         match id.0.checked_sub(BASE)? {
             0xFF00 => Some(Target::Backdrop),
             i if i < 0x100 => Some(Target::Tile(i as usize)),
+            i if (CHILD_BASE..0xFF00).contains(&i) => {
+                let n = i - CHILD_BASE;
+                Some(Target::Child((n / CHILDREN_MAX) as usize, (n % CHILDREN_MAX) as usize))
+            }
             _ => None,
         }
     }
+}
+
+/// One device behind the receiver laid out under its tile: its row, the mark and the words.
+#[derive(Clone, Debug, PartialEq)]
+struct ChildLay {
+    frame: Frame,
+    dot: f32,
+    dot_at: (f32, f32),
+    name: Vec<String>,
+    name_at: (f32, f32, f32),
 }
 
 /// One tile laid out: its frame on the screen and where its parts are inside it.
@@ -107,6 +127,8 @@ struct Layout {
     title: Frame,
     sound: Option<(f32, String, f32)>,
     tiles: Vec<TileLay>,
+    /// The devices under each tile, tile by tile.
+    kids: Vec<Vec<ChildLay>>,
 }
 
 /// The state line of a tile: what it said, and for a picture whether it is live or how old it is.
@@ -225,10 +247,26 @@ fn layout(kit: &mut Kit, v: &View, shots: &[Option<&Shot>]) -> Layout {
     // One row: every tile is as tall as the tallest (a port whose name wraps, as "HDMI 2 · eARC" does at large text), its words kept to the
     // foot, so the focus plates and the washes of neighbours line up. A picture's tiles are as tall as they need; the mock's sheet has the room
     // of its taller tile.
-    let sheet_h = if v.pictures { row_y + tallest + s7 } else { SHEET_MIN_H.max(row_y + tallest + s6) };
+    // The devices behind a receiver stand in a column under their tile, a row each; the sheet grows by the longest column.
+    let kid_h = label_line + 2.0 * s2;
+    let column = |t: &Tile| t.children.len().min(CHILDREN_MAX as usize) as f32;
+    let kids_h = v.tiles.iter().map(column).fold(0.0f32, f32::max);
+    let kids_room = if kids_h > 0.0 { s3 + kids_h * kid_h + (kids_h - 1.0) * s1 } else { 0.0 };
+    let base_h = if v.pictures { row_y + tallest + s7 } else { SHEET_MIN_H.max(row_y + tallest + s6) };
+    let sheet_h = base_h + kids_room;
     let sheet = Frame::new(SHEET_X, 1080.0 - 64.0 - sheet_h, SHEET_W, sheet_h);
+    let mut kids = Vec::new();
     for (i, t) in tiles.iter_mut().enumerate() {
         t.frame = Frame::new(sheet.x + s7 + i as f32 * (tile_w + s4), sheet.y + row_y, tile_w, tallest);
+        let dot = s2;
+        let rows = v.tiles[i].children.iter().take(CHILDREN_MAX as usize).enumerate().map(|(k, c)| {
+            let frame = Frame::new(t.frame.x, t.frame.y + tallest + s3 + k as f32 * (kid_h + s1), tile_w, kid_h);
+            // the name is centred in the row, the mark at its left edge: the box leaves the mark's room on both sides
+            let edge = s4 + dot + s2;
+            let name = wrap::lines(kit, label_style, &c.name, tile_w - 2.0 * edge, 1);
+            ChildLay { frame, dot, dot_at: (s4, ((kid_h - dot) / 2.0).round()), name, name_at: (edge, s2, tile_w - 2.0 * edge) }
+        });
+        kids.push(rows.collect());
     }
     let title_w = width_of(kit, role_style(kit, TypeRole::Title, Some(Weight::SemiBold), ink, Align::Left), "Inputs").ceil();
     let title = Frame::new(sheet.x + s7, sheet.y + head_y, title_w, title_line);
@@ -236,7 +274,7 @@ fn layout(kit: &mut Kit, v: &View, shots: &[Option<&Shot>]) -> Layout {
         let w = width_of(kit, role_style(kit, TypeRole::Label, None, ink2, Align::Left), &v.sound).ceil();
         (w, v.sound.clone(), MARK + s3 + w)
     });
-    Layout { sheet, title, sound, tiles }
+    Layout { sheet, title, sound, tiles, kids }
 }
 
 fn other(e: std::io::Error) -> std::io::Error {
@@ -285,12 +323,29 @@ impl TileParts {
     }
 }
 
+/// One device behind the receiver under its tile: a row that takes the focus when OK can switch to it, with the mark of the one playing.
+struct ChildParts {
+    plate: Option<Plate>,
+    _base: ShapeLayer,
+    _dot: ShapeLayer,
+    _name: Words,
+    lay: ChildLay,
+    child: Child,
+}
+
+impl ChildParts {
+    fn layers(&self) -> usize {
+        self.plate.as_ref().map_or(0, Plate::layers) + 1 + 1 + self._name.layers()
+    }
+}
+
 struct Built {
     sig: String,
     pane: Pane,
     _title: Words,
     sound: Option<(ImageLayer, Words, Frame)>,
     tiles: Vec<TileParts>,
+    kids: Vec<Vec<ChildParts>>,
     over_video: bool,
     lay: Layout,
 }
@@ -301,7 +356,8 @@ pub struct PickerSurface {
 }
 
 fn tile_signature(t: &Tile, shot: Option<&Shot>) -> String {
-    format!("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", t.app_id, t.port, t.icon, t.name, t.state, t.on, t.connected, t.front, t.sound, shot.map_or_else(String::new, |s| format!("{}|{}", s.live, s.age)))
+    let kids: Vec<String> = t.children.iter().map(|c| format!("{}:{}:{}", c.name, c.active, c.can_switch)).collect();
+    format!("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", t.app_id, t.port, t.icon, t.name, t.state, t.on, t.connected, t.front, t.sound, shot.map_or_else(String::new, |s| format!("{}|{}", s.live, s.age)), kids.join(","))
 }
 
 /// The shot of each tile that is drawn as a picture: the previews are on, something is connected, and the picture has come.
@@ -413,7 +469,27 @@ impl PickerSurface {
                     shot: shot.cloned(),
                 });
             }
-            Ok(Built { sig, pane, _title: title, sound, tiles, over_video: v.over_video, lay: lay.clone() })
+            let mut kids = Vec::new();
+            for (i, (t, row)) in v.tiles.iter().zip(lay.kids.iter()).enumerate() {
+                let mut parts = Vec::new();
+                for (c, (child, cl)) in t.children.iter().zip(row.iter()).enumerate() {
+                    let id = Target::Child(i, c).id();
+                    let f = cl.frame;
+                    let plate_parts = if child.can_switch {
+                        let spot = Spot { id, screen: f, local: f, region: REGION, scope: SCOPE, z: z + 3 };
+                        Some(Plate::new(kit, engine, root, spot, Lift::Card, radius)?)
+                    } else {
+                        None
+                    };
+                    let base = plate::shape(&kit.ui, f, z + 2, Self::fill(kit, child.active));
+                    let dot = plate::shape(&kit.ui, Frame::new(f.x + cl.dot_at.0, f.y + cl.dot_at.1, cl.dot, cl.dot), z + 4, plate::solid(if child.active { positive } else { ink3 }, cl.dot / 2.0));
+                    let lines: Vec<WordLine> = cl.name.iter().map(|s| WordLine::new(s, TypeRole::Label, if child.can_switch || child.active { ink } else { ink2 }).aligned(Align::Centre)).collect();
+                    let name = Words::new(kit, f.x + cl.name_at.0, f.y + cl.name_at.1, cl.name_at.2, z + 4, &lines)?;
+                    parts.push(ChildParts { plate: plate_parts, _base: base, _dot: dot, _name: name, lay: cl.clone(), child: child.clone() });
+                }
+                kids.push(parts);
+            }
+            Ok(Built { sig, pane, _title: title, sound, tiles, kids, over_video: v.over_video, lay: lay.clone() })
         })
         .map_err(other)
     }
@@ -424,6 +500,11 @@ impl PickerSurface {
                 match t.plate {
                     TilePlate::Plain(p) => p.destroy(engine),
                     TilePlate::Shot(s) => s.destroy(engine),
+                }
+            }
+            for k in b.kids.into_iter().flatten() {
+                if let Some(p) = k.plate {
+                    p.destroy(engine);
                 }
             }
         }
@@ -479,7 +560,11 @@ impl PickerSurface {
                 b.pane.restyle(kit, v.over_video);
                 b.over_video = v.over_video;
             }
-            self.stage.focus(engine, (!v.tiles.is_empty()).then(|| Target::Tile(v.index).id()), now_ns);
+            let focus = match v.child {
+                Some(c) => Target::Child(v.index, c),
+                None => Target::Tile(v.index),
+            };
+            self.stage.focus(engine, (!v.tiles.is_empty()).then(|| focus.id()), now_ns);
         }
         Ok(true)
     }
@@ -492,7 +577,7 @@ impl PickerSurface {
     pub fn pointer(&mut self, kit: &Kit, engine: &mut Engine, now_ns: u64, s: Sample) -> Option<Target> {
         let radius = kit.tokens.radius(Radius::Card);
         let id = self.stage.pointer(kit, engine, now_ns, s, |touch| match touch {
-            Touch::Hover { to, .. } => to.and_then(Target::from_id).filter(|t| matches!(t, Target::Tile(_))).map(|_| radius),
+            Touch::Hover { to, .. } => to.and_then(Target::from_id).filter(|t| matches!(t, Target::Tile(_) | Target::Child(..))).map(|_| radius),
             Touch::Press { .. } => None,
         })?;
         Target::from_id(id)
@@ -510,7 +595,7 @@ impl PickerSurface {
     /// How many layers the picker holds.
     pub fn layers(&self) -> usize {
         let Some(b) = &self.built else { return 0 };
-        2 + 1 + b.sound.as_ref().map_or(0, |_| 2) + b.tiles.iter().map(TileParts::layers).sum::<usize>()
+        2 + 1 + b.sound.as_ref().map_or(0, |_| 2) + b.tiles.iter().map(TileParts::layers).sum::<usize>() + b.kids.iter().flatten().map(ChildParts::layers).sum::<usize>()
     }
 
     pub fn geometry(&self, engine: &Engine) -> Value {
@@ -537,7 +622,21 @@ impl PickerSurface {
                 })
             })
             .collect();
-        json!({"sheet": f(b.lay.sheet), "tiles": tiles, "focus": engine.focus.current().and_then(Target::from_id).and_then(|t| if let Target::Tile(i) = t { Some(i) } else { None }), "layers": self.layers(), "scope": SCOPE.0})
+        let kids: Vec<Value> = b
+            .kids
+            .iter()
+            .map(|row| Value::Array(row.iter().map(|k| json!({"frame": f(k.lay.frame), "name": k.child.name, "active": k.child.active, "switch": k.child.can_switch})).collect()))
+            .collect();
+        let focus = engine.focus.current().and_then(Target::from_id);
+        json!({
+            "sheet": f(b.lay.sheet),
+            "tiles": tiles,
+            "children": kids,
+            "focus": if let Some(Target::Tile(i)) = focus { Some(i) } else { None },
+            "child_focus": if let Some(Target::Child(i, c)) = focus { Some(json!([i, c])) } else { None },
+            "layers": self.layers(),
+            "scope": SCOPE.0,
+        })
     }
 
     /// Describes what is on the screen to a lint: the sheet, each tile over it, and the words on them. The ground of the words on a picture
@@ -565,6 +664,13 @@ impl PickerSurface {
             t._port.feed_lint(kit, lint, &format!("tile {i} port"), Some(port_ground), (0.0, 0.0));
             t._name.feed_lint(kit, lint, &format!("tile {i} name"), Some(card), (0.0, 0.0));
             t._state.feed_lint(kit, lint, &format!("tile {i} state"), Some(card), (0.0, 0.0));
+        }
+        for (i, kids) in b.kids.iter().enumerate() {
+            for (c, k) in kids.iter().enumerate() {
+                let paint = if k.child.active { selected_wash(kit) } else { hover_wash(kit) };
+                let ground = lint.panel_on(&format!("tile {i} device {c}"), k.lay.frame, paint, false, sheet);
+                k._name.feed_lint(kit, lint, &format!("tile {i} device {c} name"), Some(ground), (0.0, 0.0));
+            }
         }
     }
 }
