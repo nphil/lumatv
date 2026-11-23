@@ -9,6 +9,14 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Voice assistant plugin installed, on and paired, 2026-11-23
+
+Installed from main `fe14bb50` under the TV lock: helper `be4c7d26` -> `4683577c` (both copies), UI `fa86d762` -> `542c9806` (shell client only; compositor, tool and feeder left as they were). The helper was built against LumaShow `3344928f` (`esphome-api`): its keyless gate closed the connection on `DeviceCapabilitiesRequest`, which Home Assistant sends before it sets the key, so the first helper (`100890df`) never paired; the request is now allowed without a key.
+
+The plugin is on for the owner profile and paired. Home Assistant: ESPHome device `LumaTV Voice bdae31` (zeroconf), `assist_satellite.lumatv_voice_bdae31_assist_satellite`, area Living Room, pipeline "Local (Kokoro + Whisper)" as on the Echo Dot; the overlay reports "Following Voice Satellite in Living Room". `plug:media` is the right reply device: a tone to it reached the mixer capture `hw:1,2` on channel 1 only, with the plugin on and off. Self-check (helper.json restored afterwards): heard "Okay Nabu, what time is it?", reply "7:18 AM", 14 to 15 s; the screenshots show the edge glow while listening and the transcript with the reply card. A 3 s `hw:1,0` S24_LE 2 ch capture at 48 kHz with the plugin off: both channels -74.2 dBFS RMS, peak -31.3 dBFS. A 10 minute watch with it on and idle: 30 samples, `aud_dsp_reset_count` 0, no wake or turn, helper worker 2.1 % of one core. The panel refresher endpoint answers (not running).
+
+Not tested: the 120 Hz frame gate with the overlay showing, a spoken wake word at the microphone, and the echo canceller (still off, so loud TV speech can wake it). The set was left in standby with the plugin on.
+
 ## Voice assistant plugin merged, not installed, 2026-11-23
 
 The Voice assistant plugin (`docs/plugins/voice-assistant.md`) is on main and off by default; nothing of it is installed on the TV and the TV was not touched. The 33 new helper unit tests (page schema, quiet hours, facts, key file, pairing window, DSP guard, the self-check's refusals, and the plugin switched on and off through `Plugins` without opening the microphone) and `cargo clippy --all-targets -D warnings` pass on a worker. On that worker (which runs as root) nine tests of other modules also fail (`logging`, `fetcher`, `plugins::runner`: ownership and user checks), not compared with a clean main.
