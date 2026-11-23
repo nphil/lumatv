@@ -2,10 +2,10 @@
 //! cards, the controller lab, GameSir and Leadjoy).
 //!
 //! Node ids of the pane: 900 the lede, 950 and up a group or note caption, from 1000 sixteen to a row (see [`row`](super::parts::row)),
-//! 4000 and up the theme cards. The shell holds 100 to 199.
+//! 4000 and up the theme cards, 899 the words of all but the lit row. The shell holds 100 to 199, 199 the words of all but the lit place.
 use super::{
     lab,
-    paint::{Fill, PAGE_EXTENT, PAGE_GROUP, Paint, ScrollGroup},
+    paint::{Fill, Node, PAGE_EXTENT, PAGE_GROUP, Paint, ScrollGroup, merge_words},
     parts::{
         Side,
         dialog::{Action, modal},
@@ -91,7 +91,10 @@ pub fn settings(p: &mut Paint<'_>) {
         chip: sheet.chip.map(|(word, _)| word),
         hints: &page_hints,
     };
+    let shell = p.plan.nodes.len();
     let content = rail::shell(p, &spec);
+    let lit = p.plan.hits.iter().find(|(id, _)| *id == m.view.focus && matches!(id, Focus::Rail(_))).map(|(_, f)| *f);
+    merge_words(&mut p.plan.nodes, shell, 199, |n| lit.is_some_and(|f| inside(n, f)));
     let (nodes, hits) = (p.plan.nodes.len(), p.plan.hits.len());
     match m.view.pane {
         Some(Pane::Theme) => themes(p, content),
@@ -136,9 +139,9 @@ fn list(p: &mut Paint<'_>, sheet: &crate::game::model::settings::Sheet, c: Frame
                     Shows::Nothing => row::value(p, id, frame, &line, "", None, focused),
                 }
                 if item.danger {
-                    let danger = p.ink(Role::Danger, false);
-                    if let Some(super::paint::Body::Text { marks, .. }) = p.plan.nodes.iter_mut().find(|n| n.id == id + 1).map(|n| &mut n.body) {
-                        if let Some(mark) = marks.first_mut() {
+                    let (danger, glyph) = (p.ink(Role::Danger, false), icon(item.glyph));
+                    if let Some(super::paint::Body::Text { marks, .. }) = p.plan.nodes.iter_mut().find(|n| n.id == id + 2).map(|n| &mut n.body) {
+                        if let Some(mark) = marks.iter_mut().find(|m| matches!(m.form, Form::Icon(i, _) if i == glyph)) {
                             mark.colour = danger;
                         }
                     }
@@ -151,7 +154,7 @@ fn list(p: &mut Paint<'_>, sheet: &crate::game::model::settings::Sheet, c: Frame
 }
 
 /// Moves what the pane painted from node `nodes` and hit `hits` on so the focus stays inside `view`, clipped to it as one scroll
-/// group. Focus on the pane's last row brings what follows it into view as well.
+/// group. Focus on the pane's last row brings what follows it into view as well. The words of all but the lit row become one layer.
 fn scroll(p: &mut Paint<'_>, view: Frame, nodes: usize, hits: usize) {
     let focus = p.model.view.focus;
     let bottom = p.plan.nodes[nodes..].iter().map(|n| n.frame.y + n.frame.h).fold(view.y, f32::max);
@@ -176,6 +179,8 @@ fn scroll(p: &mut Paint<'_>, view: Frame, nodes: usize, hits: usize) {
         n.frame.y -= shift;
         n.props.y -= shift;
     }
+    let lit = p.plan.hits[hits..].iter().find(|(id, _)| *id == focus).map(|(_, f)| Frame { y: f.y - shift, ..*f });
+    merge_words(&mut kept, 0, 899, |n| lab::apart(n.id) || lit.is_some_and(|f| inside(n, f)));
     let ids = kept.iter().map(|n| n.id).collect();
     p.plan.nodes.extend(kept);
     for k in hits..p.plan.hits.len() {
@@ -193,6 +198,12 @@ fn scroll(p: &mut Paint<'_>, view: Frame, nodes: usize, hits: usize) {
         extent: PAGE_EXTENT,
         nodes: ids,
     });
+}
+
+/// Whether `n`'s centre lies in `f`.
+fn inside(n: &Node, f: Frame) -> bool {
+    let (x, y) = (n.frame.x + n.frame.w / 2.0, n.frame.y + n.frame.h / 2.0);
+    x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h
 }
 
 pub fn theme_card(p: &mut Paint<'_>, id: u64, focus: Focus, index: usize, f: Frame) {

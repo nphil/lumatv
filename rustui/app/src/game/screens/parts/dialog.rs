@@ -4,10 +4,10 @@
 //! words, its pad glyph).
 use crate::game::model::Focus;
 use crate::game::screens::{
-    paint::{Fill, H, PAGE_EXTENT, Paint, SHEET_GROUP, ScrollGroup, W},
+    paint::{Body, Fill, H, PAGE_EXTENT, Paint, SHEET_GROUP, ScrollGroup, W},
     parts::{SCRIM_Z, SHEET_Z, motion::Enter},
 };
-use compositor_protocol::{Edges, Rect};
+use compositor_protocol::{Backdrop, Edges, Rect};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{components::{Icon, wrap}, geometry::Frame, lucent::palette::PaletteRole as Role};
 
@@ -29,10 +29,20 @@ pub fn curtain(p: &mut Paint<'_>) {
 }
 pub fn panel(p: &mut Paint<'_>, width: f32, height: f32) -> Frame {
     let frame = Frame::new((W - width) / 2.0, (H - height) / 2.0, width, height);
+    let from = p.plan.nodes.len();
     p.surface(8001, frame, Fill::Sheet, Radius::Sheet, false, false, true, 30);
+    opaque(p, from);
     frame
 }
-
+/// What was painted from node `from` on keeps its glass's edge and shadow but captures no backdrop: on an opaque sheet there is
+/// nothing to blur, and a capture costs 12 to 15 ms cold on the TV.
+pub fn opaque(p: &mut Paint<'_>, from: usize) {
+    for node in &mut p.plan.nodes[from..] {
+        if let Body::Surface(glass) = &mut node.body {
+            glass.backdrop = Backdrop::None;
+        }
+    }
+}
 /// Lays out rows `0..rows`, each `pitch` tall, of a list that shows from row `first` inside `view`, as a scroll group: the rows are built
 /// at their place for that offset and the group's spring carries the list there, so a list that moves on goes on from the speed it has.
 /// Only the rows the travel from the list's present offset to that one passes through are built. `pad` is how far the clip reaches past
@@ -110,12 +120,22 @@ pub fn modal(p: &mut Paint<'_>, title: &str, body: &str, actions: &[Action<'_>],
     let at = |y: f32| Frame::new(x, y, inner, 0.0);
     y += p.lines(8812, title_lines, at(y), Type::Title, Role::Ink, false, SHEET_Z + 1) + TITLE_GAP;
     y += p.lines(8813, body_lines, at(y), Type::Body, Role::Ink2, false, SHEET_Z + 1) + BODY_GAP;
-    let mut left = x;
+    let (mut left, buttons) = (x, p.plan.nodes.len());
     for (i, action) in actions.iter().enumerate() {
         left += p.button(8820 + 4 * i as u64, action.focus, action.label, action.icon, left, y, i == safe, false, SHEET_Z + 1) + ACTION_GAP;
     }
+    opaque(p, buttons);
     p.anchor = Frame::new(x, panel.y + PAD_TOP, inner, height - PAD_TOP - PAD_BOTTOM);
     panel
+}
+/// Marks the `modal`'s action `i` as the one that cannot be undone: its icon takes the danger colour, its label stays in ink.
+pub fn danger(p: &mut Paint<'_>, i: usize) {
+    let colour = p.ink(Role::Danger, false);
+    if let Some(Body::Text { marks, .. }) = p.plan.nodes.iter_mut().find(|n| n.id == 8820 + 4 * i as u64 + 1).map(|n| &mut n.body) {
+        for mark in marks {
+            mark.colour = colour;
+        }
+    }
 }
 
 #[cfg(test)]

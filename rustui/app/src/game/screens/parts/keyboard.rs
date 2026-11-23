@@ -1,7 +1,7 @@
 //! The on-screen keyboard and the text-entry layer around it.
 //!
 //! Node ids of the text-entry layer: 8000 its scrim, 8001 its sheet, 8010 the title, 8011 the field's label, 8020 and 8021 the input,
-//! from 8100 three per key, 8500 and 8501 the action button, 8510 the notice.
+//! 8100 the keys' words and 8101 the focused key's wash, 8500 and 8501 the action button, 8510 the notice.
 use crate::game::screens::{
     paint::{Fill, H, Paint, W},
     parts::motion::Enter,
@@ -32,30 +32,10 @@ fn diagnostic(p: &Paint<'_>) -> bool {
     p.model.in_diagnostics() && p.model.view.top() == Some(Layer::EditText)
 }
 
-pub fn keyboard(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage: bool) {
-    let (lower, diagnostic) = (p.model.view.keyboard_lower, diagnostic(p));
-    keys(p, id, x, y, w, numeric, stage, lower, diagnostic);
-}
-/// The key grid, in lower or upper case, with `_` among the keys for the Diagnostics page's fields.
-#[allow(clippy::too_many_arguments)]
-fn keys(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage: bool, lower: bool, diagnostic: bool) {
-    let keys = labels(numeric, lower, diagnostic);
-    let columns = if numeric { 6 } else { 10 };
-    let gap = 8.0;
-    let width = (w - gap * (columns - 1) as f32) / columns as f32;
-    let h = (52.0 * p.scale).min(80.0);
-    for (i, key) in keys.iter().enumerate() {
-        let f = Frame::new(x + (i % columns) as f32 * (width + gap), y + (i / columns) as f32 * (h + gap), width, h);
-        let from = p.plan.nodes.len();
-        p.surface(id + i as u64 * 3, f, Fill::Tint(0.06), Radius::Control, stage, p.focused(Focus::Keyboard(i)), false, 30);
-        let mut word = p.word(key, Type::Caption, p.ink(Role::Ink, stage), 2.0, (h - p.line(Type::Caption)) / 2.0, width - 4.0);
-        word.align = ui::components::Align::Centre;
-        p.words(id + i as u64 * 3 + 1, f, vec![word], vec![], 31);
-        if p.focused(Focus::Keyboard(i)) {
-            p.zoom(from, f, p.tokens.focus.button_scale);
-        }
-        p.hit(Focus::Keyboard(i), f);
-    }
+/// The key grid at `id` (see [`grid`]): digits six across, or letters ten across with `_` among them for the Diagnostics page's fields.
+pub fn keyboard(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool) {
+    let keys = labels(numeric, p.model.view.keyboard_lower, diagnostic(p));
+    grid(p, id, x, y, w, if numeric { 6 } else { 10 }, &keys, 31);
 }
 /// The keys' labels in focus order: `Focus::Keyboard(i)` is the `i`th.
 fn labels(numeric: bool, lower: bool, diagnostic: bool) -> Vec<String> {
@@ -75,10 +55,16 @@ fn labels(numeric: bool, lower: bool, diagnostic: bool) -> Vec<String> {
             .collect()
     }
 }
-/// The letter keys `columns` across as words on the sheet beneath them: one text layer for every key, and only the focused key gets
-/// its own layer, the focus wash under its word. `id` is the text layer, `id + 1` the wash.
+/// The letter keys `columns` across, without the Diagnostics page's `_`.
 pub fn flat(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, columns: usize, z: i32) {
     let keys = labels(false, p.model.view.keyboard_lower, false);
+    grid(p, id, x, y, w, columns, &keys, z);
+}
+/// `keys` `columns` across as words on the sheet beneath them: one text layer for every key, and only the focused key gets its own
+/// layer, the focus wash under its word. `id` is the text layer, `id + 1` the wash. A key of its own per letter cost two layers each,
+/// 90 for the letter keys.
+#[allow(clippy::too_many_arguments)]
+fn grid(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, columns: usize, keys: &[String], z: i32) {
     let gap = 8.0;
     let width = (w - gap * (columns - 1) as f32) / columns as f32;
     let h = (52.0 * p.scale).min(80.0);
@@ -166,8 +152,8 @@ pub fn plan(p: &mut Paint<'_>, entry: &TextEntry<'_>) {
         false,
         33,
     );
-    let diagnostic = diagnostic(p);
-    keys(p, 8100, x, y + input_h + 16.0, w, entry.numeric, false, entry.lower, diagnostic);
+    let keys = labels(entry.numeric, entry.lower, diagnostic(p));
+    grid(p, 8100, x, y + input_h + 16.0, w, if entry.numeric { 6 } else { 10 }, &keys, 31);
     let button_h = p.tokens.target.max(p.line(Type::Label) + 24.0);
     if let Some((label, icon)) = entry.action {
         p.button(8500, Focus::SheetAction(0), label, Some(icon), x, f.y + f.h - 34.0 - button_h, true, false, 34);
@@ -208,13 +194,13 @@ mod tests {
     fn the_keys_follow_the_case_and_the_numeric_flag_and_the_button_and_notice_only_appear_when_given() {
         painted(|_| {}, |p| {
             plan(p, &TextEntry { lower: true, action: None, notice: Some("Not reachable"), ..entry() });
-            assert_eq!(texts(p, 8101), ["a"]);
+            assert_eq!(texts(p, 8100)[0], "a");
             assert_eq!(texts(p, 8510), ["Not reachable"]);
             assert!(p.plan.nodes.iter().all(|n| n.id != 8500));
         });
         painted(|_| {}, |p| {
             plan(p, &TextEntry { numeric: true, ..entry() });
-            assert_eq!(texts(p, 8101), ["1"]);
+            assert_eq!(texts(p, 8100)[..2], ["1", "2"]);
             assert!(p.plan.nodes.iter().any(|n| n.id == 8500));
         });
     }

@@ -37,6 +37,7 @@ impl Slice for Rules {
     fn hints(m: &Model) -> Hints {
         match m.view.top() {
             Some(Layer::SignOut) => Hints(vec![(Key::Ok, "Choose"), (Key::Back, "Cancel")]),
+            Some(Layer::Auth) if m.view.focus != Focus::None => Hints(vec![(Key::Ok, "Choose"), (Key::Back, "Cancel")]),
             _ => Hints(vec![(Key::Back, "Cancel")]),
         }
     }
@@ -305,7 +306,8 @@ impl Model {
                 let manual = self.view.auth.as_ref().and_then(|a| self.integration(&a.engine)).and_then(|e| e.descriptor.as_ref()).is_some_and(|d| d.capabilities.has(Feature::ManualHost));
                 rows.push(if manual { vec![Focus::SheetAction(0), Focus::SheetAction(1)] } else { vec![Focus::SheetAction(0)] });
             }
-            Some(Layer::Auth) => rows.push(vec![Focus::SheetAction(0)]),
+            // A step that waits on a phone or the PC has nothing to press: Back cancels it.
+            Some(Layer::Auth) if self.view.auth.as_ref().is_some_and(|a| matches!(a.state, Some(AuthState::Failed { .. }))) => rows.push(vec![Focus::SheetAction(0)]),
             Some(Layer::SignOut) => rows.push(vec![Focus::SheetAction(0), Focus::SheetAction(1)]),
             _ => {}
         }
@@ -758,6 +760,31 @@ mod tests {
         assert!(matches!(m.view.auth.as_ref().and_then(|a| a.state.as_ref()), Some(AuthState::Qr { .. })));
         engine_says(&mut m, "steam", ipc::Event::Auth { state: AuthState::Done { target: TargetId::new("main").unwrap() } });
         assert!(m.view.auth.is_none(), "the final Steam reply closes the sheet without offering a replacement code");
+    }
+    #[test]
+    fn a_sign_in_waits_with_nothing_to_press_and_ends_on_the_page_that_began_it() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("steam", "Steam", EngineKind::Account)]);
+        describe(&mut m, "steam", vec![lumagame_core::engine::AuthMethod::Qr], &[]);
+        let steam = EngineId::new("steam").unwrap();
+        m.open_settings(settings::Place::Accounts);
+        m.open_service(steam.clone(), None, &mut Vec::new());
+        let (page, pane, focus) = (m.view.page, m.view.pane, m.view.focus);
+        let qr = ipc::Event::Auth { state: AuthState::Qr { url: "https://s.team/q/1/2".into(), expires_s: 300 } };
+
+        m.begin_link(steam.clone(), None, &mut Vec::new());
+        engine_says(&mut m, "steam", qr.clone());
+        assert_eq!((m.view.top(), m.view.focus), (Some(Layer::Auth), Focus::None));
+        assert_eq!(m.hints().0, [(Key::Back, "Cancel")]);
+        assert!(sent(&key(&mut m, Key::Ok)).is_empty() && m.view.top() == Some(Layer::Auth), "OK does not cancel a waiting sign-in");
+        engine_says(&mut m, "steam", ipc::Event::Auth { state: AuthState::Failed { reason: ipc::AuthFail::Expired, message: "Expired.".into() } });
+        assert_eq!(m.view.focus, Focus::SheetAction(0), "a failure offers Try again");
+        assert!(matches!(sent(&key(&mut m, Key::Back))[..], [Request::AuthCancel]));
+        assert_eq!((m.view.top(), m.view.page, m.view.pane), (None, page, pane));
+
+        m.begin_link(steam, None, &mut Vec::new());
+        engine_says(&mut m, "steam", qr);
+        engine_says(&mut m, "steam", ipc::Event::Auth { state: AuthState::Done { target: TargetId::new("main").unwrap() } });
+        assert_eq!((m.view.top(), m.view.page, m.view.pane, m.view.focus), (None, page, pane, focus), "a finished sign-in stays where it began");
     }
     #[test]
     fn pairing_with_no_pc_found_offers_an_address_or_another_search() {

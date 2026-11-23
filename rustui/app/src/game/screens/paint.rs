@@ -57,6 +57,38 @@ pub struct Node {
     pub z: i32,
     pub body: Body,
 }
+/// Draws the text nodes of `nodes` from `from` on as one text layer `id`, save those `apart` keeps (the lit row, which is raised and
+/// grown on its own): a panel's words cost one layer however many rows it shows. Only text drawn where it was laid joins, none with
+/// a scale, fade or clip of its own and no live reading. The joined layer takes the highest of their z.
+pub fn merge_words(nodes: &mut Vec<Node>, from: usize, id: u64, apart: impl Fn(&Node) -> bool) {
+    let joins = |n: &Node| {
+        matches!(n.body, Body::Text { .. })
+            && n.props == Props::at(n.frame.x, n.frame.y)
+            && !LIVE.contains(&n.id)
+            && !apart(n)
+    };
+    if nodes[from..].iter().filter(|n| joins(n)).count() < 2 {
+        return;
+    }
+    let (mut joined, mut rest) = (Vec::new(), Vec::new());
+    for n in nodes.drain(from..) {
+        if joins(&n) { joined.push(n) } else { rest.push(n) }
+    }
+    nodes.extend(rest);
+    let (x, y) = joined.iter().fold((f32::MAX, f32::MAX), |(x, y), n| (x.min(n.frame.x), y.min(n.frame.y)));
+    let (right, bottom) = joined.iter().fold((x, y), |(r, b), n| (r.max(n.frame.x + n.frame.w), b.max(n.frame.y + n.frame.h)));
+    let z = joined.iter().map(|n| n.z).max().unwrap_or_default();
+    let (mut words, mut marks) = (Vec::new(), Vec::new());
+    for n in joined {
+        let (dx, dy) = (n.frame.x - x, n.frame.y - y);
+        if let Body::Text { words: w, marks: m } = n.body {
+            words.extend(w.into_iter().map(|w| Word { x: w.x + dx, y: w.y + dy, ..w }));
+            marks.extend(m.into_iter().map(|m| Mark { x: m.x + dx, y: m.y + dy, ..m }));
+        }
+    }
+    let frame = Frame::new(x, y, right - x, bottom - y);
+    nodes.push(Node { id, frame, props: Props::at(x, y), z, body: Body::Text { words, marks } });
+}
 /// A clipped scrolling coordinate space; members carry stable IDs across scrolls.
 pub struct ScrollGroup {
     pub id: u32,

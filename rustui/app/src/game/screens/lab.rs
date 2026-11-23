@@ -2,8 +2,8 @@
 //! apply, rumble, a flash test for a slow-motion video and, during a session, the stream's round trip as the engine measures it.
 
 use super::{
-    paint::{Fill, H, LIVE, Paint, W},
-    parts::row::{Control, row},
+    paint::{Fill, H, LIVE, Mark, Paint, W, merge_words},
+    parts::{dialog::opaque, row::{Control, row}},
 };
 use crate::game::model::{Focus, settings::{Capture, LabPad, Trip}};
 use compositor_protocol::Rect;
@@ -11,10 +11,21 @@ use lumagame_core::ipc::RoundTrip;
 use lumatv_gfn_pad::{Curve, button, lab::EDGES_US, shape};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{
-    components::{Align, Icon, line_height, wrap},
+    components::{Align, Form, Icon, line_height, wrap},
     geometry::Frame,
     lucent::palette::PaletteRole as Role,
 };
+
+/// The text layers of the three readings, the sticks, the triggers and buttons and the report timing: each holds its own words
+/// and shapes, so a new reading redraws only its own layer.
+const READINGS: [u64; 3] = [1190, 1290, 2190];
+/// The button chips' pills, a layer under their labels.
+const PILLS: u64 = 1500;
+
+/// Whether node `id` keeps its own layer when the pane's words are joined: a reading, or the pills under the button labels.
+pub fn apart(id: u64) -> bool {
+    READINGS.contains(&id) || id == PILLS
+}
 
 /// The reader's button bits in the order the chips show them.
 const CHIPS: [(u16, &str); 14] = [
@@ -116,6 +127,7 @@ fn leave_hint(p: &mut Paint<'_>, id: u64, x: f32, y: f32, ink: Role, fill: Role)
 }
 
 fn button_test(p: &mut Paint<'_>) {
+    let start = p.plan.nodes.len();
     let (x, w) = (p.x + 26.0, W - p.x * 2.0 - 52.0);
     p.text(100, "Button test", Frame::new(x, 170.0, w, p.line(Type::Title)), Type::Title, Role::Ink, false, 10);
     let hw = p.width("Hold 1 s · Leave", Type::Label) + p.line(Type::Label) + 28.0;
@@ -127,8 +139,13 @@ fn button_test(p: &mut Paint<'_>) {
     };
     let y = y + heading(p, 1001, &pad.name, x, y, w) + 24.0;
     let cell = 300.0;
+    let from = p.plan.nodes.len();
     stick_view(p, pad, x, y, cell);
+    merge_words(&mut p.plan.nodes, from, READINGS[0], |_| false);
+    let from = p.plan.nodes.len();
     buttons(p, pad, x + cell * 2.0 + 48.0, y, (w - cell * 2.0 - 48.0) / 2.0);
+    merge_words(&mut p.plan.nodes, from, READINGS[1], |n| n.id == PILLS);
+    merge_words(&mut p.plan.nodes, start, 102, |n| apart(n.id));
 }
 
 /// Actions stay separate from read-only sections so every reading can be reached at enlarged text sizes.
@@ -137,6 +154,7 @@ fn actions(p: &mut Paint<'_>, x: f32, w: f32, mut y: f32) -> f32 {
     let h = p.tokens.target.max(p.line(Type::Label) + 24.0);
     let per_row = if m.prefs.text_percent > 100 { 2 } else { 4 };
     let mut bx = x + 26.0;
+    let from = p.plan.nodes.len();
     for (i, label) in ["Test buttons", "Rumble left", "Rumble right", "Flash test"].into_iter().enumerate() {
         if i > 0 && i % per_row == 0 {
             bx = x + 26.0;
@@ -144,6 +162,8 @@ fn actions(p: &mut Paint<'_>, x: f32, w: f32, mut y: f32) -> f32 {
         }
         bx += p.button(300 + i as u64 * 4, Focus::Lab(i), label, None, bx, y, false, false, 10) + 24.0;
     }
+    // The pane scrolls under these buttons, and a glass backdrop would be taken again with every scroll.
+    opaque(p, from);
     y += h + 24.0;
     if let Some(notice) = &m.view.notice {
         y += marked(p, 101, Icon::Warning, Role::Warning, notice, Frame::new(x + 26.0, y, w - 52.0, 0.0)) + 24.0;
@@ -183,14 +203,17 @@ fn pad(p: &mut Paint<'_>, x: f32, w: f32, y: f32) -> f32 {
     let cell = if wide { 280.0 } else { inner / 2.0 };
     let from = p.plan.nodes.len();
     let stick_end = stick_view(p, pad, px, top, cell);
+    merge_words(&mut p.plan.nodes, from, READINGS[0], |_| false);
     reading(p, from, Focus::Lab(5), Frame::new(px, top, cell * 2.0, stick_end - top));
     let button_top = stick_end + 24.0;
     let from = p.plan.nodes.len();
     let left = buttons(p, pad, px, button_top, cell);
+    merge_words(&mut p.plan.nodes, from, READINGS[1], |n| n.id == PILLS);
     reading(p, from, Focus::Lab(6), Frame::new(px, button_top, cell * 2.0, left - button_top));
     let (rx, ry, rw) = if wide { (px + cell * 2.0 + 48.0, top, inner - cell * 2.0 - 48.0) } else { (px, left + 40.0, inner) };
     let from = p.plan.nodes.len();
     let right = timing(p, pad, rx, ry, rw);
+    merge_words(&mut p.plan.nodes, from, READINGS[2], |_| false);
     reading(p, from, Focus::Lab(7), Frame::new(rx, ry, rw, right - ry));
     let bottom = left.max(right) + 32.0;
     p.surface(1000, Frame::new(x, y, w, bottom - y), Fill::Tint(0.04), Radius::Card, false, false, false, 10);
@@ -209,19 +232,19 @@ fn stick_view(p: &mut Paint<'_>, pad: &LabPad, x: f32, y: f32, cell: f32) -> f32
     let shaping = p.model.prefs.shaping();
     let travel = DISC / 2.0 - DOT;
     let (body, caption) = (p.line(Type::Body), p.line(Type::Caption));
-    let axis = p.colour(Fill::Tint(0.12), false);
     for (i, (label, raw)) in [("Left stick", pad.report.left), ("Right stick", pad.report.right)].into_iter().enumerate() {
         let id = 1100 + i as u64 * 20;
         let live = LIVE.start + i as u64 * 10;
         let cx = x + cell * i as f32 + cell / 2.0;
         let cy = y + DISC / 2.0;
-        p.surface(id, Frame::new(cx - DISC / 2.0, y, DISC, DISC), Fill::Tint(0.06), Radius::Pill, false, false, false, 11);
+        let mut marks = vec![veil(p, 0.0, 0.0, DISC, DISC, DISC / 2.0, 0.06)];
         let dz = f32::from(shaping.deadzone_percent) / 100.0 * travel;
         if dz >= 1.0 {
-            p.surface(id + 1, Frame::new(cx - dz, cy - dz, dz * 2.0, dz * 2.0), Fill::Tint(0.12), Radius::Pill, false, false, false, 12);
+            marks.push(veil(p, DISC / 2.0 - dz, DISC / 2.0 - dz, dz * 2.0, dz * 2.0, dz, 0.12));
         }
-        p.solid(id + 2, Frame::new(cx - DISC / 2.0 + 12.0, cy - 1.0, DISC - 24.0, 2.0), axis, 1.0, 12);
-        p.solid(id + 3, Frame::new(cx - 1.0, y + 12.0, 2.0, DISC - 24.0), axis, 1.0, 12);
+        marks.push(veil(p, 12.0, DISC / 2.0 - 1.0, DISC - 24.0, 2.0, 1.0, 0.12));
+        marks.push(veil(p, DISC / 2.0 - 1.0, 12.0, 2.0, DISC - 24.0, 1.0, 0.12));
+        p.words(id, Frame::new(cx - DISC / 2.0, y, DISC, DISC), vec![], marks, 11);
         let (sx, sy) = shape(f64::from(raw.0), f64::from(raw.1), shaping);
         let (sx, sy) = unit(f32::from(sx) / 32767.0, f32::from(sy) / 32767.0);
         p.solid(live, Frame::new(cx + sx * travel - DOT, cy - sy * travel - DOT, DOT * 2.0, DOT * 2.0), p.ink(Role::Accent, false), DOT, 13);
@@ -268,16 +291,18 @@ fn buttons(p: &mut Paint<'_>, pad: &LabPad, x: f32, mut y: f32, cell: f32) -> f3
         words.insert(0, p.word(label, Type::Caption, p.ink(Role::Ink2, false), 0.0, 0.0, bw - width - 8.0));
         p.words(id, Frame::new(bx, y, bw, caption), words, vec![], 11);
         let track = Rect { x: bx, y: y + caption + 8.0, w: bw, h: BAR_H };
-        p.solid(id + 1, Frame::new(track.x, track.y, bw, BAR_H), p.ink(Role::TrackOff, false), BAR_H / 2.0, 12);
-        // The fill keeps its size and slides under a clip that starts after the round cap, so a moving trigger restyles no layer.
-        p.solid(id + 2, Frame::new(track.x, track.y, BAR_H, BAR_H), p.ink(if value > 0 { Role::Accent } else { Role::TrackOff }, false), BAR_H / 2.0, 13);
+        let cap = if value > 0 { Role::Accent } else { Role::TrackOff };
+        let marks = vec![round(p, 0.0, 0.0, bw, BAR_H, BAR_H / 2.0, Role::TrackOff), round(p, 0.0, 0.0, BAR_H, BAR_H, BAR_H / 2.0, cap)];
+        p.words(id + 1, Frame::new(track.x, track.y, bw, BAR_H), vec![], marks, 11);
+        // The fill keeps its size and slides under a clip that starts after the round cap, so a moving trigger redraws no layer.
         let fill = bw * f32::from(value) / 255.0;
         p.solid(LIVE.start + 100 + i as u64, Frame::new(track.x - bw + fill, track.y, bw, BAR_H), p.ink(Role::Accent, false), BAR_H / 2.0, 13);
         clip(p, Rect { x: track.x + BAR_H / 2.0, w: bw - BAR_H / 2.0, ..track });
     }
     y += caption + 8.0 + BAR_H + 32.0;
     let ch = p.line(Type::Label) + 16.0;
-    let mut cx = x;
+    let (top, mut cx) = (y, x);
+    let mut pills = Vec::new();
     for (i, (bit, label)) in CHIPS.into_iter().enumerate() {
         let cw = p.width(label, Type::Label) + 40.0;
         if cx + cw > x + cell * 2.0 && cx > x {
@@ -285,13 +310,14 @@ fn buttons(p: &mut Paint<'_>, pad: &LabPad, x: f32, mut y: f32, cell: f32) -> f3
             y += ch + 10.0;
         }
         let on = pad.report.buttons & bit != 0;
-        let f = Frame::new(cx, y, cw, ch);
-        p.surface(1500 + i as u64 * 2, f, if on { Fill::Accent } else { Fill::Tint(0.06) }, Radius::Pill, false, false, false, 12);
+        pills.push(if on { round(p, cx - x, y - top, cw, ch, ch / 2.0, Role::Accent) } else { veil(p, cx - x, y - top, cw, ch, ch / 2.0, 0.06) });
         let mut word = p.word(label, Type::Label, p.ink(if on { Role::AccentInk } else { Role::Ink2 }, false), 0.0, 8.0, cw);
         word.align = Align::Centre;
-        p.words(1501 + i as u64 * 2, f, vec![word], vec![], 13);
+        p.words(1501 + i as u64 * 2, Frame::new(cx, y, cw, ch), vec![word], vec![], 12);
         cx += cw + 10.0;
     }
+    // A text layer draws its marks over its words, so the pills are a layer of their own under the labels.
+    p.words(PILLS, Frame::new(x, top, cell * 2.0, y + ch - top), vec![], pills, 11);
     y + ch
 }
 
@@ -332,12 +358,13 @@ fn timing(p: &mut Paint<'_>, pad: &LabPad, x: f32, mut y: f32, w: f32) -> f32 {
     let bw = (w - gap * 8.0) / 9.0;
     let base = y + HISTOGRAM_H;
     let most = s.histogram.iter().copied().max().unwrap_or(0).max(1);
+    let mut bars = vec![veil(p, 0.0, HISTOGRAM_H, w, 2.0, 1.0, 0.12)];
     for (i, &count) in s.histogram.iter().enumerate() {
         let bx = x + i as f32 * (bw + gap);
-        // A full-height bar slid down and cut at the baseline: its height never changes, so a new reading restyles no layer.
-        let rise = HISTOGRAM_H * count as f32 / most as f32;
-        p.solid(LIVE.start + 200 + i as u64, Frame::new(bx, base - rise, bw, HISTOGRAM_H), p.ink(Role::Accent, false), 4.0, 12);
-        clip(p, Rect { x: bx, y, w: bw, h: HISTOGRAM_H });
+        let rise = (HISTOGRAM_H * count as f32 / most as f32).round();
+        if rise >= 1.0 {
+            bars.push(round(p, bx - x, HISTOGRAM_H - rise, bw, rise, (rise / 2.0).floor().min(4.0), Role::Accent));
+        }
         let label = match EDGES_US.get(i) {
             Some(&edge) => format!("<{}", ms_edge(edge)),
             None => format!("{}+", ms_edge(EDGES_US[EDGES_US.len() - 1])),
@@ -346,7 +373,7 @@ fn timing(p: &mut Paint<'_>, pad: &LabPad, x: f32, mut y: f32, w: f32) -> f32 {
         word.align = Align::Centre;
         p.words(2110 + i as u64, Frame::new(bx - gap / 2.0, base + 8.0, bw + gap, caption), vec![word], vec![], 11);
     }
-    p.solid(2100, Frame::new(x, base, w, 2.0), p.colour(Fill::Tint(0.12), false), 1.0, 12);
+    p.words(2100, Frame::new(x, y, w, HISTOGRAM_H + 2.0), vec![], bars, 11);
     y = base + 8.0 + caption + 16.0;
     let bursts = s.bursts;
     let f = Frame::new(x, y, w, 0.0);
@@ -506,6 +533,16 @@ fn clip(p: &mut Paint<'_>, rect: Rect) {
     if let Some(node) = p.plan.nodes.last_mut() {
         node.props.clip = Some(rect);
     }
+}
+
+/// A rounded rectangle of the ink at `tint` of full strength, drawn in a text layer: what a `Fill::Tint` surface looks like.
+fn veil(p: &Paint<'_>, x: f32, y: f32, w: f32, h: f32, radius: f32, tint: f32) -> Mark {
+    let form = Form::Veil { w: w.round() as u32, h: h.round() as u32, radius: radius.round() as u32, alpha: (tint * 255.0).round() as u8 };
+    Mark { form, colour: p.ink(Role::Ink, false), x, y }
+}
+
+fn round(p: &Paint<'_>, x: f32, y: f32, w: f32, h: f32, radius: f32, role: Role) -> Mark {
+    Mark { form: Form::Round { w: w.round() as u32, h: h.round() as u32, radius: radius.round() as u32 }, colour: p.ink(role, false), x, y }
 }
 
 /// A point past the unit circle, pulled back onto it: the disc's edge is the end of the travel.

@@ -1,11 +1,32 @@
 //! Linking (sign-in, QR and PIN) and the question asked before signing out or removing a PC. The Accounts and PCs place itself is a
 //! Settings list.
-use crate::game::screens::paint::{Body, Fill, H, Node, Paint, W};
-use crate::game::model::{Focus, Key};
+//!
+//! Node ids of a sign-in step that waits: 8000 its backdrop, 8001 its sheet, 8880 its words, 8881 the QR, 8882 and 8883 the
+//! countdown's ring and what is left of it. Entering a PIN keeps 8000 to 8500 of the text-entry layer; a failure or an empty search
+//! is a [`modal`].
+use crate::game::model::{Focus, Key, accounts::LinkFlow};
+use crate::game::screens::{
+    paint::{Body, Fill, H, Mark, Node, Paint, W, merge_words},
+    parts::{SHEET_Z, Side, dialog::*, hints, keyboard::*, motion::Enter},
+    symbols::Symbol,
+};
+use compositor_protocol::Props;
 use lumagame_core::ipc::AuthState;
 use lumatv_tokens::{Radius, TypeRole as Type};
-use ui::{components::{Align, Icon}, geometry::Frame, lucent::palette::PaletteRole as Role};
-use crate::game::screens::parts::{Side, dialog::*, hints, keyboard::*};
+use ui::{
+    components::{Align, Form, Icon},
+    geometry::Frame,
+    lucent::palette::PaletteRole as Role,
+};
+
+/// The QR's white square, its quiet zone included, and the countdown's ring.
+const QR: f32 = 360.0;
+const RING: f32 = 44.0;
+/// The waiting sheet's padding, and the room between its title, its body and its foot.
+const PAD: f32 = 48.0;
+const GAP: f32 = 40.0;
+/// Steps of the countdown's ring: over a 300 s sign-in it is drawn again every 5 s.
+const STEPS: u8 = 60;
 
 /// Asks before the open integration signs out or the open PC is removed; Cancel is where focus starts.
 pub fn sign_out(p: &mut Paint<'_>) {
@@ -23,211 +44,213 @@ pub fn sign_out(p: &mut Paint<'_>) {
         Action { label: act, icon: Some(Icon::Power), focus: Focus::SheetAction(1) },
     ];
     modal(p, &title, &body, &actions, 0);
+    danger(p, 1);
     hints::bar(p, &m.hints(), Side::Right, m.hints_dim);
 }
+
+/// The sign-in layer over whatever page began it. A step that waits on a phone or the PC has nothing to focus, and Back cancels it;
+/// a failure or an empty search for PCs asks what next.
 pub fn auth(p: &mut Paint<'_>) {
-    let Some(flow) = &p.model.view.auth else {
+    let m = p.model;
+    let Some(flow) = &m.view.auth else {
         return;
     };
-    veil(p, 8000, Frame::new(0.0, 0.0, W, H), true);
-    let name = p.model.engine_name(&flow.engine);
+    let name = m.engine_name(&flow.engine);
     match &flow.state {
-        Some(AuthState::DeviceCode { url, code, qr, .. }) => {
-            let f = panel(p, if p.scale > 1.0 { 1728.0 } else { 1320.0 }, if p.scale > 1.0 { 972.0 } else { 660.0 });
-            p.text(
-                8010,
-                &format!("Sign in to {name}"),
-                Frame::new(f.x + 40.0, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0),
-                Type::Title,
-                Role::Ink,
-                false,
-                32,
-            );
-            let top = f.y + 66.0 + p.line(Type::Title);
-            let q = Frame::new(f.x + 40.0, top, 360.0, 360.0);
-            p.plan.nodes.push(Node {
-                id: 8020,
-                frame: q,
-                props: compositor_protocol::Props::at(q.x, q.y),
-                z: 33,
-                body: Body::Qr(qr.as_ref().unwrap_or(url).clone()),
-            });
-            let x = q.x + 416.0;
-            let w = f.x + f.w - 40.0 - x;
-            let mut y = top;
-            y += p.wrapped(8021, "Scan the QR code with a phone, or open", Frame::new(x, y, w, 0.0), Type::Body, Role::Ink2, false, 33) + 12.0;
-            y += p.address(8022, url, Frame::new(x, y, w, 0.0), if p.scale > 1.0 { Type::Label } else { Type::Title }, Role::Ink, false, 33) + 24.0;
-            y += p.wrapped(8023, "Then enter this code", Frame::new(x, y, w, 0.0), Type::Body, Role::Ink2, false, 33) + 8.0;
-            p.text(8024, code, Frame::new(x, y, w, p.line(Type::Title)), Type::Title, Role::Ink, false, 33);
-            y += p.line(Type::Title) + 24.0;
-            let remaining = p.model.auth_remaining().unwrap_or(0);
-            p.text(
-                8025,
-                &format!("Code expires in {}:{:02}", remaining / 60, remaining % 60),
-                Frame::new(x, y, w, p.line(Type::Caption)),
-                Type::Caption,
-                Role::Ink2,
-                false,
-                33,
-            );
-            if p.scale > 1.0 {
-                p.wrapped(8030, "Waiting for sign-in", Frame::new(q.x, top + 384.0, q.w, 0.0), Type::Caption, Role::Ink2, false, 33);
-            } else {
-                p.hint(8030, "Waiting for sign-in", Icon::Hourglass, q.x, top + 384.0, false, 33);
-            }
-            let lead = p.lead(Key::Back, Icon::Back);
-            p.button_lead(8040, Focus::SheetAction(0), "Cancel", Some(lead), f.x + 40.0, f.y + f.h - 104.0, false, false, 34);
-        }
-        Some(AuthState::Qr { url, .. }) => {
-            // No address or code is shown: the phone's app scans the QR and asks for the approval itself.
-            let f = panel(p, if p.scale > 1.0 { 1728.0 } else { 1320.0 }, if p.scale > 1.0 { 972.0 } else { 660.0 });
-            p.text(8010, &format!("Sign in to {name}"), Frame::new(f.x + 40.0, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0), Type::Title, Role::Ink, false, 32);
-            let top = f.y + 66.0 + p.line(Type::Title);
-            let q = Frame::new(f.x + 40.0, top, 360.0, 360.0);
-            p.plan.nodes.push(Node { id: 8020, frame: q, props: compositor_protocol::Props::at(q.x, q.y), z: 33, body: Body::Qr(url.clone()) });
-            let x = q.x + 416.0;
-            let w = f.x + f.w - 40.0 - x;
-            let mut y = top;
-            y += p.wrapped(8021, &format!("Open the {name} app on a phone and scan this code."), Frame::new(x, y, w, 0.0), Type::Title, Role::Ink, false, 33) + 16.0;
-            y += p.wrapped(8022, "The app asks to confirm the sign-in. No password is entered on the TV.", Frame::new(x, y, w, 0.0), Type::Body, Role::Ink2, false, 33) + 24.0;
-            let remaining = p.model.auth_remaining().unwrap_or(0);
-            p.text(8025, &format!("Closes in {}:{:02}", remaining / 60, remaining % 60), Frame::new(x, y, w, p.line(Type::Caption)), Type::Caption, Role::Ink2, false, 33);
-            if p.scale > 1.0 {
-                p.wrapped(8030, "Waiting for sign-in", Frame::new(q.x, top + 384.0, q.w, 0.0), Type::Caption, Role::Ink2, false, 33);
-            } else {
-                p.hint(8030, "Waiting for sign-in", Icon::Hourglass, q.x, top + 384.0, false, 33);
-            }
-            let lead = p.lead(Key::Back, Icon::Back);
-            p.button_lead(8040, Focus::SheetAction(0), "Cancel", Some(lead), f.x + 40.0, f.y + f.h - 104.0, false, false, 34);
-        }
-        Some(AuthState::ShowPin { pin: code }) => pin(p, name, code, false),
-        Some(AuthState::EnterPin { digits }) => {
-            let entered = format!("{}{}", flow.pin, "_".repeat(usize::from(*digits).saturating_sub(flow.pin.len())));
-            pin(p, name, &entered, true);
-        }
-        Some(AuthState::Approval { hint }) => {
-            let f = panel(p, 1080.0, 580.0f32.max(p.line(Type::Title) * 2.0 + p.line(Type::Body) * 3.0 + 240.0));
-            p.text(8010, "Approve this TV", Frame::new(f.x + 40.0, f.y + 40.0, f.w - 80.0, p.line(Type::Title)), Type::Title, Role::Ink, false, 32);
-            p.wrapped(
-                8020,
-                hint.as_deref().unwrap_or("Approve the connection on the PC to finish pairing."),
-                Frame::new(f.x + 40.0, f.y + 80.0 + p.line(Type::Title), f.w - 80.0, 0.0),
-                Type::Body,
-                Role::Ink2,
-                false,
-                33,
-            );
-            p.hint(8030, "Waiting for approval", Icon::Hourglass, f.x + 40.0, f.y + f.h - 210.0, false, 33);
-            let lead = p.lead(Key::Back, Icon::Back);
-            p.button_lead(8040, Focus::SheetAction(0), "Cancel", Some(lead), f.x + 40.0, f.y + f.h - 104.0, false, false, 34);
-        }
         Some(AuthState::Failed { message, .. }) => {
-            let f = panel(p, 1080.0, 500.0f32.max(p.line(Type::Title) + p.line(Type::Body) * 4.0 + 200.0));
-            p.text(
-                8010,
-                "Connection not completed",
-                Frame::new(f.x + 40.0, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0),
-                Type::Title,
-                Role::Ink,
-                false,
-                32,
-            );
-            p.wrapped(8020, message, Frame::new(f.x + 40.0, f.y + 100.0 + p.line(Type::Title), f.w - 80.0, 0.0), Type::Body, Role::Ink2, false, 33);
-            p.button(8040, Focus::SheetAction(0), "Try again", Some(Icon::Refresh), f.x + 40.0, f.y + f.h - 104.0, true, false, 34);
+            modal(p, "Connection not completed", message, &[Action { label: "Try again", icon: Some(Icon::Refresh), focus: Focus::SheetAction(0) }], 0);
         }
         None if flow.no_pcs => {
-            let manual = p
-                .model
+            let manual = m
                 .integration(&flow.engine)
                 .and_then(|e| e.descriptor.as_ref())
                 .is_some_and(|d| d.capabilities.has(lumagame_core::engine::Feature::ManualHost));
-            let f = panel(p, 1080.0, 500.0f32.max(p.line(Type::Title) + p.line(Type::Body) * 4.0 + 200.0));
-            p.text(8010, "No PCs found", Frame::new(f.x + 40.0, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0), Type::Title, Role::Ink, false, 32);
-            p.wrapped(
-                8020,
-                &format!("{name} found no PC on this network. Check that the PC is on and on the same network, or enter its address."),
-                Frame::new(f.x + 40.0, f.y + 100.0 + p.line(Type::Title), f.w - 80.0, 0.0),
-                Type::Body,
-                Role::Ink2,
-                false,
-                33,
-            );
-            let y = f.y + f.h - 104.0;
-            let w = p.button(8040, Focus::SheetAction(0), "Try again", Some(Icon::Refresh), f.x + 40.0, y, !manual, false, 34);
+            let body = format!("{name} found no PC on this network. Check that the PC is on and on the same network, or enter its address.");
+            let mut actions = vec![Action { label: "Try again", icon: Some(Icon::Refresh), focus: Focus::SheetAction(0) }];
             if manual {
-                p.button(8044, Focus::SheetAction(1), "Enter address", Some(Icon::Plus), f.x + 56.0 + w, y, true, false, 34);
+                actions.push(Action { label: "Enter address", icon: Some(Icon::Plus), focus: Focus::SheetAction(1) });
             }
+            modal(p, "No PCs found", &body, &actions, actions.len() - 1);
         }
-        _ => {
-            let f = panel(p, 960.0, 440.0);
-            p.text(
-                8010,
-                &format!("Connecting to {name}"),
-                Frame::new(f.x + 40.0, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0),
-                Type::Title,
-                Role::Ink,
-                false,
-                32,
-            );
-            p.hint(8020, "Waiting for the integration", Icon::Hourglass, f.x + 40.0, f.y + 180.0, false, 33);
-            let lead = p.lead(Key::Back, Icon::Back);
-            p.button_lead(8040, Focus::SheetAction(0), "Cancel", Some(lead), f.x + 40.0, f.y + f.h - 104.0, false, false, 34);
+        Some(AuthState::EnterPin { digits }) => {
+            let entered = format!("{}{}", flow.pin, "_".repeat(usize::from(*digits).saturating_sub(flow.pin.len())));
+            enter_pin(p, name, &entered);
+        }
+        state => {
+            waiting(p, name, flow, state.as_ref());
+            return;
         }
     }
+    hints::bar(p, &m.hints(), Side::Right, m.hints_dim);
 }
-fn pin(p: &mut Paint<'_>, name: &str, code: &str, enter: bool) {
+
+/// A step that waits on someone else: an opaque sheet with the title, what to do and, for a phone, the QR on its white square beside
+/// it, with a ring counting down what is left of the sign-in. Its foot says Back cancels. The words are one layer.
+fn waiting(p: &mut Paint<'_>, name: &str, flow: &LinkFlow, state: Option<&AuthState>) {
+    let width = if p.scale > 1.0 { 1320.0 } else { 1080.0 };
+    let left = (W - width) / 2.0;
+    let screen = Frame::new(0.0, 0.0, W, H);
+    p.arrives(screen, Enter::FADE);
+    veil(p, 8000, screen, true);
+    let from = p.plan.nodes.len();
+    p.arrives(Frame::new(left, 0.0, width, H), Enter::FADE);
+    // Laid from y 0 and moved to the middle once its height is known.
+    let z = SHEET_Z + 1;
+    let title = match state {
+        Some(AuthState::ShowPin { .. }) => format!("Pair with {name}"),
+        Some(AuthState::Approval { .. }) => "Approve this TV".to_owned(),
+        Some(_) => format!("Sign in to {name}"),
+        None => format!("Connecting to {name}"),
+    };
+    let top = PAD + p.wrapped(8010, &title, Frame::new(left + PAD, PAD, width - 2.0 * PAD, 0.0), Type::Title, Role::Ink, false, z) + GAP;
+    let qr = match state {
+        Some(AuthState::Qr { url, .. }) => Some(url.clone()),
+        Some(AuthState::DeviceCode { url, qr, .. }) => Some(qr.clone().unwrap_or_else(|| url.clone())),
+        _ => None,
+    };
+    let x = if qr.is_some() { left + PAD + QR + PAD } else { left + PAD };
+    let w = left + width - PAD - x;
+    let at = |y: f32| Frame::new(x, y, w, 0.0);
+    let column = p.plan.nodes.len();
+    let mut y = top;
+    match state {
+        Some(AuthState::Qr { .. }) => {
+            y += p.wrapped(8011, &format!("Scan with the {name} app on a phone."), at(y), Type::Body, Role::Ink, false, z) + 20.0;
+        }
+        Some(AuthState::DeviceCode { url, code, .. }) => {
+            y += p.wrapped(8011, "Scan the QR code with a phone, or open", at(y), Type::Body, Role::Ink2, false, z) + 12.0;
+            y += p.address(8012, url, at(y), if p.scale > 1.0 { Type::Label } else { Type::Title }, Role::Ink, false, z) + 24.0;
+            y += p.wrapped(8013, "Then enter this code", at(y), Type::Body, Role::Ink2, false, z) + 8.0;
+            y += p.wrapped(8014, code, at(y), Type::Title, Role::Ink, false, z) + 20.0;
+        }
+        Some(AuthState::ShowPin { pin }) => {
+            y += p.wrapped(8011, "Enter this PIN in the pairing request on the PC.", at(y), Type::Body, Role::Ink2, false, z) + 36.0;
+            y += digits(p, 8012, x, y, w, pin, z) + 36.0;
+            y += p.wrapped(8013, "Waiting for approval", at(y), Type::Body, Role::Ink2, false, z);
+        }
+        Some(AuthState::Approval { hint }) => {
+            y += p.wrapped(8011, hint.as_deref().unwrap_or("Approve the connection on the PC to finish pairing."), at(y), Type::Body, Role::Ink2, false, z);
+        }
+        _ => y += p.wrapped(8011, "Waiting for the integration", at(y), Type::Body, Role::Ink2, false, z),
+    }
+    if let (Some(end), Some(remaining)) = (flow.expires_ms, p.model.auth_remaining()) {
+        let ring = Frame::new(x, y, RING, RING);
+        let full = (end.saturating_sub(flow.since_ms) / 1000).max(1);
+        let shown = (remaining * u64::from(STEPS)).div_ceil(full).min(u64::from(STEPS)) as u8;
+        p.symbol(8882, Symbol::Ring, ring, p.ink(Role::TrackOff, false), z);
+        p.symbol(8883, Symbol::Countdown { left: shown, of: STEPS }, ring, p.ink(Role::Accent, false), z + 1);
+        let lead = if matches!(state, Some(AuthState::Qr { .. })) { "Closes in" } else { "Code expires in" };
+        let words = format!("{lead} {}:{:02}", remaining / 60, remaining % 60);
+        p.text(8015, &words, Frame::new(x + RING + 16.0, y + (RING - p.line(Type::Body)) / 2.0, w - RING - 16.0, p.line(Type::Body)), Type::Body, Role::Ink2, false, z);
+        y += RING;
+    }
+    let mut bottom = y;
+    if let Some(value) = qr {
+        // The column sits level with the middle of the QR.
+        let dy = ((QR - (y - top)) / 2.0).max(0.0);
+        shift(&mut p.plan.nodes[column..], dy);
+        p.plan.nodes.push(Node { id: 8881, frame: Frame::new(left + PAD, top, QR, QR), props: Props::at(left + PAD, top), z, body: Body::Qr(value) });
+        bottom = (y + dy).max(top + QR);
+    }
+    let foot = bottom + GAP;
+    let lead = p.lead(Key::Back, Icon::Back);
+    p.hint(8884, "Cancel", lead, left + PAD, foot, false, z);
+    let height = foot + (37.0 * p.scale).max(p.line(Type::Label)) + PAD;
+    p.surface(8001, Frame::new(left, 0.0, width, height), Fill::Sheet, Radius::Sheet, false, false, false, SHEET_Z);
+    merge_words(&mut p.plan.nodes, from, 8880, |_| false);
+    shift(&mut p.plan.nodes[from..], (H - height) / 2.0);
+}
+
+/// Moves `nodes` down by `dy`.
+fn shift(nodes: &mut [Node], dy: f32) {
+    for n in nodes {
+        n.frame.y += dy;
+        n.props.y += dy;
+    }
+}
+
+/// The PIN's digits, each centred on a tinted square, as one layer at `id`. Returns their height.
+fn digits(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, code: &str, z: i32) -> f32 {
+    let chars = code.chars().collect::<Vec<_>>();
+    let (gap, h) = (20.0, 168.0);
+    let side = ((w - gap * chars.len().saturating_sub(1) as f32) / chars.len().max(1) as f32).min(136.0);
+    let radius = p.tokens.radius(Radius::Control) as u32;
+    let ty = p.tokens.ty(Type::Display);
+    let ink = p.ink(Role::Ink, false);
+    let mut words = Vec::with_capacity(chars.len());
+    let mut marks = Vec::with_capacity(chars.len());
+    for (i, c) in chars.iter().enumerate() {
+        let cx = i as f32 * (side + gap);
+        marks.push(Mark { form: Form::Veil { w: side as u32, h: h as u32, radius, alpha: 15 }, colour: ink, x: cx, y: 0.0 });
+        let mut word = p.word(c.to_string(), Type::Display, ink, cx, (h - p.line(Type::Display).min(130.0)) / 2.0, side);
+        word.ty.px = ty.px;
+        word.align = Align::Centre;
+        words.push(word);
+    }
+    p.words(id, Frame::new(x, y, w, h), words, marks, z);
+    h
+}
+
+/// A PIN to type in: the digits so far, the number keys and Pair.
+fn enter_pin(p: &mut Paint<'_>, name: &str, code: &str) {
+    veil(p, 8000, Frame::new(0.0, 0.0, W, H), true);
     let width = if p.scale > 1.0 { 1160.0 } else { 840.0 };
-    let f = panel(
-        p,
-        width,
-        if enter {
-            900.0
-        } else if p.scale > 1.0 {
-            800.0
-        } else {
-            650.0
-        },
-    );
+    let f = panel(p, width, 900.0);
     let x = f.x + 40.0;
     let mut y = f.y + 40.0;
     y += p.wrapped(8010, &format!("Pair with {name}"), Frame::new(x, y, width - 80.0, 0.0), Type::Title, Role::Ink, false, 32) + 20.0;
-    y += p.wrapped(
-        8011,
-        if enter { "Enter the PIN shown on the PC." } else { "Enter this PIN in the pairing request on the PC." },
-        Frame::new(x, y, width - 80.0, 0.0),
-        Type::Body,
-        Role::Ink2,
-        false,
-        32,
-    ) + 36.0;
-    let digits = code.chars().collect::<Vec<_>>();
-    let gap = 20.0;
-    let w = ((width - 80.0 - gap * (digits.len().saturating_sub(1)) as f32) / digits.len().max(1) as f32).min(136.0);
-    for (i, c) in digits.iter().enumerate() {
-        let f = Frame::new(x + i as f32 * (w + gap), y, w, 168.0);
-        p.surface(8020 + i as u64 * 2, f, Fill::Tint(0.06), Radius::Control, false, false, false, 32);
-        let mut word = p.word(c.to_string(), Type::Display, p.ink(Role::Ink, false), 0.0, (168.0 - p.line(Type::Display).min(130.0)) / 2.0, w);
-        word.ty.px = p.tokens.ty(Type::Display).px;
-        word.align = Align::Centre;
-        p.words(8021 + i as u64 * 2, f, vec![word], vec![], 33);
-    }
-    y += 204.0;
-    if enter {
-        keyboard(p, 8100, x, y, width - 80.0, true, false);
-    } else {
-        p.hint(8100, "Waiting for approval", Icon::Hourglass, x, y, false, 33);
-    }
-    let lead = if enter { Icon::Tick.into() } else { p.lead(Key::Back, Icon::Back) };
-    p.button_lead(8500, Focus::SheetAction(0), if enter { "Pair" } else { "Cancel" }, Some(lead), x, f.y + f.h - 104.0, enter, false, 34);
+    y += p.wrapped(8011, "Enter the PIN shown on the PC.", Frame::new(x, y, width - 80.0, 0.0), Type::Body, Role::Ink2, false, 32) + 36.0;
+    y += digits(p, 8020, x, y, width - 80.0, code, 33) + 36.0;
+    keyboard(p, 8100, x, y, width - 80.0, true);
+    p.button_lead(8500, Focus::SheetAction(0), "Pair", Some(Icon::Tick.into()), x, f.y + f.h - 104.0, true, false, 34);
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::model::{Layer, Model, tests::{SteamShot, with_steam}};
     use crate::game::screens::parts::layer::sheet;
+    use compositor_protocol::Backdrop;
+
+    fn steam(shot: SteamShot) -> Model {
+        with_steam(Model::new(Default::default(), Default::default(), vec![]), shot)
+    }
+
+    #[test]
+    fn the_qr_sheet_is_its_words_the_qr_and_the_countdown_on_an_opaque_backdrop_with_nothing_to_press() {
+        let m = steam(SteamShot::Qr);
+        let tokens = lumatv_tokens::Tokens::shipped();
+        let mut fonts = ui::Fonts::new();
+        let mut p = Paint::new(&tokens, &m, &mut fonts);
+        sheet(&mut p);
+        let mut ids = p.plan.nodes.iter().map(|n| n.id).collect::<Vec<_>>();
+        ids.sort_unstable();
+        assert_eq!(ids, [8000, 8001, 8880, 8881, 8882, 8883]);
+        assert!(p.plan.hits.is_empty());
+        assert!(p.plan.nodes.iter().any(|n| matches!(&n.body, Body::Qr(url) if url.starts_with("https://s.team/"))));
+        assert!(p.plan.nodes.iter().all(|n| !matches!(&n.body, Body::Surface(g) if g.backdrop != Backdrop::None)), "nothing captures what is under the sheet");
+    }
+
+    #[test]
+    fn the_sign_out_question_marks_only_its_own_button_as_dangerous() {
+        let mut m = steam(SteamShot::SignedOut);
+        m.view.push(Layer::SignOut, m.view.focus);
+        m.view.focus = Focus::SheetAction(0);
+        let tokens = lumatv_tokens::Tokens::shipped();
+        let mut fonts = ui::Fonts::new();
+        let mut p = Paint::new(&tokens, &m, &mut fonts);
+        sheet(&mut p);
+        let danger = p.ink(Role::Danger, false);
+        let icon = |id: u64| match &p.plan.nodes.iter().find(|n| n.id == id).expect("a button").body {
+            Body::Text { marks, .. } => marks[0].colour,
+            _ => panic!("{id} is not text"),
+        };
+        assert_eq!((icon(8821) == danger, icon(8825) == danger), (false, true));
+    }
 
     #[test]
     fn no_pc_found_keeps_both_buttons_whole() {
-        // A button takes its id and the next two (label, focus ring): "Enter address" at 8041 replaced "Try again"'s label.
+        // A button takes its id and the next two (label, focus ring): "Enter address" at 8825 replaced "Try again"'s label.
         let m = crate::game::model::tests::no_pc_found();
         let tokens = lumatv_tokens::Tokens::shipped();
         let mut fonts = ui::Fonts::new();
@@ -235,6 +258,6 @@ mod tests {
         sheet(&mut p);
         let ids = p.plan.nodes.iter().map(|n| n.id).collect::<std::collections::BTreeSet<_>>();
         assert_eq!(ids.len(), p.plan.nodes.len());
-        assert!(ids.contains(&8041) && ids.contains(&8045), "both labels are drawn");
+        assert!(ids.contains(&8821) && ids.contains(&8825), "both labels are drawn");
     }
 }

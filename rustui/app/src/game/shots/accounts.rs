@@ -1,5 +1,6 @@
 //! Accounts and PCs, linking, the empty Home and text-entry shots.
 use super::*;
+use crate::game::model::settings::{Act, Pref};
 
 pub(super) fn linking(base: &Model, add: &mut impl FnMut(&str, Model)) {
     for (name, state, engine) in [
@@ -45,15 +46,22 @@ pub(super) fn editing(base: &Model, add: &mut impl FnMut(&str, Model)) {
     m.view.address = "/media/games/quake".into();
     add("42-edit-path", m);
 }
-/// The Steam integration's page signed out, with its QR sheet and signed in, and the Home and game pages its records feed, in both
-/// themes at 100% and 200% text.
+/// Focus on the first row of the open sheet that `act` picks.
+fn focus_row(m: &mut Model, act: impl Fn(&Act) -> bool) {
+    let sheet = m.settings_sheet();
+    let row = sheet.rows().into_iter().find(|&i| sheet.item(i).is_some_and(|item| act(&item.act))).expect("the row");
+    m.view.focus = Focus::Setting(row);
+}
+/// The Steam integration's page signed out, with its sign-in sheet, signed in and asking before signing out, and the Home and game
+/// pages its records feed, in both themes at 100% and 200% text.
 pub(super) fn steam_screens(base: &Model) -> Vec<(String, Model)> {
     use crate::game::model::tests::{SteamShot, with_steam};
     let mut out = Vec::new();
     for (name, shot, page, title) in [
         ("60-steam-signed-out", SteamShot::SignedOut, None, ""),
-        ("61-steam-qr", SteamShot::Qr, None, ""),
-        ("62-steam-signed-in", SteamShot::SignedIn, None, ""),
+        ("steam-a-accounts-page-qr", SteamShot::Qr, None, ""),
+        ("steam-a-accounts-page", SteamShot::SignedIn, None, ""),
+        ("steam-a-sign-out", SteamShot::SignedIn, Some(Page::Settings), ""),
         ("63-steam-home", SteamShot::SignedIn, Some(Page::Home), ""),
         ("64-steam-hub", SteamShot::SignedIn, Some(Page::Game), "Baldur's Gate 3"),
     ] {
@@ -65,9 +73,21 @@ pub(super) fn steam_screens(base: &Model) -> Vec<(String, Model)> {
                     m.view.selected = Some(id(&m, title));
                     m.view.focus = Focus::Play;
                 }
+                Some(Page::Settings) => {
+                    focus_row(&mut m, |act| *act == Act::SignOut);
+                    m.view.push(Layer::SignOut, m.view.focus);
+                    m.view.focus = Focus::SheetAction(0);
+                }
                 Some(page) => {
                     m.view.page = page;
                     m.view.focus = m.home_focus();
+                }
+                None if matches!(shot, SteamShot::SignedIn) => focus_row(&mut m, |act| *act == Act::Pref(Pref::GamePages)),
+                // As in the mock: the code shown 48 s into a five-minute attempt, so the ring shows the time gone.
+                None if matches!(shot, SteamShot::Qr) => {
+                    m.step(Input::Tick { now_ms: 48_000, unix_s: 1_800_000_048 });
+                    let state = AuthState::Qr { url: "https://s.team/q/1/11860205094928508090".into(), expires_s: 252 };
+                    event(&mut m, "steam", ipc::Event::Auth { state });
                 }
                 None => {}
             }
@@ -78,6 +98,28 @@ pub(super) fn steam_screens(base: &Model) -> Vec<(String, Model)> {
         }
     }
     out
+}
+/// The sign-out question and the sign-in sheet opened from the Steam page and closed with Back, each leaving focus where it was.
+pub(super) fn walks() -> Vec<super::budget::Walk> {
+    use super::budget::{Step, Walk, taps};
+    use crate::game::model::tests::{SteamShot, with_steam};
+    let mut signed_in = with_steam(fixture(), SteamShot::SignedIn);
+    focus_row(&mut signed_in, |act| *act == Act::SignOut);
+    signed_in.rebuild_navigation();
+    let mut script = taps(&[(Key::Ok, 300)]);
+    script.push(Step::Expect("the question with Cancel lit", |m, _| (m.view.top(), m.view.focus) == (Some(Layer::SignOut), Focus::SheetAction(0))));
+    script.extend(taps(&[(Key::Right, 150), (Key::Left, 150), (Key::Back, 300)]));
+    script.push(Step::Expect("back on Sign out", |m, _| m.view.top().is_none() && m.view.pane == Some(Pane::Service)));
+    let mut walks = vec![Walk { name: "accounts-dialog-open-close".into(), base: signed_in, script }];
+    let mut signed_out = with_steam(fixture(), SteamShot::SignedOut);
+    focus_row(&mut signed_out, |act| matches!(act, Act::Link(..)));
+    signed_out.rebuild_navigation();
+    let mut script = taps(&[(Key::Ok, 300)]);
+    script.push(Step::Expect("the sign-in sheet", |m, _| m.view.top() == Some(Layer::Auth)));
+    script.extend(taps(&[(Key::Back, 300)]));
+    script.push(Step::Expect("back on the Steam page", |m, _| m.view.top().is_none() && m.view.pane == Some(Pane::Service)));
+    walks.push(Walk { name: "accounts-sign-in-open-close".into(), base: signed_out, script });
+    walks
 }
 
 #[test]

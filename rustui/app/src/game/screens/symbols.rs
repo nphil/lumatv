@@ -14,6 +14,8 @@ pub enum Symbol {
     /// An arc of the start screen's ring, `turn` of `of` steps round from the right. Every step is its own image, drawn once, so the
     /// ring turns by swapping opacity and never by drawing again.
     Spinner { turn: u8, of: u8 },
+    /// What is left of a countdown on the start screen's ring: `left` of `of` steps clockwise from the top.
+    Countdown { left: u8, of: u8 },
 }
 #[derive(Clone, Copy)]
 enum Shape {
@@ -127,6 +129,18 @@ fn shapes(symbol: Symbol) -> (Vec<Shape>, f32) {
             let mut s = Vec::new();
             arc(&mut s, 12.0, 12.0, SPIN_R, SPIN_R, from, from + SPIN_SWEEP);
             return (s, SPIN_HALF);
+        }
+        Symbol::Countdown { left, of } => {
+            let step = 360.0 / f32::from(of.max(1));
+            let at = |k: u8| {
+                let a = (f32::from(k) * step - 90.0).to_radians();
+                (12.0 + SPIN_R * a.cos(), 12.0 + SPIN_R * a.sin())
+            };
+            let s = (0..left.min(of)).map(|k| {
+                let ((a, b), (c, d)) = (at(k), at(k + 1));
+                Line(a, b, c, d)
+            });
+            return (s.collect(), SPIN_HALF);
         }
         Symbol::Face { kind, face, ring } => {
             let (mut s, half) = match kind {
