@@ -57,3 +57,9 @@ Experiments 2 and 3, run 10:04 to 10:08 on the C4 with the LumaTV compositor and
 - The page must size the player by CSS: the frame hides its iframe until load, so the page sees a 0×0 viewport when it starts. The iframe's white background shows until the page loads.
 
 Not tested: sound, the autoplay rule, a blocked video, cache growth over 20 plays, the frame over a real card.
+
+## Hosting the player page (2026-11-23)
+
+The probe page loaded from `file://` inside the frame package got `onReady` and then error 153 on the C4: a file page sends no Referer, which YouTube now requires. The player page (`game/player/`) is therefore served over https: the `lumagame-player` container on BeastNAS (nginx:alpine, port 8795, files in `/mnt/user/appdata/lumagame-player/html`), published by HomeLabber as `https://lumaplayer.nateshome.net/` (internal). A change to `game/player/` is deployed by copying its two files there.
+
+The Steam trailer's `hls_h264` playlist plays natively in WAM's `<video>` (`canPlayType` "maybe" for HLS, DASH and MP4; playing 1.1 s after load, unmuted autoplay allowed), so no HLS library is needed.

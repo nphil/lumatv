@@ -1,7 +1,7 @@
-// node --test tests/lumagame_player.test.cjs: the player page's keys and the states the frame hears (frame/player.js).
+// node --test tests/lumagame_player.test.cjs: the player page's keys and the states the frame hears (game/player/player.js).
 const test = require('node:test');
 const assert = require('node:assert');
-const { action, ytState, refused } = require('../frame/player.js');
+const { action, ytState, refused } = require('../game/player/player.js');
 
 test('OK toggles, the media keys set, Left and Right seek ten seconds', () => {
   assert.deepStrictEqual(action('ok', true), { op: 'pause' });
