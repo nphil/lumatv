@@ -1,21 +1,22 @@
 //! The Library page: the filter panel (or, searching, the keys) on the left, five covers across beside it, and the Refine lists as a
 //! drawer over the panel.
 //!
-//! Node ids: 100 the panel, 101 the query, 102 and 103 the group labels, from `PANEL_ROWS` sixteen per panel row, from 200 the keys, 500 and 501
-//! the empty or no-results line and the Accounts button, from 1000 twenty per cover, from 8100 sixteen per list row.
+//! Node ids: 100 the panel, 101 the query, 104 its field, 105 the words of every panel row but the lit one, 102 and 103 the group
+//! labels (folded into 105), from `PANEL_ROWS` sixteen per panel row, 200 the keys' words and 201 the lit key's wash, 500 and 501 the
+//! empty or no-results line and the Accounts button, from 1000 twenty per cover, from 8100 sixteen per list row.
 use crate::game::model::{
     Focus, Layer,
     facts::Start,
     library::Row,
 };
-use crate::game::screens::paint::{Fill, H, Paint, ScrollGroup, W};
+use crate::game::screens::paint::{Body, Fill, H, Paint, ScrollGroup, W};
 use crate::game::screens::parts::{
     Side,
     dialog::scrolling,
     drawer,
     focus::{self, Kind},
     hints,
-    keyboard::keyboard,
+    keyboard,
     row::{self, Leading, Line},
     topbar::{self, Here, refresh_note},
 };
@@ -83,6 +84,7 @@ fn filters(p: &mut Paint<'_>, panel: Frame) {
     p.surface(100, Frame::new(panel.x, panel.y, panel.w, height), Fill::Glass, Radius::Sheet, false, false, false, 10);
     let inner = Frame::new(panel.x + PAD, panel.y + PAD, panel.w - 2.0 * PAD, room);
     let visible = |y: f32, h: f32| y >= inner.y - 0.5 && y + h <= inner.y + inner.h + 0.5;
+    let start = p.plan.nodes.len();
     for (i, row) in rows.iter().enumerate() {
         let y = inner.y + tops[i] - shift;
         let label = match (i.checked_sub(1).map(|k| rows[k]), row) {
@@ -118,6 +120,30 @@ fn filters(p: &mut Paint<'_>, panel: Frame) {
         }
         p.hit(Focus::Filter(i), f);
     }
+    // Every row's words but the lit row's share one text layer on the panel; the lit row keeps its own, as it grows with focus.
+    let lit = focused.map(|i| PANEL_ROWS + 16 * i as u64 + 2);
+    let frame = Frame::new(panel.x, panel.y, panel.w, height);
+    let (mut words, mut marks, mut z) = (Vec::new(), Vec::new(), 12);
+    for node in p.plan.nodes.drain(start..).collect::<Vec<_>>() {
+        match node.body {
+            Body::Text { words: w, marks: k } if Some(node.id) != lit => {
+                let (dx, dy) = (node.frame.x - frame.x, node.frame.y - frame.y);
+                words.extend(w.into_iter().map(|mut word| {
+                    word.x += dx;
+                    word.y += dy;
+                    word
+                }));
+                marks.extend(k.into_iter().map(|mut mark| {
+                    mark.x += dx;
+                    mark.y += dy;
+                    mark
+                }));
+                z = z.max(node.z);
+            }
+            _ => p.plan.nodes.push(node),
+        }
+    }
+    p.words(105, frame, words, marks, z);
 }
 
 /// Search mode: the query over six-wide keys, where the panel stands.
@@ -137,7 +163,7 @@ fn keys(p: &mut Paint<'_>, panel: Frame) {
     let mark = p.mark(Icon::Search, side, 22.0, (field_h - side) / 2.0, Role::Ink2, false);
     p.surface(104, field, Fill::Tint(0.09), Radius::Control, false, false, false, 11);
     p.words(101, field, vec![word], vec![mark], 12);
-    keyboard(p, 200, x, field.y + field_h + 16.0, w, false, false, crate::game::model::library::KEY_COLUMNS);
+    keyboard::flat(p, 200, x, field.y + field_h + 16.0, w, crate::game::model::library::KEY_COLUMNS, 12);
 }
 
 /// The covers, or the line that stands in for them.
@@ -162,12 +188,15 @@ fn grid(p: &mut Paint<'_>, area: Frame, search: bool) {
     let row_h = w * 1.5 + ROW_GAP + caption_h(p);
     let first = m.view.first_grid_row;
     let current = p.scroll_positions.get(&GRID_GROUP).copied().unwrap_or(first as f32 * row_h);
-    let current_row = (current / row_h).floor().max(0.0) as usize;
     let total = m.filtered.len().div_ceil(columns);
-    // The rows on screen at the scroll's start and its end, and one each side of them.
-    let mut rows = Vec::with_capacity(8);
-    for anchor in [first, current_row] {
-        for row in anchor.saturating_sub(1)..(anchor + 3).min(total) {
+    // Only the rows on screen at the scroll's start and its end are drawn: rows past them cost layers on every frame, and a cover
+    // uploads when its row scrolls in (one per frame at most).
+    let view = H - area.y;
+    let mut rows = Vec::with_capacity(6);
+    for top in [first as f32 * row_h, current] {
+        let from = (top / row_h).floor().max(0.0) as usize;
+        let to = (((top + view) / row_h).ceil() as usize).min(total);
+        for row in from..to {
             if !rows.contains(&row) {
                 rows.push(row);
             }
@@ -210,11 +239,13 @@ fn cover(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, f: Frame) {
     let focused = p.focused(focus);
     let from = p.plan.nodes.len();
     p.surface(id, f, Fill::Sheet, Radius::Tile, false, false, false, 10);
-    let count = ui::components::wrap(p.fonts, &g.title, p.bold(Type::Body), f.w - 48.0).len();
-    let h = count as f32 * p.line(Type::Body);
-    p.wrapped(id + 1, &g.title, Frame::new(f.x + 24.0, f.y + (f.h - h) / 2.0, f.w - 48.0, h), Type::Body, Role::Ink, false, 11);
+    // The title stands in for the cover until its art is on disk.
     if let Some(path) = m.art_url(game, ArtKind::Cover).and_then(|url| m.art_path(&url)) {
         p.image(id + 2, path, f, p.tokens.radius(Radius::Tile), false, None, 12);
+    } else {
+        let count = ui::components::wrap(p.fonts, &g.title, p.bold(Type::Body), f.w - 48.0).len();
+        let h = count as f32 * p.line(Type::Body);
+        p.wrapped(id + 1, &g.title, Frame::new(f.x + 24.0, f.y + (f.h - h) / 2.0, f.w - 48.0, h), Type::Body, Role::Ink, false, 11);
     }
     if let Start::Cannot(why) = m.can_start(game) {
         let side = 24.0 * p.scale;

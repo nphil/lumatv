@@ -32,30 +32,15 @@ fn diagnostic(p: &Paint<'_>) -> bool {
     p.model.in_diagnostics() && p.model.view.top() == Some(Layer::EditText)
 }
 
-/// The key grid `columns` keys across.
-#[allow(clippy::too_many_arguments)]
-pub fn keyboard(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage: bool, columns: usize) {
+pub fn keyboard(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage: bool) {
     let (lower, diagnostic) = (p.model.view.keyboard_lower, diagnostic(p));
-    keys(p, id, x, y, w, numeric, stage, lower, diagnostic, columns);
+    keys(p, id, x, y, w, numeric, stage, lower, diagnostic);
 }
 /// The key grid, in lower or upper case, with `_` among the keys for the Diagnostics page's fields.
 #[allow(clippy::too_many_arguments)]
-fn keys(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage: bool, lower: bool, diagnostic: bool, columns: usize) {
-    let letters = match (lower, diagnostic) {
-        (true, true) => "abcdefghijklmnopqrstuvwxyz0123456789.-:/_",
-        (false, true) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/_",
-        (true, false) => "abcdefghijklmnopqrstuvwxyz0123456789.-:/",
-        (false, false) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/",
-    };
-    let keys: Vec<String> = if numeric {
-        "1234567890".chars().map(|n| n.to_string()).chain(["⌫".into(), "Done".into()]).collect()
-    } else {
-        letters
-            .chars()
-            .map(|c| c.to_string())
-            .chain(["⌫".into(), "Space".into(), "Done".into(), if lower { "ABC" } else { "abc" }.into()])
-            .collect()
-    };
+fn keys(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage: bool, lower: bool, diagnostic: bool) {
+    let keys = labels(numeric, lower, diagnostic);
+    let columns = if numeric { 6 } else { 10 };
     let gap = 8.0;
     let width = (w - gap * (columns - 1) as f32) / columns as f32;
     let h = (52.0 * p.scale).min(80.0);
@@ -71,6 +56,47 @@ fn keys(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage
         }
         p.hit(Focus::Keyboard(i), f);
     }
+}
+/// The keys' labels in focus order: `Focus::Keyboard(i)` is the `i`th.
+fn labels(numeric: bool, lower: bool, diagnostic: bool) -> Vec<String> {
+    let letters = match (lower, diagnostic) {
+        (true, true) => "abcdefghijklmnopqrstuvwxyz0123456789.-:/_",
+        (false, true) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/_",
+        (true, false) => "abcdefghijklmnopqrstuvwxyz0123456789.-:/",
+        (false, false) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/",
+    };
+    if numeric {
+        "1234567890".chars().map(|n| n.to_string()).chain(["⌫".into(), "Done".into()]).collect()
+    } else {
+        letters
+            .chars()
+            .map(|c| c.to_string())
+            .chain(["⌫".into(), "Space".into(), "Done".into(), if lower { "ABC" } else { "abc" }.into()])
+            .collect()
+    }
+}
+/// The letter keys `columns` across as words on the sheet beneath them: one text layer for every key, and only the focused key gets
+/// its own layer, the focus wash under its word. `id` is the text layer, `id + 1` the wash.
+pub fn flat(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, columns: usize, z: i32) {
+    let keys = labels(false, p.model.view.keyboard_lower, false);
+    let gap = 8.0;
+    let width = (w - gap * (columns - 1) as f32) / columns as f32;
+    let h = (52.0 * p.scale).min(80.0);
+    let rows = keys.len().div_ceil(columns);
+    let mut words = Vec::with_capacity(keys.len());
+    for (i, key) in keys.iter().enumerate() {
+        let (kx, ky) = ((i % columns) as f32 * (width + gap), (i / columns) as f32 * (h + gap));
+        let f = Frame::new(x + kx, y + ky, width, h);
+        if p.focused(Focus::Keyboard(i)) {
+            let wash = p.tokens.states.focus_wash[usize::from(p.mode == ui::lucent::palette::Mode::Light)];
+            p.surface(id + 1, f, Fill::Tint(wash), Radius::Control, false, true, false, z);
+        }
+        let mut word = p.word(key, Type::Caption, p.ink(Role::Ink, false), kx + 2.0, ky + (h - p.line(Type::Caption)) / 2.0, width - 4.0);
+        word.align = ui::components::Align::Centre;
+        words.push(word);
+        p.hit(Focus::Keyboard(i), f);
+    }
+    p.words(id, Frame::new(x, y, w, rows as f32 * (h + gap) - gap), words, vec![], z + 1);
 }
 pub fn edit_text(p: &mut Paint<'_>) {
     let model = p.model;
@@ -141,7 +167,7 @@ pub fn plan(p: &mut Paint<'_>, entry: &TextEntry<'_>) {
         33,
     );
     let diagnostic = diagnostic(p);
-    keys(p, 8100, x, y + input_h + 16.0, w, entry.numeric, false, entry.lower, diagnostic, if entry.numeric { 6 } else { 10 });
+    keys(p, 8100, x, y + input_h + 16.0, w, entry.numeric, false, entry.lower, diagnostic);
     let button_h = p.tokens.target.max(p.line(Type::Label) + 24.0);
     if let Some((label, icon)) = entry.action {
         p.button(8500, Focus::SheetAction(0), label, Some(icon), x, f.y + f.h - 34.0 - button_h, true, false, 34);

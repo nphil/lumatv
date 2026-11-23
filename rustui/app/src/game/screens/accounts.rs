@@ -213,7 +213,7 @@ fn pin(p: &mut Paint<'_>, name: &str, code: &str, enter: bool) {
     }
     y += 204.0;
     if enter {
-        keyboard(p, 8100, x, y, width - 80.0, true, false, 6);
+        keyboard(p, 8100, x, y, width - 80.0, true, false);
     } else {
         p.hint(8100, "Waiting for approval", Icon::Hourglass, x, y, false, 33);
     }
