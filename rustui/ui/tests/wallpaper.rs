@@ -1,5 +1,5 @@
 //! Owner wallpaper controls through the production surface, native engine, and Mesa pixels.
-use compositor_protocol::{Props, Wallpaper, WallpaperKind};
+use compositor_protocol::{Fill, Props, Rgba, Shape, Wallpaper, WallpaperKind};
 use lumatv_render::host::{Engine, FrameCost, HostConfig};
 use lumatv_render::{Demand, Gles, silk_report};
 use lumatv_tokens::Tokens;
@@ -28,8 +28,9 @@ struct HomeWall {
 }
 
 impl HomeWall {
-    fn new() -> Self {
-        let data = std::env::temp_dir().join(format!("lumatv-wallpaper-gpu-{}", std::process::id()));
+    /// `name` keeps a test's data directory its own: tests run on parallel threads and each removes its directory when done.
+    fn new(name: &str) -> Self {
+        let data = std::env::temp_dir().join(format!("lumatv-wallpaper-gpu-{}-{name}", std::process::id()));
         std::fs::create_dir_all(data.join("theme")).unwrap();
         let mut pixels = Vec::with_capacity((W * H * 4) as usize);
         for y in 0..H {
@@ -151,7 +152,7 @@ fn difference_rect(a: &[u8], b: &[u8], left: u32, top: u32, right: u32, bottom: 
 
 #[test]
 fn persisted_live_controls_change_their_picture_without_leaking_or_damaging_a_paused_reset() {
-    let mut h = HomeWall::new();
+    let mut h = HomeWall::new("controls");
     let baseline = h.shot();
     let source_sample = h.surface.sample;
     for (key, value) in [
@@ -253,7 +254,36 @@ fn persisted_live_controls_change_their_picture_without_leaking_or_damaging_a_pa
     h.keep_data = true;
     drop(other);
     drop(h);
-    let mut reconnected = HomeWall::new();
+    let mut reconnected = HomeWall::new("controls");
     assert_eq!(reconnected.shot(), scoped, "a fresh native connection restores the persisted owner look before its first Create");
 
+}
+
+/// The surface used to make two gradient plates for a scrim that is Silk's own: stops of clear black over the whole screen. They draw nothing, and
+/// a scrim darker than Silk's still darkens the picture where it is owed.
+#[test]
+fn clear_scrim_plates_change_no_pixel_and_an_owed_scrim_still_darkens() {
+    let mut h = HomeWall::new("plates");
+    let scrim = |bottom: f32| json!({"dark": {"wallScrim": [0.10, 0.18, bottom]}});
+    h.surface.restyle(&h.kit, &scrim(0.46));
+    let (bare, bare_cost) = h.draw_at(h.now + STEP);
+    let clear = Rgba(0, 0, 0, 0);
+    let plate = |y: u32, height: u32| {
+        let shape = Shape { corner_radius: 0.0, fill: Fill::Linear { from: clear, to: clear, angle_deg: 90.0 }, border_width: 0.0, border: clear };
+        h.kit.ui.scene.shape(W, height, 1, shape, Props::at(0.0, y as f32))
+    };
+    let plates = [plate(0, 594), plate(594, 486)];
+    let (plated, plated_cost) = h.draw_at(h.now + STEP);
+    assert_eq!(plated_cost.layers, bare_cost.layers + 2, "the plates are layers of the frame");
+    let most = bare.iter().zip(&plated).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+    assert!(most <= 1, "two clear plates changed a channel by {most}");
+    drop(plates);
+
+    let mut owed = WallpaperSurface::new(0);
+    owed.restyle(&h.kit, &scrim(0.60));
+    let (darker, _) = h.draw_at(h.now + STEP);
+    // Rows from the bottom: the first is the screen's last, and the plate lies over the lower 45 %.
+    let centre = |frame: &[u8], row: u32| frame[((row * W + W / 2) * 4) as usize..][..3].to_vec();
+    assert!(centre(&darker, 0).iter().zip(centre(&bare, 0)).all(|(d, b)| *d < b), "the bottom row is darker");
+    assert_eq!(centre(&darker, H - 1), centre(&bare, H - 1), "the top row is as it was");
 }

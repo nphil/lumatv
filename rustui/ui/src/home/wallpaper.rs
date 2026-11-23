@@ -2,7 +2,7 @@
 //! decides light or dark glass for an `auto` material) and its dominant tint (the accent, `Tint.js`'s rules, kept in `theme/tint.json`
 //! across starts), and drawn by the compositor as the GPU wallpaper (`WallpaperKind::Silk`, the picture through a slow domain warp at
 //! `wallpaperMotion.fps`, still when the motion is off or reduced) under the mode's scrim (`wallScrim`: three stops of black at 0, 55
-//! and 100 %, two gradient plates). The video wallpaper hook: while the compositor's `wall` topic says the moving wallpaper's window has
+//! and 100 %, two gradient plates, each made only where it is not clear). The video wallpaper hook: while the compositor's `wall` topic says the moving wallpaper's window has
 //! the hole under Home, the picture and the scrim fade out (`layerMs`) and the panes over it paint at the reading alpha, so the video
 //! plane shows through; they come back the frame after the hole closes.
 
@@ -216,13 +216,14 @@ pub struct WallpaperSurface {
     plain: Option<ImageLayer>,
     plain_hidden: bool,
     layer: Option<WallpaperLayer>,
+    /// The plates that bring Silk's own scrim up to the theme's; a plate that would be clear is not made (see `restyle`).
     scrim_top: Option<ShapeLayer>,
     scrim_bottom: Option<ShapeLayer>,
     z: i32,
     pub source: String,
     pub sample: Option<Sample>,
     hole: bool,
-    generation: u64,
+    generation: Option<u64>,
     spec: Option<WallSpec>,
     original: Option<Picture>,
     grade: Option<Grade>,
@@ -236,7 +237,7 @@ pub struct WallpaperSurface {
 
 impl WallpaperSurface {
     pub fn new(z: i32) -> Self {
-        Self { backdrop: None, plain: None, plain_hidden: false, layer: None, scrim_top: None, scrim_bottom: None, z, source: String::new(), sample: None, hole: false, generation: 0, spec: None, original: None, grade: None, silk: None, report: Value::Null, shown: false, held: false }
+        Self { backdrop: None, plain: None, plain_hidden: false, layer: None, scrim_top: None, scrim_bottom: None, z, source: String::new(), sample: None, hole: false, generation: None, spec: None, original: None, grade: None, silk: None, report: Value::Null, shown: false, held: false }
     }
 
     /// Holds the warp still while something is over Home, and lets it go on when nothing is: the spec is restyled by the next `load`.
@@ -349,10 +350,10 @@ impl WallpaperSurface {
 
     /// The scrim for the mode, made again when the look changes.
     pub fn restyle(&mut self, kit: &Kit, theme: &Value) {
-        if self.generation == kit.generation() && self.scrim_top.is_some() {
+        if self.generation == Some(kit.generation()) {
             return;
         }
-        self.generation = kit.generation();
+        self.generation = Some(kit.generation());
         // The Silk wallpaper has the dark three-stop scrim in its own shader (`SILK_SCRIM`), as the QML Home's live wallpaper has its mode's: what
         // Home puts over it is only what is still owed to reach the mode's scrim. Home used to lay the whole mode scrim over it, so the page was
         // scrimmed twice (the bottom at .46 twice: 0.29 of the picture, the QML Home's 0.54). A scrim lighter than Silk's (the light material) cannot
@@ -363,8 +364,13 @@ impl WallpaperSurface {
         let top_h = (H as f32 * 0.55).round() as u32;
         let props = Props { opacity: if self.hole { 0.0 } else { 1.0 }, visible: !self.hole, ..Props::at(0.0, 0.0) };
         let shape = |from: Rgba, to: Rgba| Shape { corner_radius: 0.0, fill: Fill::Linear { from, to, angle_deg: 90.0 }, border_width: 0.0, border: Rgba(0, 0, 0, 0) };
-        self.scrim_top = Some(kit.ui.scene.shape(W, top_h, self.z + 1, shape(black(a[0]), black(a[1])), props));
-        self.scrim_bottom = Some(kit.ui.scene.shape(W, H - top_h, self.z + 1, shape(black(a[1]), black(a[2])), Props { y: top_h as f32, ..props }));
+        // A plate whose two stops are clear draws nothing, but a layer is a pass over its whole area in every frame that has it. The shipped
+        // scrims are Silk's own, so neither plate is owed (2.07 of the 8.69 Mpx an Apps open draws).
+        let z = self.z + 1;
+        let plate = |y: u32, h: u32, from: Rgba, to: Rgba| (from.3 > 0 || to.3 > 0).then(|| kit.ui.scene.shape(W, h, z, shape(from, to), Props { y: y as f32, ..props }));
+        let [top, middle, bottom] = a.map(black);
+        self.scrim_top = plate(0, top_h, top, middle);
+        self.scrim_bottom = plate(top_h, H - top_h, middle, bottom);
     }
 
     /// The compositor's `wall` topic: the hole under Home is open (the video wallpaper shows through) or closed.
@@ -373,19 +379,20 @@ impl WallpaperSurface {
             return;
         }
         self.hole = hole;
-        let mut layers: Vec<&ui::scene::Layer> = Vec::new();
+        // Each layer with the row it rests at: the lower plate starts where the upper one ends.
+        let top_h = (H as f32 * 0.55).round();
+        let mut layers: Vec<(&ui::scene::Layer, f32)> = Vec::new();
         if let Some(l) = &self.layer {
-            layers.push(l);
+            layers.push((l, 0.0));
         }
         if let Some(l) = &self.scrim_top {
-            layers.push(l);
+            layers.push((l, 0.0));
         }
         if let Some(l) = &self.scrim_bottom {
-            layers.push(l);
+            layers.push((l, top_h));
         }
-        let top_h = (H as f32 * 0.55).round();
-        for (i, l) in layers.iter().enumerate() {
-            let at = Props::at(0.0, if i == 2 { top_h } else { 0.0 });
+        for (l, y) in layers {
+            let at = Props::at(0.0, y);
             if hole {
                 kit.leave(l, at, Beat::Layer);
             } else {
@@ -466,6 +473,53 @@ mod tests {
         let off = json!({"wallpaperMotion": {"enabled": false}});
         assert_eq!(WallpaperSurface::spec_of(&off, false, false), WallpaperSurface::spec_of(&off, false, true), "a still wallpaper is the same held or not");
         assert_eq!(WallpaperSurface::spec_of(&theme, true, false).fps, 0, "reduced motion stills it as it did");
+    }
+
+    #[test]
+    fn a_scrim_plate_is_made_only_where_the_theme_is_darker_than_silks() {
+        let plates = |scrim: [f32; 3]| {
+            let (_h, kit) = crate::kit::testkit::kit_in(ui::lucent::palette::Mode::Dark, 1.0);
+            let mut wall = WallpaperSurface::new(0);
+            let room = kit.room().layers;
+            wall.restyle(&kit, &json!({"dark": {"wallScrim": scrim}}));
+            (room - kit.room().layers, wall.scrim_top.is_some(), wall.scrim_bottom.is_some())
+        };
+        assert_eq!(plates(SILK_SCRIM), (0, false, false), "Silk's own scrim is owed nothing");
+        assert_eq!(plates([0.0; 3]), (0, false, false), "a lighter scrim cannot be taken off again");
+        assert_eq!(plates([0.10, 0.18, 0.60]), (1, false, true), "only the bottom stop is darker");
+        assert_eq!(plates([0.30, 0.18, 0.46]), (1, true, false), "only the top stop is darker");
+        assert_eq!(plates([0.10, 0.30, 0.46]), (2, true, true), "the middle stop ends one plate and starts the other");
+    }
+
+    #[test]
+    fn the_shipped_theme_owes_silk_no_plate_in_either_mode() {
+        let shipped = lumatv_tokens::Tokens::shipped().json().clone();
+        for mode in [ui::lucent::palette::Mode::Dark, ui::lucent::palette::Mode::Light] {
+            let (_h, kit) = crate::kit::testkit::kit_in(mode, 1.0);
+            let mut wall = WallpaperSurface::new(0);
+            let room = kit.room().layers;
+            wall.restyle(&kit, &shipped);
+            assert_eq!(kit.room().layers, room, "{mode:?}: the shipped scrim is Silk's own or lighter, so no plate is made");
+        }
+    }
+
+    #[test]
+    fn the_hole_takes_the_plates_there_are_and_the_lower_one_stays_where_it_is() {
+        let (mut h, kit) = crate::kit::testkit::kit_in(ui::lucent::palette::Mode::Dark, 1.0);
+        let mut wall = WallpaperSurface::new(0);
+        wall.restyle(&kit, &json!({"dark": {"wallScrim": [0.10, 0.18, 0.60]}}));
+        let lower = |h: &mut ui::testing::Harness| {
+            h.commit();
+            let plates: Vec<_> = h.layers().into_iter().filter(|(_, content, _)| matches!(content, compositor_protocol::Content::Shape(_))).collect();
+            assert_eq!(plates.len(), 1, "only the bottom plate is made");
+            plates[0].2
+        };
+        wall.set_hole(&kit, true);
+        let open = lower(&mut h);
+        assert_eq!((open.y, open.visible), (594.0, false));
+        wall.set_hole(&kit, false);
+        let closed = lower(&mut h);
+        assert_eq!((closed.y, closed.visible), (594.0, true));
     }
 
     #[test]
