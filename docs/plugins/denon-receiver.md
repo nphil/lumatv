@@ -28,15 +28,22 @@ the TV input`, `receiver: the receiver does not answer|stays off: the TV's own s
 
 ## Devices behind the receiver
 
-The input picker lists the HDMI-CEC devices plugged into the receiver (`subList` entries at `depth` 2 of the port the receiver is on) under
-that port's tile, with the one the receiver is playing marked. A device is matched to a receiver input by name: the input's own name (as
-renamed on the receiver, from the settings document's `input` options) equal to the device's, else the one input whose name contains it or
-is contained in it (three letters at least, spaces and case aside); two inputs that fit equally match none. OK on a matched device
-launches the port's app when it is not in front, then posts `/v1/receiver/set` `input`. Unmatched devices are named only. The mark and
-the switch need the plugin on, the receiver's reading in date and the input setting writable; otherwise the devices are only named. Code:
-`rustui/ui/src/host/inputs.rs` (`source_for`, `children`), `rustui/ui/src/panels/picker.rs`, `picker_surface.rs`.
+Under the tile of the port the receiver is on, the input picker lists what can be played through it. With the plugin on, the rows are the
+receiver's own video inputs, by the names the owner gave them on the receiver (the settings document's `input` options, minus the sound-only
+ones: TV Audio, network, Bluetooth, tuner, phono, CD, USB and the like), so a source LG's HDMI-CEC list does not know (a Blu-ray player that
+does not answer CEC) still has a row. The row the receiver's current input is carries the mark, only while that port is in front. OK on a row
+launches the port's app when it is not in front, then posts `/v1/receiver/set` `input` with the input's code.
 
-Layout: a device is a row under its tile, set from the left like a tile's state line, its name wrapped to two lines at most; all rows
+The HDMI-CEC list (`subList` entries at `depth` 2) adds to a row: a device whose name matches the input's (equal, else one name contains the
+other, three letters at least, spaces and case aside; two inputs that fit equally match none) shows its power ("Off") after the name. A CEC
+device no input is named like stays as a row that is only named. Settings > Inputs & devices has a switch per receiver input
+(`inputs.receiver-<code>` in theme.json) to take one out of the picker; all are shown by default.
+
+The mark and the switch need the plugin on, the receiver's reading in date and the input setting writable. With the plugin off the rows
+are the CEC devices, only named: no mark, no switch. Code: `rustui/ui/src/host/inputs.rs` (`source_for`, `children`),
+`rustui/ui/src/panels/picker.rs`, `picker_surface.rs`, `rustui/ui/src/settings/pages/inputs.rs`.
+
+Layout: a row is under its tile, set from the left like a tile's state line, its name wrapped to two lines at most; all rows
 share one height. A column that would take the sheet off the top of the screen (large text) carries on in the free tile columns to its right.
 
 ## Receiver settings

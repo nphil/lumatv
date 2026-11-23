@@ -74,7 +74,8 @@ fn entry<'a>(c: &'a Ctx) -> Option<&'a Value> {
     hub::plugin_of(c.helper("plugins")?, ID)
 }
 
-fn on(c: &Ctx) -> bool {
+/// The plugin is on, or not known to be off.
+pub fn on(c: &Ctx) -> bool {
     entry(c).is_some_and(|e| text(e, "state") != "off")
 }
 

@@ -1174,7 +1174,8 @@ mod tests {
     fn receiver_doc(at: u64, current: &str) -> Value {
         json!({"enabled": true, "fresh": true, "reachable": true, "updatedAt": at, "settingsSession": "s1",
                "settings": {"input": {"support": "supported", "writable": true, "value": current,
-                   "options": [{"value": "MPLAY", "label": "Apple TV"}, {"value": "GAME", "label": "PlayStation 5"}, {"value": "TV", "label": "TV Audio"}]}}})
+                   "options": [{"value": "MPLAY", "label": "Apple TV"}, {"value": "GAME", "label": "PS4"}, {"value": "BD", "label": "MAGNAVOX 4K BD"},
+                       {"value": "TV", "label": "TV Audio"}, {"value": "NET", "label": "HEOS Music"}]}}})
     }
 
     fn behind_the_receiver(u: &mut Up, plugin: &str) {
@@ -1200,21 +1201,25 @@ mod tests {
         let g = u.s.geometry(&u.engine);
         let kids = g["children"][2].as_array().expect("the receiver's port is the third tile");
         let facts: Vec<(&str, bool, bool)> = kids.iter().map(|k| (k["name"].as_str().unwrap(), k["active"].as_bool().unwrap(), k["switch"].as_bool().unwrap())).collect();
-        assert_eq!(facts, vec![("Apple TV", false, true), ("PlayStation 5", true, true), ("Set top", false, false)]);
+        assert_eq!(
+            facts,
+            vec![("Apple TV", false, true), ("PS4", true, true), ("MAGNAVOX 4K BD", false, true), ("PlayStation 5", false, false), ("Set top", false, false)],
+            "the receiver's video inputs by its names, then the devices of the TV's CEC list that no input is named like"
+        );
         let tile = &g["tiles"][2]["frame"];
         assert!(kids[0]["frame"]["y"].as_f64().unwrap() >= tile["y"].as_f64().unwrap() + tile["h"].as_f64().unwrap(), "under its tile");
         let sheet = &g["sheet"];
-        let last = &kids[2]["frame"];
+        let last = &kids[kids.len() - 1]["frame"];
         assert!(last["y"].as_f64().unwrap() + last["h"].as_f64().unwrap() <= sheet["y"].as_f64().unwrap() + sheet["h"].as_f64().unwrap(), "inside the sheet");
         assert!(u.lint().is_empty(), "{:?}", u.lint());
         u.key(K::Down);
         assert_eq!(u.s.geometry(&u.engine)["child_focus"], json!([2, 0]));
         u.key(K::Down);
         u.key(K::Down);
-        assert_eq!(u.s.geometry(&u.engine)["child_focus"], json!([2, 1]), "a device with no input of the receiver is passed over");
+        assert_eq!(u.s.geometry(&u.engine)["child_focus"], json!([2, 2]), "a device with no input of the receiver is passed over");
         let out = u.p.key(K::Ok, &u.env);
         assert!(out.close);
-        assert!(matches!(&out.effects[..], [crate::kit::screen::Effect::Post { path, body }] if path == "/v1/receiver/set" && body["value"] == "GAME"), "the port is in front: only the receiver is set");
+        assert!(matches!(&out.effects[..], [crate::kit::screen::Effect::Post { path, body }] if path == "/v1/receiver/set" && body["value"] == "BD"), "the port is in front: only the receiver is set");
     }
 
     #[test]
@@ -1234,15 +1239,17 @@ mod tests {
         let mut u = Up::new(Mode::Dark, 2.0, 4);
         behind_the_receiver(&mut u, "on");
         let mut list = devices(4);
-        let names = ["Apple TV", "PlayStation 5", "Set top"];
-        list[1]["subList"] = Value::Array(names.iter().enumerate().map(|(i, n)| json!({"osdName": n, "cecpDevType": 4, "depth": 2, "physicalAddress": 8000 + i})).collect());
+        let names = ["Apple TV"];
+        let mut sub = vec![json!({"osdName": "AVR-S760H", "cecpDevType": 5, "depth": 1, "physicalAddress": 7000})];
+        sub.extend(names.iter().enumerate().map(|(i, n)| json!({"osdName": n, "cecpDevType": 4, "depth": 2, "physicalAddress": 8000 + i})));
+        list[1]["subList"] = Value::Array(sub);
         u.env.inputs.parse(&json!({"devices": list}));
         u.apply();
         let g = u.s.geometry(&u.engine);
         let kids = g["children"][2].as_array().expect("devices");
         let at = |k: &Value, f: &str| k["frame"][f].as_f64().unwrap();
         assert!(kids.iter().all(|k| at(k, "h") == at(&kids[0], "h")), "one row height");
-        assert!(at(&kids[0], "x") < at(&kids[1], "x") && at(&kids[1], "x") < at(&kids[2], "x"), "no room for a column: it went on in the next tiles' places");
+        assert!(at(&kids[kids.len() - 1], "x") > at(&kids[0], "x"), "no room for a column: it went on in the next tiles' places");
         assert!(g["sheet"]["y"].as_f64().unwrap() >= 0.0, "the sheet is on the screen");
         assert!(u.lint().is_empty(), "{:?}", u.lint());
     }
