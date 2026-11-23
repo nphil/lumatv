@@ -5,9 +5,9 @@ use crate::game::model::game::media::{VideoKind, VideoRect};
 use serde_json::{Value, json};
 
 pub const FRAME_APP: &str = "org.nphil.lumatv.frame";
-/// The player page (game/player), served by the lumagame-player container on BeastNAS. YouTube's embed needs a real http(s)
-/// page for its Referer: from file:// inside the frame package it answered error 153 on the C4.
-pub const PLAYER: &str = "https://lumaplayer.nateshome.net/";
+/// The player page (game/player), served by the LumaTV server. YouTube's embed needs a real http(s) page for its Referer: from
+/// file:// inside the frame package it answered error 153 on the C4.
+pub const PLAYER: &str = "https://lumatv.nateshome.net/player/";
 /// YouTube's least embedded player size (16:9).
 const MIN_W: f32 = 480.0;
 const MIN_H: f32 = 270.0;
