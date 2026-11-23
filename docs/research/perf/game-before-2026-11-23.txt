@@ -1,0 +1,111 @@
+cameras snoozed for the run (every camera, 30 min, renewed); no snooze of every camera was on
+PASS  game-home       windows                3/3  (== 3)
+PASS  game-home       panel_refresh       119.90  (120 Hz +-8 %)
+PASS  game-home       trace_complete           0  (== 0)
+PASS  game-home       first_frame_ms       18.57  (<= 50)
+PASS  game-home       p90_render_ms         1.42  (< 4.16667)  34 frames
+PASS  game-home       p90_window_ms         1.43  (< 5.55556)  worst single window
+PASS  game-home       dropped                  0  (<= 0)  the compositor's own count over 0 flips after a frame of a motion
+PASS  game-home       burst_over20             0  (<= 0)  after a frame of a motion, by the compositor's flags; 66 with the still screens between keys
+PASS  game-home       rss_growth_mb         0.00  (<= 1.01)  494 -> 494 pages over 1 cycles
+PASS  game-home       log_errors               0  (== 0)
+PASS  game-home       compositor_pid       14273  (== 14273)
+gate-g1a-before-game-home-m0: 1333 frames drawn, render p50/p90/max 421/1097/3381 us, owed p50/p90/max 2073600/2073600/2073600 px (2 rects at most), ui draws p50/max 0/115, layers p50/max 0/79; 1333 flips, draw to GPU done p50/p90/max 5.5/7.5/21.3 ms, late 7 lost 1823 missed 1, 523 flips over 10 ms after the one before
+gate-g1a-before-game-home-m1: 1409 frames drawn, render p50/p90/max 363/408/3086 us, owed p50/p90/max 2073600/2073600/2073600 px (1 rects at most), ui draws p50/max 0/114, layers p50/max 0/78; 1409 flips, draw to GPU done p50/p90/max 5.5/5.6/21.3 ms, late 6 lost 0 missed 0, 97 flips over 10 ms after the one before
+gate-g1a-before-game-home-m2: 2031 frames drawn, render p50/p90/max 365/409/564 us, owed p50/p90/max 2073600/2073600/2073600 px (1 rects at most), ui draws p50/max 0/0, layers p50/max 0/0; 2031 flips, draw to GPU done p50/p90/max 5.5/5.6/9.9 ms, late 0 lost 0 missed 0, 98 flips over 10 ms after the one before
+game-home: kernel waits: 91 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 91 unexplained
+    game-home-open +0.184 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-home-open +0.384 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-home-open +0.584 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-home-open +0.784 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-home-open +0.993 s: 25.0 ms (overrun 8.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-home-open +1.193 s: 25.0 ms (overrun 8.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-home-open +1.385 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-home-open +1.477 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-home-open +1.594 s: 25.0 ms (overrun 8.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-home-open +1.794 s: 25.0 ms (overrun 8.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-home-open +1.994 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-home-open +2.194 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    ... 79 more late frames
+PASS  game-library    windows                3/3  (== 3)
+PASS  game-library    panel_refresh       119.90  (120 Hz +-8 %)
+PASS  game-library    trace_complete           0  (== 0)
+PASS  game-library    first_frame_ms       18.37  (<= 50)
+PASS  game-library    p90_render_ms         1.57  (< 4.16667)  359 frames
+PASS  game-library    p90_window_ms         1.72  (< 5.55556)  worst single window
+PASS  game-library    dropped                  0  (<= 0)  the compositor's own count over 0 flips after a frame of a motion
+PASS  game-library    burst_over20             0  (<= 0)  after a frame of a motion, by the compositor's flags; 18 with the still screens between keys
+PASS  game-library    rss_growth_mb         0.00  (<= 1.01)  494 -> 494 pages over 1 cycles
+PASS  game-library    log_errors               0  (== 0)
+PASS  game-library    compositor_pid       14273  (== 14273)
+gate-g1a-before-game-library-m0: 1043 frames drawn, render p50/p90/max 375/573/5223 us, owed p50/p90/max 2073600/2073600/2073600 px (1 rects at most), ui draws p50/max 0/114, layers p50/max 0/78; 1043 flips, draw to GPU done p50/p90/max 5.4/5.8/24.9 ms, late 7 lost 438 missed 2, 68 flips over 10 ms after the one before
+gate-g1a-before-game-library-m1: 1878 frames drawn, render p50/p90/max 378/451/3714 us, owed p50/p90/max 2073600/2073600/2073600 px (1 rects at most), ui draws p50/max 0/0, layers p50/max 0/0; 1878 flips, draw to GPU done p50/p90/max 5.4/5.7/9.5 ms, late 0 lost 0 missed 0, 40 flips over 10 ms after the one before
+gate-g1a-before-game-library-m2: 2631 frames drawn, render p50/p90/max 381/448/3714 us, owed p50/p90/max 2073600/2073600/2073600 px (1 rects at most), ui draws p50/max 0/0, layers p50/max 0/0; 2632 flips, draw to GPU done p50/p90/max 5.4/5.7/8.8 ms, late 0 lost 0 missed 0, 46 flips over 10 ms after the one before
+game-library: kernel waits: 28 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 28 unexplained
+    game-library-open +1.153 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-library-open +2.629 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-library-open +3.605 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-library-open +3.622 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-library-open +4.172 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-library-open +4.214 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-library-open +4.748 s: 108.4 ms (overrun 91.8): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-library-open +5.323 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-library-close +0.012 s: 41.7 ms (overrun 25.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-library-open +2.007 s: 25.0 ms (overrun 8.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-library-open +2.566 s: 25.0 ms (overrun 8.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-library-open +3.609 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    ... 16 more late frames
+PASS  game-page       windows                6/6  (== 6)
+PASS  game-page       panel_refresh       119.90  (120 Hz +-8 %)
+PASS  game-page       trace_complete           0  (== 0)
+PASS  game-page       first_frame_ms       43.28  (<= 50)
+PASS  game-page       p90_render_ms         1.46  (< 4.16667)  28 frames
+PASS  game-page       p90_window_ms         1.49  (< 5.55556)  worst single window
+PASS  game-page       dropped                  0  (<= 0)  the compositor's own count over 0 flips after a frame of a motion
+PASS  game-page       burst_over20             0  (<= 0)  after a frame of a motion, by the compositor's flags; 0 with the still screens between keys
+PASS  game-page       rss_growth_mb         0.00  (<= 1.01)  494 -> 494 pages over 1 cycles
+PASS  game-page       log_errors               0  (== 0)
+PASS  game-page       compositor_pid       14273  (== 14273)
+gate-g1a-before-game-page-m0: 352 frames drawn, render p50/p90/max 392/1389/5778 us, owed p50/p90/max 2073600/2073600/2073600 px (2 rects at most), ui draws p50/max 0/114, layers p50/max 0/78; 353 flips, draw to GPU done p50/p90/max 5.4/9.3/21.9 ms, late 8 lost 1273 missed 2, 87 flips over 10 ms after the one before
+gate-g1a-before-game-page-m1: 506 frames drawn, render p50/p90/max 369/841/3380 us, owed p50/p90/max 2073600/2073600/2073600 px (2 rects at most), ui draws p50/max 0/114, layers p50/max 0/78; 506 flips, draw to GPU done p50/p90/max 5.4/7.1/21.9 ms, late 7 lost 885 missed 1, 95 flips over 10 ms after the one before
+gate-g1a-before-game-page-m2: 664 frames drawn, render p50/p90/max 368/736/3380 us, owed p50/p90/max 2073600/2073600/2073600 px (2 rects at most), ui draws p50/max 0/114, layers p50/max 0/78; 665 flips, draw to GPU done p50/p90/max 5.4/6.1/21.9 ms, late 7 lost 671 missed 1, 104 flips over 10 ms after the one before
+game-page: kernel waits: 8 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 8 unexplained
+    game-page-open +0.03 s: 175.2 ms (overrun 158.5): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-page-open +0.205 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-page-open +0.38 s: 100.1 ms (overrun 83.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-page-close +0.013 s: 66.7 ms (overrun 50.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-page-close +0.08 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-page-close +0.017 s: 58.4 ms (overrun 41.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-page-close +0.076 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-page-close +0.018 s: 66.7 ms (overrun 50.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+PASS  game-settings   windows                3/3  (== 3)
+PASS  game-settings   panel_refresh       119.90  (120 Hz +-8 %)
+PASS  game-settings   trace_complete           0  (== 0)
+PASS  game-settings   first_frame_ms        8.15  (<= 50)
+PASS  game-settings   p90_render_ms         1.43  (< 4.16667)  754 frames
+PASS  game-settings   p90_window_ms         1.46  (< 5.55556)  worst single window
+PASS  game-settings   dropped                  0  (<= 0)  the compositor's own count over 0 flips after a frame of a motion
+PASS  game-settings   burst_over20             0  (<= 0)  after a frame of a motion, by the compositor's flags; 2 with the still screens between keys
+PASS  game-settings   rss_growth_mb         0.00  (<= 1.01)  494 -> 494 pages over 1 cycles
+PASS  game-settings   log_errors               0  (== 0)
+PASS  game-settings   compositor_pid       14273  (== 14273)
+gate-g1a-before-game-settings-m0: 634 frames drawn, render p50/p90/max 397/801/3134 us, owed p50/p90/max 2073600/2073600/2073600 px (2 rects at most), ui draws p50/max 0/114, layers p50/max 0/78; 635 flips, draw to GPU done p50/p90/max 5.4/5.9/24.6 ms, late 11 lost 902 missed 0, 80 flips over 10 ms after the one before
+gate-g1a-before-game-settings-m1: 1078 frames drawn, render p50/p90/max 386/487/3134 us, owed p50/p90/max 2073600/2073600/2073600 px (2 rects at most), ui draws p50/max 0/114, layers p50/max 0/78; 1078 flips, draw to GPU done p50/p90/max 5.4/5.7/24.6 ms, late 11 lost 448 missed 0, 84 flips over 10 ms after the one before
+gate-g1a-before-game-settings-m2: 1512 frames drawn, render p50/p90/max 379/440/2303 us, owed p50/p90/max 2073600/2073600/2073600 px (1 rects at most), ui draws p50/max 0/114, layers p50/max 0/78; 1513 flips, draw to GPU done p50/p90/max 5.4/5.6/21.9 ms, late 5 lost 3 missed 0, 82 flips over 10 ms after the one before
+game-settings: kernel waits: 46 late frame(s): 0 kernel-caused, 0 waiting for a CPU, 46 unexplained
+    game-settings-open +0.03 s: 16.7 ms (overrun 1.0): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-settings-open +0.981 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-settings-open +1.181 s: 33.4 ms (overrun 16.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-settings-open +2.508 s: 66.7 ms (overrun 50.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-settings-open +2.724 s: 100.1 ms (overrun 83.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-settings-open +2.983 s: 91.8 ms (overrun 75.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-settings-open +3.233 s: 91.8 ms (overrun 75.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-settings-open +3.483 s: 91.8 ms (overrun 75.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-settings-open +3.725 s: 100.1 ms (overrun 83.4): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-settings-open +3.984 s: 91.8 ms (overrun 75.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-settings-open +4.234 s: 91.8 ms (overrun 75.1): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    game-settings-open +4.493 s: 83.4 ms (overrun 66.7): not the kernel (no kernel wait of 3 ms or more; kernel 0.0 ms)
+    ... 34 more late frames
+camera snooze put back as found
+DISCARDED 0 capture(s), 0 cycle(s), measured again: 0 disturbed (a pop-up, note or toast), 0 with an app's own drawing
+VERDICT PASS
