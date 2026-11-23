@@ -1,5 +1,5 @@
-//! Home: one row of square tiles over the focused game's art, the game's logo, one line and Play under it; Down swaps the row for the
-//! game's cards.
+//! Home: the game's logo, one line and Play over the focused game's art, and under them one row low on the screen: the focused game as a
+//! wide capsule, the others as tall covers beside it; Down swaps the row for the game's cards.
 //!
 //! Node ids: 2 and 3 the art, 10-48 the top bar, 100 the row's group and 1000 + 8 per row slot its tiles (`+0` the art or the plate,
 //! `+1` the title, `+2` the mark, `+3` the focus), 300-305 the logo, line and Play, 400 + 16 per card, 500-512 the empty Home.
@@ -25,17 +25,21 @@ use lumagame_core::{catalog::ArtKind, ids::GameId};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{components::Icon, geometry::Frame, lucent::palette::PaletteRole as Role};
 
-/// The mock's measures: the row's top, a tile's side and the gap between tiles; the stage's foot, the logo's height and width.
-const ROW_Y: f32 = 172.0;
-const TILE: f32 = 184.0;
-const TILE_GAP: f32 = 20.0;
-const STAGE_FOOT: f32 = 132.0;
+/// The measures: the row's top, a cover's width, the focused capsule's width, the row's height and the gap between its items; the
+/// stage's foot, the logo's height and width.
+const ROW_Y: f32 = 650.0;
+const TILE_W: f32 = 200.0;
+const FEATURED_W: f32 = 640.0;
+const TILE_H: f32 = 300.0;
+const TILE_GAP: f32 = 28.0;
+const STAGE_FOOT: f32 = 482.0;
 const LOGO_H: f32 = 150.0;
 const LOGO_W: f32 = 560.0;
-/// Down: the logo and Play at the row's place, the cards under them.
+/// Down: the logo and Play at the top, the cards under them.
+const TOP_Y: f32 = 172.0;
 const TOP_LOGO_H: f32 = 96.0;
 const TOP_LOGO_W: f32 = 360.0;
-const CARDS_Y: f32 = 372.0;
+const CARDS_Y: f32 = 430.0;
 const CARD_W: f32 = 520.0;
 const CARD_H: f32 = 400.0;
 const CARD_GAP: f32 = 24.0;
@@ -55,8 +59,8 @@ pub fn home(p: &mut Paint<'_>) {
     topbar::bar(p, Here::Home, attention);
     if down {
         let play_h = p.tokens.target.max(p.line(Type::Label) + 24.0);
-        logo(p, 300, game, Frame::new(p.x, ROW_Y + (play_h - TOP_LOGO_H) / 2.0, TOP_LOGO_W, TOP_LOGO_H));
-        play(p, game, p.x + TOP_LOGO_W + 36.0, ROW_Y);
+        logo(p, 300, game, Frame::new(p.x, TOP_Y + (play_h - TOP_LOGO_H) / 2.0, TOP_LOGO_W, TOP_LOGO_H));
+        play(p, game, p.x + TOP_LOGO_W + 36.0, TOP_Y);
         cards(p, game);
     } else {
         row(p);
@@ -97,42 +101,49 @@ fn row(p: &mut Paint<'_>) {
     // The quick menu's sheet hides the tiles that reach under it, and nothing slides while it is open.
     let drawer = matches!(m.view.top(), Some(Layer::Quick | Layer::QuickSettings));
     let edge = if drawer { W - p.x - drawer::WIDTH } else { W };
-    let pitch = TILE + TILE_GAP;
+    let pitch = TILE_W + TILE_GAP;
+    let extra = FEATURED_W - TILE_W;
     let offset = at as f32 * pitch;
     let start = p.plan.nodes.len();
     // The tile that just slid off to the left stays for its way out; the rest are the ones on screen.
     let first = if drawer { at } else { at.saturating_sub(1) };
     for (k, &id) in m.home_games.iter().enumerate().skip(first).take(TILES_SHOWN + at - first) {
-        let x = p.x + k as f32 * pitch - offset;
-        if x + TILE > edge {
+        // The featured game's capsule is wider than a cover: what sits after it moves right by the difference.
+        let x = p.x + (k as f32 - at as f32) * pitch + if k > at { extra } else { 0.0 };
+        let w = if k == at { FEATURED_W } else { TILE_W };
+        // The cover after the last that fits shows its left part at the screen's edge, so the row reads as going on.
+        if x >= edge || (drawer && x + w > edge) {
             break;
         }
-        tile(p, 1000 + k as u64 * 8, id, Focus::Home(Spot::Tile(k)), x);
+        tile(p, 1000 + k as u64 * 8, id, Focus::Home(Spot::Tile(k)), x, w);
     }
     let nodes = p.plan.nodes[start..].iter().map(|node| node.id).collect();
     p.plan.groups.push(ScrollGroup {
         id: 100,
         parent: None,
-        clip: compositor_protocol::Rect { x: 0.0, y: ROW_Y - 40.0, w: W, h: TILE + 100.0 },
+        clip: compositor_protocol::Rect { x: 0.0, y: ROW_Y - 40.0, w: W, h: TILE_H + 130.0 },
         feather: compositor_protocol::Edges::NONE,
         horizontal: true,
         offset,
-        extent: m.home_games.len() as f32 * pitch + W,
+        extent: m.home_games.len() as f32 * pitch + extra + W,
         nodes,
     });
 }
 
-/// One image per tile: the cover cut square. A game without art shows its title on a plate; one that cannot start now carries a mark.
-fn tile(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, x: f32) {
+/// One image per item: the featured game's wide key art cut to the capsule, or a cover. A game without art shows its title on a plate;
+/// one that cannot start now carries a mark.
+fn tile(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, x: f32, w: f32) {
     let m = p.model;
-    let f = Frame::new(x, ROW_Y, TILE, TILE);
+    let f = Frame::new(x, ROW_Y, w, TILE_H);
     let from = p.plan.nodes.len();
-    match m.art_url(game, ArtKind::Cover).and_then(|url| m.art_path(&url)) {
+    let kinds: &[ArtKind] = if w == FEATURED_W { &[ArtKind::Hero, ArtKind::Cover] } else { &[ArtKind::Cover] };
+    let art = kinds.iter().find_map(|&kind| m.art_url(game, kind).and_then(|url| m.art_path(&url)));
+    match art {
         Some(path) => p.image(id, path, f, p.tokens.radius(Radius::Tile), false, None, 10),
         None => {
             p.surface(id, f, Fill::Sheet, Radius::Tile, false, false, false, 10);
             let title = m.game(game).map_or("", |g| g.title.as_str());
-            p.wrapped(id + 1, title, Frame::new(x + 18.0, ROW_Y + 18.0, TILE - 36.0, 0.0), Type::Caption, Role::Ink, false, 11);
+            p.wrapped(id + 1, title, Frame::new(x + 18.0, ROW_Y + 18.0, w - 36.0, 0.0), Type::Caption, Role::Ink, false, 11);
         }
     }
     if let Start::Cannot(why) = m.can_start(game) {
