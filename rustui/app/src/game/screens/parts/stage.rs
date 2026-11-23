@@ -12,16 +12,36 @@ pub const CANVAS: u64 = 1;
 pub fn canvas(p: &mut Paint<'_>, stage: bool) {
     p.solid(CANVAS, Frame::new(0.0, 0.0, W, H), p.ink(Role::Canvas, stage), 0.0, 0);
 }
-pub fn stage(p: &mut Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_to: f32, dim: bool, curtain: bool) {
+/// The id of the page's stage art. It does not become a retained layer: the art controller holds the one art layer.
+pub const ART: u64 = 2;
+/// The game's hero art on the stage, behind everything: the picture the page's one art layer shows. It changes by a dip, not at once.
+pub fn art(p: &mut Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_to: f32, curtain: bool) {
+    hero(p, game, art_h, fade_from, fade_to, false, curtain);
+}
+/// The same art under the theme's scrim, for a page that has a layer open over it: the layer dips to the copy decoded with the
+/// picture, where a scrim layer drawn over the art would cost a full-screen blend every frame.
+pub fn over_art(p: &mut Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_to: f32, curtain: bool) {
+    hero(p, game, art_h, fade_from, fade_to, true, curtain);
+}
+fn hero(p: &mut Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_to: f32, dim: bool, curtain: bool) {
     if let Some(path) = p.model.art_url(game, ArtKind::Hero).and_then(|url| p.model.art_path(&url)) {
-        let c = p.straight(Role::Canvas, curtain);
+        let canvas = p.straight(Role::Canvas, curtain);
+        let scrim = p.straight(Role::Scrim, curtain);
         p.image(
-            2,
+            ART,
             path,
             Frame::new(0.0, 0.0, W, H),
             0.0,
             false,
-            Some(Stage { art_height: art_h as u32, fade_from: fade_from as u32, fade_to: fade_to as u32, canvas: [c.r, c.g, c.b], dim, curtain }),
+            Some(Stage {
+                art_height: art_h as u32,
+                fade_from: fade_from as u32,
+                fade_to: fade_to as u32,
+                canvas: [canvas.r, canvas.g, canvas.b],
+                scrim: [scrim.r, scrim.g, scrim.b, scrim.a],
+                dim,
+                curtain,
+            }),
             1,
         );
     }

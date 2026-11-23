@@ -48,6 +48,7 @@ pub struct GameUi {
     nodes: BTreeMap<u64, Kept>,
     hits: Vec<(Focus, Frame, Option<u32>)>,
     loader: art::Loader,
+    art: art::Art,
     pending: BTreeSet<Key>,
     failed: BTreeSet<Key>,
     images: BTreeMap<Key, Cached>,
@@ -164,6 +165,7 @@ impl GameUi {
             nodes: BTreeMap::new(),
             hits: Vec::new(),
             loader: art::Loader::new()?,
+            art: art::Art::new()?,
             pending: BTreeSet::new(),
             failed: BTreeSet::new(),
             images: BTreeMap::new(),
@@ -186,6 +188,7 @@ impl GameUi {
     }
     pub fn invalidate(&mut self) {
         self.revision = None;
+        self.art.reset();
     }
     pub fn hit_test(&self, x: f32, y: f32) -> Option<Focus> {
         self.hits.iter().rev().find(|(_, f, group)| {
@@ -197,7 +200,7 @@ impl GameUi {
         }).map(|(focus, _, _)| *focus)
     }
     pub fn art_busy(&self) -> bool {
-        self.loader.busy() || self.unfinished_text || !self.ui.glyph_text_settled()
+        self.loader.busy() || self.art.busy() || self.unfinished_text || !self.ui.glyph_text_settled()
     }
     /// How long until the page has to be shown again with nothing else changed: the next pass of its moving bar.
     pub fn wake_ms(&self, now_ms: u64) -> Option<u64> {
@@ -240,10 +243,6 @@ impl GameUi {
     pub(super) fn retained_counts(&self) -> (usize, usize) {
         (self.nodes.len(), self.groups.len())
     }
-    #[cfg(test)]
-    pub(super) fn has_stage(&self) -> bool {
-        self.nodes.contains_key(&2)
-    }
     pub fn show(&mut self, model: &Model) -> io::Result<bool> {
         let mut decoded = false;
         while let Some(done) = self.loader.poll() {
@@ -261,6 +260,8 @@ impl GameUi {
                 }
             }
         }
+        self.art.poll();
+        let dipped = self.step_art(model)?;
         if model.view.page == Page::Running && !model.hud_visible() && model.idle_left().is_none() {
             let changed = !self.nodes.is_empty();
             self.nodes.clear();
@@ -275,7 +276,7 @@ impl GameUi {
         let swept = self.continue_sweep(model.now_ms()) | self.expire(model.now_ms());
         let scrolling = self.groups.values().any(|g| g.motion.is_active());
         if self.revision == Some(model.revision()) && !decoded && !self.unfinished_text && self.ui.glyph_text_settled() && !scrolling {
-            return Ok(swept);
+            return Ok(swept || dipped);
         }
         let appearance = (model.prefs.family.clone(), model.prefs.light, model.prefs.text_percent, model.prefs.reduce_motion);
         if self.appearance.as_ref() != Some(&appearance) {
@@ -355,6 +356,7 @@ impl GameUi {
             None => None,
         };
         self.continue_sweep(model.now_ms());
+        self.end_art(model)?;
         while self.bytes > 64 << 20 {
             let victim = self.images.iter().filter(|(_, c)| c.used != self.generation).min_by_key(|(_, c)| c.used).map(|(k, _)| k.clone());
             let Some(victim) = victim else {
@@ -412,10 +414,14 @@ impl GameUi {
     }
     fn keep(&mut self, node: Node, reduced: bool, scrolled: bool, group: Option<u32>) -> io::Result<()> {
         if let Body::Image(key) = &node.body {
+            if key.spec.stage.is_some() {
+                self.keep_art(node);
+                return Ok(());
+            }
             if let Some(cached) = self.images.get_mut(key) {
                 cached.used = self.generation;
             } else {
-                if !self.pending.contains(key) && !self.failed.contains(key) && self.loader.request(key.clone()) {
+                if !self.pending.contains(key) && !self.failed.contains(key) && self.loader.request(key.clone(), false) {
                     self.pending.insert(key.clone());
                 }
                 self.nodes.remove(&node.id);

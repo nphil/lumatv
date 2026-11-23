@@ -21,8 +21,10 @@ pub fn hub(p: &mut Paint<'_>) {
     let (fade_from, fade_to) = (if p.mode == Mode::Light { 740.0 } else { 540.0 }, 800.0);
     let on_art = !deep && has_hero(p, game.id);
     let light_hero = on_art && p.mode == Mode::Light;
-    if !deep || p.mode == Mode::Dark {
-        stage(p, game.id, 760.0, fade_from, fade_to, deep, false);
+    if !deep {
+        art(p, game.id, 760.0, fade_from, fade_to, false);
+    } else if p.mode == Mode::Dark {
+        over_art(p, game.id, 760.0, fade_from, fade_to, false);
     }
     let topstage = on_art;
     p.icon_button(10, Focus::HubTop(0), Icon::Back, p.x, p.y, topstage, 60);

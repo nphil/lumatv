@@ -2,7 +2,7 @@
 //! has. It is laid out from the bottom up on measured text, so no block can reach into the next at any text size.
 use super::{
     paint::{Fill, H, Paint, Sweep, W},
-    parts::{dialog::panel, stage::{logo, logo_art, stage}},
+    parts::{dialog::panel, stage::{art, logo, logo_art}},
 };
 use crate::game::model::launch::OverlayAction;
 use crate::game::model::{Focus, Key};
@@ -38,7 +38,7 @@ pub fn launch(p: &mut Paint<'_>) {
         return;
     };
     let (game, phase) = (session.game, session.phase());
-    stage(p, game, H, 0.0, H, false, true);
+    art(p, game, H, 0.0, H, true);
     let x = p.x;
     let col = COLUMN.min(W - 2.0 * x);
     let reduced = p.model.prefs.reduce_motion || p.tokens.motion.reduced;
@@ -336,7 +336,7 @@ pub fn overlay(p: &mut Paint<'_>) {
     let Some(session) = p.model.session() else {
         return;
     };
-    stage(p, session.game, 1080.0, 0.0, 1080.0, false, true);
+    art(p, session.game, 1080.0, 0.0, 1080.0, true);
     let button_h = p.tokens.target.max(p.line(Type::Label) + 24.0);
     let actions_y = H - 118.0 - button_h * if p.scale >= 2.0 { 2.0 } else { 1.0 } - if p.scale >= 2.0 { 16.0 } else { 0.0 };
     let mut stats = Vec::new();

@@ -45,13 +45,12 @@ pub fn home(p: &mut Paint<'_>) {
         + actions_h;
     hero_end = hero_end.max(p.y + 100.0 + content);
     let actions_y = hero_end - actions_h;
-    stage(
+    art(
         p,
         game.id,
         620.0,
         if p.mode == Mode::Light { hero_end + 40.0 } else { 360.0 },
         if p.mode == Mode::Light { hero_end + 84.0 } else { 700.0 },
-        false,
         false,
     );
     p.solid(3, Frame::new(0.0, 0.0, W, H), p.ink(Role::Canvas, false), 0.0, 2);
