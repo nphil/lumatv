@@ -116,6 +116,8 @@ pub(super) fn id(model: &Model, title: &str) -> GameId {
 pub(super) fn assets() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/lumagame/mock/assets")
 }
+/// The mock's clock: every time in the fixtures counts back from it.
+const NOW: u64 = 1_800_000_000;
 pub(super) fn fixture() -> Model {
     let info = [
         ("gfn", "GeForce NOW", "cloud", "nitin · Ultimate", "device-code"),
@@ -173,16 +175,17 @@ pub(super) fn fixture() -> Model {
     let enabled = state.enabled_engines();
     let (games, merges) = catalog::build(&mut state.identity, listing.enabled(&enabled));
     state.apply_merges(&merges);
-    let now = 1_800_000_000;
+    let now = NOW;
     for (index, (_, title, _, _, _, hours)) in titles.iter().enumerate() {
         let g = games.iter().find(|g| g.title == *title).unwrap();
         if *hours > 0 {
-            state.profile_mut().history.record(Played {
-                game: g.id,
-                source: g.sources[0].key(),
-                start: now - 7200 - index as u64 * 7200 - u64::from(*hours) * 3600,
-                seconds: hours * 3600,
-            });
+            let mut start = now - 7200 - index as u64 * 7200 - u64::from(*hours) * 3600;
+            // Hades II ends on a 72 minute session, which the game page lists apart from the hours before it.
+            let sessions = if *title == "Hades II" { vec![hours * 3600 - 4320, 4320] } else { vec![hours * 3600] };
+            for seconds in sessions {
+                state.profile_mut().history.record(Played { game: g.id, source: g.sources[0].key(), start, seconds });
+                start += u64::from(seconds);
+            }
         }
     }
     let mut model = Model::new(state, listing, manifests);
@@ -283,6 +286,154 @@ pub(super) fn fixture() -> Model {
     model.view.focus = Focus::Home(0, 1);
     model.rebuild_navigation();
     model
+}
+/// The achievements the game page names for Hades II: Steam's id, the title, how many in a thousand players have it, and how long
+/// before [`NOW`] the owner got it. The first four are the latest unlocked, the last three the ones to go for next.
+const HADES_ACHIEVEMENTS: [(&str, &str, u16, Option<u64>); 7] = [
+    ("ACH_DEPTHS", "Witch of the Depths", 610, Some(9_000)),
+    ("ACH_MOTE", "So Mote It Be", 340, Some(10_800)),
+    ("ACH_SOAK", "Soothing Soak", 720, Some(4 * 86_400)),
+    ("ACH_WOODS", "Witch of the Woods", 880, Some(64 * 86_400)),
+    ("ACH_PLAINS", "Witch of the Plains", 470, None),
+    ("ACH_NIGHT", "The Arms of Night", 290, None),
+    ("ACH_CHRONOS", "Death to Chronos", 90, None),
+];
+/// What Steam's community says about Hades II in the game page's mock, with the news and the discussions dated back from `now`.
+pub(super) fn hades_community(now: u64) -> lumagame_core::community::Community {
+    use lumagame_core::community::{Absence, Community, Guide, NewsItem, Review, Reviews, Section, Shot, Topic, Trailer};
+    let day = 86_400;
+    let review = |text: &str, recommended, hours: u64, helpful| Review { text: text.into(), recommended, helpful, funny: 0, playtime_s: hours * 3600, at: now - 20 * day };
+    let news = |title: &str, text: &str, days: u64| NewsItem {
+        title: title.into(),
+        text: text.into(),
+        author: Some("Supergiant Games".into()),
+        source: None,
+        at: now - days * day,
+        url: None,
+    };
+    let topic = |id: &str, title: &str, author: &str, replies, ago: u64| Topic {
+        id: id.into(),
+        title: title.into(),
+        author: author.into(),
+        replies,
+        last_post: Some(now - ago),
+        pinned: false,
+        locked: false,
+        preview: String::new(),
+    };
+    let guide = |id: &str, title: &str, summary: &str, author: &str| Guide {
+        id: id.into(),
+        title: title.into(),
+        summary: summary.into(),
+        author: author.into(),
+        image: None,
+        url: format!("https://steamcommunity.com/sharedfiles/filedetails/?id={id}"),
+    };
+    let shot = |n: u32| Shot { thumb: format!("fixture://media/shot-{n}.jpg"), full: format!("fixture://media/shot-{n}.jpg") };
+    let trailer = |n: u32, title: &str| Trailer { title: title.into(), thumb: format!("fixture://media/trailer-{n}.jpg"), hls: Some(format!("https://fixture.invalid/trailer-{n}.m3u8")), dash: None };
+    let reviews = Reviews {
+        label: Some("Overwhelmingly Positive".into()),
+        percent: Some(96),
+        positive: 77_956,
+        negative: 3_248,
+        top: vec![
+            review("Every run teaches something new, and the boons keep each one different.", true, 54, 1_204),
+            review("Beautiful and tight. The co-op menu is fiddly, but nothing else gets in the way.", true, 22, 618),
+            review("The late game leans on luck more than skill, which wore thin after a while.", false, 71, 240),
+        ],
+    };
+    Community {
+        reviews: Section::Present { value: reviews },
+        news: Section::list(vec![
+            news("Patch 1.2: new boons and fixes", "Adds a set of boons, rebalances several weapons and fixes the co-op menu focus. Saves carry over.", 112),
+            news("Summer sale", "Hades II is on sale for the next week.", 171),
+            news("Development update: the road to 1.0", "A look at what is next for the Underworld, from new bosses to controller improvements.", 213),
+        ]),
+        players: Section::Present { value: 8_412 },
+        rarity: Section::Present { value: HADES_ACHIEVEMENTS.iter().map(|(api, _, permille, _)| ((*api).to_owned(), *permille)).collect() },
+        store_screenshots: Section::list((1..=5).map(shot).collect()),
+        trailers: Section::list(vec![trailer(1, "Gameplay trailer"), trailer(2, "Early access trailer")]),
+        hub_screenshots: Section::absent(Absence::Empty),
+        hub_artwork: Section::absent(Absence::Empty),
+        hub_videos: Section::absent(Absence::Empty),
+        guides: Section::list(vec![
+            guide("2900000001", "Beginner's guide to the Underworld", "Weapons, aspects and the first boss, in the order to unlock them.", "PylosFan"),
+            guide("2900000002", "Every keepsake and where it comes from", "What each keepsake does and how to get it.", "Melinoe_Main"),
+        ]),
+        discussions: Section::list(vec![
+            topic("1", "Which weapon should I unlock first?", "PylosFan", 48, 10_800),
+            topic("2", "Is the co-op menu focus fixed in 1.2?", "Melinoe_Main", 112, 86_400),
+            topic("3", "Fastest route to the Oceanus boss", "TheDeepEnd", 19, 5 * 86_400),
+        ]),
+    }
+}
+/// The fixture with Steam signed in and Hades II carrying the game page's mock: Steam's playing time and progress, and its community
+/// page. [`fixture`] on its own stays as it is, so the shots that do not show these keep their pixels.
+pub(super) fn with_hades_community(mut model: Model) -> Model {
+    use crate::game::model::tests::{describe, entry, linked, manifest};
+    use lumagame_core::{
+        activity::Activity,
+        engine::{AuthMethod, EngineKind, Feature},
+        ids::ProviderGameId,
+        ipc::{Role, Unlocked},
+    };
+    const ACCOUNT: &str = "76561198000000000";
+    const APP: &str = "1145350";
+    let steam = EngineId::new("steam").unwrap();
+    if !model.integrations.iter().any(|e| e.manifest.id == steam) {
+        let at = model.integrations.iter().rposition(|e| e.manifest.kind == EngineKind::Host).map_or(0, |i| i + 1);
+        let manifest = manifest("steam", "Steam", EngineKind::Account);
+        model.integrations.insert(at, Integration { manifest, descriptor: None, schema: SettingsSchema::default(), targets: Vec::new(), error: None });
+    }
+    describe(&mut model, "steam", vec![AuthMethod::Qr], &[Feature::Achievements, Feature::Community]);
+    let target = TargetId::new(ACCOUNT).unwrap();
+    event(&mut model, "steam", ipc::Event::Targets { targets: vec![ipc::Target { name: "Nitin".into(), ..linked(ACCOUNT) }] });
+    // Steam lists the game as a record only: its recent hours, beside this TV's own history of it.
+    let record = entry(APP, "Hades II", Role::Record, &["steam:1145350"], Activity { recent_s: Some(4 * 3600), ..Activity::default() });
+    event(&mut model, "steam", ipc::Event::Library { target: target.clone(), entries: vec![record], next: None });
+    let game = ProviderGameId::new(APP).unwrap();
+    let unlocked = HADES_ACHIEVEMENTS
+        .iter()
+        .filter_map(|(api, _, _, ago)| ago.map(|ago| Unlocked { name: (*api).into(), at: Some(NOW - ago) }))
+        .chain((0..14).map(|n| Unlocked { name: format!("ACH_MORE_{n}"), at: None }))
+        .collect();
+    event(&mut model, "steam", ipc::Event::Achievements { target, game: game.clone(), unlocked });
+    let hades = id(&model, "Hades II");
+    let details = model.details.get_mut(&hades).unwrap();
+    details.developer = Some("Supergiant Games".into());
+    details.hub.achievements.total = 50;
+    details.hub.achievements.shown = HADES_ACHIEVEMENTS
+        .iter()
+        .enumerate()
+        .map(|(i, (api, name, _, _))| {
+            let icon = format!("fixture://achievement/{i}");
+            model.art.insert(icon.clone(), assets().join("1145350/media/shot-1.jpg"));
+            lumagame_meta::hub::Achievement { api: Some((*api).into()), name: (*name).into(), icon, permille: None }
+        })
+        .collect();
+    event(&mut model, "steam", ipc::Event::Community { game, community: hades_community(NOW) });
+    model
+}
+#[test]
+fn hades_carries_the_game_page_mock() {
+    use crate::game::model::facts::{Fact, Start};
+    fn count<T>(fact: Fact<&[T]>) -> Option<usize> {
+        if let Fact::Present(items) = fact { Some(items.len()) } else { None }
+    }
+    let model = with_hades_community(fixture());
+    let facts = model.facts(id(&model, "Hades II"));
+    let Fact::Present(play) = &facts.activity.play_time else { panic!("no play time") };
+    assert_eq!((play.seconds, play.recent), (31 * 3600, Some(4 * 3600)));
+    let Fact::Present(last) = &facts.activity.last_session else { panic!("no last session") };
+    assert_eq!(last.seconds, Some(72 * 60));
+    let Fact::Present(achievements) = &facts.activity.achievements else { panic!("no achievements") };
+    assert_eq!((achievements.unlocked, achievements.total, achievements.latest.len(), achievements.next.len()), (18, Some(50), 4, 3));
+    let Fact::Present(reviews) = facts.community.reviews else { panic!("no reviews") };
+    assert_eq!((reviews.percent, reviews.positive + reviews.negative), (Some(96), 81_204));
+    assert_eq!(facts.activity.players, Fact::Present(8_412));
+    let counts = [count(facts.activity.news), count(facts.community.discussions), count(facts.community.guides), count(facts.media.store_screenshots), count(facts.media.trailers)];
+    assert_eq!(counts, [Some(3), Some(3), Some(2), Some(5), Some(2)]);
+    assert_eq!(facts.start, Start::Ready);
 }
 /// A running stream whose overlay has been up for half a minute with the readings of `kind`: a healthy one, or one where the
 /// network, the host or the TV is at fault.
