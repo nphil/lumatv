@@ -1,6 +1,6 @@
 # Gaming
 
-First-party plugin, **off by default**. Enabling Gaming permits temporary picture controls, controller-reader scheduling and supported controllers' persistent settings for `org.nphil.lumagame` and the legacy `org.nphil.lumatv.gfn`. The app continues without the plugin; NDL's game-mode load already applies low delay, so the display controls are expected to be redundant.
+First-party plugin, **off by default**. Enabling Gaming permits temporary picture controls, controller-reader scheduling and supported controllers' persistent settings for `org.nphil.lumagame`. The app continues without the plugin; NDL's game-mode load already applies low delay, so the display controls are expected to be redundant.
 
 ## Display lease
 

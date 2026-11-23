@@ -235,11 +235,11 @@ one holding the `cache/` the UI makes on every start (LumaGame has to have start
 and never writes over an existing `engines/gfn/config/`. The copy is **untested on the TV**: the GeForce NOW app there kept its
 sign-in under `/tmp`, which a restart clears.
 
-## Identity and cutover
+## Identity
 
-App id `org.nphil.lumagame`, runtime directory `/tmp/org.nphil.lumagame/`. It installs beside `org.nphil.lumatv.gfn`. When the
-`gfn` engine has passed on the TV, the old package, `rustui/app/src/gfn/`, `bin/gfn.rs`, `tools/gfnapp.sh` and the `gfn` names in
-the helper are removed in one change. `gfn/feeder` and `gfn/engine` stay where they are.
+App id `org.nphil.lumagame`, runtime directory `/tmp/org.nphil.lumagame/`. It succeeded the old GeForce NOW app
+(`org.nphil.lumatv.gfn`), which was removed on 2026-11-23 with its UI, package scripts and `lumatv gfn` commands. `gfn/feeder`
+and `gfn/engine` stay: LumaGame's `gfn` engine and the camera feeder build from them.
 
 ## Helper: the `gaming` plugin
 

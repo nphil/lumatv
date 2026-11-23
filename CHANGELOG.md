@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The old GeForce NOW app and the LumaGame native proof are gone; LumaGame streams GeForce NOW. `lumatv gfn` and the package's `payload/gfn` are removed with them.
+
 Settings' first page, Privacy, shows its rows at once instead of after about 4.6 s: the helper's privacy menu spent 4.4 to 4.8 s of that in `declutter.sh status` (the menu's other reads take about 0.15 s), so it now serves the last reading of the tool, refreshes it in the background when it is more than 10 s old and after a group switch, takes the first reading 30 s after the helper starts, and says `"stale": true` while a refresh runs, on which the page reads again every 2 s. Not yet verified on the TV.
 
 Holding the remote's Input key for a second opens LumaTV's own input picker instead of launching LG's Home Hub (`com.webos.app.homeconnect`); when the picker cannot be shown, nothing opens, and a hold whose press already showed the picker does not show it a second time.

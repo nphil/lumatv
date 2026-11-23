@@ -669,7 +669,6 @@ dependencies = [
  "compositor-protocol",
  "device-profile",
  "image-webp",
- "jpeg-decoder",
  "jpeg-encoder",
  "libc",
  "lumagame-core",

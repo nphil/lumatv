@@ -34,14 +34,6 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
-# The GeForce NOW app (gfn/build-ipk.sh) is an ipk of its own, built before this one and shipped inside it (payload/gfn/).
-GFN_ID=$(sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' gfn/package/appinfo.json | head -1)
-GFN_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' gfn/package/appinfo.json | head -1)
-if [ "$GFN_ID" != "$APP_ID.gfn" ]; then
-    echo "Error: gfn/package/appinfo.json has id '$GFN_ID'; tools/gfnapp.sh installs '$APP_ID.gfn'" >&2
-    exit 1
-fi
-
 # Define required inputs
 REQUIRED_FILES="
 brand.json
@@ -128,9 +120,7 @@ payload/feeder/check.h264
 beszel/build/beszel-agent
 payload/beszel/nvtop
 tools/cardapp.sh
-tools/gfnapp.sh
 tools/gameapp.sh
-gfn/build/${GFN_ID}_${GFN_VERSION}_all.ipk
 card/appinfo.json
 card/splash.png
 card/icon.png
@@ -222,12 +212,6 @@ if [ -n "$MISSING" ]; then
         *rustui/build/card/*)
             # Git-ignored like the helper; the card app is a package of its own and shipping without it would say nothing.
             echo "The card app's programs are built by rustui/tools/build-card.sh; this package is not built without them." >&2
-            ;;
-    esac
-    case "$MISSING" in
-        *gfn/build/*)
-            # Git-ignored like the helper; without it the round would install a package that has no GeForce NOW app and say nothing.
-            echo "The GeForce NOW app's ipk is built by gfn/build-ipk.sh (its header lists the builds it needs); this package is not built without it." >&2
             ;;
     esac
     case "$MISSING" in
@@ -352,7 +336,7 @@ cp tools/tileicons.js "$DATA_ROOT/tools/"
 cp tools/keyfilter.py "$DATA_ROOT/tools/"
 cp tools/theme.py "$DATA_ROOT/tools/"
 cp tools/layout.py "$DATA_ROOT/tools/"
-cp tools/tokens.py tools/systemui.py tools/preload.py tools/compositor.sh tools/cardapp.sh tools/gfnapp.sh tools/gameapp.sh "$DATA_ROOT/tools/"
+cp tools/tokens.py tools/systemui.py tools/preload.py tools/compositor.sh tools/cardapp.sh tools/gameapp.sh "$DATA_ROOT/tools/"
 cp tools/wake.py "$DATA_ROOT/tools/"
 # LG's Content Store theme (tools/lumatv store): the overlay tool, the builder of the script it mounts (which imports tokens, shipped above)
 # and the probe's receiver and report (`store probe`). The script's sources, payload/store, go out with the rest of payload/ below.
@@ -403,7 +387,7 @@ mkdir -p "$DATA_ROOT/payload/vplane/clips"
 cp vplane/build/arm/lumatv-vplane payload/vplane/vplane.sh payload/vplane/role.json "$DATA_ROOT/payload/vplane/"
 cp payload/vplane/clips/* "$DATA_ROOT/payload/vplane/clips/"
 chmod 755 "$DATA_ROOT/payload/vplane/lumatv-vplane" "$DATA_ROOT/payload/vplane/vplane.sh"
-# The camera feeder (32-bit, the GeForce NOW app's program too) that plays a camera's live picture on the video plane, with the LS2 role it needs and the
+# The camera feeder (32-bit) that plays a camera's live picture on the video plane, with the LS2 role it needs and the
 # script that installs them. As for the player: the role is a permission for a new program, so only the owner's `lumatv feeder install` writes it.
 # check.h264 is the clip of `lumatv video-check`.
 mkdir -p "$DATA_ROOT/payload/feeder"
@@ -421,9 +405,6 @@ mkdir -p "$DATA_ROOT/payload/frame"
 cp "$BUILD_DIR/frame-ipk/$APP_ID.frame.ipk" "$DATA_ROOT/payload/frame/"
 mkdir -p "$DATA_ROOT/payload/card"
 cp "$BUILD_DIR/card-ipk/$APP_ID.card.ipk" "$DATA_ROOT/payload/card/"
-# The GeForce NOW app, as built (it names its build by hash, so nothing here is repacked); `lumatv apply` updates an installed one.
-mkdir -p "$DATA_ROOT/payload/gfn"
-cp "gfn/build/${GFN_ID}_${GFN_VERSION}_all.ipk" "$DATA_ROOT/payload/gfn/$APP_ID.gfn.ipk"
 # LumaGame (game/build-ipk.sh) rides along once built. Until it has passed on the TV a round without it still builds, and
 # `lumatv game install` then says there is no ipk in the package.
 GAME_IPK=$(ls game/build/org.nphil.lumagame_*_all.ipk 2>/dev/null | head -n 1)

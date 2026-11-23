@@ -1,7 +1,7 @@
 #!/bin/sh
 # LumaGame (docs/lumagame/ARCHITECTURE.md) as `tools/lumatv` puts it on the set: a native app of its own, packed by game/build-ipk.sh,
 # shipped by tools/build-ipk.sh as payload/game/org.nphil.lumagame.ipk inside the main package and put on the set through
-# appInstallService, like the GeForce NOW app. POSIX sh and busybox ash only. Sourced by tools/lumatv; tests/test_gameapp.py sources it
+# appInstallService, like the card app. POSIX sh and busybox ash only. Sourced by tools/lumatv; tests/test_gameapp.py sources it
 # with a fake luna-send.
 #
 #   game_update     what boot runs: bring an installed app to the shipped build. An app that is not installed, or one that is running,
@@ -23,7 +23,7 @@ GAME_LUNA="${GAME_LUNA:-luna-send}"
 GAME_WAIT="${GAME_WAIT:-180}"
 # The feeder's persistent_dir bases, in its order; each app keeps its data in <base>/<app id>.
 GAME_DATA_BASES="${GAME_DATA_BASES:-/media/developer/apps/usr/palm/data /media/cryptofs/apps/usr/palm/data /media/internal /var/luna/preferences /var/palm/data /media/developer/temp}"
-# Where the GeForce NOW app kept its files when the feeder found no base.
+# Where the retired GeForce NOW app kept its files when the feeder found no base.
 GAME_GFN_LEGACY="${GAME_GFN_LEGACY:-/var/lib/lumatv-gfn}"
 GAME_GFN_APP="${GAME_GFN_APP:-org.nphil.lumatv.gfn}"
 

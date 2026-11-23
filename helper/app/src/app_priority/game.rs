@@ -29,8 +29,8 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 pub const TOPIC: &str = "gamemode";
-/// The native games: LumaGame, GeForce NOW and Punktfunk.
-pub const GAMES: [&str; 3] = ["org.nphil.lumagame", "org.nphil.lumatv.gfn", "io.unom.punktfunk.client-webos"];
+/// The native games: LumaGame and Punktfunk.
+pub const GAMES: [&str; 2] = ["org.nphil.lumagame", "io.unom.punktfunk.client-webos"];
 /// How long one `POST /v1/gamemode {on: true}` counts.
 pub const LEASE: Duration = Duration::from_secs(30);
 /// A game that left the front this long ago ends game mode: a short trip to a menu or a pop-up does not.

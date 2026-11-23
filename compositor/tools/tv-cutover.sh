@@ -239,8 +239,8 @@ DATA=${LUMATV_DATA_DIR:-/var/lib/lumatv}
 HELPER_PAYLOAD="${LUMATV_TOOL%/*}/../payload/helper/lumatv-helper"
 HELPER_BIN="$DATA/bin/lumatv-helper"
 HOME_APP=com.webos.app.home
-# Processes of the apps a restart of the compositor would end (LumaGame and the GeForce NOW app).
-BUSY_PATTERNS=${LUMATV_BUSY_PATTERNS:-"org.nphil.lumagame/ org.nphil.lumatv.gfn/"}
+# Processes of the app a restart of the compositor would end (LumaGame).
+BUSY_PATTERNS=${LUMATV_BUSY_PATTERNS:-"org.nphil.lumagame/"}
 # The compositor ends itself when a restarted shell is not ready 40 s after it started (READY_TIMEOUT): the wait is shorter, so the previous shell can still be put back.
 UI_WAIT=${LUMATV_UI_WAIT:-30}
 

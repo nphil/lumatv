@@ -9,13 +9,12 @@ Each app has its own hue and one bold white glyph; the finish is shared so the s
     LumaTV (assets/)            two glass panes, on iris violet
     LumaTV Card (card/)         a window card with a second one behind, on teal
     LumaTV Frame (frame/)       a picture frame, on sunrise orange
-    GeForce NOW (gfn/package/)  the GeForce eye in NVIDIA green, on graphite
     Marquee (com.beb.plxnative) a play triangle in a ring of marquee bulbs, on magenta; lives in the Marquee repo, which cuts its
                                 sizes from the master this writes (tools/mkicons.py --bleed)
 
 Every app gets icon (80 px), largeIcon (130 px, what webOS Home lists) and extraLargeIcon (240 px, what LumaTV's dock prefers: its
 tiles are 120 px on a 1080p UI and 240 on the 4K panel), each rendered at its own size so strokes land on the pixel grid; the main
-app also gets icon160 (the webosbrew listing and the notification tests). Card and GeForce NOW get a 1920x1080 splash too: the main
+app also gets icon160 (the webosbrew listing and the notification tests). Card gets a 1920x1080 splash too: the main
 splash's ground with the icon and the app's name set in Manrope SemiBold.
 
 iconColor in each appinfo.json is the largeIcon's pixel (1,1), printed here; Home paints it behind the icon. Pure black is lifted to
@@ -32,13 +31,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SIZES = (("icon.png", 80), ("largeIcon.png", 130), ("extraLargeIcon.png", 240))
 # app -> (splash title, splash line); only the apps with a splash of their own
 SPLASH = {
-    "gfn": ("GeForce NOW", "Cloud gaming on the video plane"),
     "card": ("LumaTV Card", "A 64-bit app in its own window"),
 }
 
 V = 1024  # design canvas
-
-GFN_GREEN = "#76b900"
 
 
 def glyph_lumatv():
@@ -78,17 +74,6 @@ def glyph_frame():
 """
 
 
-def glyph_gfn():
-    # The GeForce eye, adapted: heavy almond lid, iris with a swirl arc, pupil.
-    return f"""
-<path d="M200 512 C 330 326 694 326 824 512 C 694 698 330 698 200 512 Z" fill="{GFN_GREEN}"/>
-<path d="M286 512 C 390 410 634 410 738 512 C 634 614 390 614 286 512 Z" fill="#161a14"/>
-<circle cx="512" cy="512" r="132" fill="{GFN_GREEN}"/>
-<path d="M418 548 A 98 98 0 0 1 512 414 A 98 98 0 0 1 606 480" fill="none" stroke="#161a14" stroke-width="26" stroke-linecap="round"/>
-<circle cx="512" cy="512" r="52" fill="#161a14"/>
-"""
-
-
 def glyph_marquee():
     # A marquee sign: a plate of bulbs, corner bulbs included, round a play triangle.
     x0, x1, y0, y1 = 192, 832, 262, 702
@@ -110,12 +95,11 @@ APPS = {
     "lumatv": ("#9a78ff", "#3a2a9c", glyph_lumatv, "#1d1160"),
     "card": ("#34d8c8", "#0b6674", glyph_card, "#053f49"),
     "frame": ("#ffc94f", "#ee5f29", glyph_frame, "#8f2c0a"),
-    "gfn": ("#3a4a2c", "#0e140a", glyph_gfn, "#080a08"),
     "marquee": ("#ff5f9a", "#9c1a5a", glyph_marquee, "#5a0a30"),
 }
-# optical size correction: the panes and the eye cover less of the tile than a frame or a card
-SCALE = {"lumatv": 1.10, "gfn": 1.08}
-OUT = {"lumatv": "assets", "card": "card", "frame": "frame", "gfn": "gfn/package"}
+# optical size correction: the panes cover less of the tile than a frame or a card
+SCALE = {"lumatv": 1.10}
+OUT = {"lumatv": "assets", "card": "card", "frame": "frame"}
 
 
 def bg_svg(c1, c2):

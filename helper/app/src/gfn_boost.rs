@@ -37,8 +37,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
 /// The app whose process tree a boosted thread must belong to.
-pub const APP_ID: &str = "org.nphil.lumatv.gfn";
-pub const GAME_APP_ID: &str = "org.nphil.lumagame";
+pub const APP_ID: &str = "org.nphil.lumagame";
 /// The reader thread's name (`gfn-pad-event15`, the pad crate's `format!("gfn-pad-{node}")`); the kernel keeps 15 characters, so
 /// `gfn-pad-event123` is `gfn-pad-event12`: the prefix is what is matched.
 pub const READER_PREFIX: &str = "gfn-pad-event";
@@ -229,7 +228,7 @@ impl Proc {
     /// Whether the process runs from the app's directory: its executable or one of its arguments has the app's id as a path
     /// component (the engine runs through the package's loader, so the engine's path is an argument; the app's own `main` is the exe).
     fn runs_app(&self, pid: i32) -> bool {
-        let has_id = |s: &str| s.split('/').any(|c| matches!(c, APP_ID | GAME_APP_ID));
+        let has_id = |s: &str| s.split('/').any(|c| c == APP_ID);
         let exe = std::fs::read_link(self.root.join(pid.to_string()).join("exe")).ok();
         if exe.is_some_and(|e| has_id(&e.to_string_lossy())) {
             return true;
@@ -360,7 +359,7 @@ impl Boost {
         }
         if !self.proc.in_app_tree(pid) {
             return Err(Refusal::Refused(format!(
-                "the process is not part of {APP_ID} or {GAME_APP_ID}"
+                "the process is not part of {APP_ID}"
             )));
         }
         let Some(started) = self.proc.started(pid, tid) else {
@@ -669,14 +668,14 @@ mod tests {
 
         fn app_engine(&self) {
             // sam's main (the feeder) -> the core -> the engine through the package's loader: the id is in the loader's arguments.
-            self.process(100, 1, 5227, "/media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/lumatv-gfn-feeder", &["lumatv-gfn-feeder"]);
-            self.process(101, 100, 5227, "/media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/bin64/opennow-core", &["opennow-core"]);
+            self.process(100, 1, 5227, "/media/developer/apps/usr/palm/applications/org.nphil.lumagame/lumagame-main", &["lumagame-main"]);
+            self.process(101, 100, 5227, "/media/developer/apps/usr/palm/applications/org.nphil.lumagame/engines/gfn/bin/opennow-core", &["opennow-core"]);
             self.process(
                 102,
                 101,
                 5227,
                 "/usr/lib/ld-linux-aarch64.so.1",
-                &["ld-linux", "--library-path", "x", "/media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/bin64/opennow-streamer.bin"],
+                &["ld-linux", "--library-path", "x", "/media/developer/apps/usr/palm/applications/org.nphil.lumagame/engines/gfn/bin/opennow-streamer.bin"],
             );
         }
     }
@@ -749,7 +748,7 @@ mod tests {
         );
         assert!(rig.fake.state.lock().is_empty() && rig.boost.count() == 0);
         // a look-alike directory name is not the app
-        rig.process(501, 1, 1000, "/media/org.nphil.lumatv.gfn.evil/x", &["x"]);
+        rig.process(501, 1, 1000, "/media/org.nphil.lumagame.evil/x", &["x"]);
         rig.thread(501, 5002, "gfn-pad-event15", 7);
         assert!(matches!(
             rig.boost.boost(501, 5002, now()),
