@@ -1148,4 +1148,63 @@ mod tests {
             assert!((a.0 - b.0).abs() < 0.01 && (a.1 - b.1).abs() < 0.01, "tile {i}: the picture grows about its own centre");
         }
     }
+
+    /// The receiver's reading as the helper publishes it, with its inputs named as the owner renamed them.
+    fn receiver_doc(at: u64, current: &str) -> Value {
+        json!({"enabled": true, "fresh": true, "reachable": true, "updatedAt": at, "settingsSession": "s1",
+               "settings": {"input": {"support": "supported", "writable": true, "value": current,
+                   "options": [{"value": "MPLAY", "label": "Apple TV"}, {"value": "GAME", "label": "PlayStation 5"}, {"value": "TV", "label": "TV Audio"}]}}})
+    }
+
+    fn behind_the_receiver(u: &mut Up, plugin: &str) {
+        let at = 1_793_283_000_000u64;
+        let mut list = devices(4);
+        list[1]["subList"] = json!([
+            {"osdName": "AVR-S760H", "cecpDevType": 5, "depth": 1, "physicalAddress": 8192},
+            {"osdName": "Apple TV", "cecpDevType": 4, "depth": 2, "physicalAddress": 8704},
+            {"osdName": "PlayStation 5", "cecpDevType": 4, "depth": 2, "physicalAddress": 8960},
+            {"osdName": "Set top", "cecpDevType": 4, "depth": 2, "physicalAddress": 9216}
+        ]);
+        u.env.inputs.parse(&json!({"devices": list}));
+        u.env.update(&Input::Helper { topic: "plugins".into(), data: json!({"plugins": [], "firstParty": [{"id": "denon-receiver", "state": plugin}]}) }, at);
+        u.env.update(&Input::Helper { topic: "up".into(), data: json!(true) }, at);
+        u.env.update(&Input::Helper { topic: "receiver".into(), data: receiver_doc(at, "GAME") }, at);
+        u.apply();
+    }
+
+    #[test]
+    fn the_devices_behind_the_receiver_stand_under_its_tile_with_the_one_playing_marked_and_ok_switches_to_it() {
+        let mut u = Up::new(Mode::Dark, 1.0, 4);
+        behind_the_receiver(&mut u, "on");
+        let g = u.s.geometry(&u.engine);
+        let kids = g["children"][2].as_array().expect("the receiver's port is the third tile");
+        let facts: Vec<(&str, bool, bool)> = kids.iter().map(|k| (k["name"].as_str().unwrap(), k["active"].as_bool().unwrap(), k["switch"].as_bool().unwrap())).collect();
+        assert_eq!(facts, vec![("Apple TV", false, true), ("PlayStation 5", true, true), ("Set top", false, false)]);
+        let tile = &g["tiles"][2]["frame"];
+        assert!(kids[0]["frame"]["y"].as_f64().unwrap() >= tile["y"].as_f64().unwrap() + tile["h"].as_f64().unwrap(), "under its tile");
+        let sheet = &g["sheet"];
+        let last = &kids[2]["frame"];
+        assert!(last["y"].as_f64().unwrap() + last["h"].as_f64().unwrap() <= sheet["y"].as_f64().unwrap() + sheet["h"].as_f64().unwrap(), "inside the sheet");
+        assert!(u.lint().is_empty(), "{:?}", u.lint());
+        u.key(K::Down);
+        assert_eq!(u.s.geometry(&u.engine)["child_focus"], json!([2, 0]));
+        u.key(K::Down);
+        u.key(K::Down);
+        assert_eq!(u.s.geometry(&u.engine)["child_focus"], json!([2, 1]), "a device with no input of the receiver is passed over");
+        let out = u.p.key(K::Ok, &u.env);
+        assert!(out.close);
+        assert!(matches!(&out.effects[..], [crate::kit::screen::Effect::Post { path, body }] if path == "/v1/receiver/set" && body["value"] == "GAME"), "the port is in front: only the receiver is set");
+    }
+
+    #[test]
+    fn with_the_receiver_plugin_off_the_devices_are_named_and_nothing_else() {
+        let mut u = Up::new(Mode::Dark, 1.0, 4);
+        behind_the_receiver(&mut u, "off");
+        let g = u.s.geometry(&u.engine);
+        let kids = g["children"][2].as_array().expect("devices");
+        assert_eq!(kids.len(), 3);
+        assert!(kids.iter().all(|k| !k["active"].as_bool().unwrap() && !k["switch"].as_bool().unwrap()));
+        u.key(K::Down);
+        assert_eq!(u.s.geometry(&u.engine)["child_focus"], Value::Null, "nothing to reach");
+    }
 }
