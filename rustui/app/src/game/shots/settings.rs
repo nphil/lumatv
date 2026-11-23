@@ -157,7 +157,7 @@ pub(super) fn controllers(base: &Model, add: &mut impl FnMut(&str, Model)) {
     for (section, row) in [("profiles", 4), ("buttons", 8), ("macros", 7), ("sticks", 16), ("curves", 6), ("directions", 6), ("triggers", 11), ("motion", 23), ("gestures", 6), ("rumble", 9)] {
         let mut m = base.clone();
         m.prefs.reduce_motion = true;
-        (m.view.page, m.view.pane) = (Page::Settings, Some(crate::game::model::settings::Pane::Leadjoy));
+        (m.view.page, m.view.place, m.view.pane) = (Page::Settings, Place::Controllers, Some(Pane::Leadjoy));
         m.step(Input::Leadjoy(Ok(leadjoy_fixture(section))));
         m.view.focus = Focus::Setting(row);
         add(&format!("47-leadjoy-{section}"), m.clone());
@@ -173,7 +173,7 @@ pub(super) fn controllers(base: &Model, add: &mut impl FnMut(&str, Model)) {
     for (fixture, key) in [("keyboard","key-0"),("mouse","key-2"),("motion-long","trigger-key-47"),("sticks-missing","anti-shake"),("profiles-sub","sub-key-0")] {
         let mut m = base.clone();
         m.prefs.reduce_motion = true;
-        (m.view.page, m.view.pane) = (Page::Settings, Some(crate::game::model::settings::Pane::Leadjoy));
+        (m.view.page, m.view.place, m.view.pane) = (Page::Settings, Place::Controllers, Some(Pane::Leadjoy));
         let state = leadjoy_fixture(fixture);
         let LeadjoyState::Ready(profile) = &state else { unreachable!() };
         let focus = profile.schema.fields().position(|field| field.key == key).unwrap() + 1;
