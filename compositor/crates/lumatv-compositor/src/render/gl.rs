@@ -2192,8 +2192,16 @@ impl Output for Gl {
         Gl::keep_thumb(self, app, buffer)
     }
 
+    fn keep_thumb_rgba(&mut self, app: &str, w: u32, h: u32, rgba: &[u8]) -> bool {
+        Gl::keep_thumb_rgba(self, app, w, h, rgba)
+    }
+
     fn has_thumb(&self, app: &str) -> bool {
         Gl::has_thumb(self, app)
+    }
+
+    fn drop_thumb(&mut self, app: &str) {
+        Gl::drop_thumb(self, app);
     }
 
     fn retain_thumbs(&mut self, apps: &[String]) {

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The task manager uses LumaGame's hook: Quit asks it to end the session and closes it the ordinary way only if it is still there after 3 s, and its card takes LumaGame's own last UI frame as its picture (a black frame leaves the icon card; a video on the hardware layer is not in it).
+
 Holding Back for 0.6 s opens a task manager from anywhere, including over a hung app and over Home. It lists the running apps as cards with their last picture, shows the TV's memory, per-core CPU, GPU and temperature (sampled only while it is open) and has a System sheet: Restart LumaTV, LG Home and Restart TV, each behind a confirm (Restart TV is refused while the panel's pixel refresher runs). OK switches to an app; a swipe or Quit closes it, a hung one at once. A silent interface is restarted once; if it does not come back, or is absent, the compositor draws a basic version itself. `lumatv-sm` rescues a frozen compositor: Back held 3 s restarts LumaTV and keeps a crash bundle, held 10 s hands the TV to LG Home. The focus on a card is raised glass with no outline. A single Back on Home does nothing and a Back hold never reaches the app; the old 1 s Back-hold exit and the `remote.recents` setting are gone. The screen is transient: it closes after 45 s without a key, and its basic version is the theme's panel colour at 0.96 alpha.
 
 LumaGame answers LumaTV's task manager on `/tmp/org.nphil.lumagame/hook.sock`: `quit` ends the session through LumaGame's own clean exit, and `snapshot` writes the last UI frame as raw RGBA to one overwritten file for the task manager's card (a stream on the hardware layer is not in it). The socket and the file go when LumaGame exits.

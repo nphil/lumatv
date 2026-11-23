@@ -85,10 +85,14 @@ Apps release their buffer when they leave the front, so the windows alone cannot
 
 A game's picture is on the video plane and cannot be sampled, and a game should end its session cleanly. A small hook, per app, over a unix socket the app creates at `/tmp/<app id>/hook.sock` (JSON lines; absent means the app has no hook):
 
-- `{"op": "quit", "grace_ms": 3000}`: end the session cleanly (save, release the pad and the video plane) and exit. Reply `{"ok": true}`. After the grace the compositor falls back to `closeByAppId`, then to a kill.
-- `{"op": "snapshot", "path": "/tmp/<app id>/last.rgba", "w": 640, "h": 360}`: write the last frame as raw RGBA at that size within 300 ms. Reply `{"ok": true}`. Asked when the app leaves the front and when the task manager opens.
+- `{"op": "quit", "grace_ms": 3000}`: end the session cleanly (save, release the pad and the video plane) and exit. Reply `{"ok": true}`.
+- `{"op": "snapshot", "path": "/tmp/<app id>/last.rgba", "w": 640, "h": 360}`: write the last UI frame as raw RGBA (`w*h*4` bytes) at that size within 300 ms. Reply `{"ok": true}`.
 
-The compositor does not call the hook yet. Until it does, a quit is the clean window close, then `closeByAppId`, then a kill, and a game's card shows its icon tile (its picture is on the video plane). LumaGame can build to the interface above.
+The compositor calls it (`taskmgr/hook.rs`, `switcher/hook.rs`); LumaGame (`org.nphil.lumagame`) serves it. The socket is spoken to on a short-lived thread with 300 ms deadlines and the frame polls the answer, so the frame loop never waits on it. An app with no socket costs one `stat`.
+
+- **Quit** (card Quit, swipe, quit-all): for an app with a hook that has not hung, `quit` is sent and the app has 3 s to be gone. If it is still there then, or the hook refused or did not answer, the ordinary close runs (the window asked to close, `closeByAppId`; the 4 s after which the card reports it stuck count from that close). Without a socket, and for a hung or `force`d app, nothing changed: the ordinary close, or the kill.
+- **Picture**: `snapshot` is asked when the app leaves the front and when the task manager opens over the front app. On `{"ok": true}` the file is read (it must be `w*h*4` bytes) and deleted, and becomes the card's kept picture, ahead of a picture of the video plane (an app whose picture is on the plane shows the kept picture only if its hook gave one). A frame whose mean red, green and blue is under 5 of 255 is no picture: the kept picture is dropped and the card is the icon card. No answer leaves the card as it was.
+- The compositor's capture tap is not used. The snapshot is the app's UI only, so while a game stream or a video plays on the hardware layer it is mostly black: those cards stay icon cards while LumaGame shows video.
 
 ## Checks
 
@@ -104,4 +108,4 @@ Focus look: raised glass, no outline and no underline (Lucent, 2026-11-23). The 
 
 Video holes: `tests/page_alpha.rs` pins that a client's video window clears every layer below it inside its rectangle (and nothing outside it); the compositor needed no change for that.
 
-Open, on the TV: the install order (UI by live swap; compositor and `lumatv-sm` together, staged for standby; `lumatv-sm` never alone), the hung-app test, the frame gate at 120 Hz, stats cost open and closed, the 600 ms threshold with held keys, `video-check`. A SIGSTOP test of the compositor itself needs the owner's go-ahead. The compositor does not call the LumaGame hook yet.
+Open, on the TV: the install order (UI by live swap; compositor and `lumatv-sm` together, staged for standby; `lumatv-sm` never alone), the hung-app test, the frame gate at 120 Hz, stats cost open and closed, the 600 ms threshold with held keys, `video-check`. A SIGSTOP test of the compositor itself needs the owner's go-ahead.

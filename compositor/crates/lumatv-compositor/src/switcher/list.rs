@@ -119,8 +119,9 @@ impl State {
                 continue;
             }
             let size = mapped.map_or((0, 0), |s| s.size());
+            // an app on the video plane has a kept picture only if its hook drew one (`hook.rs`)
             let picture = if self.on_video_plane(id, w.surface) {
-                Picture::Video
+                if self.output.has_thumb(id) { Picture::Thumb } else { Picture::Video }
             } else if mapped.is_some() && size.0 > 0 && size.1 > 0 {
                 Picture::Live
             } else if self.output.has_thumb(id) {
@@ -143,10 +144,10 @@ impl State {
                     continue;
                 }
                 let Some(s) = list.seen.iter().find(|s| s.id == r.id) else { continue };
-                let picture = if s.video {
-                    Picture::Video
-                } else if self.output.has_thumb(&r.id) {
+                let picture = if self.output.has_thumb(&r.id) {
                     Picture::Thumb
+                } else if s.video {
+                    Picture::Video
                 } else {
                     Picture::None
                 };
@@ -256,12 +257,15 @@ impl State {
     }
 
     /// An app's window is about to lose its picture (`freeze_app`: it left the front, or it is going): its last frame is kept for the
-    /// task manager. Nothing of an app on the video plane, which has no frame to keep here.
+    /// task manager. Nothing of an app on the video plane, which has no frame to keep here (a picture kept before it came there goes). An
+    /// app with a hook is asked for its own picture (`hook.rs`), which takes the place of this one when it comes.
     pub(crate) fn keep_app_thumb(&mut self, window: WindowId) {
         let Some(w) = self.scene.window(window).filter(|w| listable(w)) else { return };
         let (id, surface) = (w.app_id().to_string(), w.surface);
         self.switcher_note_seen();
+        self.hook_snapshot(&id);
         if self.on_video_plane(&id, surface) {
+            self.output.drop_thumb(&id);
             return;
         }
         let Some(buffer) = self.surfaces.get(surface).and_then(|s| s.current.buffer.clone()) else { return };

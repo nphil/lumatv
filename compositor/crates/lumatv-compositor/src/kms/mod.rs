@@ -1641,8 +1641,16 @@ impl Output for Kms {
         self.gl.keep_thumb(app, buffer)
     }
 
+    fn keep_thumb_rgba(&mut self, app: &str, w: u32, h: u32, rgba: &[u8]) -> bool {
+        self.gl.keep_thumb_rgba(app, w, h, rgba)
+    }
+
     fn has_thumb(&self, app: &str) -> bool {
         self.gl.has_thumb(app)
+    }
+
+    fn drop_thumb(&mut self, app: &str) {
+        self.gl.drop_thumb(app);
     }
 
     fn retain_thumbs(&mut self, apps: &[String]) {

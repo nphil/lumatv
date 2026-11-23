@@ -137,10 +137,19 @@ pub trait Output {
         false
     }
 
+    /// Keeps `rgba` (`w` by `h`, top row first, opaque) as `app`'s picture for the task manager, as an app's own hook gave it. `true` when it did.
+    /// The default keeps nothing.
+    fn keep_thumb_rgba(&mut self, _app: &str, _w: u32, _h: u32, _rgba: &[u8]) -> bool {
+        false
+    }
+
     /// Whether [`Output::keep_thumb`] holds a picture of this app.
     fn has_thumb(&self, _app: &str) -> bool {
         false
     }
+
+    /// Drops the picture kept of this app.
+    fn drop_thumb(&mut self, _app: &str) {}
 
     /// The task manager lists exactly these apps: the pictures kept of any other are dropped.
     fn retain_thumbs(&mut self, _apps: &[String]) {}

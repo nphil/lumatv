@@ -284,6 +284,31 @@ impl Gl {
             // SAFETY: submits this context's work; no CPU readback or wait.
             unsafe { (self.egl.api.glFlush)() };
         }
+        self.store_thumb(app, thumb);
+        true
+    }
+
+    /// Keeps `rgba` (`w` by `h`, rows top first) as `app`'s thumbnail: a picture the app's own hook made, uploaded as it is.
+    pub fn keep_thumb_rgba(&mut self, app: &str, w: u32, h: u32, rgba: &[u8]) -> bool {
+        if w == 0 || h == 0 || w > 4096 || h > 4096 || rgba.len() != w as usize * h as usize * 4 {
+            return false;
+        }
+        let size = (w as i32, h as i32);
+        let old = self.previews.thumbs.remove(app);
+        let Some(thumb) = self.fit_level(old, size) else { return false };
+        let a = &self.egl.api;
+        // SAFETY: an upload of exactly w * h * 4 bytes into this renderer's texture of that size, on the current context.
+        unsafe {
+            (a.glBindTexture)(egl::GL_TEXTURE_2D, thumb.tex);
+            (a.glPixelStorei)(egl::GL_UNPACK_ALIGNMENT, 4);
+            (a.glTexSubImage2D)(egl::GL_TEXTURE_2D, 0, 0, 0, size.0, size.1, egl::GL_RGBA, egl::GL_UNSIGNED_BYTE, rgba.as_ptr() as *const c_void);
+        }
+        self.store_thumb(app, thumb);
+        true
+    }
+
+    /// Holds `thumb` as `app`'s, the newest, and frees the oldest beyond [`THUMBS_KEPT`].
+    fn store_thumb(&mut self, app: &str, thumb: Level) {
         self.previews.thumbs.insert(app.to_string(), thumb);
         self.previews.thumb_order.retain(|a| a != app);
         self.previews.thumb_order.push(app.to_string());
@@ -293,12 +318,20 @@ impl Gl {
                 self.free_level(&l);
             }
         }
-        true
     }
 
     /// Whether a thumbnail of `app` is kept.
     pub fn has_thumb(&self, app: &str) -> bool {
         self.previews.thumbs.contains_key(app)
+    }
+
+    /// Drops the thumbnail of `app`.
+    pub fn drop_thumb(&mut self, app: &str) {
+        if let Some(l) = self.previews.thumbs.remove(app) {
+            self.free_level(&l);
+        }
+        self.previews.thumb_order.retain(|a| a != app);
+        self.release_idle_scratch();
     }
 
     /// Drops the thumbnails of every app not in `apps`.
@@ -310,6 +343,11 @@ impl Gl {
             }
         }
         self.previews.thumb_order.retain(|a| apps.contains(a));
+        self.release_idle_scratch();
+    }
+
+    /// The half-size step is only for making thumbnails: with none kept it is freed.
+    fn release_idle_scratch(&mut self) {
         if self.previews.thumbs.is_empty()
             && let Some(l) = self.previews.scratch.take()
         {

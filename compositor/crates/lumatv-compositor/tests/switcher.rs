@@ -7,18 +7,26 @@
 
 mod harness;
 
-use std::sync::atomic::Ordering;
+use std::collections::HashMap;
+use std::io::{self, BufRead, BufReader, Write};
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use harness::{Client, Server, Window, drawn};
 use lumatv_compositor::State;
 use lumatv_compositor::input::code::*;
 use lumatv_compositor::luna::{Event, ToBridge};
+use lumatv_compositor::output::{Image, Output, Presented, RenderStats};
 use lumatv_compositor::render::egl::Platform;
 use lumatv_compositor::render::gl::{BufferPath, Gl};
-use lumatv_compositor::scene::Hole;
+use lumatv_compositor::scene::{Hole, Plan};
 use lumatv_compositor::server::seat::SeatId;
 use lumatv_compositor::shell::Msg;
+use lumatv_compositor::surface::Surfaces;
 use lumatv_compositor::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect};
 use serde_json::{Value, json};
 use wayland_client::protocol::wl_buffer::WlBuffer;
@@ -75,7 +83,10 @@ struct Rig {
 
 /// Netflix, YouTube and Plex (the newest of them) mapped, then Home's stub: Home is in front, with the three behind it.
 fn rig_home(can: &[&str]) -> Rig {
-    let mut server = Server::start();
+    rig_home_on(Server::start(), can)
+}
+
+fn rig_home_on(mut server: Server, can: &[&str]) -> Rig {
     shell_up(&mut server, can);
     let apps = vec![
         app(&mut server, "Netflix", "netflix", NETFLIX),
@@ -91,7 +102,10 @@ fn rig_home(can: &[&str]) -> Rig {
 
 /// The same three after Home's stub: Plex is in front, Home is behind everything.
 fn rig_app(can: &[&str]) -> Rig {
-    let mut server = Server::start();
+    rig_app_on(Server::start(), can)
+}
+
+fn rig_app_on(mut server: Server, can: &[&str]) -> Rig {
     shell_up(&mut server, can);
     let apps = vec![
         app(&mut server, "Stub", HOME_STUB, 0xff10_1010),
@@ -963,4 +977,326 @@ fn the_gl_renderer_draws_the_scrim_and_the_picture_scaled_with_rounded_corners_a
         assert!(near(img.pixel(650, 456), [0, 0, 0, 255]), "gone: {:?}", img.pixel(650, 456));
         assert_eq!(s.stats.gl_errors, 0);
     });
+}
+
+// ---- an app's hook: quit and picture ----
+
+/// What an output kept for the cards: the app, and the size and first pixel of its picture.
+type Thumbs = Arc<Mutex<HashMap<String, (u32, u32, [u8; 4])>>>;
+
+/// An output that draws nothing and keeps the pictures the hooks give (the GL renderer's own copies are not under test here).
+struct ThumbOut {
+    thumbs: Thumbs,
+}
+
+impl Output for ThumbOut {
+    fn name(&self) -> &'static str {
+        "thumbs"
+    }
+    fn size(&self) -> (u32, u32) {
+        (1920, 1080)
+    }
+    fn query_buffer(&mut self, _: &wayland_server::protocol::wl_buffer::WlBuffer) -> Option<((i32, i32), bool)> {
+        None
+    }
+    fn forget_buffer(&mut self, _: &wayland_server::protocol::wl_buffer::WlBuffer) {}
+    fn render(&mut self, _: &Plan, _: &Surfaces) -> io::Result<RenderStats> {
+        Ok(RenderStats::default())
+    }
+    fn present(&mut self) -> io::Result<Presented> {
+        Ok(Presented::default())
+    }
+    fn capture(&mut self) -> io::Result<Image> {
+        Err(io::Error::other("nothing drawn"))
+    }
+    fn keep_thumb_rgba(&mut self, app: &str, w: u32, h: u32, rgba: &[u8]) -> bool {
+        self.thumbs.lock().unwrap().insert(app.to_string(), (w, h, [rgba[0], rgba[1], rgba[2], rgba[3]]));
+        true
+    }
+    fn has_thumb(&self, app: &str) -> bool {
+        self.thumbs.lock().unwrap().contains_key(app)
+    }
+    fn drop_thumb(&mut self, app: &str) {
+        self.thumbs.lock().unwrap().remove(app);
+    }
+}
+
+fn thumb_server() -> (Server, Thumbs) {
+    let thumbs = Thumbs::default();
+    let kept = thumbs.clone();
+    (Server::start_with(Box::new(move || Box::new(ThumbOut { thumbs: kept }))), thumbs)
+}
+
+/// A directory of hooks that is gone with the test.
+struct Root(PathBuf);
+
+impl Root {
+    fn new() -> Root {
+        static NEXT: AtomicU32 = AtomicU32::new(0);
+        let dir = std::env::temp_dir().join(format!("lumatv-hooks-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::SeqCst)));
+        std::fs::create_dir_all(&dir).unwrap();
+        Root(dir)
+    }
+}
+
+impl Drop for Root {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// An app's hook as LumaGame serves it: JSON lines on `<root>/<app>/hook.sock`. A snapshot writes `picture` to the path it is given.
+struct Hook {
+    sock: PathBuf,
+    seen: Arc<Mutex<Vec<Value>>>,
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl Hook {
+    fn serve(root: &Path, app: &str, ok: bool, picture: Vec<u8>) -> Hook {
+        std::fs::create_dir_all(root.join(app)).unwrap();
+        let sock = root.join(app).join("hook.sock");
+        let listener = UnixListener::bind(&sock).unwrap();
+        let (seen, stop) = (Arc::new(Mutex::new(Vec::new())), Arc::new(AtomicBool::new(false)));
+        let (log, done) = (seen.clone(), stop.clone());
+        let thread = std::thread::spawn(move || {
+            while let Ok((stream, _)) = listener.accept() {
+                if done.load(Ordering::SeqCst) {
+                    return;
+                }
+                let mut line = String::new();
+                if BufReader::new(&stream).read_line(&mut line).is_err() {
+                    continue;
+                }
+                let request: Value = serde_json::from_str(&line).unwrap();
+                if request["op"] == "snapshot" {
+                    std::fs::write(request["path"].as_str().unwrap(), &picture).unwrap();
+                }
+                // the reply first: the request is on the log only once the asker has what it needs
+                let _ = (&stream).write_all(format!("{{\"ok\":{ok}}}\n").as_bytes());
+                log.lock().unwrap().push(request);
+            }
+        });
+        Hook { sock, seen, stop, thread: Some(thread) }
+    }
+
+    fn requests(&self) -> Vec<Value> {
+        self.seen.lock().unwrap().clone()
+    }
+}
+
+impl Drop for Hook {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        let _ = UnixStream::connect(&self.sock);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}
+
+/// `n` pixels of one colour, opaque.
+fn flat(rgb: [u8; 3]) -> Vec<u8> {
+    [rgb[0], rgb[1], rgb[2], 255].repeat(640 * 360)
+}
+
+/// Waits (a real few milliseconds at a time) for something a hook's thread does.
+fn eventually(mut done: impl FnMut() -> bool) {
+    let until = Instant::now() + WAIT;
+    while !done() {
+        assert!(Instant::now() < until, "it did not happen");
+        std::thread::sleep(MS(5));
+    }
+}
+
+fn point_at(server: &Server, root: &Path) {
+    let root = root.to_path_buf();
+    server.eval(move |s| s.hook_root_set(root));
+}
+
+fn open_with_cards(s: &mut State) -> Instant {
+    let t0 = Instant::now();
+    assert!(s.switcher_open(None, t0));
+    op(s, layout(&[("plex", 112, 340, 400, 225, 22), ("youtube", 544, 340, 400, 225, 22)], 0));
+    t0
+}
+
+#[test]
+fn an_app_that_quits_through_its_hook_within_the_grace_is_never_closed() {
+    let root = Root::new();
+    let rig = rig_home(&["switcher"]);
+    point_at(&rig.server, &root.0);
+    let hook = Hook::serve(&root.0, "youtube", true, Vec::new());
+    let before = Instant::now();
+    rig.server.eval(|s| {
+        open_with_cards(s);
+        op(s, json!({"op": "quit", "id": "youtube"}));
+        assert!(calls(s, CLOSE_APP).is_empty(), "the hook is asked first");
+    });
+    eventually(|| hook.requests().len() == 1);
+    assert_eq!(hook.requests(), [json!({"op": "quit", "grace_ms": 3000})]);
+    let mut rig = rig;
+    let youtube = rig.apps.remove(1);
+    youtube.win.surface.destroy();
+    drop(youtube);
+    rig.apps[0]._client.roundtrip();
+    rig.server.eval(move |s| {
+        s.luna_notify();
+        s.switcher_frame(before + MS(2900));
+        s.switcher_frame(Instant::now() + MS(3100));
+        assert!(calls(s, CLOSE_APP).is_empty(), "it went by itself: the app manager is not asked");
+        assert!(s.switcher_report()["quitting"].as_array().unwrap().is_empty());
+    });
+}
+
+#[test]
+fn an_app_still_there_when_the_grace_ends_is_closed_the_ordinary_way_with_its_four_seconds_counted_from_then() {
+    let root = Root::new();
+    let rig = rig_home(&["switcher"]);
+    point_at(&rig.server, &root.0);
+    let hook = Hook::serve(&root.0, "youtube", true, Vec::new());
+    let before = Instant::now();
+    rig.server.eval(|s| {
+        open_with_cards(s);
+        op(s, json!({"op": "quit", "id": "youtube"}));
+    });
+    eventually(|| hook.requests().len() == 1);
+    rig.server.eval(move |s| {
+        s.switcher_frame(before + MS(2900));
+        assert!(calls(s, CLOSE_APP).is_empty(), "three seconds are its own");
+        let later = Instant::now() + MS(3100);
+        s.switcher_frame(later);
+        assert_eq!(calls(s, CLOSE_APP), vec![json!({"id": "youtube", "reason": "windowPolicy"})]);
+        s.switcher_frame(later + MS(3900));
+        assert_eq!(s.switcher_report()["stuck"], json!([]), "the four seconds began at the close");
+        s.switcher_frame(later + MS(4100));
+        assert_eq!(s.switcher_report()["stuck"], json!(["youtube"]));
+    });
+}
+
+#[test]
+fn a_hook_that_does_not_take_the_quit_leaves_the_ordinary_close_to_run_at_once() {
+    let root = Root::new();
+    let rig = rig_home(&["switcher"]);
+    point_at(&rig.server, &root.0);
+    let hook = Hook::serve(&root.0, "youtube", false, Vec::new());
+    rig.server.eval(|s| {
+        open_with_cards(s);
+        op(s, json!({"op": "quit", "id": "youtube"}));
+    });
+    eventually(|| hook.requests().len() == 1);
+    let mut closed = false;
+    let until = Instant::now() + WAIT;
+    while !closed && Instant::now() < until {
+        closed = rig.server.eval(|s| {
+            s.switcher_frame(Instant::now());
+            calls(s, CLOSE_APP).len() == 1
+        });
+        std::thread::sleep(MS(5));
+    }
+    assert!(closed, "it did not wait out the grace");
+}
+
+#[test]
+fn an_app_with_no_hook_socket_is_closed_at_once_as_before() {
+    let root = Root::new();
+    let rig = rig_home(&["switcher"]);
+    point_at(&rig.server, &root.0);
+    std::fs::create_dir_all(root.0.join("youtube")).unwrap();
+    rig.server.eval(|s| {
+        open_with_cards(s);
+        op(s, json!({"op": "quit", "id": "youtube"}));
+        assert_eq!(calls(s, CLOSE_APP), vec![json!({"id": "youtube", "reason": "windowPolicy"})]);
+        op(s, json!({"op": "quitall"}));
+        assert_eq!(calls(s, CLOSE_APP).len(), 3, "and for the others");
+    });
+}
+
+#[test]
+fn a_hung_app_is_ended_without_asking_its_hook() {
+    let root = Root::new();
+    let rig = rig_home(&["switcher"]);
+    point_at(&rig.server, &root.0);
+    let hook = Hook::serve(&root.0, "plex", true, Vec::new());
+    let mut child = std::process::Command::new("sleep").arg("60").spawn().expect("sleep starts");
+    let pid = child.id();
+    unsafe { libc::kill(pid as i32, libc::SIGSTOP) };
+    eventually(|| stopped(pid));
+    rig.server.eval(move |s| {
+        open_with_cards(s);
+        sam_answers(s, json!([{"id": "plex", "processid": pid.to_string()}, {"id": "youtube", "processid": "999993"}]));
+        op(s, json!({"op": "quit", "id": "plex"}));
+        assert!(calls(s, CLOSE_APP).is_empty());
+    });
+    let mut ended = None;
+    eventually(|| {
+        ended = child.try_wait().unwrap();
+        ended.is_some()
+    });
+    assert!(!ended.unwrap().success(), "it was killed");
+    std::thread::sleep(MS(50));
+    assert!(hook.requests().is_empty(), "a stopped app would not hear it");
+}
+
+#[test]
+fn a_hooks_picture_is_asked_when_the_task_manager_opens_and_is_the_front_apps_kept_picture() {
+    let root = Root::new();
+    let (server, thumbs) = thumb_server();
+    point_at(&server, &root.0);
+    let hook = Hook::serve(&root.0, "plex", true, flat([40, 80, 120]));
+    let rig = rig_app_on(server, &["switcher"]);
+    rig.server.eval(|s| {
+        let surface = s.switcher_apps().into_iter().find(|a| a.id == "plex").unwrap().surface.unwrap();
+        s.scene.holes.push(Hole { surface, rect: Rect::new(0, 0, 400, 225) });
+        s.luna_notify();
+        assert_eq!(listed(s)[0], "plex:video", "its video is on the plane");
+        open_with_cards(s);
+    });
+    eventually(|| hook.requests().len() == 1);
+    let path = root.0.join("plex").join("last.rgba");
+    assert_eq!(hook.requests(), [json!({"op": "snapshot", "path": path.to_str().unwrap(), "w": 640, "h": 360})]);
+    eventually(|| rig.server.eval(|s| {
+        s.switcher_frame(Instant::now());
+        listed(s)[0] == "plex:thumb"
+    }));
+    assert_eq!(thumbs.lock().unwrap().get("plex"), Some(&(640, 360, [40, 80, 120, 255])));
+    assert!(!path.exists(), "the file is deleted once it is read");
+}
+
+#[test]
+fn an_app_with_a_hook_that_leaves_the_front_is_asked_for_its_picture() {
+    let root = Root::new();
+    let (server, thumbs) = thumb_server();
+    point_at(&server, &root.0);
+    let hook = Hook::serve(&root.0, "netflix", true, flat([200, 10, 10]));
+    // Netflix, then YouTube over it: Netflix leaves the front
+    let _rig = rig_home_on(server, &["switcher"]);
+    eventually(|| thumbs.lock().unwrap().contains_key("netflix"));
+    assert_eq!(hook.requests().len(), 1);
+    assert_eq!(thumbs.lock().unwrap()["netflix"], (640, 360, [200, 10, 10, 255]));
+}
+
+#[test]
+fn a_black_picture_is_no_picture_and_the_card_shows_its_icon() {
+    let root = Root::new();
+    let (server, thumbs) = thumb_server();
+    point_at(&server, &root.0);
+    let hook = Hook::serve(&root.0, "plex", true, flat([2, 2, 2]));
+    let rig = rig_app_on(server, &["switcher"]);
+    thumbs.lock().unwrap().insert("plex".into(), (480, 270, [9, 9, 9, 255]));
+    rig.server.eval(|s| {
+        let surface = s.switcher_apps().into_iter().find(|a| a.id == "plex").unwrap().surface.unwrap();
+        s.scene.holes.push(Hole { surface, rect: Rect::new(0, 0, 400, 225) });
+        s.luna_notify();
+        assert_eq!(listed(s)[0], "plex:thumb");
+        open_with_cards(s);
+    });
+    eventually(|| hook.requests().len() == 1);
+    eventually(|| rig.server.eval(|s| {
+        s.switcher_frame(Instant::now());
+        listed(s)[0] == "plex:video"
+    }));
+    assert!(thumbs.lock().unwrap().is_empty());
+    assert!(!root.0.join("plex").join("last.rgba").exists());
 }

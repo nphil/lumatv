@@ -8,6 +8,7 @@
 pub mod action;
 pub mod fallback;
 pub mod font;
+pub mod hook;
 pub mod palette;
 pub mod procs;
 pub mod running;

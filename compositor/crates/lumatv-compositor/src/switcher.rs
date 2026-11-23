@@ -34,6 +34,7 @@ use crate::window::{WindowId, WindowType};
 use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect, State};
 
 mod basic;
+mod hook;
 mod list;
 mod system;
 
@@ -342,6 +343,8 @@ pub struct Switcher {
     basic: basic::Basic,
     /// The System action under way (`system.rs`).
     system: Option<system::Going>,
+    /// The apps' hooks: quits being waited for and pictures being asked (`hook.rs`).
+    hooks: hook::Hooks,
 }
 
 impl Switcher {
@@ -465,6 +468,8 @@ impl State {
             .collect();
         self.output.prepare_previews(&buffers);
         self.switcher_ask(now);
+        let front = self.switcher.over.clone();
+        self.hook_snapshot(&front);
         if !self.shell_can("switcher") {
             self.basic_enter("LumaTV's interface is not running.", now);
         }
@@ -632,7 +637,8 @@ impl State {
 
     /// Quit on a card: the window is asked to close and the app manager is told to close the app (`closeByAppId`, the reason LG's own
     /// recents gives, `windowPolicy`). The card says it is closing until its window is gone. An app that has hung, or one that `force` says
-    /// did not quit in time, is ended instead (`list.rs`): a stopped process never acts on a request to quit.
+    /// did not quit in time, is ended instead (`list.rs`): a stopped process never acts on a request to quit. An app with a hook is first
+    /// told to quit through it and has a few seconds to go before it is closed this way (`hook.rs`).
     fn switcher_quit(&mut self, id: &str, force: bool, now: Instant) {
         if id.is_empty() || own_app(id) || !self.switcher_apps().iter().any(|a| a.id == id) {
             self.journal(format!("switcher: quit {id:?}: no such app is open"));
@@ -647,9 +653,11 @@ impl State {
         self.switcher.quitting.push((id.to_string(), now));
         self.switcher.stuck.retain(|a| a != id);
         self.journal(format!("switcher: quit {id}{}", if hung { " (it has hung)" } else if forced { " (forced)" } else { "" }));
-        if !((hung || forced) && self.kill_app(id)) {
-            self.close_app(id);
-            self.luna_call("luna://com.webos.applicationManager/closeByAppId".into(), json!({"id": id, "reason": "windowPolicy"}));
+        self.hook_quit_cancel(id);
+        let ended = (hung || forced) && self.kill_app(id);
+        let asked = !(hung || forced) && self.hook_quit(id, now);
+        if !ended && !asked {
+            self.close_through_app_manager(id);
         }
         for c in self.switcher.cards.iter_mut().filter(|c| c.app == id && c.placed) {
             let cur = c.track.at(now);
@@ -660,6 +668,7 @@ impl State {
 
     /// Every frame while any of it is open: moves what is moving, retires what is done, and hands the scene this frame's pictures.
     pub fn switcher_frame(&mut self, now: Instant) {
+        self.hook_tick(now);
         if self.switcher.phase == Phase::Closed {
             return;
         }
