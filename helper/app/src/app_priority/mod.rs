@@ -196,6 +196,8 @@ pub struct Engine {
     /// Runs work that may block (a reclaim, a toast) away from the policy's thread.
     run: Runner,
     started: Instant,
+    /// The owner's prewarm order: a listed app is closed after every unlisted one, and last to first.
+    keep: &'static crate::prewarm::Keep,
     front: Option<Vec<String>>,
     running: Vec<String>,
     /// `None` until the media server answers: no app is frozen or closed while it is unknown which one is playing.
@@ -238,6 +240,7 @@ impl Engine {
             journal,
             run,
             started: now,
+            keep: &crate::prewarm::KEEP,
             front: None,
             running: Vec::new(),
             playing: None,
@@ -454,18 +457,20 @@ impl Engine {
         }
     }
 
-    /// Whether some cached app could be reclaimed or closed, which is what sampling the pressure is for: the oldest first, and in
-    /// ours mode LG's after every other.
+    /// Whether some cached app could be reclaimed or closed, which is what sampling the pressure is for: apps the owner did not list
+    /// first, then the listed ones last to first, the oldest first within each, and in ours mode LG's after every other.
     fn closable(&self, bands: &BTreeMap<String, Band>) -> Vec<String> {
-        let mut apps: Vec<(bool, u16, u64, String)> = bands
+        let mut apps: Vec<(bool, usize, u16, u64, String)> = bands
             .iter()
             .filter_map(|(app, band)| match (band, self.class(app)) {
-                (Band::Cached(rank), Some(c @ (Class::Other | Class::Lg))) => Some((c == Class::Lg, *rank, self.os.usage(app), app.clone())),
+                (Band::Cached(rank), Some(c @ (Class::Other | Class::Lg))) => {
+                    Some((c == Class::Lg, self.keep.protection(app), *rank, self.os.usage(app), app.clone()))
+                }
                 _ => None,
             })
             .collect();
-        apps.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)).then(b.2.cmp(&a.2)));
-        apps.into_iter().map(|(_, _, _, app)| app).collect()
+        apps.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then(b.2.cmp(&a.2)).then(b.3.cmp(&a.3)));
+        apps.into_iter().map(|(_, _, _, _, app)| app).collect()
     }
 
     /// The timers: SAM asked again, freezes that are due, and a pressure sample while something could be closed.

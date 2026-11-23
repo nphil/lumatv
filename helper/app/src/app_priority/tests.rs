@@ -387,6 +387,24 @@ fn pressure_reclaims_first_then_closes_the_oldest_cached_app_one_at_a_time() {
 }
 
 #[test]
+fn pressure_closes_an_app_the_owner_did_not_list_before_one_he_kept_though_it_is_older() {
+    static KEEP: crate::prewarm::Keep = crate::prewarm::Keep::new();
+    KEEP.set(vec![PLEX.to_owned()]);
+    let mut r = rig(Timing::default());
+    r.engine.keep = &KEEP;
+    r.at(12.0);
+    r.os.0.lock().sample.free_pages = 20_000;
+    for secs in [15.0, 16.0, 17.0] {
+        r.pressure(secs, |_| {});
+    }
+    r.pressure(18.0, |s| {
+        s.swap_free_kb = 30_000;
+        s.free_pages = 1_000
+    });
+    assert_eq!(r.lg.0.lock().closed, vec![TWITCH]);
+}
+
+#[test]
 fn a_complete_stall_closes_at_once_and_closes_are_limited_per_minute() {
     let mut r = rig(Timing { closes_per_minute: 1, ..Timing::default() });
     r.at(3.0);

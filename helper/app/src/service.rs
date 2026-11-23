@@ -307,6 +307,7 @@ impl Service {
         let gamemode = Arc::new(crate::app_priority::game::Remote::default());
         let policy = voice_policy.unwrap_or(ha_link::AddressPolicy::HOME);
         threads.push(("app_priority", crate::app_priority::spawn(&ctx, gamemode.clone(), policy)?));
+        threads.push(("prewarm", crate::prewarm::spawn(&ctx)?));
         threads.push((
             "refreshguard",
             refreshguard::spawn(ctx.stop.clone(), guard.clone(), panel_rx)?,

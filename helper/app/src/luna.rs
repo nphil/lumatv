@@ -10,7 +10,16 @@ use std::time::{Duration, Instant};
 
 /// One answer of a luna call (`luna-send -n 1`), or `None` when it fails or takes longer than 4 s.
 pub fn once(luna: &str, uri: &str, payload: &str) -> Option<Value> {
-    let mut child = Command::new(luna)
+    once_as(luna, None, uri, payload)
+}
+
+/// [`once`] as another caller (`luna-send -a`): the service a method answers to, as LG's own callers are known to it.
+pub fn once_as(luna: &str, caller: Option<&str>, uri: &str, payload: &str) -> Option<Value> {
+    let mut command = Command::new(luna);
+    if let Some(caller) = caller {
+        command.args(["-a", caller]);
+    }
+    let mut child = command
         .args(["-n", "1", uri, payload])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

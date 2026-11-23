@@ -25,6 +25,7 @@
 //! | [`tuner`] | Live TV Tuner: the antenna tuner on the home network as an HDHomeRun with a playlist and the TV's guide (the `lumatuner` engine), a plugin of the helper's own that is off until the owner switches it on in Settings; the TV's own Live TV comes first |
 //! | [`xcode`] | the Live TV Tuner's H.264 for `?transcode=`: the `lumaxcode` engine over the TV's own decoder and encoder, its child program built into the helper, and the gate that closes it while an app needs the video hardware; off until the tuner's setting is on |
 //! | [`profiles`] | local profiles (Nitin, Isabel): each person's Home kept apart from the household's settings, the switch, the PINs, the `profiles` topic; the working copy `theme/` stays what the Home layer reads |
+//! | [`prewarm`] | the apps behind the remote's buttons (Marquee, Netflix, Prime Video, Apple TV, Live TV) kept preloaded in the background in the owner's order, while memory allows and nothing else needs the TV; closed last to first under pressure, behind `system.prewarm` (on) |
 //! | [`preload`] | keeps the apps the owner switched off from preloading, at each switch-on (webOS forgets the policy) |
 //! | [`ble`], [`ble_proxy`], [`ble_scan`], [`ble_duty`], [`ble_store`] | the TV's ESPHome device: a Home Assistant Bluetooth proxy (ESPHome native API) for presence and BLE sensors, through LG's `bluetooth2` scan with the radio's duty limits, a plugin of the helper's own that is off until the owner switches it on |
 //! | [`tvsensors`] | TV sensors: power, screen, the app in front, its input, picture mode, the Live TV Tuner and its signal, temperature, load and memory as sensors of that device, a plugin of the helper's own, off until switched on |
@@ -102,6 +103,7 @@ pub mod phone_remote;
 pub mod plex;
 pub mod plugins;
 pub mod preload;
+pub mod prewarm;
 pub mod previews;
 pub mod paneldim;
 pub mod picture;

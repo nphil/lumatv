@@ -29,6 +29,7 @@ pub mod picture;
 pub mod plex;
 pub mod phone_remote;
 pub mod plugin_rows;
+pub mod prewarm;
 pub mod privacy;
 pub mod profiles;
 pub mod receiver;
@@ -59,6 +60,7 @@ pub fn all() -> Vec<Page> {
         remote::page(),
         ai::page(),
         system::page(),
+        prewarm::page(),
         privacy::held(),
         profiles::person(),
         profiles::avatars(),

@@ -128,6 +128,15 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows.push(Row::link("safety").tab(0).icon("shield").label("Safety").help("Which locks are on. A lock changes only with the PIN, in LG's screen.").does(go("safety")));
     rows.push(Row::link("capture").tab(0).icon("camera").label("Screenshots & recording").does(go("capture")));
     rows.push(game_mode(c));
+    rows.push(
+        Row::link("prewarm")
+            .tab(0)
+            .icon("zap")
+            .label("Keep apps ready")
+            .help("Marquee, Netflix, Prime Video, Apple TV and Live TV wait in the background so they open faster, in the order you pick.")
+            .value(&super::prewarm::page_summary(c))
+            .does(go("prewarm")),
+    );
     rows.push(lg_launch("lg", "Open LG settings", "", "").tab(0).help("LG's full Settings app, themed. For what LumaTV does not cover: the account, apps and channel lists."));
 
     // ---- Time & power
