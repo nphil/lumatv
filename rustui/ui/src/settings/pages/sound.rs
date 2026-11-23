@@ -268,6 +268,15 @@ fn rows(c: &Ctx) -> Vec<Row> {
             .value(if super::audio_passthrough::off(c) { "Off" } else { "" })
             .does(go("audio-passthrough")),
     );
+    rows.push(
+        Row::link("voice-assistant")
+            .tab(0)
+            .icon("mic")
+            .label("Voice assistant")
+            .help("Talk to Home Assistant through the TV's microphone.")
+            .value(&super::voice_assistant::summary(c))
+            .does(go("voice-assistant")),
+    );
     let level = rc.and_then(|r| r.get("volumeAbs")).and_then(Value::as_f64);
     let mut volume = Row::slider("rcvolume", 0.0, 98.0, 0.5).tab(0).icon("volume-2").label("Receiver volume");
     volume.info = true;

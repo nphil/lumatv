@@ -30,5 +30,8 @@ pub mod popup_surface;
 pub mod saver;
 pub mod toast;
 pub mod toast_surface;
+pub mod voice_assistant;
+pub mod voice_assistant_surface;
+pub mod voice_glow;
 pub mod volume;
 pub mod volume_surface;

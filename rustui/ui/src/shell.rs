@@ -23,6 +23,8 @@ use crate::system::badge::Formats;
 use crate::system::badge_surface::{BadgeSurface, SAMPLE};
 use crate::system::toast::{FEED_TAG, Toasts};
 use crate::system::toast_surface::ToastSurface;
+use crate::system::voice_assistant::Assistant;
+use crate::system::voice_assistant_surface::VoiceSurface;
 use crate::system::volume::Volume;
 use crate::system::volume_surface::VolumeSurface;
 use serde_json::{Value, json};
@@ -168,6 +170,11 @@ pub struct Shell {
     /// The format badge (the size, dynamic range and sound of the picture in front, as marks): under the `toast` kind.
     formats: Formats,
     badge_surface: BadgeSurface,
+    /// The voice assistant (a turn's glow, the words heard and the answer) over everything, under the `toast` kind. `voice_up`: it has
+    /// something drawn, a vote in `interactiveVisible` (the bits of `interactive_surfaces` are all taken).
+    voice: Assistant,
+    voice_surface: VoiceSurface,
+    voice_up: bool,
     /// The system layer's kinds that sit over everything: the alerts, the cards, the pop-up, the capture mark, the saver.
     sys: Layer,
     home: Home,
@@ -291,6 +298,9 @@ impl Shell {
             toast_surface: ToastSurface::new(system_z + crate::kit::z::SYSTEM + 10, theme, layout),
             formats: Formats::new(),
             badge_surface: BadgeSurface::new(system_z + crate::kit::z::SYSTEM + 14, theme, layout),
+            voice: Assistant::new(),
+            voice_surface: VoiceSurface::new(system_z + crate::kit::z::SYSTEM + 100),
+            voice_up: false,
             sys: Layer::new(system_z + crate::kit::z::SYSTEM, theme, layout),
             // Settings reads the layout as Home has merged and tidied it
             settings: SettingsHost::new(system_z, theme, &home.layout),
@@ -581,7 +591,7 @@ impl Shell {
             }
         }
         if self.kinds.toast {
-            let effects = [self.toasts.update(input, now), self.formats.update(input, now)].concat();
+            let effects = [self.toasts.update(input, now), self.formats.update(input, now), self.voice.update(input, now)].concat();
             for e in effects {
                 self.carry(e, now, acts);
             }
@@ -1262,6 +1272,10 @@ impl Shell {
         if self.sys.tick(&self.kit, &self.kinds, now) {
             self.redraw = true;
         }
+        // the glow's flow and breath, and the letting go of what has faded, are the surface's own timers
+        if self.kinds.toast && self.voice_surface.due_at().is_some_and(|at| now >= at) {
+            self.redraw = true;
+        }
         for e in self.panels.tick(&self.kinds, &self.kit, now) {
             self.carry(e, now, &mut acts);
         }
@@ -1475,6 +1489,21 @@ impl Shell {
                         set_visible(&mut interactive, 128, on);
                     },
                     Err(e) => self.apply_failed("format", format!("format badge: {e}"), acts),
+                }
+            }
+            if self.kinds.toast {
+                // last: the words and the answer rest above the volume bar, a toast, the badge and what the system layer has up
+                let mut up = self.sys.avoid(&self.kinds);
+                up.extend(self.volume_surface.rects());
+                let rects = [self.toast_surface.rects(), self.badge_surface.rects()].concat();
+                up.extend(rects.iter().map(|r| lumatv_placement::Rect::new(r.x as i32, r.y as i32, r.w.ceil() as i32, r.h.ceil() as i32)));
+                let view = self.voice.view();
+                match self.voice_surface.apply(&mut self.kit, &view, now, self.sys.app_front(), &up) {
+                    Ok(on) => {
+                        live |= on;
+                        self.voice_up = on;
+                    },
+                    Err(e) => self.apply_failed("voice", format!("voice assistant: {e}"), acts),
                 }
             }
             // the pop-up's picture box is known once the card is drawn: its claim on a video window is made now, not with the next input
@@ -1742,8 +1771,11 @@ impl Shell {
                 s[k] = val.clone();
             }
         }
+        if self.kinds.toast {
+            s["voice"] = self.voice.state();
+        }
         s["live"] = json!(self.live);
-        s["interactiveVisible"] = json!(self.sys.screen_on() && (self.interactive_surfaces != 0 || self.interactive_fades.iter().any(Option::is_some) || self.sys.interactive_visible() || self.panels.interactive_visible()));
+        s["interactiveVisible"] = json!(self.sys.screen_on() && (self.interactive_surfaces != 0 || self.interactive_fades.iter().any(Option::is_some) || self.voice_up || self.sys.interactive_visible() || self.panels.interactive_visible()));
         let room = self.kit.room();
         s["room"] = json!({"layers": room.layers, "groups": room.groups, "tracks": room.tracks});
         s["refusals"] = json!(self.kit.ui.scene.refusals());
@@ -1757,7 +1789,7 @@ impl Shell {
             due = [due, self.volume.due_at(), self.volume_surface.due_at()].into_iter().flatten().min();
         }
         if self.kinds.toast {
-            due = [due, self.toasts.due_at(), self.formats.due_at()].into_iter().flatten().min();
+            due = [due, self.toasts.due_at(), self.formats.due_at(), self.voice.due_at(), self.voice_surface.due_at()].into_iter().flatten().min();
         }
         if self.kinds.home {
             due = [due, self.home.due_at(), (self.home.active && self.home.screen_on).then(|| self.home_surface.due_at()).flatten()].into_iter().flatten().min();
@@ -1780,6 +1812,7 @@ impl Shell {
             "osd": self.volume_surface.pane_rect().map(|r| json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})),
             "toasts": self.toast_surface.rects().iter().map(|r| json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})).collect::<Vec<_>>(),
             "format": self.badge_surface.rects().iter().map(|r| json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})).collect::<Vec<_>>(),
+            "voice": self.voice_surface.rects().iter().map(|r| json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})).collect::<Vec<_>>(),
         });
         for (k, v) in self.sys.geometry(&self.kinds, &self.kit, &self.engine).as_object().into_iter().flatten() {
             g[k] = v.clone();
@@ -1868,6 +1901,7 @@ impl Shell {
         self.volume_surface.restyle();
         self.toast_surface.restyle();
         self.badge_surface.restyle();
+        self.voice_surface.restyle();
         self.sys.restyle(&mut self.engine);
         self.panels.restyle(&mut self.engine);
         self.home_surface.restyle();
@@ -2460,6 +2494,31 @@ mod tests {
         let _full: Vec<_> = (0..=room.layers).map(|_| scene.shape(1, 1, 0, shape, compositor_protocol::Props::at(0.0, 0.0))).collect();
         shell.apply_failed("settings", "settings: the scene is full: the page could not be drawn whole".into(), &mut acts);
         assert!(matches!(acts.last(), Some(Act::Log(l)) if l.contains("whole (the layers ran out; left: 0 of 512 layers")), "{acts:?}");
+    }
+
+    /// The voice assistant's busiest moment, the words giving way to the answer while the glow fades, takes what the overlay's budget gives it
+    /// (at most 40 layers, 12 groups and 12 tracks), is drawn without a refusal and keeps the shell live.
+    #[test]
+    fn the_voice_assistants_busiest_moment_fits_its_budget_and_is_drawn_without_a_refusal() {
+        let (_h, kit) = testkit::kit(1.0);
+        let mut shell = Shell::new(kit, Kinds::parse("toast"), 2000, &testkit::module_dir().join("icons/audio"), &json!({}), &json!({})).expect("a shell");
+        shell.start();
+        let left = |s: &Shell| {
+            let room = &s.state()["room"];
+            ["layers", "groups", "tracks"].map(|k| room[k].as_u64().unwrap())
+        };
+        let turn = |phase: &str, reply: Option<&str>| {
+            let turn = json!({"id": 1, "phase": phase, "heard": "turn on the living room lights", "reply": reply, "ok": true, "spoken": true, "error": null});
+            json!({"schema": 1, "enabled": true, "mic": "turn", "turn": turn})
+        };
+        let before = left(&shell);
+        shell.helper(&Event::Topic { topic: "voice.assistant".into(), data: turn("listening", None) }, 1_000);
+        shell.helper(&Event::Topic { topic: "voice.assistant".into(), data: turn("done", Some("Done. The living room lights are on.")) }, 1_300);
+        let after = left(&shell);
+        let used = [before[0] - after[0], before[1] - after[1], before[2] - after[2]];
+        assert!(used[0] > 0 && used[0] <= 40 && used[1] <= 12 && used[2] <= 12, "{used:?}");
+        assert_eq!(shell.state()["refusals"], 0);
+        assert!(shell.is_live());
     }
 
     /// The groups' and tracks' ceilings are held to the protocol's at compile time (`ui::group`, `ui::motion`); the layers' is the

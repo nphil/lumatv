@@ -41,6 +41,7 @@ pub mod system;
 pub mod themes;
 pub mod tuner;
 pub mod util;
+pub mod voice_assistant;
 pub mod weather_source;
 pub mod widgets;
 
@@ -88,6 +89,7 @@ pub fn all() -> Vec<Page> {
         gaming::page(),
         multi_link::page(),
         audio_passthrough::page(),
+        voice_assistant::page(),
         support::page(),
         support::delete_data(),
         support::permissions(),
