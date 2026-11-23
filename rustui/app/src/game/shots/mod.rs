@@ -60,6 +60,7 @@ fn screens() -> Vec<(String, Model)> {
     settings::families(&base, &mut add);
     accounts::editing(&base, &mut add);
     settings::controllers(&base, &mut add);
+    quick::screens(&base, &mut add);
     let large = out
         .iter()
         .filter(|(name, _)| {
