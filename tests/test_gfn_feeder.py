@@ -1290,13 +1290,16 @@ class Sam(unittest.TestCase):
     def test_started_by_sam_with_no_environment_the_ui_gets_the_compositors_socket_and_its_neighbours_by_path_and_the_log_is_a_file(self):
         """SAM starts `main` with an empty environment (TV round 11: the UI could not find the compositor and the app was over in 200 ms)."""
         log = os.path.join(self.tmp, "feeder.log")
-        self.ui('echo "env: $XDG_RUNTIME_DIR $WAYLAND_DISPLAY" >> %s; echo "stdout line"; echo "stderr line" >&2; %s' % (self.ui_log, self.READ_UNTIL_CLOSE % self.ui_log))
+        with open(log, "w") as f:
+            f.write("the last run's panic\n")
+        self.ui('echo "env: $XDG_RUNTIME_DIR $WAYLAND_DISPLAY core limit: $(ulimit -c)" >> %s; echo "stdout line"; echo "stderr line" >&2; %s' % (self.ui_log, self.READ_UNTIL_CLOSE % self.ui_log))
         # the base is missing on a first launch in the app's jail; made for it, it stays open and only the app's directory is private
         base = os.path.join(self.tmp, "data-base", "usr", "palm", "data")
         proc = self.start(events=[(300, CLOSE)], launch=launch_object(), env={"LUMATV_GFN_LOG": log, "LUMATV_GFN_DATA_BASE": base})
         self.finish(proc)
         ui = self.text(self.ui_log)
-        self.assertIn("env: /tmp/xdg wayland-0", ui)
+        self.assertIn("env: /tmp/xdg wayland-0 core limit: 0", ui)
+        self.assertEqual(self.text(log + ".prev"), "the last run's panic\n")
         self.assertIn("--core %s/run64.sh --engine %s/bin64/opennow-streamer" % (self.home, self.home), ui)
         self.assertIn("--data %s/%s" % (base, SAM_APP), ui)
         self.assertEqual(os.stat(os.path.join(base, SAM_APP)).st_mode & 0o777, 0o700)

@@ -1975,6 +1975,9 @@ int main(int argc, char **argv) {
         usage();
         return 2;
     }
+    /* Apps start with an unlimited core size and core_pattern "core", so a crash left a 160-290 MB dump in the app's install directory,
+     * where nothing removes it and every reinstall keeps it. No dumps on the set; a panic's message survives a relaunch in the .prev log. */
+    setrlimit(RLIMIT_CORE, &(struct rlimit){0, 0});
     if (f.sam_mode) {
         /* SAM gives the app no environment and no terminal: the compositor's socket and the shell's PATH are the card launcher's defaults
          * (lumatv-card.c), and what the feeder and the UI say goes to a file, the only way to see it on the set. */
@@ -1985,6 +1988,9 @@ int main(int argc, char **argv) {
         if (!log) log = DEFAULT_LOG;
         if (strcmp(log, "-") != 0) {
             mkdir(GF_RUNTIME_DIR, 0770);
+            char prev[512];
+            snprintf(prev, sizeof prev, "%s.prev", log);
+            rename(log, prev);
             int fd = open(log, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
             if (fd >= 0) {
                 dup2(fd, 1);

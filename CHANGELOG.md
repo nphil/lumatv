@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+LumaGame and the camera feeder no longer write core dumps: a crash left a 160 to 290 MB `core.<pid>` in the app's install directory, which nothing removed and reinstalls kept. The previous run's log stays beside the current one as `feeder.log.prev`, so a crash's panic message survives the relaunch.
+
 The old GeForce NOW app and the LumaGame native proof are gone; LumaGame streams GeForce NOW. `lumatv gfn` and the package's `payload/gfn` are removed with them.
 
 Settings' first page, Privacy, shows its rows at once instead of after about 4.6 s: the helper's privacy menu spent 4.4 to 4.8 s of that in `declutter.sh status` (the menu's other reads take about 0.15 s), so it now serves the last reading of the tool, refreshes it in the background when it is more than 10 s old and after a group switch, takes the first reading 30 s after the helper starts, and says `"stale": true` while a refresh runs, on which the page reads again every 2 s. Not yet verified on the TV.
