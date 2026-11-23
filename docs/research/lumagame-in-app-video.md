@@ -25,8 +25,16 @@ Steam trailers measured 2026-11-23 for five apps (1091500, 990080, 1145360, 4131
 - Video memory had about 105 MB free in an earlier round; the cost of demuxing and audio is unmeasured.
 - A play mark or card frame is a static bright element: it dims or hides after a short dwell.
 
+## Community YouTube videos: embedded, never handed off
+
+The owner wants them inside LumaGame (2026-11-23); the YouTube app hand-off is out.
+
+- **Route 2, chosen to probe first: YouTube's official embed.** A small web page (served from BeastNAS through HomeLabber, internal, so it carries a Referer and avoids error 153) loads the IFrame API player. It runs in the frame web app LumaHome already uses (`org.nphil.lumaglass.frame`: starts hidden, grows from a card), placed by the compositor over the card's rectangle and grown to full screen; Back stops the player and returns to the card. Inside YouTube's terms as long as the embed rules hold: nothing over the player, 200×200 minimum (16:9 at 480×270 or more for a card), autoplay only once more than half is visible, no hover-to-play. Owner-blocked embeds (errors 101/150, likely age-restricted videos) show the still with "not available here". Unknowns: whether the browser plays on the video chip under the UI (the owner's separate-layer rule) or as pixels, which window gets keys over a card, memory and first-picture time, and whether a browser video switches the panel to the game picture preset (backlight 90 vs the owner's 80).
+- **Route 1, needs the owner's explicit yes: our own pipeline.** yt-dlp on BeastNAS resolves and remuxes to H.264 + Opus for the feeder (no VP9 id there), played on SUB0 in the card (1920×1088 at 30) and MAIN full screen. Plain reading of YouTube's terms forbids this automated copying, and it breaks when YouTube changes (PO tokens, SABR-only formats, JavaScript solvers); age-restricted videos would need a YouTube login on the NAS.
+
 ## TV experiments, in order
 
 1. One 1080p30 trailer on the second window with sound, checked with LG's video capture at 120 Hz.
-2. The YouTube app launched with a known id; Back returns.
-3. The YouTube app's video placed inside a card (decides whether community videos can be embedded at all).
+2. Plain embed: one public embeddable video on the BeastNAS page at 480×270; it plays without error 153.
+3. Go/no-go for Route 2: the embed's video shows as a video window and the panel stays at 120 Hz with a 30 fps video (count refresh pulses). On a fail, Route 2 stops.
+4. Frame over a card, nothing bright over the player; keys and full screen with Back returning; autoplay rule; memory, first-picture time and cache size after 20 plays; picture-mode check; a blocked video.
