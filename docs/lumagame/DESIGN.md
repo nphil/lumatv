@@ -283,10 +283,12 @@ Manrope at three weights only: Regular 400, Medium 500, SemiBold 600.
   soft 1 px edge (`glassFocusEdge`) and one soft shadow, as on LumaTV Home's tiles; no bright line
   along the top. Covers and tiles take the edge and shadow without the wash; rows grow
   in place without lifting. Focus never draws an underline, an outline or a white pill.
-- **Motion**: focus 150 ms, panel enter 180 ms, exit 120 ms, art dissolve 200 ms once focus
-  settles. Scrolling (page, rows, grids) is the theme's critically damped spring (`scrollMs`, 260 ms); a
-  repeated press retargets it at the speed it has, so a held key glides on. Reduced motion drops lift, growth and
-  dissolves and keeps the wash and rim.
+- **Motion**: LumaTV Home's own times (`focusMs`, `cardMs`, `layerMs` 260/260/220 ms; no game override). Focus travel,
+  card scale and layers coming in run on the compositor's critically damped spring (`Ease::Spring`, a response of 260 ms
+  let go over 300), layers going off on the exit curve over 180 ms, art dissolve 200 ms once focus settles. Scrolling
+  (page, rows, grids) is the theme's spring (`scrollMs`); a repeated press retargets it at the speed it has, so a held
+  key glides on. A tile that changes shape (cover to banner) opens its art out of the old box while the old art fades.
+  Reduced motion drops lift, growth, morphs and dissolves and keeps the wash and rim.
 
 ## Shapes
 

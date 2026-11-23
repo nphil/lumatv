@@ -1,7 +1,7 @@
 //! How a layer comes onto the screen and goes off it, and the durations the theme's tokens do not carry.
 //!
-//! A node tagged with an [`Enter`] (`Paint::arrives`) starts away from its own pose and moves to it over the theme's `layerMs`
-//! (`tokens.motion.layer_ms`, 220 ms: the in time). A tagged node the plan drops stays on screen and moves back to that pose over
+//! A node tagged with an [`Enter`] (`Paint::arrives`) starts away from its own pose and moves to it on the spring, stretched from the
+//! theme's `layerMs` (`tokens.motion.layer_ms`, 220 ms: the in time) to the spring's period. A tagged node the plan drops stays on screen and moves back to that pose over
 //! [`LAYER_OUT_MS`] before it is let go, except content changed in place ([`Enter::CONTENT`]), which goes at once so that a slot never
 //! holds the old content and the new together. Only opacity, x, y and scale move, so the compositor eases layers it already holds. With
 //! reduced motion both are a linear fade of at most `REDUCED_MAX_MS`.
@@ -60,10 +60,22 @@ fn away(rest: Props, enter: Enter, reduced: bool) -> Props {
     }
 }
 
-/// The move that brings a node to its pose `rest`: from away, over `layer_ms` (or the node's own fade), easing out.
+/// How long a move on [`Ease::Spring`] takes for a theme time of `ms`: Lucent's spring has a response of 260 ms and is let go for 300
+/// (`motion::SPRING_K`), so a time the theme gives for an ease-out becomes this many for the spring that LumaTV Home moves on.
+pub const fn spring_ms(ms: u32) -> u32 {
+    ms * 300 / 260
+}
+
+/// The move that brings a node to its pose `rest`: from away, springing in over `layer_ms`; content fades in over its own time, easing out.
 pub fn arrive(rest: Props, enter: Enter, reduced: bool, layer_ms: u32) -> Move {
     let ms = enter.fade_ms.unwrap_or(layer_ms);
-    if reduced { Move { away: away(rest, enter, true), ms: ms.min(REDUCED_MAX_MS), ease: Ease::Linear } } else { Move { away: away(rest, enter, false), ms, ease: Ease::Out } }
+    if reduced {
+        Move { away: away(rest, enter, true), ms: ms.min(REDUCED_MAX_MS), ease: Ease::Linear }
+    } else if enter.fade_ms.is_some() {
+        Move { away: away(rest, enter, false), ms, ease: Ease::Out }
+    } else {
+        Move { away: away(rest, enter, false), ms: spring_ms(ms), ease: Ease::Spring }
+    }
 }
 
 /// The move that takes a node from its pose `rest` to away, easing in; none for content, which goes at once.
@@ -120,10 +132,10 @@ mod tests {
     const REST: Props = Props::at(100.0, 200.0);
 
     #[test]
-    fn a_layer_arrives_from_its_offset_in_the_themes_time_and_leaves_in_its_own() {
+    fn a_layer_springs_in_from_its_offset_and_leaves_in_its_own_time() {
         let enter = Enter { dx: 40.0, dy: -24.0, scale: 0.96, fade_ms: None };
         let come = arrive(REST, enter, false, 220);
-        assert_eq!(come, Move { away: Props { x: 140.0, y: 176.0, scale: 0.96, opacity: 0.0, ..REST }, ms: 220, ease: Ease::Out });
+        assert_eq!(come, Move { away: Props { x: 140.0, y: 176.0, scale: 0.96, opacity: 0.0, ..REST }, ms: spring_ms(220), ease: Ease::Spring });
         let go = leave(REST, enter, false).unwrap();
         assert_eq!((go.away, go.ms, go.ease), (come.away, LAYER_OUT_MS, Ease::In));
     }

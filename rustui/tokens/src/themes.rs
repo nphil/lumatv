@@ -221,7 +221,7 @@ pub fn game_tokens(family: &str, mode: Mode, host: &crate::Tokens) -> Option<cra
         "row": 80,
         "focus": { "tileScale": 1.03, "cardScale": 1.03, "rowScale": 1.0, "buttonScale": 1.03,
                    "pressScale": 0.97, "cardLift": 4 },
-        "motion": { "focusMs": 150, "cardMs": 150, "layerMs": 180, "exitMs": 120, "artDissolveMs": 200 }
+        "motion": { "exitMs": 120, "artDissolveMs": 200 }
     }));
     let selected = if family == MATCH_LUMATV { None } else { Some(game_find(family)?) };
     let mut value = host.json().clone();
@@ -504,8 +504,8 @@ mod tests {
             assert_eq!(matched.focus.row_scale, 1.0);
             assert_eq!(matched.focus.card_lift, 4.0);
             assert_eq!(matched.states.focus_wash, host.states.focus_wash);
-            assert_eq!(matched.motion.focus_ms, 150);
-            assert_eq!(matched.motion.layer_ms, 180);
+            assert_eq!(matched.motion.focus_ms, host.motion.focus_ms, "focus, card and layer times are LumaTV Home's");
+            assert_eq!(matched.motion.layer_ms, host.motion.layer_ms);
             assert!(matched.motion.reduced);
             assert!(!matched.grid_fit());
             assert_eq!(matched.json()["layout"]["edgeX"], 96);

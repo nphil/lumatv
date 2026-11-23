@@ -110,8 +110,9 @@ impl Layer {
             Self::Image(layer) => layer.animate(props, ms, ease),
         }
     }
+    /// Moves to `props` on the spring (retargeted from where the layer is), or at once.
     fn set(&mut self, props: Props, animate: bool, ms: u32) {
-        if animate { self.ease(props, ms, Ease::Out) } else { self.jump(props) }
+        if animate { self.ease(props, ms, Ease::Spring) } else { self.jump(props) }
     }
 }
 /// The soft edge of the window a morphing tile opens through; the clip at rest is `REACH` clear of the art, so this never shows then.
@@ -128,10 +129,9 @@ fn reshaped(old: &Node, new: &Node) -> bool {
         && old.frame.w != new.frame.w
 }
 impl GameUi {
-    /// How long a spring-eased move takes: the theme's focus time stretched to the spring's own period (Lucent's 260 ms response is a
-    /// 300 ms release, `motion::SPRING_K`).
+    /// How long a spring-eased move takes: the theme's focus time stretched to the spring's own period.
     fn spring_ms(&self) -> u32 {
-        self.tokens.motion.focus_ms * 300 / 260
+        motion::spring_ms(self.tokens.motion.focus_ms)
     }
     pub fn build(mut ui: Ui, _assets: &Path, land: &mut dyn FnMut(&mut Ui) -> io::Result<()>) -> io::Result<Self> {
         let host = Tokens::shipped();
@@ -487,7 +487,7 @@ impl GameUi {
                 self.nodes.insert(ghost, old);
             } else if !reduced && node.id >= 100 && matches!(node.body, Body::Image(_)) {
                 layer.set(Props { opacity: 0.0, ..node.props }, false, 0);
-                layer.set(node.props, true, self.tokens.motion.focus_ms);
+                layer.ease(node.props, self.tokens.motion.focus_ms, Ease::Out);
             } else {
                 layer.set(node.props, false, 0);
             }
@@ -523,7 +523,7 @@ impl GameUi {
                 && (scrolled || !paint::LIVE.contains(&node.id))
                 && (kept.node.props.scale != node.props.scale
                     || (kept.node.props.x - node.props.x).abs() < 100.0 && (kept.node.props.y - node.props.y).abs() < 100.0);
-            let ms = self.tokens.motion.focus_ms;
+            let ms = motion::spring_ms(self.tokens.motion.focus_ms);
             kept.layer.set(node.props, animate, ms);
         }
         kept.enter = enter;
