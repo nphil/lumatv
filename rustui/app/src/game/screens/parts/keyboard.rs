@@ -32,13 +32,15 @@ fn diagnostic(p: &Paint<'_>) -> bool {
     p.model.in_diagnostics() && p.model.view.top() == Some(Layer::EditText)
 }
 
-pub fn keyboard(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage: bool) {
+/// The key grid `columns` keys across.
+#[allow(clippy::too_many_arguments)]
+pub fn keyboard(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage: bool, columns: usize) {
     let (lower, diagnostic) = (p.model.view.keyboard_lower, diagnostic(p));
-    keys(p, id, x, y, w, numeric, stage, lower, diagnostic);
+    keys(p, id, x, y, w, numeric, stage, lower, diagnostic, columns);
 }
 /// The key grid, in lower or upper case, with `_` among the keys for the Diagnostics page's fields.
 #[allow(clippy::too_many_arguments)]
-fn keys(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage: bool, lower: bool, diagnostic: bool) {
+fn keys(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage: bool, lower: bool, diagnostic: bool, columns: usize) {
     let letters = match (lower, diagnostic) {
         (true, true) => "abcdefghijklmnopqrstuvwxyz0123456789.-:/_",
         (false, true) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/_",
@@ -54,7 +56,6 @@ fn keys(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage
             .chain(["⌫".into(), "Space".into(), "Done".into(), if lower { "ABC" } else { "abc" }.into()])
             .collect()
     };
-    let columns = if numeric { 6 } else { 10 };
     let gap = 8.0;
     let width = (w - gap * (columns - 1) as f32) / columns as f32;
     let h = (52.0 * p.scale).min(80.0);
@@ -140,7 +141,7 @@ pub fn plan(p: &mut Paint<'_>, entry: &TextEntry<'_>) {
         33,
     );
     let diagnostic = diagnostic(p);
-    keys(p, 8100, x, y + input_h + 16.0, w, entry.numeric, false, entry.lower, diagnostic);
+    keys(p, 8100, x, y + input_h + 16.0, w, entry.numeric, false, entry.lower, diagnostic, if entry.numeric { 6 } else { 10 });
     let button_h = p.tokens.target.max(p.line(Type::Label) + 24.0);
     if let Some((label, icon)) = entry.action {
         p.button(8500, Focus::SheetAction(0), label, Some(icon), x, f.y + f.h - 34.0 - button_h, true, false, 34);

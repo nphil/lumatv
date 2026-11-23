@@ -3,28 +3,23 @@
 //! Node ids of `section`: 8840 the scrim, 8842 the sheet, 8850 and up each tab's wash, 8860 and up
 //! each tab's name.
 use crate::game::screens::paint::{Fill, H, Paint, W};
-use crate::game::model::{Layer, library::Sort};
+use crate::game::model::Layer;
 use crate::game::screens::parts::{SHEET_Z, dialog::*, keyboard::*, motion::Enter};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{geometry::Frame, lucent::palette::PaletteRole as Role};
-use crate::game::screens::{accounts::{auth, sign_out}, quick::quick, game::chooser, library::list, settings::delete};
+use crate::game::screens::{accounts::{auth, sign_out}, quick::quick, game::chooser, library::refine, settings::delete};
 
 pub fn sheet(p: &mut Paint<'_>) {
     let Some(sheet) = p.model.view.top().filter(|layer| layer.is_sheet()) else {
         return;
     };
-    // The quick menu's drawer keeps the page in view beside it, and a dialog brings its own backdrop.
-    if !matches!(sheet, Layer::Quick | Layer::QuickSettings | Layer::Auth | Layer::SignOut | Layer::Delete) {
+    // The quick menu's drawer keeps the page in view beside it, the Library's Refine drawer too, and a dialog brings its own backdrop.
+    if !matches!(sheet, Layer::Quick | Layer::QuickSettings | Layer::Auth | Layer::SignOut | Layer::Delete | Layer::Sort | Layer::Genre | Layer::PlaysOn) {
         curtain(p);
     }
     match sheet {
         Layer::Chooser => chooser(p),
-        Layer::Sort => list(p, "Sort by", Sort::ALL.iter().map(|s| s.name().into()).collect()),
-        Layer::Genre => {
-            let mut names = vec!["All genres".into()];
-            names.extend(p.model.genres());
-            list(p, "Genre", names);
-        }
+        Layer::Sort | Layer::Genre | Layer::PlaysOn => refine(p, sheet),
         Layer::SignOut => sign_out(p),
         Layer::Auth => auth(p),
         Layer::AddHost | Layer::EditText => edit_text(p),

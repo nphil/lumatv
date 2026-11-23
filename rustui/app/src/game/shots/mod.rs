@@ -55,7 +55,6 @@ fn screens() -> Vec<(String, Model)> {
     game::failed(&base, &mut add);
     accounts::screens(&base, &mut add);
     home::text200(&base, &mut add);
-    library::search(&base, &mut add);
     media::screens(&base, &mut add);
     settings::families(&base, &mut add);
     accounts::editing(&base, &mut add);
@@ -72,7 +71,6 @@ fn screens() -> Vec<(String, Model)> {
                 "28-enter-pin",
                 "29-approval",
                 "home-a-empty", "settings-a-first-run",
-                "38-search-keyboard",
                 "41-add-pc",
                 "42-edit-path",
                 "settings-a-appearance",
@@ -135,7 +133,7 @@ fn screens() -> Vec<(String, Model)> {
         .iter()
         .filter(|(name, _)| {
             [
-                "07-library", "09-chooser", "32-chooser-text200", "11-pairing", "12-signin", "29-approval", "launch-c-strip", "launch-c-strip-text200",
+                "library-b-panel", "09-chooser", "32-chooser-text200", "11-pairing", "12-signin", "29-approval", "launch-c-strip", "launch-c-strip-text200",
                 "11-pairing-text200", "12-signin-text200", "launch-c-strip-menu", "launch-c-strip-menu-text200", "launch-b-drawer-end",
             ]
             .contains(&name.as_str())

@@ -70,7 +70,7 @@ impl Model {
             Focus::Home(r, i) => match self.home_rows.get(r).and_then(|r| r.items.get(i)).cloned() {
                 Some(HomeItem::Game(id)) => self.open_game(id, None),
                 Some(HomeItem::Collection(i)) => {
-                    self.view.filter = Filter { collection: Some(i), ..Filter::default() };
+                    self.view.filter = Filter { show: library::Show::Collection(i), ..Filter::default() };
                     self.show_page(Page::Library, Focus::Grid(0));
                     self.rebuild_filter();
                 }
@@ -203,7 +203,7 @@ mod tests {
         let (alpha, beta, gamma) = (id_of(&m, "Alpha"), id_of(&m, "Beta"), id_of(&m, "Gamma"));
         m.state.profile_mut().user.favourites.insert(beta);
         m.rebuild_rows();
-        m.view.filter.favourites = true;
+        m.view.filter.show = library::Show::Favourites;
         m.rebuild_filter();
         let favourites = m.home_rows.iter().find(|r| r.title == "Favourites").map(|r| r.items.clone());
         assert_eq!(favourites, Some(vec![HomeItem::Game(beta), HomeItem::Game(alpha)]));

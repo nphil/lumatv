@@ -229,6 +229,7 @@ fn registry() -> Vec<Walk> {
     walks.extend(screen_walks());
     walks.extend(super::quick::walks());
     walks.extend(super::settings::walks());
+    walks.extend(super::library::walks());
     walks
 }
 

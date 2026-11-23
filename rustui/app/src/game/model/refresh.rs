@@ -320,7 +320,7 @@ impl Model {
     /// What the focus points at, so that it can follow its game when a refresh moves the games around.
     pub(super) fn held(&self) -> Option<Held> {
         match (self.view.page, self.view.focus) {
-            (Page::Library, Focus::Grid(i)) => self.filtered.get(i).map(|id| Held::Grid(*id, self.view.first_grid_row.min(i / self.prefs.covers.columns()))),
+            (Page::Library, Focus::Grid(i)) => self.filtered.get(i).map(|id| Held::Grid(*id, self.view.first_grid_row.min(i / self.library_columns()))),
             (Page::Home, Focus::Home(r, i)) => self.home_rows.get(r).and_then(|row| row.items.get(i)).map(|item| Held::Home(r, item.clone())),
             _ => None,
         }
@@ -331,7 +331,7 @@ impl Model {
         match held {
             Some(Held::Grid(id, first_row)) => {
                 if let Some(at) = self.filtered.iter().position(|g| *g == id) {
-                    let columns = self.prefs.covers.columns();
+                    let columns = self.library_columns();
                     let offset = match self.view.focus {
                         Focus::Grid(old) => (old / columns).saturating_sub(first_row),
                         _ => 0,

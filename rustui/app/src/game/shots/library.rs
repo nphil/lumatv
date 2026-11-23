@@ -1,26 +1,57 @@
-//! Library, search and refresh shots.
+//! Library shots, its walks, and the refresh shots.
+use super::budget::{Step, Walk, taps};
 use super::*;
 
-pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
+/// The library on its first cover.
+fn library(base: &Model) -> Model {
     let mut m = base.clone();
     m.view.page = Page::Library;
-    m.view.focus = Focus::Grid(2);
-    add("07-library", m.clone());
-    m.view.push(Layer::Sort, m.view.focus);
-    m.view.focus = Focus::SheetRow(0);
-    add("07-library-sort", m);
-}
-pub(super) fn search(base: &Model, add: &mut impl FnMut(&str, Model)) {
-    let mut m = base.clone();
-    (m.view.page, m.view.search) = (Page::Library, true);
-    m.view.query = "Hades".into();
-    m.filtered = vec![id(&m, "Hades II")];
     m.view.focus = Focus::Grid(0);
-    add("37-search", m);
-    let mut m = base.clone();
-    (m.view.page, m.view.search) = (Page::Library, true);
-    m.view.focus = Focus::Keyboard(0);
-    add("38-search-keyboard", m);
+    m.rebuild_filter();
+    m.rebuild_navigation();
+    m
+}
+
+pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
+    let m = library(base);
+    add("library-b-panel", m.clone());
+    let mut light = m.clone();
+    light.prefs.light = true;
+    add("library-b-panel-light", light);
+    let mut large = m.clone();
+    large.prefs.text_percent = 200;
+    add("library-b-panel-text200", large);
+    let mut refine = m.clone();
+    refine.view.push(Layer::PlaysOn, Focus::SheetRow(0));
+    add("library-b-panel-plays-on", refine);
+    let mut search = m.clone();
+    search.view.search = true;
+    search.view.query = "HA".into();
+    search.view.focus = Focus::Keyboard(7);
+    search.rebuild_filter();
+    add("library-b-panel-search", search.clone());
+    search.view.query = "ZZQ".into();
+    search.rebuild_filter();
+    add("library-no-results", search);
+    let mut empty = Model::new(lumagame_core::state::State::default(), Listing::default(), vec![]);
+    empty.view.page = Page::Library;
+    empty.view.focus = Focus::SheetAction(0);
+    add("library-empty", empty);
+}
+
+/// The grid scrolled two rows down and back, and focus into the panel and out again: covers stream in at most one per frame and the
+/// panel's tint glass is never captured.
+pub(super) fn walks() -> Vec<Walk> {
+    let mut down = taps(&[(Key::Down, 120), (Key::Down, 120), (Key::Down, 120), (Key::Up, 120), (Key::Up, 120), (Key::Up, 300)]);
+    down.push(Step::Expect("back on the first cover", |m, _| m.view.focus == Focus::Grid(0)));
+    let mut panel = taps(&[(Key::Left, 200), (Key::Down, 120), (Key::Ok, 300)]);
+    panel.push(Step::Expect("Favourites shown", |m, _| m.view.filter.show == crate::game::model::library::Show::Favourites));
+    panel.extend(taps(&[(Key::Up, 120), (Key::Ok, 300), (Key::Right, 300)]));
+    panel.push(Step::Expect("back in the grid", |m, _| matches!(m.view.focus, Focus::Grid(_))));
+    vec![
+        Walk { name: "library-grid-scroll".into(), base: library(&fixture()), script: down },
+        Walk { name: "library-panel-in-out".into(), base: library(&fixture()), script: panel },
+    ]
 }
 /// The refresh states over Home, the library and the game page, in both themes at 100% and 200% text.
 pub(super) fn refresh_screens(base: &Model) -> Vec<(String, Model)> {
@@ -44,9 +75,6 @@ pub(super) fn refresh_screens(base: &Model) -> Vec<(String, Model)> {
         fresh.external.clear();
         entries.push(fresh);
         event(&mut done, "gfn", ipc::Event::Library { target: TargetId::new("main").unwrap(), entries, next: None });
-        let mut library = working.clone();
-        library.view.page = Page::Library;
-        library.view.focus = Focus::Filter(library.integrations.iter().filter(|e| library.enabled(&e.manifest.id)).count() + 4);
         let hub = |title: &str, tab: usize| {
             let mut m = base.clone();
             m.view.page = Page::Game;
@@ -59,7 +87,6 @@ pub(super) fn refresh_screens(base: &Model) -> Vec<(String, Model)> {
             ("70-refresh-working", working),
             ("71-refresh-failed", failed),
             ("71-refresh-result", done),
-            ("72-library-refresh", library),
             ("73-hub-steam", hub("Hades II", 0)),
             ("74-hub-achievements", hub("Hades II", 2)),
             ("75-hub-news", hub("Hades II", 3)),

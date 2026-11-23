@@ -367,6 +367,7 @@ pub enum Layer {
     // library
     Sort,
     Genre,
+    PlaysOn,
     /// Confirms a controller setting that removes something, such as a macro.
     Delete,
     // accounts
@@ -408,7 +409,6 @@ pub enum Focus {
     // library
     Filter(usize),
     Grid(usize),
-    SearchField,
     // text
     Keyboard(usize),
     // game
@@ -470,6 +470,8 @@ pub struct View {
     pub query: String,
     pub sort: Sort,
     pub filter: Filter,
+    /// Where focus last rested beside and in the library grid.
+    pub library: library::Sides,
     pub chooser_selected: Option<SourceKey>,
     pub remember: bool,
     pub selected_engine: Option<EngineId>,
@@ -506,6 +508,7 @@ impl Default for View {
             query: String::new(),
             sort: Sort::Title,
             filter: Filter::default(),
+            library: library::Sides::default(),
             chooser_selected: None,
             remember: false,
             selected_engine: None,
@@ -582,6 +585,8 @@ pub struct Model {
     pub art: BTreeMap<String, PathBuf>,
     pub home_rows: Vec<HomeRow>,
     pub filtered: Vec<GameId>,
+    /// How many games each Show row of the library holds.
+    pub library_counts: library::Counts,
     /// Every genre by its one label, with the games under it: the metadata provider's and every service's, joined (see `activity`).
     genre_games: BTreeMap<String, BTreeSet<GameId>>,
     pub navigation: Vec<Neighbours>,
@@ -654,6 +659,7 @@ impl Model {
             art: BTreeMap::new(),
             home_rows: Vec::new(),
             filtered: Vec::new(),
+            library_counts: library::Counts::default(),
             genre_games: BTreeMap::new(),
             navigation: Vec::new(),
             lab: Lab::default(),
@@ -1152,7 +1158,7 @@ impl Model {
         match focus {
             Focus::Home(row, _) => self.view.home_row = row,
             Focus::Hero(_) => self.view.home_row = 0,
-            Focus::Grid(i) => self.view.first_grid_row = i / self.prefs.covers.columns(),
+            Focus::Grid(i) => self.view.first_grid_row = i / self.library_columns(),
             Focus::Rail(i) => self.view.place = settings::Place::ALL[i],
             Focus::Setting(i) if self.view.page == Page::Settings && self.view.pane.is_none() => self.view.settings_rows[self.view.place.index()] = i,
             Focus::HubAction(_) => self.view.hub_tab = 0,
@@ -1244,6 +1250,7 @@ impl Model {
                 | Layer::Viewer
                 | Layer::Sort
                 | Layer::Genre
+                | Layer::PlaysOn
                 | Layer::Delete
                 | Layer::Auth
                 | Layer::SignOut
@@ -1449,6 +1456,10 @@ impl Model {
         if let Some(layer) = self.view.top() {
             self.close_layer(layer, out);
             return;
+        }
+        // Search is a mode of the library page: Back closes the keys before it leaves the page.
+        if self.view.page == Page::Library && self.view.search {
+            return self.leave_search();
         }
         match self.view.page {
             Page::Launch => return self.session_input(session::Input::Cancel, out),
@@ -1722,7 +1733,7 @@ impl Model {
                 ids
             }
             Page::Library => {
-                self.filtered.iter().skip(self.view.first_grid_row.saturating_sub(1) * self.prefs.covers.columns()).take(self.prefs.covers.columns() * 4).copied().collect()
+                self.filtered.iter().skip(self.view.first_grid_row.saturating_sub(1) * self.library_columns()).take(self.library_columns() * 4).copied().collect()
             }
             _ => Vec::new(),
         };
@@ -1764,6 +1775,9 @@ impl Model {
         }
         if self.view.page == Page::Settings && self.view.pane.is_none() && self.view.layers.is_empty() {
             self.settings_links();
+        }
+        if self.view.page == Page::Library && self.view.layers.is_empty() {
+            self.library_links();
         }
         if !self.navigation.iter().any(|n| n.id == self.view.focus) {
             self.view.focus = if self.view.page == Page::Launch { Focus::None } else { self.navigation.first().map_or(Focus::None, |n| n.id) };

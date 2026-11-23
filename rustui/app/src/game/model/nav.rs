@@ -171,7 +171,7 @@ impl Owner {
         match layer {
             Layer::Chooser => Self::Game,
             Layer::Viewer => Self::Media,
-            Layer::Sort | Layer::Genre => Self::Library,
+            Layer::Sort | Layer::Genre | Layer::PlaysOn => Self::Library,
             Layer::Delete => Self::Settings,
             Layer::Auth | Layer::SignOut => Self::Accounts,
             Layer::Picture | Layer::Achievements | Layer::EndConfirm => Self::Launch,
@@ -281,7 +281,7 @@ mod tests {
         }
         m.view.page = Page::Home;
         use Layer::*;
-        for layer in [Chooser, Viewer, Sort, Genre, Delete, Auth, SignOut, Picture, Achievements, EndConfirm, AddHost, EditText, Quick, QuickSettings] {
+        for layer in [Chooser, Viewer, Sort, Genre, PlaysOn, Delete, Auth, SignOut, Picture, Achievements, EndConfirm, AddHost, EditText, Quick, QuickSettings] {
             m.view.push(layer, Focus::None);
             assert!(!m.menu_allowed(), "{layer:?}");
             m.view.pop();
@@ -304,6 +304,7 @@ mod tests {
     #[test]
     fn the_bumpers_step_home_library_and_search_without_wrapping() {
         let mut m = home();
+        m.set_focus(Focus::Nav(0));
         let place = |m: &Model| (m.view.page, m.view.search);
         key(&mut m, Key::Prev);
         assert_eq!(place(&m), (Page::Home, false));
