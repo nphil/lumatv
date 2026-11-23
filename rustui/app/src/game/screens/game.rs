@@ -120,6 +120,7 @@ struct Glance {
     detail: Option<String>,
     progress: Option<f32>,
     thumbs: Vec<PathBuf>,
+    caption: Option<String>,
     steam: bool,
 }
 
@@ -144,7 +145,7 @@ fn cards(p: &mut Paint<'_>, id: GameId, below: f32) {
             detail: glance.detail.as_deref(),
             progress: glance.progress,
             thumbs: &glance.thumbs,
-            caption: None,
+            caption: glance.caption.as_deref(),
             source: glance.steam.then_some(Source { name: "Steam", stale: None }),
         };
         let focused = p.focused(Focus::Card(i));
@@ -183,6 +184,11 @@ fn glance_of(m: &Model, id: GameId, section: Section) -> Glance {
                 })),
                 progress,
                 thumbs,
+                // The newest post, where Home's strip used to show it.
+                caption: match facts.activity.news {
+                    Fact::Present(news) => news.first().map(|n| n.title.clone()),
+                    _ => None,
+                },
                 steam: matches!(achievements, Fact::Present(_)),
             }
         }
@@ -197,6 +203,7 @@ fn glance_of(m: &Model, id: GameId, section: Section) -> Glance {
                 },
                 progress: None,
                 thumbs: Vec::new(),
+                caption: None,
                 steam: matches!(reviews, Fact::Present(_)),
             }
         }
@@ -216,6 +223,7 @@ fn glance_of(m: &Model, id: GameId, section: Section) -> Glance {
                 detail: None,
                 progress: None,
                 thumbs,
+                caption: None,
                 steam: matches!(shots, Fact::Present(_)),
             }
         }
@@ -227,6 +235,7 @@ fn glance_of(m: &Model, id: GameId, section: Section) -> Glance {
                 detail: if let Fact::Present(r) = &about.release { Some(r.to_string()) } else { None },
                 progress: None,
                 thumbs: Vec::new(),
+                caption: None,
                 steam: false,
             }
         }

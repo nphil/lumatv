@@ -1,6 +1,6 @@
 //! Home: one row of the owner's games under the top bar, and behind it the focused game's art, logo, one line and Play. One press down
-//! the row gives way to that game's strip of cards; up brings the row back.
-use super::facts::{Fact, Section};
+//! opens that game's page, which holds its activity, community, media and about; Back there is Home.
+use super::facts::Fact;
 use super::nav::Slice;
 use super::*;
 
@@ -14,28 +14,8 @@ pub const TILES_SHOWN: usize = 6;
 pub enum Spot {
     /// A game of the row, by its place in `Model::home_games`.
     Tile(usize),
-    /// A card of the focused game's strip.
-    Card(HomeCard),
     /// The empty Home's one button.
     Add,
-}
-
-/// The cards of the strip, in their order. Each shows only while its fact is present.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum HomeCard {
-    Achievements,
-    LastPlayed,
-    News,
-    Reviews,
-}
-impl HomeCard {
-    /// The section of the game page the card opens.
-    pub fn section(self) -> Section {
-        match self {
-            Self::Achievements | Self::LastPlayed | Self::News => Section::Activity,
-            Self::Reviews => Section::Community,
-        }
-    }
 }
 
 pub struct Rules;
@@ -44,13 +24,7 @@ impl Slice for Rules {
         if m.home_games.is_empty() {
             return vec![vec![Focus::Home(Spot::Add)]];
         }
-        let cards: Vec<Focus> = m.home_cards().into_iter().map(|c| Focus::Home(Spot::Card(c))).collect();
-        // Rows are built around where focus is, so that Down from any tile lands on the first card and Up from any card on the tile.
-        if matches!(m.view.focus, Focus::Home(Spot::Card(_))) {
-            vec![m.home_tile().map(|i| Focus::Home(Spot::Tile(i))).into_iter().collect(), cards]
-        } else {
-            vec![(0..m.home_games.len()).map(|i| Focus::Home(Spot::Tile(i))).collect(), cards.into_iter().take(1).collect()]
-        }
+        vec![(0..m.home_games.len()).map(|i| Focus::Home(Spot::Tile(i))).collect()]
     }
     fn default_focus(m: &Model, region: Region) -> Option<Focus> {
         match region {
@@ -69,11 +43,6 @@ impl Slice for Rules {
                     m.play(id, out);
                 }
             }
-            Focus::Home(Spot::Card(card)) => {
-                if let Some(id) = m.view.featured {
-                    m.open_game(id, Some(card.section()));
-                }
-            }
             Focus::Home(Spot::Add) => m.open_settings(settings::Place::Accounts),
             _ => {}
         }
@@ -83,14 +52,13 @@ impl Slice for Rules {
     }
     fn subject(m: &Model) -> Option<GameId> {
         match m.view.focus {
-            Focus::Home(Spot::Tile(_) | Spot::Card(_)) => m.view.featured,
+            Focus::Home(Spot::Tile(_)) => m.view.featured,
             _ => None,
         }
     }
     fn hints(m: &Model) -> Hints {
         match m.view.focus {
-            Focus::Home(Spot::Card(_)) => Hints(vec![(Key::Up, "Games"), (Key::Menu, "Menu")]),
-            Focus::Home(Spot::Tile(_)) if !m.home_cards().is_empty() => Hints(vec![(Key::Down, "More"), (Key::Menu, "Menu")]),
+            Focus::Home(Spot::Tile(_)) => Hints(vec![(Key::Down, "More"), (Key::Menu, "Menu")]),
             _ => Hints(vec![(Key::Menu, "Menu")]),
         }
     }
@@ -105,25 +73,6 @@ impl Model {
     /// Home's button.
     pub fn home_focus(&self) -> Focus {
         if self.home_games.is_empty() { Focus::Home(Spot::Add) } else { Focus::Home(Spot::Tile(self.home_tile().unwrap_or(0))) }
-    }
-    /// The featured game's cards whose facts are present.
-    pub fn home_cards(&self) -> Vec<HomeCard> {
-        let Some(id) = self.view.featured else { return Vec::new() };
-        let facts = self.facts(id);
-        let mut cards = Vec::new();
-        if matches!(facts.activity.achievements, Fact::Present(_)) {
-            cards.push(HomeCard::Achievements);
-        }
-        if matches!(facts.activity.last_session, Fact::Present(_)) {
-            cards.push(HomeCard::LastPlayed);
-        }
-        if matches!(facts.activity.news, Fact::Present(news) if !news.is_empty()) {
-            cards.push(HomeCard::News);
-        }
-        if matches!(facts.community.reviews, Fact::Present(_)) {
-            cards.push(HomeCard::Reviews);
-        }
-        cards
     }
     /// The stage's one line: "Played 2 h ago · 31 h · 18 of 50 achievements", any part that is not known left out.
     pub fn home_line(&self, id: GameId) -> String {

@@ -561,7 +561,7 @@ mod tests {
         (m, id)
     }
     #[test]
-    fn ok_on_a_card_opens_its_section_and_back_returns_to_the_card_then_play_then_leaves() {
+    fn ok_on_a_card_opens_its_section_and_back_returns_to_the_card_then_play_then_home() {
         let (mut m, _) = hades(true);
         m.set_focus(Focus::Card(1));
         key(&mut m, Key::Ok);
@@ -571,7 +571,7 @@ mod tests {
         key(&mut m, Key::Back);
         assert_eq!((m.view.page, m.view.focus), (Page::Game, Focus::Play));
         key(&mut m, Key::Back);
-        assert_ne!(m.view.page, Page::Game);
+        assert_eq!(m.view.page, Page::Home, "Back from a game's page is always Home, whatever opened it");
     }
     #[test]
     fn each_section_keeps_its_own_focus_across_switches() {

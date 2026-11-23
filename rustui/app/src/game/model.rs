@@ -1388,6 +1388,13 @@ impl Model {
             self.set_focus(focus);
             return true;
         }
+        // Down from the row of games is the focused game's page ("More").
+        if key == Key::Down && self.view.layers.is_empty() && matches!(self.view.focus, Focus::Home(Spot::Tile(_))) {
+            if let Some(id) = self.view.featured {
+                self.open_game(id, None);
+                return true;
+            }
+        }
         false
     }
     fn activate(&mut self, out: &mut Vec<Command>) {
@@ -1463,7 +1470,7 @@ impl Model {
             }
         }
     }
-    /// Back, a rung at a time: the top layer closes; focus returns to the page's anchor; the page before it opens; and at Home's anchor
+    /// Back, a rung at a time: the top layer closes; focus returns to the page's anchor; the page before it opens (a game's page opens Home); and at Home's anchor
     /// the first Back only asks for a second, which leaves.
     fn go_back(&mut self, out: &mut Vec<Command>) {
         if let Some(layer) = self.view.top() {
@@ -1483,7 +1490,10 @@ impl Model {
             self.set_focus(anchor);
             return;
         }
-        if let Some(way) = self.back.pop() {
+        // A game's page is entered from Home, the library, a card or the end of a session; Back from it is always Home.
+        if self.view.page == Page::Game {
+            self.switch_tab(0, self.home_focus());
+        } else if let Some(way) = self.back.pop() {
             self.view.restore(way);
             self.rebuild_filter();
         } else if self.view.page != Page::Home {
