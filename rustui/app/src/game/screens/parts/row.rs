@@ -223,7 +223,7 @@ pub(super) fn body(p: &mut Paint<'_>, id: u64, frame: Frame, line: &Line<'_>, tr
     let z = Z + p.content_z;
     if focused {
         let wash = p.tokens.states.focus_wash[usize::from(p.mode == Mode::Light)];
-        // The wash carries the raised edge and the active shadow: the row's own layers are drawn at rest.
+        // The wash carries the raised lip and the shadow: the row's own layers are drawn at rest.
         p.surface(id + 10, frame, Fill::Tint(wash), Radius::Row, false, true, false, z - 1);
     }
     let Trail { mut words, mut marks, w: trail_w } = trail;

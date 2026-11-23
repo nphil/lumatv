@@ -312,18 +312,21 @@ impl<'a> Paint<'a> {
         let glass = Glass {
             corner_radius: self.tokens.radius(radius).min(frame.h / 2.0),
             tint: self.colour(if matches!(fill, Fill::Glass) && !cached { Fill::Tint(0.06) } else { fill }, stage),
-            edge: self.ink(if focused { Role::EdgeRaised } else { Role::Edge }, stage),
-            edge_width: if matches!(fill, Fill::Tint(_) | Fill::Veil(_)) && !focused { 0.0 } else { f.edge_width },
+            edge: self.ink(Role::Edge, stage),
+            // Focus is lit from above by its lip, never an outline ring all round.
+            edge_width: if focused || matches!(fill, Fill::Tint(_) | Fill::Veil(_)) { 0.0 } else { f.edge_width },
+            // The lip takes the raised edge's colour: at `highlightRaised` it measured 2.6:1 against a drawer, short of 3:1.
             highlight: if focused {
-                f.highlight_raised
+                self.ink(Role::EdgeRaised, stage)
             } else if cached {
                 f.highlight_rest
             } else {
                 Rgba(0, 0, 0, 0)
             },
+            // The raised sheen would light the focused fill about twice as bright as the wash alone (panel care).
             sheen: None,
             shadows: if focused {
-                f.shadow_raised
+                [f.shadow_raised[0], None]
             } else if cached {
                 f.shadow_rest
             } else {
