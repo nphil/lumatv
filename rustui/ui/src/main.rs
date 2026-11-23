@@ -392,6 +392,8 @@ fn carry(acts: Vec<Act>, channel: Option<&Feed>, helper: Option<&Feed>, log: &mu
 }
 
 fn main() {
+    // Lowering a limit cannot fail.
+    let _ = lumatv_ui::host::memory::no_core_dumps();
     lumatv_ui::host::memory::tune();
     let o = match parse() {
         Ok(o) => o,

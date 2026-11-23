@@ -11,6 +11,8 @@ Home's dock closes up at once when a tile is hidden by the theme or removed from
 
 LumaGame and the camera feeder no longer write core dumps: a crash left a 160 to 290 MB `core.<pid>` in the app's install directory, which nothing removed and reinstalls kept. The previous run's log stays beside the current one as `feeder.log.prev`, so a crash's panic message survives the relaunch.
 
+No LumaTV process writes core dumps any more: the compositor, the UI, the helper and its children, the surface-manager shim, the memory manager, the home stub, the card launcher, the ssgw gateway's accept stub and the shell tools the boot hook and the web app start set the core limit to 0 as they start (`setrlimit` in code, `ulimit -c 0` in shell), and the crash bundles stay. The state directory's log, shared by the `mm`, `ssgw`, `store` and `sysbus` tools, keeps its last 300 lines, and each helper start removes retired logs of earlier builds that have not been written for a week and rollback `*.bak` copies beyond the newest two or older than a week. Not yet installed on the TV.
+
 The old GeForce NOW app and the LumaGame native proof are gone; LumaGame streams GeForce NOW. `lumatv gfn` and the package's `payload/gfn` are removed with them.
 
 Settings' first page, Privacy, shows its rows at once instead of after about 4.6 s: the helper's privacy menu spent 4.4 to 4.8 s of that in `declutter.sh status` (the menu's other reads take about 0.15 s), so it now serves the last reading of the tool, refreshes it in the background when it is more than 10 s old and after a group switch, takes the first reading 30 s after the helper starts, and says `"stale": true` while a refresh runs, on which the page reads again every 2 s. Not yet verified on the TV.

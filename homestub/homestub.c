@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <time.h>
@@ -417,8 +418,16 @@ static int is_hidden_launch(const char *json)
     return json && (strstr(json, "\"preload\"") || strstr(json, "\"snapshot\":true") || strstr(json, "\"snapshot\": true"));
 }
 
+/* SAM starts apps with an unlimited core size, and a crash drops a 160-290 MB dump into the app directory, kept across reinstalls. */
+static void no_core_dumps(void)
+{
+    struct rlimit none = { 0, 0 };
+    setrlimit(RLIMIT_CORE, &none);
+}
+
 int main(int argc, char **argv)
 {
+    no_core_dumps();
     int hidden = argc > 1 && is_hidden_launch(argv[1]);
     struct sigaction sa = { .sa_handler = on_signal };
     sigaction(SIGTERM, &sa, NULL);

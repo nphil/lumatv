@@ -43,6 +43,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -433,7 +434,15 @@ static void home_of_exe(char *out, size_t n) {
     snprintf(out, n, "%s", exe);
 }
 
+// SAM starts apps with an unlimited core size, and a crash drops a 160-290 MB dump into the app directory, kept across reinstalls. The 64-bit
+// app this launcher starts inherits the limit.
+static void no_core_dumps(void) {
+    struct rlimit none = {0, 0};
+    setrlimit(RLIMIT_CORE, &none);
+}
+
 int main(int argc, char **argv) {
+    no_core_dumps();
     signal(SIGPIPE, SIG_IGN);
     const char *log_path = getenv("LUMATV_CARD_LOG");
     if (!log_path || !*log_path) log_path = "/tmp/lumatv-card.log";

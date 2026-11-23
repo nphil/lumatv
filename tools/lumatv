@@ -6,6 +6,10 @@
 
 set -u
 
+# SAM, the boot hook and the web app's root service start this with an unlimited core size, and a crash would leave a 160-290 MB dump in the
+# working directory. Everything the tool starts inherits the limit.
+ulimit -c 0 2>/dev/null || :
+
 APPDIR=$(cd "$(dirname "$0")/.." && pwd)
 # A failed `.` aborts a non-interactive sh, so the file is checked first.
 if [ ! -f "$APPDIR/tools/brand.sh" ]; then

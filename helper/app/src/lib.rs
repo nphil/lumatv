@@ -40,6 +40,7 @@
 //! | [`dvroom`] | Dolby Vision room mode: while Dolby Vision plays, LG's Cinema for a dark or a bright room from the light sensor and the time of day, held steady through a video and left alone once the owner picks a mode, behind `system.dolbyVisionRoom` (on by default) |
 //! | [`displaylab`] | the display lab: the shell's guided look at the OSD sharpener, dimming and a cut-out window, written through one hard list, journaled, read back and put back by every way out (the dead-man, the helper's stop, the next start); the TV's own shell only |
 //! | [`service`], [`cli`] | start and stop, the lock, the command line |
+//! | [`limits`], [`tidy`] | the process's core limit (no core dumps for it or its children), and what the data directory must not keep: retired logs and old rollback copies |
 
 pub mod ai;
 pub mod ambient;
@@ -73,6 +74,7 @@ pub mod fetcher;
 pub mod gamesir;
 pub mod gaming;
 pub mod leadjoy;
+pub mod limits;
 pub mod gfn_boost;
 pub mod guidedata;
 pub mod ha_plugin;
@@ -118,6 +120,7 @@ pub mod settings;
 pub mod ssgw;
 pub mod sys;
 pub mod timeutil;
+pub mod tidy;
 pub mod tuner;
 pub mod tvsensors;
 pub mod voice;

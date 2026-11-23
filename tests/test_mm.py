@@ -221,6 +221,14 @@ class MmTool(unittest.TestCase):
         self.assertEqual((code, out["applied"]), (0, False))
         self.assertIn("not the memory manager", out["why"])
 
+    def test_the_state_log_keeps_its_last_300_lines(self):
+        (self.tmp / "log").write_text("".join("old %d\n" % n for n in range(400)))
+        self.run_tool("on")
+        lines = (self.tmp / "log").read_text().splitlines()
+        self.assertEqual(len(lines), 300)
+        self.assertIn("mm: on: bound", lines[-1])
+        self.assertEqual(lines[0], "old 101")
+
 
 if __name__ == "__main__":
     unittest.main()

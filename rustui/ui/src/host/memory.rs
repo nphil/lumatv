@@ -15,3 +15,29 @@ pub fn tune() {
         libc::mallopt(libc::M_MMAP_THRESHOLD, MMAP_THRESHOLD);
     }
 }
+
+/// Turns core dumps off for the UI and what it starts. SAM and the boot hook start processes with an unlimited core size and the kernel's core
+/// pattern is the relative `core`, so a crash drops a 160-290 MB file (a copy of this memory, mode 0777) into the working directory. The
+/// compositor's crash bundle is the evidence that is kept. The hard limit goes too, so nothing below can raise it again.
+pub fn no_core_dumps() -> std::io::Result<()> {
+    let none = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: a stack rlimit for setrlimit to read.
+    if unsafe { libc::setrlimit(libc::RLIMIT_CORE, &none) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_soft_and_the_hard_core_limit_are_zero() {
+        no_core_dumps().unwrap();
+        let mut now = libc::rlimit { rlim_cur: 1, rlim_max: 1 };
+        // SAFETY: a stack rlimit for getrlimit to fill.
+        assert_eq!(unsafe { libc::getrlimit(libc::RLIMIT_CORE, &mut now) }, 0);
+        assert_eq!((now.rlim_cur, now.rlim_max), (0, 0));
+    }
+}

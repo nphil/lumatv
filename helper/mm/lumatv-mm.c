@@ -47,6 +47,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mount.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -905,7 +906,14 @@ static void open_bridge(void) {
 #ifdef LUMATV_MM_TEST
 #include "test.c"
 #else
+// systemd starts this in place of LG's memchute with whatever core size the unit has: a dump of a crash is not kept, the crash record is.
+static void no_core_dumps(void) {
+    struct rlimit none = {0, 0};
+    setrlimit(RLIMIT_CORE, &none);
+}
+
 int main(int argc, char **argv) {
+    no_core_dumps();
     saved_argv = argv;
     bool would_run = false, probe = false;
     for (int i = 1; i < argc; i++) {

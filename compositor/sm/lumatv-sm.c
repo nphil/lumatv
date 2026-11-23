@@ -75,6 +75,7 @@
 #include <strings.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -3058,7 +3059,15 @@ int main(void) {
     return failures_seen ? 1 : 0;
 }
 #else
+// SAM and the boot hook start processes with an unlimited core size, and a crash then leaves a 160-290 MB dump in the working directory. The
+// compositor, the UI and everything they start inherit this limit; the crash bundle (reason.txt and the tails) is the evidence kept instead.
+static void no_core_dumps(void) {
+    struct rlimit none = {0, 0};
+    setrlimit(RLIMIT_CORE, &none);
+}
+
 int main(int argc, char **argv) {
+    no_core_dumps();
     saved_argv = argv;
     bool would_run = false, would_enable = false, home_held = false;
     const char *enable_mode = NULL;

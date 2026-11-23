@@ -61,6 +61,10 @@ emit_error() {
 log_line() {
   mkdir -p "$(dirname "$LOGFILE")" 2>/dev/null
   printf '%s ssgw: %s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" "$(printf '%s' "$1" | tr '\n' ' ')" >> "$LOGFILE" 2>/dev/null
+  # The state log is shared by the tool scripts and kept on the TV's flash: only the last 300 lines stay.
+  if [ "$(wc -l < "$LOGFILE" 2>/dev/null | tr -d ' ')" -gt 300 ] 2>/dev/null; then
+    tail -n 300 "$LOGFILE" > "$LOGFILE.trim.$$" 2>/dev/null && mv "$LOGFILE.trim.$$" "$LOGFILE"
+  fi
 }
 
 sha_of() {

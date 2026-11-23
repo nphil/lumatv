@@ -29,6 +29,9 @@
 # directory (the tests do). ls-hubd is asked to rescan with ls-control (scan-volatile-dirs, scan-services); where that is not
 # there the role is read at the next start of the hub. The developer flag /var/luna/preferences/vt_devmode is not touched here.
 
+# The reader is started with an unlimited core size otherwise: a crash would leave a 160-290 MB dump. It inherits 0.
+ulimit -c 0 2>/dev/null || :
+
 LS2="${LUMATV_LS2_DIR:-/var/luna-service2-dev}"
 ROLE="$LS2/roles.d/lumatv-capture.json"
 MANIFEST="$LS2/manifests.d/org.nphil.lumatv.capture.json"

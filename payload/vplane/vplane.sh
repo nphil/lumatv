@@ -27,6 +27,9 @@
 # clean exit (0) or a refusal to start (2: no library, no clips; the reason is in the log), and it gives up after five restarts in five
 # minutes. LUMATV_VPLANE_RESTART_SLEEP (seconds, default 2) is the pause between them.
 
+# The player is started with an unlimited core size otherwise: a crash would leave a 160-290 MB dump. It inherits 0.
+ulimit -c 0 2>/dev/null || :
+
 LS2="${LUMATV_LS2_DIR:-/var/luna-service2-dev}"
 ROLE="$LS2/roles.d/lumatv-vplane.json"
 MANIFEST="$LS2/manifests.d/org.nphil.lumatv.vplane.json"

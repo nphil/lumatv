@@ -34,6 +34,11 @@ fn why(code: &'static str, detail: impl Into<String>) -> Outcome {
 }
 
 fn main() {
+    // xinetd starts this with the core size it has, and a dump of a crash would land in the working directory: not kept, here or in the
+    // `nsl` this runs in its place. Lowering a limit cannot fail.
+    let none = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: a stack rlimit for setrlimit to read.
+    unsafe { libc::setrlimit(libc::RLIMIT_CORE, &none) };
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     if args.first().map(|a| a.as_bytes()) == Some(b"3001") {
         let dir = std::env::var_os("SSGW_RUN_DIR").unwrap_or_else(|| RUN_DIR.into());

@@ -14,9 +14,11 @@ use lumatv_compositor::output::{Output, monotonic_ns};
 use lumatv_compositor::render::gl::{BufferPath, Gl};
 use lumatv_compositor::render::software::Software;
 use lumatv_compositor::server::state::{ClientHandler, State};
-use lumatv_compositor::{control, logsink, luna, mem, ring, sched, ticker, wake};
+use lumatv_compositor::{control, limits, logsink, luna, mem, ring, sched, ticker, wake};
 
 fn main() {
+    // Lowering a limit cannot fail; before the log exists there is nowhere to say so anyway.
+    let _ = limits::no_core_dumps();
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("ctl") {
         let mut runtime_dir = std::path::PathBuf::from("/tmp/lumatv");

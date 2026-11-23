@@ -484,6 +484,7 @@ fn serve(
         crate::VERSION,
         paths.data_dir.display()
     );
+    let swept = crate::tidy::sweep(&paths.data_dir, std::time::SystemTime::now());
     let old_keys = std::mem::take(&mut config.old_keys);
     let service = match Service::start(StartOptions {
         paths: paths.clone(),
@@ -508,6 +509,9 @@ fn serve(
     // Said only now: the log is collected by the service's own thread, and what a producer sends with no collector is dropped.
     for line in &old_keys {
         crate::log_warn!("{line}");
+    }
+    if swept.files > 0 {
+        crate::log_info!("tidy: removed {} stale file(s), {} KiB", swept.files, swept.bytes.div_ceil(1024));
     }
     let port = service.addr().port();
     let _ = sys::write_info(&mut lock, owner, Some(port), worker);

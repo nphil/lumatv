@@ -17,6 +17,9 @@
 # The hook is also a no-op unless the user explicitly asked for persistence,
 # so removing the symlink is not the only off switch.
 
+# The boot hook starts with an unlimited core size, and a crash of anything it starts would leave a 160-290 MB dump. Children inherit 0.
+ulimit -c 0 2>/dev/null || :
+
 # Resolve the real app dir even though we are invoked through a symlink
 # in /var/lib/webosbrew/init.d.
 self="$0"
