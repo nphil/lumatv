@@ -91,6 +91,11 @@ const GUARD_EVERY: Duration = Duration::from_secs(5);
 const DSP_RESETS: &str = "/sys/module/aud/parameters/aud_dsp_reset_count";
 /// The TV's microphone, opened at the format and period the card needs (`plughw` on it is refused).
 const MIC_DEVICE: &str = "hw:1,0";
+/// The microphone's ALSA buffer in frames. With 2048 the driver's position runs past the buffer and the capture stops delivering
+/// after about 3 s (measured 2026-11-23); 8192 ran 10 minutes.
+const MIC_BUFFER: u32 = 8192;
+/// The TV's mixed output, the echo canceller's reference.
+const REFERENCE_DEVICE: &str = "hw:1,2";
 /// The player of replies: raw 16-bit mono, the rate is added. `media` is the TV's mixed output.
 const PLAYER: [&str; 10] = ["aplay", "-q", "-D", "plug:media", "-t", "raw", "-f", "S16_LE", "-c", "1"];
 const SOCKET: &str = "audiod.sock";
@@ -940,20 +945,23 @@ impl Plugin {
 
     fn start_engine(&self) -> Result<Arc<Handle>, String> {
         pair::private_dir(&self.dir).map_err(|e| format!("{}: {e}", self.dir.display()))?;
+        // The mix capture is asked for 48 kHz, the only rate it accepts, but its frames come at twice that pace (measured
+        // 2026-11-23: 10 s of them in 5 s), so it is read as 96 kHz. Only its right channel carries the TV's sound.
+        let asked = Format {
+            rate: 48_000,
+            channels: 2,
+            sample: Sample::S16,
+        };
         let card = Alsa {
-            mic: Alsa::arecord(MIC_DEVICE, tv_mic_format(), 256, 2048),
+            mic: Alsa::arecord(MIC_DEVICE, tv_mic_format(), 256, MIC_BUFFER),
             mic_format: tv_mic_format(),
-            reference: Vec::new(),
-            reference_format: Format {
-                rate: 48_000,
-                channels: 2,
-                sample: Sample::S16,
-            },
+            reference: Alsa::arecord(REFERENCE_DEVICE, asked, 0, 0),
+            reference_format: Format { rate: 96_000, ..asked },
         };
         let speaker = Aplay::new(PLAYER.iter().map(|s| (*s).to_owned()).collect());
         let config = lumavoice::Config {
             cutoff: self.choices.sensitivity.cutoff(),
-            reference: false,
+            reference_pick: lumavoice::Pick::Channel(1),
             ..lumavoice::Config::default()
         };
         lumavoice::start(&self.dir.join(SOCKET), Arc::new(card), Box::new(speaker), config)
