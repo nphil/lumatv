@@ -3,7 +3,7 @@
 //! look-ahead that fetches a game's page data while its tile rests in focus).
 pub mod media;
 
-use super::facts::Section;
+use super::facts::{Ask, Reader, Section, steam_app};
 use super::nav::Slice;
 use super::settings::Place;
 use super::*;
@@ -12,7 +12,7 @@ use lumagame_meta::hub::{Deck, Hub};
 use lumagame_core::ids::ProviderGameId;
 
 /// How long a tile must stay focused before its page data is fetched ahead of the owner opening it.
-const REST_MS: u64 = 700;
+pub(super) const REST_MS: u64 = 700;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HubTab {
@@ -131,27 +131,33 @@ impl Model {
         self.owned.get(&id).map(Vec::as_slice)
     }
 
-    /// Asks the engine that holds the game for the owner's own achievements, once until the app comes back from the background.
+    /// Asks the engine that can read the owner's achievements in the game, once until the app comes back from the background.
     pub(super) fn request_owned(&mut self, id: GameId, out: &mut Vec<Command>) {
+        if self.requested_owned.contains(&id) {
+            return;
+        }
         let Some(game) = self.game(id) else { return };
-        let Some(source) = game.sources.iter().find(|s| {
-            self.enabled(&s.engine)
-                && self.integration(&s.engine).is_some_and(|e| {
-                    e.descriptor.as_ref().is_some_and(|d| d.capabilities.has(Feature::Achievements)) && e.targets.iter().any(|t| t.id == s.target && t.link == ipc::Link::Linked)
-                })
+        let Reader::Linked { engine, target, ask } = self.reader(game) else { return };
+        let Ok(game) = (match ask {
+            Ask::Source(own) => Ok(own.clone()),
+            Ask::App(app) => ProviderGameId::new(app.to_string()),
         }) else {
             return;
         };
-        let request = Request::Achievements { target: source.target.clone(), game: source.entry.id.clone() };
-        let engine = source.engine.clone();
-        if self.requested_owned.insert(id) {
-            Self::send(out, &engine, request);
-        }
+        let (engine, target) = (engine.clone(), target.clone());
+        self.requested_owned.insert(id);
+        Self::send(out, &engine, Request::Achievements { target, game });
     }
 
+    /// An answer to `request_owned`. An engine that lists the game names it by its own id; Steam lists a library as records, which are
+    /// not games, so it is asked by the game's Steam app id and answers with that.
     pub(super) fn owned_achievements(&mut self, engine: &EngineId, target: &TargetId, game: &ProviderGameId, unlocked: Vec<ipc::Unlocked>) {
-        let found = self.games.iter().find(|g| g.sources.iter().any(|s| s.engine == *engine && s.target == *target && s.entry.id == *game)).map(|g| g.id);
-        if let Some(id) = found {
+        let own = self.games.iter().find(|g| g.sources.iter().any(|s| s.engine == *engine && s.target == *target && s.entry.id == *game));
+        let found = own.or_else(|| {
+            let app = game.as_str().parse::<u32>().ok()?;
+            self.games.iter().find(|g| steam_app(g) == Some(app))
+        });
+        if let Some(id) = found.map(|g| g.id) {
             self.owned.insert(id, unlocked);
         }
     }
@@ -391,6 +397,27 @@ mod tests {
         assert_eq!(m.hub_tabs(), [HubTab::Overview, HubTab::Ways, HubTab::Achievements]);
         let back = m.step(Input::Foreground(true));
         assert_eq!(sent(&back).iter().filter(|r| matches!(r, Request::Achievements { .. })).count(), 1, "asked again after the app comes back");
+    }
+    #[test]
+    fn the_owners_achievements_in_a_game_steam_lists_only_as_a_record_are_asked_by_its_app_id() {
+        use lumagame_core::activity::Activity;
+        use lumagame_core::ids::ProviderGameId;
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gfn", "GeForce NOW", EngineKind::Cloud), manifest("steam", "Steam", EngineKind::Account)]);
+        describe(&mut m, "gfn", vec![lumagame_core::engine::AuthMethod::DeviceCode], &[]);
+        describe(&mut m, "steam", vec![lumagame_core::engine::AuthMethod::Qr], &[Feature::Achievements]);
+        let account = TargetId::new("76561198000000000").unwrap();
+        engine_says(&mut m, "steam", ipc::Event::Targets { targets: vec![linked("76561198000000000")] });
+        engine_says(&mut m, "gfn", ipc::Event::Targets { targets: vec![linked("main")] });
+        let hades = entry("1", "Hades II", ipc::Role::Game, &["steam:1145350"], Activity::default());
+        engine_says(&mut m, "gfn", ipc::Event::Library { target: TargetId::new("main").unwrap(), entries: vec![hades], next: None });
+        let game = id_of(&m, "Hades II");
+        m.view.selected = Some(game);
+        m.view.page = Page::Hub;
+        let asked = m.step(Input::Notice("x".into()));
+        assert!(matches!(sent(&asked)[..], [Request::Achievements { target, game }] if *target == account && game.as_str() == "1145350"));
+        let unlocked = vec![ipc::Unlocked { name: "ACH_A".into(), at: None }];
+        engine_says(&mut m, "steam", ipc::Event::Achievements { target: account, game: ProviderGameId::new("1145350").unwrap(), unlocked });
+        assert_eq!(m.unlocked(game).map(<[_]>::len), Some(1));
     }
     #[test]
     fn a_tile_that_rests_in_focus_gets_its_page_data_fetched_ahead() {

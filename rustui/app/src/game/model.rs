@@ -227,6 +227,11 @@ pub struct Preferences {
     pub deadzone: u8,
     pub anti_deadzone: u8,
     pub stick_curve: Curve,
+    // facts
+    /// Game pages read what Steam's community says: reviews, news, discussions, pictures. Off, nothing is asked of Steam.
+    pub game_pages: bool,
+    /// Steam keeps some pages behind an age check; on, the owner has agreed to read them.
+    pub mature_pages: bool,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -249,6 +254,9 @@ impl Default for Preferences {
             deadzone: 8,
             anti_deadzone: 0,
             stick_curve: Curve::Linear,
+            // facts
+            game_pages: true,
+            mature_pages: false,
         }
     }
 }
@@ -289,10 +297,13 @@ impl Preferences {
         p.deadzone = v["deadzone"].as_u64().map_or(p.deadzone, |n| n.min(u64::from(DEADZONE_MAX)) as u8);
         p.anti_deadzone = v["anti_deadzone"].as_u64().map_or(p.anti_deadzone, |n| n.min(u64::from(ANTI_DEADZONE_MAX)) as u8);
         p.stick_curve = v["stick_curve"].as_str().and_then(Curve::from_name).unwrap_or_default();
+        // facts
+        p.game_pages = v["game_pages"].as_bool().unwrap_or(p.game_pages);
+        p.mature_pages = v["mature_pages"].as_bool().unwrap_or(p.mature_pages);
         p
     }
     fn json(&self) -> serde_json::Value {
-        serde_json::json!({"family":self.family,"light":self.light,"hero":self.hero.index(),"covers":self.covers.index(),"text_percent":self.text_percent,"button_labels":self.button_labels.key(),"reduce_motion":self.reduce_motion,"width":self.width,"height":self.height,"fps":self.fps,"hdr":self.hdr,"codec":self.codec.map_or("auto",Codec::as_str),"frame_pacing":self.frame_pacing(),"bitrate_mbps":self.bitrate_mbps,"stats":self.stats,"deadzone":self.deadzone,"anti_deadzone":self.anti_deadzone,"stick_curve":self.stick_curve.name()})
+        serde_json::json!({"family":self.family,"light":self.light,"hero":self.hero.index(),"covers":self.covers.index(),"text_percent":self.text_percent,"button_labels":self.button_labels.key(),"reduce_motion":self.reduce_motion,"width":self.width,"height":self.height,"fps":self.fps,"hdr":self.hdr,"codec":self.codec.map_or("auto",Codec::as_str),"frame_pacing":self.frame_pacing(),"bitrate_mbps":self.bitrate_mbps,"stats":self.stats,"deadzone":self.deadzone,"anti_deadzone":self.anti_deadzone,"stick_curve":self.stick_curve.name(),"game_pages":self.game_pages,"mature_pages":self.mature_pages})
     }
     fn frame_pacing(&self) -> &'static str {
         if self.smooth_pacing { "smooth" } else { "latency" }
@@ -520,6 +531,7 @@ pub struct Model {
     pages: BTreeMap<(EngineId, TargetId), Vec<ipc::LibraryEntry>>,
     sources: Sources,
     refresher: refresh::Refresher,
+    answers: facts::Cache,
 }
 impl Model {
     pub fn new(state: State, mut listing: Listing, manifests: Vec<Manifest>) -> Self {
@@ -579,6 +591,7 @@ impl Model {
             pages: BTreeMap::new(),
             sources: Sources::default(),
             refresher: refresh::Refresher::default(),
+            answers: facts::Cache::default(),
         };
         m.rebuild_catalog();
         m.rebuild_navigation();
@@ -796,6 +809,7 @@ impl Model {
                 changed = second && (self.view.page == Page::Overlay || self.view.idle.is_some() || self.view.auth.as_ref().is_some_and(|a| a.expires_ms.is_some()));
                 changed |= self.refresh_tick(second);
                 self.look_ahead(&mut out);
+                self.facts_ahead(&mut out);
                 if self.hud_visible() {
                     let asked = self.asked();
                     changed |= self.telemetry.tick(now_ms, &asked);
@@ -1280,9 +1294,15 @@ impl Model {
                     Self::send(out, &id, Request::Library { target, cursor: next });
                 } else {
                     let entries = self.pages.remove(&(id.clone(), target.clone())).unwrap_or_default();
+                    let arrivals = self.arrivals(&id, &target, &entries);
                     self.listing.replace(&id, &target, entries);
                     let held = self.held();
                     self.rebuild_catalog();
+                    self.note_arrivals(arrivals);
+                    // A finished listing is the engine working: an earlier failure no longer needs the owner.
+                    if let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == id) {
+                        e.error = None;
+                    }
                     self.follow(held);
                     self.refresh_loaded(&id);
                     out.push(Command::SaveCatalog);
@@ -1391,8 +1411,8 @@ impl Model {
             }
             ipc::Event::Refresh { step, note } => self.refresh_step(&id, step, note, out),
             ipc::Event::Achievements { target, game, unlocked } => self.owned_achievements(&id, &target, &game, unlocked),
-            // The redesigned game page consumes these answers.
-            ipc::Event::Community { .. } | ipc::Event::CommunityThread { .. } => {}
+            ipc::Event::Community { game, community } => self.community_answer(&game, community),
+            ipc::Event::CommunityThread { game, topic, thread } => self.thread_answer(&game, topic, thread),
             ipc::Event::Unknown => {}
         }
     }
