@@ -1,15 +1,22 @@
 //! The shot harness and the shared fixture model.
 use super::*;
+use lumatv_render::host::FrameCost;
 
 pub(super) struct Shots {
     pub(super) engine: Engine,
     pub(super) page: GameUi,
     pub(super) events: Receiver<Event>,
     pub(super) now: u64,
+    /// What one frame takes at the panel's refresh rate, in nanoseconds.
+    pub(super) frame_ns: u64,
     pub(super) shm: tempfile::TempDir,
 }
 impl Shots {
     pub(super) fn new() -> io::Result<Self> {
+        Self::at(60.0)
+    }
+    /// A harness whose panel refreshes `refresh_hz` times a second: the shots draw at 60, the budget walks at the 120 Hz the TV is driven at.
+    pub(super) fn at(refresh_hz: f32) -> io::Result<Self> {
         crate::rig::software_gl();
         let shm = tempfile::tempdir()?;
         let gles = Gles::software_pbuffer(c"libEGL.so.1", 1920, 1080)?;
@@ -18,7 +25,7 @@ impl Shots {
             HostConfig {
                 width: 1920,
                 height: 1080,
-                refresh_hz: 60.0,
+                refresh_hz,
                 shm_dir: shm.path().to_owned(),
                 direct: false,
                 gpu_sync: false,
@@ -60,10 +67,11 @@ impl Shots {
             }
         };
         let page = GameUi::build(ui, &crate::rig::assets(), &mut land)?;
-        Ok(Self { engine, page, events, now: now_ns(), shm })
+        Ok(Self { engine, page, events, now: now_ns(), frame_ns: (1e9 / f64::from(refresh_hz)).round() as u64, shm })
     }
-    pub(super) fn frame(&mut self) -> io::Result<()> {
-        self.now += 16_666_667;
+    /// Draws the next frame, a refresh after the last, and returns what it cost.
+    pub(super) fn frame(&mut self) -> io::Result<FrameCost> {
+        self.now += self.frame_ns;
         while let Ok(event) = self.events.try_recv() {
             self.page.ui.scene.observe(&event);
         }
@@ -79,7 +87,7 @@ impl Shots {
         let cost = self.engine.draw(self.now);
         self.engine.frame_done(self.now, &cost);
         self.engine.tidy();
-        Ok(())
+        Ok(cost)
     }
     pub(super) fn shot(&mut self, model: &Model) -> io::Result<Vec<u8>> {
         self.page.invalidate();

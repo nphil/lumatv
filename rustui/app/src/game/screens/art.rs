@@ -222,3 +222,33 @@ mod tests {
         assert!(image.rgba.chunks_exact(4).all(|p| p[..3].iter().all(|c| *c <= p[3])));
     }
 }
+
+#[cfg(test)]
+impl super::GameUi {
+    /// How many layers that cover the whole screen are drawn above the canvas: the art, a wash over it, a page's own floor. The budget
+    /// walks hold it to one. It is counted from the retained plan, all the page knows of what is drawn (the render crate has no
+    /// per-layer geometry to ask): a layer under an opaque one is not counted, as the renderer does not draw it, and a picture covers
+    /// nothing, having the alpha of its pixels.
+    pub(in crate::game) fn full_screen_layers(&self) -> usize {
+        use super::{
+            paint::{Body, H, W},
+            parts::stage::CANVAS,
+        };
+        let covers = |body: &Body| match body {
+            Body::Surface(glass) => {
+                glass.tint_gradient.map_or(glass.tint.3 == 255, |g| g.top.3 == 255 && g.bottom.3 == 255)
+                    || glass.backdrop != compositor_protocol::Backdrop::None
+            }
+            _ => false,
+        };
+        let layers: Vec<(i32, bool)> = self
+            .nodes
+            .values()
+            .map(|kept| &kept.node)
+            .filter(|node| node.id != CANVAS && node.frame.w >= W && node.frame.h >= H && node.props.visible && node.props.opacity > 0.0)
+            .map(|node| (node.z, node.props.opacity >= 1.0 && covers(&node.body)))
+            .collect();
+        let floor = layers.iter().filter(|(_, covers)| *covers).map(|(z, _)| *z).max();
+        layers.iter().filter(|(z, _)| floor.is_none_or(|floor| *z >= floor)).count()
+    }
+}

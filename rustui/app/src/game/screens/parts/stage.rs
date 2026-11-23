@@ -6,9 +6,11 @@ use lumatv_tokens::{Radius, TypeRole as Type};
 use std::path::PathBuf;
 use ui::{components::Icon, geometry::Frame, lucent::palette::PaletteRole as Role};
 
+/// The canvas layer's id: the one layer under every page's art, which the full-screen count of the budget walks leaves out.
+pub const CANVAS: u64 = 1;
 /// The page's canvas. A curtain page is all stage: its text is light in every theme, so it never sits on a light canvas.
 pub fn canvas(p: &mut Paint<'_>, stage: bool) {
-    p.solid(1, Frame::new(0.0, 0.0, W, H), p.ink(Role::Canvas, stage), 0.0, 0);
+    p.solid(CANVAS, Frame::new(0.0, 0.0, W, H), p.ink(Role::Canvas, stage), 0.0, 0);
 }
 pub fn stage(p: &mut Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_to: f32, dim: bool, curtain: bool) {
     if let Some(path) = p.model.art_url(game, ArtKind::Hero).and_then(|url| p.model.art_path(&url)) {
