@@ -5,6 +5,8 @@
 use crate::host::Host;
 
 const STATUS: &str = "luna://com.webos.service.audiooutput/audio/getStatus";
+/// LG's HDMI input service. Not yet read back from a C4: a reply of any kind, an error reply included, counts as answering.
+const HDMI_STATUS: &str = "luna://com.webos.service.extinputs.hdmi/getStatus";
 /// A stuck task whose kernel stack or wait channel names one of these holds the control lock.
 const LOCK: [&str; 3] = ["snd_ctl", "sndout", "rwsem"];
 /// Audio daemons that sit in `D` for a moment while LG reconfigures its output.
@@ -27,6 +29,35 @@ pub enum Health {
 /// Whether a luna reply says `"returnValue":true`.
 pub fn returned_true(reply: &str) -> bool {
     reply.replace(' ', "").contains("\"returnValue\":true")
+}
+
+/// What audiooutputd has connected, as source names such as `ADEC1`; empty when nothing is. `None` when the service does not answer
+/// or the reply is not a status.
+pub fn connections(host: &dyn Host) -> Option<Vec<String>> {
+    let reply = host.luna(STATUS, "{}")?;
+    if !returned_true(&reply) {
+        return None;
+    }
+    let reply = reply.replace(' ', "");
+    let list = reply.split("\"audio\":[").nth(1)?;
+    let list = &list[..list.find(']')?];
+    let sources: Vec<String> = list
+        .split("\"source\":\"")
+        .skip(1)
+        .filter_map(|rest| rest.split('"').next())
+        .map(str::to_owned)
+        .collect();
+    // A connection of a shape this does not know still counts as one.
+    if sources.is_empty() && !list.is_empty() {
+        return Some(vec!["an unknown connection".to_owned()]);
+    }
+    Some(sources)
+}
+
+/// Whether LG's HDMI input service answers a status call. It is the service that stopped answering after a badly ended session, so
+/// a reply of any kind is the sign of life; only silence is a fault.
+pub fn hdmi_answers(host: &dyn Host) -> bool {
+    host.luna(HDMI_STATUS, "{}").is_some()
 }
 
 pub fn check(host: &dyn Host) -> Health {
@@ -112,5 +143,29 @@ mod tests {
         assert!(matches!(check(&host), Health::Busy(why) if why.contains("does not answer")));
         assert!(returned_true(r#"{"returnValue": true,"audio":[]}"#));
         assert!(!returned_true(r#"{"returnValue":false,"errorText":"x"}"#));
+    }
+
+    #[test]
+    fn the_connection_list_names_every_source_and_an_empty_one_is_empty() {
+        let host = FakeHost::c4();
+        assert_eq!(connections(&host), Some(vec![]));
+        host.with(|sim| {
+            sim.adec_connected = true;
+            sim.others = vec![0];
+        });
+        assert_eq!(
+            connections(&host),
+            Some(vec!["ADEC1".to_owned(), "ADEC0".to_owned()])
+        );
+        host.with(|sim| sim.status_ok = false);
+        assert_eq!(connections(&host), None);
+    }
+
+    #[test]
+    fn the_hdmi_service_answers_or_it_does_not() {
+        let host = FakeHost::c4();
+        assert!(hdmi_answers(&host));
+        host.with(|sim| sim.hdmi_ok = false);
+        assert!(!hdmi_answers(&host));
     }
 }

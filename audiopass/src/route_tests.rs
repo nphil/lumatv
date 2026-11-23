@@ -1,6 +1,6 @@
 use super::*;
 use crate::host::Stuck;
-use crate::testing::{CONVERTER, FakeHost, PID, TAIL, graph_with};
+use crate::testing::{ADEC, CONVERTER, FakeHost, PID, TAIL, graph_with};
 use std::sync::Mutex;
 
 const JOURNAL: &str = "/data/audio-passthrough/journal";
@@ -33,7 +33,7 @@ impl Rig {
     }
 
     fn arm(&mut self) -> Result<String, Refusal> {
-        self.route.arm(PID, TAIL, &self.env)
+        self.route.arm(PID, TAIL, ADEC, &self.env)
     }
 
     /// Runs the monitor for `ms` of the fake clock.
@@ -104,8 +104,8 @@ fn assert_words_restored(rig: &Rig) {
     });
 }
 
-/// What every way of ending a connected session does: the stream's owner is told, ADEC1 is muted and disconnected, LG's words are
-/// back, the journal is gone and the state says how it ended.
+/// What every way of ending a connected session does: the stream's owner is told, the input is muted and disconnected, LG's words
+/// are back, the journal is gone, the state says how it ended, the TV reads as it did before and its HDMI service was asked.
 fn assert_restored(rig: &Rig, why: Why) {
     assert_adec_restored(rig);
     assert_words_restored(rig);
@@ -118,6 +118,14 @@ fn assert_restored(rig: &Rig, why: Why) {
     assert_eq!(snap.session, None);
     assert_eq!(snap.end.as_ref().map(|end| end.why), Some(why));
     assert_eq!(snap.pending, None);
+    assert_eq!(
+        snap.after, None,
+        "the TV reads as it did before the session"
+    );
+    assert!(
+        rig.host.with(|sim| sim.hdmi_calls) >= 1,
+        "the HDMI input service is asked after the restore"
+    );
 }
 
 // ---- arming --------------------------------------------------------------------------------------------------------------
@@ -138,6 +146,14 @@ fn arming_journals_first_then_configures_the_converter_and_unmixes() {
             (PID, "2,1,0,0,1".into(), "2,1,0,0,0".into())
         );
         assert_eq!(journal.boot, "boot-1");
+        assert_eq!(
+            (journal.adec, journal.kernel.as_str(), journal.connected),
+            (
+                ADEC,
+                "Open=1 Connect=HDMI_PORT2 Start=0 Gain=0x800000 Mute=1",
+                false
+            )
+        );
     });
     let snap = rig.snap();
     assert_eq!(snap.state, State::Armed);
@@ -184,10 +200,7 @@ fn the_receiver_is_connected_and_unmuted_in_the_proven_order_and_time() {
     assert_eq!(session.phase, Phase::Audible);
     rig.host.with(|sim| {
         assert!(sim.adec_connected && !sim.adec_mute);
-        assert_eq!(
-            Journal::parse(&sim.files[JOURNAL]).unwrap().adec.as_deref(),
-            Some("HDMI_PORT2")
-        );
+        assert!(Journal::parse(&sim.files[JOURNAL]).unwrap().connected);
     });
 }
 
@@ -272,6 +285,18 @@ fn every_precondition_refuses_before_touching_the_tv() {
             "hdmi input has the audio",
             |r| r.host.with(|s| s.adec_connected = true),
             "HDMI input",
+            true,
+        ),
+        (
+            "audio routed to another input",
+            |r| r.host.with(|s| s.others = vec![0]),
+            "ADEC0",
+            true,
+        ),
+        (
+            "the granted decoder is running",
+            |r| r.host.with(|s| s.adec_start = true),
+            "decoding for LG",
             true,
         ),
         (
@@ -362,14 +387,14 @@ fn every_precondition_refuses_before_touching_the_tv() {
 fn a_tail_that_never_joins_the_graph_is_refused_after_the_wait() {
     let mut rig = Rig::new();
     let before = rig.host.now();
-    let refusal = rig.route.arm(PID, "0424ffff", &rig.env).unwrap_err();
+    let refusal = rig.route.arm(PID, "0424ffff", ADEC, &rig.env).unwrap_err();
     assert!(
         refusal.retry && refusal.reason.contains("lipsync_0424ffff"),
         "{refusal:?}"
     );
     assert!(rig.host.now() - before >= 2_000);
     assert_eq!(
-        rig.route.arm(PID, "bogus", &rig.env).unwrap_err(),
+        rig.route.arm(PID, "bogus", ADEC, &rig.env).unwrap_err(),
         Refusal::now("tail must be 8 lowercase hex digits")
     );
     assert!(
@@ -397,7 +422,7 @@ fn another_process_cannot_take_a_held_route_and_cannot_release_it() {
     rig.arm().unwrap();
     assert!(
         rig.route
-            .arm(7, TAIL, &rig.env)
+            .arm(7, TAIL, ADEC, &rig.env)
             .unwrap_err()
             .reason
             .contains("holds the route")
@@ -695,7 +720,10 @@ fn a_rebuilt_renderer_is_re_armed_without_reconnecting_and_keeps_lgs_original_wo
         s.chain_graph = graph_with(tail, converter);
         s.words.mix = 1; // LG re-mixed while it rebuilt
     });
-    assert_eq!(rig.route.arm(PID, tail, &rig.env), Ok(converter.to_owned()));
+    assert_eq!(
+        rig.route.arm(PID, tail, ADEC, &rig.env),
+        Ok(converter.to_owned())
+    );
     let session = rig.session();
     assert_eq!(
         (session.converter.as_str(), session.phase),
@@ -722,7 +750,7 @@ fn a_rebuild_inside_the_grace_keeps_the_session() {
         s.dirs.insert(format!("{INSTANCES}/0427000e"));
         s.chain_graph = graph_with("0424000f", "0427000e");
     });
-    rig.route.arm(PID, "0424000f", &rig.env).unwrap();
+    rig.route.arm(PID, "0424000f", ADEC, &rig.env).unwrap();
     rig.run(1_500);
     assert_eq!(rig.snap().end, None);
     assert!(rig.session().bypassing);
@@ -873,4 +901,196 @@ fn recovery_of_a_wedged_tv_keeps_the_journal() {
     assert!(next.recover().unwrap().contains("not back yet"));
     assert_eq!(rig.host.log(), Vec::<String>::new());
     assert!(next.snapshot().pending.is_some());
+}
+
+#[test]
+fn a_journal_nobody_replayed_blocks_arming_so_lgs_words_are_not_lost() {
+    let rig = Rig::audible();
+    // A restarted helper that has not replayed the journal yet, with ADEC1 already free.
+    rig.host.with(|s| {
+        s.adec_connected = false;
+        s.log.clear();
+    });
+    let mut next = Route::new(rig.host.clone(), JOURNAL);
+    let refusal = next.arm(PID, TAIL, ADEC, &env()).unwrap_err();
+    assert!(
+        refusal.reason.contains("not been replayed") && !refusal.retry,
+        "{refusal:?}"
+    );
+    assert_eq!(rig.host.log(), Vec::<String>::new());
+    let journal = rig.host.with(|s| s.files[JOURNAL].clone());
+    assert_eq!(
+        Journal::parse(&journal).unwrap().before.to_string(),
+        "2,1,0,0,1"
+    );
+}
+
+// ---- the granted decoder, the exact restore and the HDMI service ---------------------------------------------------------
+
+#[test]
+fn the_decoder_the_player_was_granted_is_the_one_used_whatever_its_number() {
+    let mut rig = Rig::new();
+    rig.host.with(|s| s.adec = 3);
+    assert_eq!(
+        rig.route.arm(PID, TAIL, 3, &rig.env),
+        Ok(CONVERTER.to_owned())
+    );
+    rig.run(10_000);
+    // The fake refuses every call that names another decoder, so a session that got this far used ADEC3 and nothing else.
+    let session = rig.session();
+    assert_eq!((session.adec, session.phase), (3, Phase::Audible));
+    assert_eq!(
+        rig.host
+            .with(|s| Journal::parse(&s.files[JOURNAL]).unwrap().adec),
+        3
+    );
+    assert_eq!(rig.route.release(PID), Ok(true));
+    assert_restored(&rig, Why::Released);
+}
+
+#[test]
+fn a_decoder_that_is_not_there_is_refused_before_anything_changes() {
+    let mut rig = Rig::new();
+    let beyond = rig
+        .route
+        .arm(PID, TAIL, MAX_ADEC + 1, &rig.env)
+        .unwrap_err();
+    assert!(beyond.reason.contains("not a decoder input") && !beyond.retry);
+    let unreadable = rig.route.arm(PID, TAIL, 4, &rig.env).unwrap_err();
+    assert!(unreadable.reason.contains("ADEC4 cannot be read") && !unreadable.retry);
+    assert_eq!(rig.host.log(), Vec::<String>::new());
+    assert_eq!(rig.snap().session, None);
+}
+
+#[test]
+fn an_input_found_unmuted_is_not_toggled_and_goes_back_unmuted_once_the_player_lets_go() {
+    let mut rig = Rig::new();
+    rig.host.with(|s| s.adec_mute = false);
+    rig.arm().unwrap();
+    rig.run(10_000);
+    assert_eq!(rig.session().phase, Phase::Audible);
+    assert_eq!(
+        rig.count("luna mute true") + rig.count("luna mute false"),
+        0,
+        "the connect alone made it audible"
+    );
+    rig.host.with(|s| s.procs.get_mut(&PID).unwrap().1.clear());
+    assert_eq!(rig.route.release(PID), Ok(true));
+    let log = rig.host.log();
+    let (silence, unmute, disconnect) = (
+        first(&log, "luna mute true"),
+        first(&log, "luna mute false"),
+        first(&log, "luna disconnect"),
+    );
+    assert!(silence < unmute && unmute < disconnect, "{log:?}");
+    rig.host
+        .with(|s| assert!(!s.adec_mute && !s.adec_connected));
+    assert_eq!(rig.snap().after, None);
+    assert_words_restored(&rig);
+}
+
+#[test]
+fn an_input_found_unmuted_stays_muted_while_the_player_still_streams_and_the_page_says_so() {
+    let mut rig = Rig::new();
+    rig.host.with(|s| s.adec_mute = false);
+    rig.arm().unwrap();
+    rig.run(10_000);
+    let before = rig.host.now();
+    assert_eq!(rig.route.release(PID), Ok(true));
+    assert!(
+        rig.host.now() - before
+            >= u64::from(RENDERER_CLOSE_WAIT.polls) * RENDERER_CLOSE_WAIT.every_ms,
+        "the player is given time to close its renderer"
+    );
+    assert_eq!(
+        rig.count("luna mute false"),
+        0,
+        "no unmute while the stream may still flow"
+    );
+    rig.host.with(|s| assert!(s.adec_mute && !s.adec_connected));
+    let after = rig.snap().after.expect("the difference is reported");
+    assert!(
+        after.contains("Mute=1") && after.contains("Mute=0"),
+        "{after}"
+    );
+    assert_words_restored(&rig);
+    rig.run(2_100);
+    assert!(
+        rig.snap().ready,
+        "a difference LG clears on its own does not block the next session"
+    );
+}
+
+#[test]
+fn a_silent_hdmi_service_after_a_restore_holds_the_next_session_off_until_it_answers() {
+    let mut rig = Rig::audible();
+    rig.host.with(|s| s.hdmi_ok = false);
+    let asked = rig.host.with(|s| s.hdmi_calls);
+    assert_eq!(rig.route.release(PID), Ok(true));
+    assert_eq!(
+        rig.host.with(|s| s.hdmi_calls),
+        asked + 1,
+        "asked once, after the restore"
+    );
+    assert_words_restored(&rig);
+    let after = rig.snap().after.expect("reported");
+    assert!(after.contains("HDMI input service"), "{after}");
+    rig.run(2_100);
+    assert!(!rig.snap().ready);
+    let refusal = rig.arm().unwrap_err();
+    assert!(
+        refusal.reason.contains("HDMI input service") && !refusal.retry,
+        "{refusal:?}"
+    );
+    rig.host.with(|s| s.hdmi_ok = true);
+    rig.run(IDLE_HEALTH_MS + 2_100);
+    let snap = rig.snap();
+    assert!(snap.ready && snap.after.is_none(), "{snap:?}");
+    assert_eq!(rig.arm(), Ok(CONVERTER.to_owned()));
+}
+
+#[test]
+fn an_input_that_takes_the_audio_mid_session_ends_it_and_is_left_alone() {
+    let mut rig = Rig::audible();
+    rig.host.with(|s| s.others = vec![0]);
+    rig.run(300);
+    let snap = rig.snap();
+    assert_eq!(snap.state, State::Lost);
+    assert!(snap.reason.contains("ADEC0"), "{}", snap.reason);
+    assert!(snap.after.as_deref().unwrap().contains("ADEC0"), "{snap:?}");
+    assert_eq!(
+        rig.count("luna disconnect"),
+        1,
+        "only the session's own decoder is disconnected"
+    );
+    rig.host
+        .with(|s| assert_eq!(s.others, vec![0], "LG's own connection is untouched"));
+    assert_words_restored(&rig);
+}
+
+#[test]
+fn a_journal_written_before_the_connect_never_touches_a_decoder_lg_connected_itself() {
+    let mut rig = Rig::new();
+    rig.arm().unwrap();
+    let journal = rig.host.with(|s| s.files[JOURNAL].clone());
+    assert!(!Journal::parse(&journal).unwrap().connected);
+    // The helper dies; LG then starts an input that connects the same decoder from the same source.
+    rig.host.with(|s| {
+        s.adec_connected = true;
+        s.belief_muted = false;
+        s.log.clear();
+    });
+    let mut next = Route::new(rig.host.clone(), JOURNAL);
+    assert!(
+        next.recover()
+            .unwrap()
+            .contains("put LG's audio settings back")
+    );
+    assert_eq!(
+        rig.count("luna disconnect") + rig.count("luna mute true"),
+        0
+    );
+    rig.host
+        .with(|s| assert!(s.adec_connected, "LG's own connection stays"));
+    assert_words_restored(&rig);
 }

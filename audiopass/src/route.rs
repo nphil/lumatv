@@ -7,12 +7,19 @@
 //! 1. LG's PCM bypass converter is told to carry 8 channels of 16-bit 192 kHz PCM (`CONVERTER_COMMAND`): the encoded stream
 //!    rides inside that PCM, and LG's renderer passes the words through untouched.
 //! 2. The eARC output words are un-mixed (`Mix_option` 1 to 0) so LG stops mixing its system sounds into that stream.
-//! 3. Once the kernel reports `Pass-Through` and the stream has been flowing for [`CONNECT_DWELL_MS`], ADEC1 is connected to
-//!    the main output and unmuted with a mute true/false pair (audiooutputd skips a lone unmute). That last step is what makes
-//!    the TV's eARC transmitter send the stream to the receiver.
+//! 3. Once the kernel reports `Pass-Through` and the stream has been flowing for [`CONNECT_DWELL_MS`], the ADEC the player's
+//!    renderer was granted is connected to the main output and, when the kernel holds it muted, unmuted with a mute true/false
+//!    pair (audiooutputd skips a lone unmute). That last step is what makes the TV's eARC transmitter send the stream to the
+//!    receiver.
 //!
-//! Ending reverses 3 and 2: mute, disconnect, put the words back. The words are only written back while they still hold what this
-//! route wrote, and ADEC1 is only touched while it is still fed from the input it was fed from when this route connected it.
+//! The ADEC comes from the player, never from an assumption, and a session starts only while audiooutputd and the kernel show
+//! nothing connected, so no HDMI input's decoder is touched. The words are only written back while they still hold what this
+//! route wrote, and the ADEC only while it is still fed from the input it was fed from when the session was armed.
+//!
+//! Ending reverses 3 and 2: mute, put the mute back as the session found it once the player has closed its renderer, disconnect,
+//! put the words back. Then the TV is compared with what the session found (audiooutputd's connection list, the kernel's
+//! connected inputs, the ADEC's own kernel line) and LG's HDMI input service is asked for its status; a service that does not
+//! answer holds the next session off.
 //!
 //! Ported from `lgroute.c` and `lgroute-control.c` of dts_restore_plus (LGPL-2.1-or-later): the converter command, the words and
 //! their ranges, and the rule that gives up once LG has mixed or re-encoded the stream for about a second.
@@ -33,7 +40,7 @@ const AUDIO: &str = "luna://com.webos.service.audiooutput/audio/";
 /// 8 channels of 16-bit PCM at 192 kHz, which carry an encoded stream in IEC 61937 bursts (lgroute.c).
 const CONVERTER_COMMAND: &str = "0x50020020 192000 8 16 0 0 192000 8 16\n";
 
-/// How long the stream must have been flowing before ADEC1 is connected. The kernel cannot tell a stream from silence, and the
+/// How long the stream must have been flowing before the ADEC is connected. The kernel cannot tell a stream from silence, and the
 /// player starts the stream the moment the route reports bypass; the proven window connected 3 s after that.
 const CONNECT_DWELL_MS: u64 = 3000;
 /// Measured on the C4: mute true 2.8 s after the connect, mute false 0.7 s after that. Shorter gaps are untested.
@@ -43,13 +50,16 @@ const UNMUTE_AFTER_MUTE_MS: u64 = 700;
 const LOSS_GRACE_MS: u64 = 1000;
 /// A flush or track switch makes LG rebuild the renderer; the player re-arms once the new one is there.
 const REARM_GRACE_MS: u64 = 5000;
-/// Between disconnecting ADEC1 and putting the words back.
+/// Between disconnecting the ADEC and putting the words back.
 const SETTLE_MS: u64 = 300;
 const HEALTH_RETRY_MS: u64 = 1500;
 const ARMED_TICK_MS: u64 = 100;
 const ARMED_HEALTH_MS: u64 = 2000;
 const IDLE_TICK_MS: u64 = 2000;
 const IDLE_HEALTH_MS: u64 = 10_000;
+/// The highest decoder input number LG's resource manager hands out on the C4 (`adec.p0` to `adec.p7`).
+pub const MAX_ADEC: u8 = 7;
+const HDMI_SILENT: &str = "LG's HDMI input service has not answered since the last session ended";
 
 #[derive(Clone, Copy)]
 struct Wait {
@@ -68,6 +78,11 @@ const CONVERTER_WAIT: Wait = Wait {
 /// A kernel read-back after a write.
 const VERIFY_WAIT: Wait = Wait {
     polls: 10,
+    every_ms: 100,
+};
+/// How long a restore waits for the player to close its renderer before it leaves the input muted instead of unmuting it.
+const RENDERER_CLOSE_WAIT: Wait = Wait {
+    polls: 20,
     every_ms: 100,
 };
 
@@ -115,11 +130,11 @@ pub enum Phase {
     Armed,
     /// The kernel reports Pass-Through: the player may send the stream.
     Bypassing,
-    /// ADEC1 is connected to the main output, still muted.
+    /// The ADEC is connected to the main output.
     Connected,
     /// The mute true/false pair is under way.
     Unmuting,
-    /// ADEC1 is unmuted: the receiver is being fed.
+    /// The ADEC is unmuted: the receiver is being fed.
     Audible,
     /// The session is being put back.
     Ending,
@@ -233,6 +248,8 @@ pub struct SessionView {
     pub pid: u32,
     pub tail: String,
     pub converter: String,
+    /// The decoder input the session connects: the one LG granted the player's renderer.
+    pub adec: u8,
     pub phase: Phase,
     pub bypassing: bool,
     pub mixed: bool,
@@ -262,6 +279,8 @@ pub struct Snapshot {
     pub end: Option<End>,
     /// A restore that could not finish and why.
     pub pending: Option<String>,
+    /// What the last session left different from what it found, and a silent HDMI input service; until the next arm.
+    pub after: Option<String>,
     pub at: u64,
 }
 
@@ -281,6 +300,10 @@ pub struct Route {
     end: Option<End>,
     /// A restore that is waiting for the audio stack, and why.
     pending: Option<(Journal, String)>,
+    /// What the last restore found different from what the session found, until the next arm.
+    after: Option<String>,
+    /// LG's HDMI input service did not answer after the last restore: no session starts until it does.
+    hdmi_stuck: bool,
     /// An `amixer` write that did not answer: nothing touches the route again until the helper restarts.
     hung: Option<String>,
     firmware: Option<Firmware>,
@@ -304,6 +327,8 @@ impl Route {
             lost: None,
             end: None,
             pending: None,
+            after: None,
+            hdmi_stuck: false,
             hung: None,
             firmware: None,
             sndout: None,
@@ -339,9 +364,9 @@ impl Route {
             .map(|text| sndout::parse(&text))
     }
 
-    fn read_adec(&self) -> Option<Adec> {
+    fn read_adec(&self, index: u8) -> Option<Adec> {
         self.host
-            .read(sndout::ADEC)
+            .read(&sndout::adec_path(index))
             .ok()
             .map(|text| sndout::parse_adec(&text))
     }
@@ -368,11 +393,16 @@ impl Route {
             .is_some_and(|reply| returned_true(&reply))
     }
 
-    fn luna_mute(&self, mute: bool) -> bool {
+    fn luna_mute(&self, adec: u8, mute: bool) -> bool {
         self.luna(
             "mute",
-            &format!(r#"{{"source":"ADEC1","sink":"MAIN","mute":{mute}}}"#),
+            &format!(r#"{{"source":"ADEC{adec}","sink":"MAIN","mute":{mute}}}"#),
         )
+    }
+
+    /// `connect` or `disconnect` of the ADEC to the main output.
+    fn luna_link(&self, verb: &str, adec: u8) -> bool {
+        self.luna(verb, &format!(r#"{{"source":"ADEC{adec}","sink":"MAIN"}}"#))
     }
 
     // ---- readiness ------------------------------------------------------------------------------------------------------
@@ -409,8 +439,11 @@ impl Route {
             }
             None => return Err("LG's eARC output words cannot be read".into()),
         }
-        if !rearm && snd.adec1_connected() {
-            return Err("an HDMI input is using the audio output".into());
+        if !rearm && !snd.connected_adecs().is_empty() {
+            return Err(format!(
+                "LG is routing audio through ADEC{} (an HDMI input or an app is using the audio output)",
+                snd.connected_adecs().join(", ADEC")
+            ));
         }
         Ok(())
     }
@@ -449,11 +482,16 @@ impl Route {
         {
             self.health = health::check(&*self.host);
             self.health_at = Some(now);
+            if self.hdmi_stuck && health::hdmi_answers(&*self.host) {
+                self.hdmi_stuck = false;
+            }
         }
         self.ready = if let Some((_, note)) = &self.pending {
             Err(note.clone())
         } else if let Some(why) = &self.hung {
             Err(why.clone())
+        } else if self.hdmi_stuck {
+            Err(HDMI_SILENT.to_owned())
         } else if let Health::Wedged(why) | Health::Busy(why) = &self.health {
             Err(format!("audio services are not healthy: {why}"))
         } else {
@@ -541,25 +579,37 @@ impl Route {
         }
     }
 
-    /// Starts a session for `pid`, whose renderer's lipsync stage is `tail`, or re-arms the one it already has (a flush, seek or
-    /// track switch makes LG build a new renderer). Returns the converter that was configured.
-    pub fn arm(&mut self, pid: u32, tail: &str, env: &Env) -> Result<String, Refusal> {
+    /// Starts a session for `pid`, whose renderer's lipsync stage is `tail` and whose sink LG granted the decoder input `adec`, or
+    /// re-arms the one it already has (a flush, seek or track switch makes LG build a new renderer). Returns the converter that
+    /// was configured.
+    pub fn arm(&mut self, pid: u32, tail: &str, adec: u8, env: &Env) -> Result<String, Refusal> {
         self.env = env.clone();
-        let result = self.arm_inner(pid, tail);
+        let result = self.arm_inner(pid, tail, adec);
         self.notify();
         result
     }
 
-    fn arm_inner(&mut self, pid: u32, tail: &str) -> Result<String, Refusal> {
+    fn arm_inner(&mut self, pid: u32, tail: &str, adec: u8) -> Result<String, Refusal> {
         if !self.env.enabled {
             return Err(Refusal::now("the plugin is switched off"));
         }
         if tail.len() != 8 || !tail.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
             return Err(Refusal::now("tail must be 8 lowercase hex digits"));
         }
+        if adec > MAX_ADEC {
+            return Err(Refusal::now(format!(
+                "ADEC{adec} is not a decoder input of this TV (ADEC0 to ADEC{MAX_ADEC})"
+            )));
+        }
         let rearm = match &self.session {
             Some(s) if s.pid != pid => {
                 return Err(Refusal::now(format!("process {} holds the route", s.pid)));
+            }
+            Some(s) if s.journal.adec != adec => {
+                return Err(Refusal::now(format!(
+                    "the session holds ADEC{}, not ADEC{adec}",
+                    s.journal.adec
+                )));
             }
             Some(_) => true,
             None => false,
@@ -570,6 +620,18 @@ impl Route {
                 return Err(Refusal::now(format!(
                     "an earlier session's settings are not back yet: {note}"
                 )));
+            }
+            // A journal nobody replayed holds LG's original words; a new one saved over it would lose them.
+            if self.host.read(&self.journal_path).is_ok() {
+                return Err(Refusal::now(
+                    "an earlier session's journal has not been replayed",
+                ));
+            }
+            if self.hdmi_stuck {
+                if !health::hdmi_answers(&*self.host) {
+                    return Err(Refusal::now(HDMI_SILENT));
+                }
+                self.hdmi_stuck = false;
             }
         }
         let start = self.owner(pid).map_err(Refusal::now)?;
@@ -594,7 +656,9 @@ impl Route {
                 pid,
                 before: words,
                 applied: words.unmixed(),
-                adec: None,
+                adec,
+                kernel: self.idle_adec(adec)?,
+                connected: false,
             },
         };
         if !rearm {
@@ -644,9 +708,32 @@ impl Route {
         });
         self.lost = None;
         self.end = None;
+        self.after = None;
         self.sndout = self.read_sndout();
         self.observe();
         Ok(converter)
+    }
+
+    /// The granted ADEC as LG left it, once nothing else is using audio: nothing connected in audiooutputd or the kernel and the
+    /// decoder stopped. Its kernel line is what a restore puts back and is compared with.
+    fn idle_adec(&self, adec: u8) -> Result<String, Refusal> {
+        let kernel = self
+            .read_adec(adec)
+            .filter(|a| a.connect.is_some() && a.mute.is_some())
+            .ok_or_else(|| Refusal::now(format!("ADEC{adec} cannot be read on this TV")))?;
+        if kernel.start == Some(true) {
+            return Err(Refusal::later(format!("ADEC{adec} is decoding for LG")));
+        }
+        match health::connections(&*self.host) {
+            None => Err(Refusal::later(
+                "the audio service's connections cannot be read",
+            )),
+            Some(list) if !list.is_empty() => Err(Refusal::later(format!(
+                "LG is routing audio ({}); an HDMI input or an app is playing",
+                list.join(", ")
+            ))),
+            Some(_) => Ok(kernel.render()),
+        }
     }
 
     // ---- observing and monitoring ---------------------------------------------------------------------------------------
@@ -693,9 +780,14 @@ impl Route {
             }
         }
         self.observe();
-        let (observed, phase, port) = {
+        let (observed, phase, adec, base) = {
             let s = self.session.as_mut()?;
-            (s.observed.clone(), s.phase, s.journal.adec.clone())
+            (
+                s.observed.clone(),
+                s.phase,
+                s.journal.adec,
+                sndout::parse_adec(&s.journal.kernel),
+            )
         };
         let snd_ok = self.sndout.is_some();
         if !snd_ok || !observed.bypassing {
@@ -712,18 +804,30 @@ impl Route {
             s.bad_since = None;
         }
         if phase.connected() {
-            let connected = self.sndout.as_ref().is_some_and(Sndout::adec1_connected);
-            let adec = self.read_adec();
+            let connected = self.sndout.as_ref().is_some_and(|s| s.adec_connected(adec));
+            let other = self.sndout.as_ref().and_then(|s| {
+                s.connected_adecs()
+                    .into_iter()
+                    .find(|a| *a != adec.to_string())
+                    .map(str::to_owned)
+            });
+            let kernel = self.read_adec(adec);
             if !connected {
                 return Some((Why::RouteLost, "LG disconnected the audio input".into()));
             }
-            if adec.as_ref().is_some_and(|a| a.connect != port) {
+            if let Some(other) = other {
+                return Some((
+                    Why::RouteLost,
+                    format!("LG connected ADEC{other} while the session held ADEC{adec}"),
+                ));
+            }
+            if kernel.as_ref().is_some_and(|a| a.connect != base.connect) {
                 return Some((
                     Why::RouteLost,
                     "LG moved the audio input to another source".into(),
                 ));
             }
-            if phase == Phase::Audible && adec.as_ref().and_then(|a| a.mute) == Some(true) {
+            if phase == Phase::Audible && kernel.as_ref().and_then(|a| a.mute) == Some(true) {
                 return Some((Why::RouteLost, "LG muted the audio input".into()));
             }
         }
@@ -732,9 +836,9 @@ impl Route {
 
     /// Moves the connect sequence on by at most one step.
     fn advance(&mut self, now: u64) -> Option<(Why, String)> {
-        let (phase, since, bypassing) = {
+        let (phase, since, bypassing, adec) = {
             let s = self.session.as_ref()?;
-            (s.phase, s.since, s.observed.bypassing)
+            (s.phase, s.since, s.observed.bypassing, s.journal.adec)
         };
         let set = |route: &mut Self, phase: Phase| {
             if let Some(s) = &mut route.session {
@@ -752,22 +856,28 @@ impl Route {
                 set(self, Phase::Connected);
             }
             Phase::Connected if now.saturating_sub(since) >= MUTE_AFTER_CONNECT_MS => {
-                if !self.luna_mute(true)
-                    || !self.poll(VERIFY_WAIT, || {
-                        self.read_adec().and_then(|a| a.mute) == Some(true)
-                    })
-                {
-                    return Some((Why::RouteLost, "ADEC1 did not mute".into()));
+                // The connect leaves the kernel's mute as it found it: a muted input needs the true/false pair, an unmuted one is
+                // already audible.
+                if self.read_adec(adec).and_then(|a| a.mute) == Some(false) {
+                    set(self, Phase::Audible);
+                } else {
+                    if !self.luna_mute(adec, true)
+                        || !self.poll(VERIFY_WAIT, || {
+                            self.read_adec(adec).and_then(|a| a.mute) == Some(true)
+                        })
+                    {
+                        return Some((Why::RouteLost, format!("ADEC{adec} did not mute")));
+                    }
+                    set(self, Phase::Unmuting);
                 }
-                set(self, Phase::Unmuting);
             }
             Phase::Unmuting if now.saturating_sub(since) >= UNMUTE_AFTER_MUTE_MS => {
-                if !self.luna_mute(false)
+                if !self.luna_mute(adec, false)
                     || !self.poll(VERIFY_WAIT, || {
-                        self.read_adec().and_then(|a| a.mute) == Some(false)
+                        self.read_adec(adec).and_then(|a| a.mute) == Some(false)
                     })
                 {
-                    return Some((Why::RouteLost, "ADEC1 stayed muted".into()));
+                    return Some((Why::RouteLost, format!("ADEC{adec} stayed muted")));
                 }
                 set(self, Phase::Audible);
             }
@@ -776,37 +886,51 @@ impl Route {
         None
     }
 
-    /// Connects ADEC1 to the main output, journalling the intent first.
+    /// Connects the session's ADEC to the main output, journalling the intent first.
     fn connect(&mut self) -> Result<(), String> {
         self.health_gate().map_err(|r| r.reason)?;
-        if self.sndout.as_ref().is_some_and(Sndout::adec1_connected) {
-            return Err("LG connected the audio input itself".into());
+        let (adec, base) = {
+            let s = self.session.as_ref().ok_or("no session")?;
+            (s.journal.adec, sndout::parse_adec(&s.journal.kernel))
+        };
+        if self
+            .sndout
+            .as_ref()
+            .is_some_and(|s| !s.connected_adecs().is_empty())
+        {
+            return Err("LG connected an audio input itself".into());
         }
-        let port = self
-            .read_adec()
-            .and_then(|a| a.connect)
-            .ok_or("ADEC1's input cannot be read")?;
+        let now = self
+            .read_adec(adec)
+            .ok_or_else(|| format!("ADEC{adec} cannot be read"))?;
+        if now != base {
+            return Err(format!(
+                "ADEC{adec} changed since the session was armed ({})",
+                now.render()
+            ));
+        }
         let mut journal = self.session.as_ref().ok_or("no session")?.journal.clone();
-        journal.adec = Some(port);
+        journal.connected = true;
         self.save_journal(&journal)?;
         if let Some(s) = &mut self.session {
             s.journal = journal;
         }
-        if !self.luna("connect", r#"{"source":"ADEC1","sink":"MAIN"}"#) {
-            return Err("the audio service refused to connect ADEC1".into());
+        if !self.luna_link("connect", adec) {
+            return Err(format!("the audio service refused to connect ADEC{adec}"));
         }
         if !self.poll(VERIFY_WAIT, || {
-            self.read_sndout().is_some_and(|s| s.adec1_connected())
+            self.read_sndout().is_some_and(|s| s.adec_connected(adec))
         }) {
-            return Err("ADEC1 did not show as connected".into());
+            return Err(format!("ADEC{adec} did not show as connected"));
         }
         Ok(())
     }
 
     // ---- ending ---------------------------------------------------------------------------------------------------------
 
-    /// Puts one session's changes back: mute, disconnect, words. Every step checks that what it would undo is still what the
-    /// session did, and nothing is written while the audio stack is wedged.
+    /// Puts one session's changes back: silence, the input's mute as it was found, disconnect, words. Every step checks that what
+    /// it would undo is still what the session did, nothing is written while the audio stack is wedged, and what the TV looks like
+    /// afterwards is compared with what the session found.
     fn restore(&mut self, journal: &Journal, owner_alive: bool) -> Restore {
         if let Some(why) = &self.hung {
             return Restore::Pending(why.clone());
@@ -816,21 +940,34 @@ impl Route {
                 "audio control is stuck ({why}); LG's settings stay as they are until it recovers"
             ));
         }
-        if let Some(port) = &journal.adec {
+        let adec = journal.adec;
+        let base = sndout::parse_adec(&journal.kernel);
+        if journal.connected {
             let ours = self
-                .read_adec()
-                .is_some_and(|a| a.connect.as_deref() == Some(port.as_str()));
-            if self.read_sndout().is_some_and(|s| s.adec1_connected()) && ours {
-                self.luna_mute(true);
+                .read_adec(adec)
+                .is_some_and(|a| a.connect == base.connect);
+            if self.read_sndout().is_some_and(|s| s.adec_connected(adec)) && ours {
+                // Silence first: the player may still be writing the stream.
+                self.luna_mute(adec, true);
                 self.poll(VERIFY_WAIT, || {
-                    self.read_adec().and_then(|a| a.mute) == Some(true)
+                    self.read_adec(adec).and_then(|a| a.mute) == Some(true)
                 });
-                self.luna("disconnect", r#"{"source":"ADEC1","sink":"MAIN"}"#);
+                // An input found unmuted goes back unmuted, but only once the player has closed its renderer: with the stream gone
+                // there is nothing left to play, so no noise. Otherwise it stays muted and the audit says so.
+                if base.mute == Some(false)
+                    && self.poll(RENDERER_CLOSE_WAIT, || self.renderer_closed(journal.pid))
+                {
+                    self.luna_mute(adec, false);
+                    self.poll(VERIFY_WAIT, || {
+                        self.read_adec(adec).and_then(|a| a.mute) == Some(false)
+                    });
+                }
+                self.luna_link("disconnect", adec);
                 let gone = self.poll(VERIFY_WAIT, || {
-                    !self.read_sndout().is_some_and(|s| s.adec1_connected())
+                    !self.read_sndout().is_some_and(|s| s.adec_connected(adec))
                 });
                 if !gone && owner_alive {
-                    return Restore::Pending("ADEC1 will not disconnect".into());
+                    return Restore::Pending(format!("ADEC{adec} will not disconnect"));
                 }
                 self.host.sleep_ms(SETTLE_MS);
             }
@@ -846,7 +983,56 @@ impl Route {
             }
         }
         let _ = self.host.remove(&self.journal_path);
+        self.audit(journal);
         Restore::Done
+    }
+
+    /// Whether the player no longer holds LG's renderer: it exited or closed it, so nothing more is written into the stream.
+    fn renderer_closed(&self, pid: u32) -> bool {
+        match self.host.fd_targets(pid) {
+            Ok(fds) => !fds.iter().any(|target| target == AREN),
+            Err(_) => true,
+        }
+    }
+
+    /// Compares the TV with what the session found: audiooutputd's connection list, the kernel's connected inputs and the ADEC's own
+    /// line must read as before, and LG's HDMI input service must answer. Differences are kept for the page; a silent HDMI service
+    /// also holds the next session off.
+    fn audit(&mut self, journal: &Journal) {
+        let adec = journal.adec;
+        let mut notes = Vec::new();
+        match health::connections(&*self.host) {
+            Some(list) if list.is_empty() => {}
+            Some(list) => notes.push(format!("the audio service still lists {}", list.join(", "))),
+            None => notes.push("the audio service's connections cannot be read".to_owned()),
+        }
+        match self.read_sndout() {
+            Some(snd) if snd.connected_adecs().is_empty() => {}
+            Some(snd) => notes.push(format!(
+                "the kernel still has ADEC{} connected",
+                snd.connected_adecs().join(", ADEC")
+            )),
+            None => notes.push("LG's sound status cannot be read".to_owned()),
+        }
+        let base = sndout::parse_adec(&journal.kernel);
+        match self.read_adec(adec) {
+            Some(now) if now == base => {}
+            Some(now) => notes.push(format!(
+                "ADEC{adec} reads {} but was {}",
+                now.render(),
+                base.render()
+            )),
+            None => notes.push(format!("ADEC{adec} cannot be read")),
+        }
+        self.hdmi_stuck = !health::hdmi_answers(&*self.host);
+        self.after = (!notes.is_empty()).then(|| notes.join("; "));
+    }
+
+    /// What the page shows of the last restore: the differences it found, and a silent HDMI input service.
+    fn after_note(&self) -> Option<String> {
+        let hdmi = self.hdmi_stuck.then(|| HDMI_SILENT.to_owned());
+        let parts: Vec<String> = self.after.iter().cloned().chain(hdmi).collect();
+        (!parts.is_empty()).then(|| parts.join("; "))
     }
 
     fn retry_pending(&mut self) {
@@ -990,6 +1176,7 @@ impl Route {
             pid: s.pid,
             tail: s.tail.clone(),
             converter: s.converter.clone(),
+            adec: s.journal.adec,
             phase: s.phase,
             bypassing: s.observed.bypassing,
             mixed: s.observed.mixed,
@@ -1019,6 +1206,7 @@ impl Route {
             session,
             end: self.end.clone(),
             pending: self.pending.as_ref().map(|(_, note)| note.clone()),
+            after: self.after_note(),
         }
     }
 }

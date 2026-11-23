@@ -1,11 +1,15 @@
-//! What the kernel says about the sound card: `/proc/lgtv-driver/audio/sndout` and `adec.p1`. Both are plain procfs text, read
-//! without the sound card's control lock. A port of the validation in `lgroute-control.c` (dts_restore_plus, LGPL-2.1-or-later).
+//! What the kernel says about the sound card: `/proc/lgtv-driver/audio/sndout` and one `adec.p<N>` per decoder input. Both are plain
+//! procfs text, read without the sound card's control lock. A port of the validation in `lgroute-control.c` (dts_restore_plus,
+//! LGPL-2.1-or-later).
 
 use std::fmt;
 use std::str::FromStr;
 
 pub const SNDOUT: &str = "/proc/lgtv-driver/audio/sndout";
-pub const ADEC: &str = "/proc/lgtv-driver/audio/adec.p1";
+/// The kernel's view of one ADEC decoder input.
+pub fn adec_path(index: u8) -> String {
+    format!("/proc/lgtv-driver/audio/adec.p{index}")
+}
 
 /// The five words of the `Sndout EARC Outputtype` control. At rest on the C4: `2,1,0,0,1`; un-mixed: `2,1,0,0,0`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,11 +88,21 @@ impl Sndout {
         self.earc.is_some_and(|words| words.mix != 0)
     }
 
-    /// Whether ADEC1 (the input the TrueHD carrier plays through) is connected.
-    pub fn adec1_connected(&self) -> bool {
+    /// The ADEC inputs wired to the main output, by the numbers the kernel lists.
+    pub fn connected_adecs(&self) -> Vec<&str> {
         self.connected_adec
             .as_deref()
-            .is_some_and(|list| list.split(',').any(|adec| adec.trim() == "1"))
+            .map(|list| {
+                list.split(',')
+                    .map(str::trim)
+                    .filter(|adec| !adec.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn adec_connected(&self, index: u8) -> bool {
+        self.connected_adecs().contains(&index.to_string().as_str())
     }
 }
 
@@ -155,21 +169,56 @@ pub fn parse(text: &str) -> Sndout {
     out
 }
 
-/// The kernel's view of ADEC1 (`adec.p1`), one line of `Key=Value` pairs.
+/// The kernel's view of one ADEC input (`adec.p<N>`): one line of `Key=Value` pairs.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Adec {
-    /// The input it is fed from, such as `HDMI_PORT2`.
+    pub open: Option<bool>,
+    /// The input it is fed from, such as `HDMI_PORT2`. While nothing is connected this is LG's record of the last use.
     pub connect: Option<String>,
+    /// Whether the decoder is running.
+    pub start: Option<bool>,
+    pub gain: Option<String>,
     pub mute: Option<bool>,
 }
 
+impl Adec {
+    /// The line in the kernel's own layout; what the journal keeps and what a restore is compared with.
+    pub fn render(&self) -> String {
+        let flag = |value: bool| if value { "1" } else { "0" };
+        let mut parts = Vec::new();
+        if let Some(open) = self.open {
+            parts.push(format!("Open={}", flag(open)));
+        }
+        if let Some(connect) = &self.connect {
+            parts.push(format!("Connect={connect}"));
+        }
+        if let Some(start) = self.start {
+            parts.push(format!("Start={}", flag(start)));
+        }
+        if let Some(gain) = &self.gain {
+            parts.push(format!("Gain={gain}"));
+        }
+        if let Some(mute) = self.mute {
+            parts.push(format!("Mute={}", flag(mute)));
+        }
+        parts.join(" ")
+    }
+}
+
 pub fn parse_adec(text: &str) -> Adec {
+    let flag = |value: &str| match value {
+        "1" => Some(true),
+        "0" => Some(false),
+        _ => None,
+    };
     let mut out = Adec::default();
     for pair in text.split_whitespace() {
         match pair.split_once('=') {
+            Some(("Open", value)) => out.open = flag(value),
             Some(("Connect", value)) => out.connect = Some(value.to_owned()),
-            Some(("Mute", "1")) => out.mute = Some(true),
-            Some(("Mute", "0")) => out.mute = Some(false),
+            Some(("Start", value)) => out.start = flag(value),
+            Some(("Gain", value)) => out.gain = Some(value.to_owned()),
+            Some(("Mute", value)) => out.mute = flag(value),
             _ => {}
         }
     }
@@ -192,7 +241,7 @@ mod tests {
         assert_eq!(s.earc.unwrap().to_string(), "2,1,0,0,1");
         assert!(s.mixed());
         assert!(!s.bypassing());
-        assert!(!s.adec1_connected());
+        assert!(s.connected_adecs().is_empty());
         assert_eq!(s.connected_adec.as_deref(), Some(""));
     }
 
@@ -205,7 +254,7 @@ mod tests {
         let s = parse(&text);
         assert!(s.bypassing());
         assert!(!s.mixed());
-        assert!(s.adec1_connected());
+        assert!(s.adec_connected(1) && !s.adec_connected(2));
         assert_eq!(s.earc.unwrap().unmixed(), s.earc.unwrap());
     }
 

@@ -22,6 +22,7 @@
 //! | `GET /v1/voice`, `POST /v1/voice/{listen,stop,cancel,refresh}` | voice search (`voice.rs`) |
 //! | `GET /v1/profiles`, `POST /v1/profiles/switch`, `POST|DELETE /v1/profiles/{id}`, `/v1/profiles/{id}/pin`, `/{id}/avatar`, `/options`, `/gallery` | local profiles (`profiles.rs`) |
 //! | `POST /v1/media/audio`, `DELETE /v1/media/audio?app=` | the audio an app decodes, for the format badge (`media_audio.rs`) |
+//! | `POST /v1/audio-passthrough/{arm,release}`, `GET /v1/audio-passthrough/route` | TrueHD passthrough for a player that decodes it, over eARC (`audio_passthrough.rs`) |
 //!
 //! A client's loop: `GET /v1/state` once (it carries `seq` and `boot`), then `GET /v1/events?after=<seq>&boot=<boot>` over and
 //! over, each time with the `seq` of the last answer. An answer with `"reset": true` means the client fell behind or the helper
@@ -497,6 +498,7 @@ impl Api {
             .chain(crate::saver::ROUTES.iter())
             .chain(crate::dnd::ROUTES.iter())
             .chain(crate::media_audio::ROUTES.iter())
+            .chain(crate::audio_passthrough::ROUTES.iter())
             .chain(crate::profiles::ROUTES.iter())
             .chain(crate::privacy::ROUTES.iter())
             .chain(crate::lgchannels::ROUTES.iter())
@@ -864,6 +866,7 @@ impl Handler for Api {
             }
             ["v1", "dnd", rest @ ..] => crate::dnd::handle(&self.hub, request, rest),
             ["v1", "media", "audio"] => crate::media_audio::handle(&self.hub, request),
+            ["v1", "audio-passthrough", op] => crate::audio_passthrough::handle(request, op),
             ["v1", "profiles", rest @ ..] => self.profiles.handle(request, rest),
             ["v1", "privacy", rest @ ..] => {
                 crate::privacy::handle(&self.privacy, request, rest, self.profiles.can_admin())
@@ -1085,6 +1088,7 @@ mod tests {
                 + crate::saver::ROUTES.len()
                 + crate::dnd::ROUTES.len()
                 + crate::media_audio::ROUTES.len()
+                + crate::audio_passthrough::ROUTES.len()
                 + crate::profiles::ROUTES.len()
                 + crate::privacy::ROUTES.len()
                 + crate::lgchannels::ROUTES.len()

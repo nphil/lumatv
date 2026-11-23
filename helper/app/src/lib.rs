@@ -52,6 +52,7 @@ pub mod ambient_z2m_mqtt;
 pub mod ambient_z2m_store;
 pub mod api;
 pub mod app_priority;
+pub mod audio_passthrough;
 pub mod autobright;
 pub mod beszel;
 pub mod ble;

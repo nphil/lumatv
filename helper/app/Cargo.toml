@@ -47,6 +47,7 @@ serde_json.workspace = true
 gamesir-config = { path = "../../game/crates/gamesir-config" }
 leadjoy-config = { path = "../../game/crates/leadjoy-config" }
 multilink = { path = "../../multilink" }
+audiopass = { path = "../../audiopass" }
 
 [dev-dependencies]
 tempfile.workspace = true
@@ -58,3 +59,4 @@ ha-bridge = { workspace = true, features = ["testing"] }
 rtsp-client = { workspace = true, features = ["testing"] }
 fetch = { workspace = true, features = ["testing"] }
 map = { workspace = true, features = ["testing"] }
+audiopass = { path = "../../audiopass", features = ["testing"] }

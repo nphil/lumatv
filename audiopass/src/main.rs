@@ -50,11 +50,10 @@ fn status() {
                 snd.arc_codec.as_deref().unwrap_or("unreadable")
             );
             println!(
-                "adec1     {}",
-                if snd.adec1_connected() {
-                    "connected"
-                } else {
-                    "not connected"
+                "adec      {}",
+                match snd.connected_adecs().as_slice() {
+                    [] => "none connected".to_owned(),
+                    list => format!("ADEC{} connected", list.join(", ADEC")),
                 }
             );
         }

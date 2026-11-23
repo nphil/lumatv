@@ -3,12 +3,13 @@
 //! feature, for the crates that drive the route.
 //!
 //! The behaviours that decide whether the route works are the ones modelled: the kernel reports `Pass-Through` only while a
-//! converter has been configured and the eARC words are un-mixed; ADEC1 connects muted; and audiooutputd forwards a mute call to
-//! the kernel only when it differs from what audiooutputd believes, so a lone unmute after the connect does nothing.
+//! converter has been configured and the eARC words are un-mixed; the granted ADEC connects with its kernel mute as it was;
+//! audiooutputd forwards a mute call to the kernel only when it differs from what audiooutputd believes, so a lone unmute after
+//! the connect does nothing, and refuses a mute call once the input is disconnected.
 
 use crate::host::{Host, Stuck, WriteError};
 use crate::route::{AREN, BOOT_ID, GRAPH, INSTANCES};
-use crate::sndout::{ADEC, SNDOUT, Words};
+use crate::sndout::{SNDOUT, Words, adec_path};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::sync::Mutex;
@@ -20,6 +21,8 @@ pub const CONVERTER: &str = "0427000d";
 /// The player's process.
 pub const PID: u32 = 4242;
 pub const PLAYER_START: u64 = 123_456;
+/// The decoder input the proven player's renderer was granted.
+pub const ADEC: u8 = 1;
 
 pub struct Sim {
     pub now: u64,
@@ -32,12 +35,20 @@ pub struct Sim {
     pub words: Words,
     /// Converters that have been sent the bypass command.
     pub configured: BTreeSet<String>,
+    /// The decoder input the player's renderer was granted: the only one the sim models.
+    pub adec: u8,
     pub adec_connected: bool,
     pub adec_input: String,
-    /// What the kernel reports for ADEC1.
+    pub adec_start: bool,
+    /// What the kernel reports for the granted ADEC's mute.
     pub adec_mute: bool,
-    /// What audiooutputd believes about ADEC1's mute.
+    /// What audiooutputd believes about its mute.
     pub belief_muted: bool,
+    /// Other decoder inputs LG has connected to the main output (an HDMI input or an app), by number.
+    pub others: Vec<u8>,
+    /// Whether LG's HDMI input service answers, and how often it was asked.
+    pub hdmi_ok: bool,
+    pub hdmi_calls: u32,
     pub stuck: Vec<Stuck>,
     pub status_ok: bool,
     pub connect_ok: bool,
@@ -83,16 +94,44 @@ impl Sim {
             w.channels,
             w.rate,
             w.mix,
-            if self.adec_connected { "1" } else { "" },
+            self.connected_list(),
         )
     }
 
     fn render_adec(&self) -> String {
         format!(
-            "Open=1 Connect={} Start=0 Gain=0x800000 Mute={}\n",
+            "Open=1 Connect={} Start={} Gain=0x800000 Mute={}\n",
             self.adec_input,
+            u8::from(self.adec_start),
             u8::from(self.adec_mute)
         )
+    }
+
+    /// The kernel's `ConnectedAdec` list.
+    fn connected_list(&self) -> String {
+        self.adec_connected
+            .then_some(self.adec)
+            .into_iter()
+            .chain(self.others.iter().copied())
+            .map(|adec| adec.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    /// audiooutputd's connection list, as `audio/getStatus` prints it.
+    fn render_umi(&self) -> String {
+        let entry = |adec: u8, muted: bool| {
+            format!(
+                r#"{{"source":"ADEC{adec}","muted":{muted},"sink":"MAIN","outputMode":"null"}}"#
+            )
+        };
+        let list: Vec<String> = self
+            .adec_connected
+            .then(|| entry(self.adec, self.belief_muted))
+            .into_iter()
+            .chain(self.others.iter().map(|adec| entry(*adec, false)))
+            .collect();
+        format!(r#"{{"returnValue":true,"audio":[{}]}}"#, list.join(","))
     }
 
     fn note(&mut self, entry: impl Into<String>) {
@@ -147,10 +186,15 @@ impl FakeHost {
                     mix: 1,
                 },
                 configured: BTreeSet::new(),
+                adec: ADEC,
                 adec_connected: false,
                 adec_input: "HDMI_PORT2".into(),
+                adec_start: false,
                 adec_mute: true,
                 belief_muted: false,
+                others: Vec::new(),
+                hdmi_ok: true,
+                hdmi_calls: 0,
                 stuck: Vec::new(),
                 status_ok: true,
                 connect_ok: true,
@@ -200,7 +244,7 @@ impl Host for FakeHost {
                 sim.sndout_reads += 1;
                 Ok(sim.render_sndout())
             }
-            ADEC => Ok(sim.render_adec()),
+            path if path == adec_path(sim.adec) => Ok(sim.render_adec()),
             GRAPH => Ok(if sim.now >= sim.graph_at {
                 sim.chain_graph.clone()
             } else {
@@ -280,13 +324,17 @@ impl Host for FakeHost {
         const NO: &str = r#"{"returnValue":false,"errorText":"Audio not connected"}"#;
         self.with(|sim| {
             let verb = uri.rsplit('/').next().unwrap_or_default();
+            // A call that names another decoder input than the granted one finds nothing to act on.
+            let ours = payload.contains(&format!(r#""source":"ADEC{}""#, sim.adec));
             match verb {
-                "getStatus" => sim
-                    .status_ok
-                    .then(|| r#"{"returnValue":true,"audio":[]}"#.to_owned()),
+                "getStatus" if uri.contains("extinputs") => {
+                    sim.hdmi_calls += 1;
+                    sim.hdmi_ok.then(|| OK.to_owned())
+                }
+                "getStatus" => sim.status_ok.then(|| sim.render_umi()),
                 "connect" => {
                     sim.note("luna connect");
-                    if !sim.connect_ok {
+                    if !sim.connect_ok || !ours {
                         return Some(NO.into());
                     }
                     sim.adec_connected = true;
@@ -295,7 +343,7 @@ impl Host for FakeHost {
                 }
                 "disconnect" => {
                     sim.note("luna disconnect");
-                    if !sim.disconnect_ok {
+                    if !sim.disconnect_ok || !ours {
                         return Some(NO.into());
                     }
                     sim.adec_connected = false;
@@ -304,7 +352,7 @@ impl Host for FakeHost {
                 "mute" => {
                     let mute = payload.contains(r#""mute":true"#);
                     sim.note(format!("luna mute {mute}"));
-                    if !sim.adec_connected {
+                    if !sim.adec_connected || !ours {
                         return Some(NO.into());
                     }
                     if mute != sim.belief_muted {

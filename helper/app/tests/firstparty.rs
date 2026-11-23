@@ -66,6 +66,7 @@ fn weather_news_and_the_clock_are_plugins_of_the_helper_and_follow_the_feeds() {
             have.sort();
             have == [
                 ("ambient".to_owned(), "connected".to_owned()),
+                ("audio-passthrough".to_owned(), "off".to_owned()),
                 ("beszel".to_owned(), "off".to_owned()),
                 ("ble-proxy".to_owned(), "off".to_owned()),
                 ("clock".to_owned(), "connected".to_owned()),
