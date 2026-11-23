@@ -114,8 +114,28 @@ fn follow(events: &Receiver<Event>, wake: &impl Fn()) {
             Event::Dropped { job, units } => crate::log_warn!("xcode: job {job} dropped {units} units: the reader is too slow"),
             Event::Ended { job, reason } => crate::log_info!("xcode: job {job} ended: {reason}"),
             Event::Wedged => crate::log_warn!("xcode: a call into the video hardware did not return; no conversion starts until the helper restarts"),
-            Event::Bytes { .. } | Event::Hold { .. } => continue,
+            // the page says why the hardware is paused, so a hold and its release are news to it; the byte counts are not
+            Event::Hold { .. } => {}
+            Event::Bytes { .. } => continue,
         }
         wake();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn the_page_is_woken_by_a_hold_and_its_release_but_not_by_the_byte_counts() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(Event::Bytes { job: 1, units: 30, bytes: 120_000, kbps: 3500 }).unwrap();
+        tx.send(Event::Hold { key: GATE.to_owned(), reason: Some("youtube.leanback.v4 is in front".to_owned()) }).unwrap();
+        tx.send(Event::Hold { key: GATE.to_owned(), reason: None }).unwrap();
+        drop(tx);
+        let woken = Cell::new(0);
+        follow(&rx, &|| woken.set(woken.get() + 1));
+        assert_eq!(woken.get(), 2);
     }
 }
