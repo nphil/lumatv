@@ -53,7 +53,7 @@ pub fn home(p: &mut Paint<'_>) {
     let down = matches!(m.view.focus, Focus::Home(Spot::Card(_)));
     // Down dims the art behind the cards with the stage's own darker copy; at rest the art fades out low on the left behind the words.
     if down { over_art(p, game, H, 0.0, H, false) } else { art(p, game, H, 560.0, H, false) }
-    // The art changes with every tile, so the bar stays the flat tint: captured glass would capture again on each change.
+    // The art changes with every tile, so the bar is the raised glass's flat colour: captured glass would capture again on each change.
     p.art = false;
     let attention = topbar::needs_attention(p);
     topbar::bar(p, Here::Home, attention);

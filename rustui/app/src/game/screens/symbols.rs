@@ -5,7 +5,10 @@ use compositor_protocol::Rgba;
 use ui::ImageLayer;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Symbol {
+    /// The top bar's three places, as the mock draws them (Lucide's house, library and search).
+    Home,
     Library,
+    Search,
     /// A two-handled pad with a cross and two buttons.
     Gamepad,
     /// A cup on a stem, with handles.
@@ -112,7 +115,7 @@ fn playstation(face: Face) -> Vec<Shape> {
 /// The shapes of `symbol` and the half-width of its lines.
 fn shapes(symbol: Symbol) -> (Vec<Shape>, f32) {
     use Shape::*;
-    let fixed: &[Shape] = match symbol {
+    match symbol {
         Symbol::Gamepad => {
             let mut s = vec![Line(6.7, 5.0, 17.3, 5.0), Line(21.3, 8.7, 22.0, 16.0)];
             arc(&mut s, 17.3, 9.0, 4.0, 4.0, -90.0, -5.0);
@@ -124,7 +127,7 @@ fn shapes(symbol: Symbol) -> (Vec<Shape>, f32) {
             s.push(Line(2.0, 16.0, 2.7, 8.7));
             arc(&mut s, 6.7, 9.0, 4.0, 4.0, 185.0, 270.0);
             s.extend([Line(6.0, 11.0, 10.0, 11.0), Line(8.0, 9.0, 8.0, 13.0), Dot(15.0, 12.0, 1.1), Dot(18.0, 10.0, 1.1)]);
-            return (s, STROKE);
+            (s, STROKE)
         }
         Symbol::Trophy => {
             let mut s = vec![Line(6.0, 2.0, 18.0, 2.0), Line(18.0, 2.0, 18.0, 9.0), Line(6.0, 9.0, 6.0, 2.0), Line(4.0, 22.0, 20.0, 22.0)];
@@ -135,28 +138,41 @@ fn shapes(symbol: Symbol) -> (Vec<Shape>, f32) {
             }
             arc(&mut s, 19.5, 7.5, 2.5, 2.5, 0.0, 90.0);
             arc(&mut s, 4.5, 7.5, 2.5, 2.5, 90.0, 180.0);
-            return (s, STROKE);
+            (s, STROKE)
         }
-        Symbol::Library => &[
-            Line(3.0, 4.0, 7.0, 4.0),
-            Line(7.0, 4.0, 7.0, 20.0),
-            Line(7.0, 20.0, 3.0, 20.0),
-            Line(3.0, 20.0, 3.0, 4.0),
-            Line(10.0, 4.0, 13.0, 4.0),
-            Line(13.0, 4.0, 13.0, 20.0),
-            Line(13.0, 20.0, 10.0, 20.0),
-            Line(10.0, 20.0, 10.0, 4.0),
-            Line(16.0, 3.0, 20.0, 19.0),
-            Line(20.0, 19.0, 23.0, 18.0),
-            Line(23.0, 18.0, 19.0, 2.0),
-            Line(19.0, 2.0, 16.0, 3.0),
-        ],
-        Symbol::Ring => return (vec![Ring(12.0, 12.0, SPIN_R, SPIN_HALF)], SPIN_HALF),
+        Symbol::Home => {
+            // The door, then the outline with its rounded roof and corners.
+            let mut s = vec![Line(15.0, 21.0, 15.0, 13.0), Line(14.0, 12.0, 10.0, 12.0), Line(9.0, 13.0, 9.0, 21.0)];
+            arc(&mut s, 14.0, 13.0, 1.0, 1.0, -90.0, 0.0);
+            arc(&mut s, 10.0, 13.0, 1.0, 1.0, 180.0, 270.0);
+            arc(&mut s, 5.0, 10.0, 2.0, 2.0, 180.0, 229.8);
+            s.push(Line(3.709, 8.472, 10.709, 2.472));
+            arc(&mut s, 12.0, 4.0, 2.0, 2.0, 229.8, 310.2);
+            s.push(Line(13.291, 2.472, 20.291, 8.472));
+            arc(&mut s, 19.0, 10.0, 2.0, 2.0, 310.2, 360.0);
+            s.extend([Line(21.0, 10.0, 21.0, 19.0), Line(19.0, 21.0, 5.0, 21.0), Line(3.0, 19.0, 3.0, 10.0)]);
+            arc(&mut s, 19.0, 19.0, 2.0, 2.0, 0.0, 90.0);
+            arc(&mut s, 5.0, 19.0, 2.0, 2.0, 90.0, 180.0);
+            (s, STROKE)
+        }
+        Symbol::Library => {
+            // The shelf's two books: the upright one with its spine, and the leaning one.
+            let mut s = vec![Line(4.0, 3.0, 10.0, 3.0), Line(11.0, 4.0, 11.0, 20.0), Line(10.0, 21.0, 4.0, 21.0), Line(3.0, 20.0, 3.0, 4.0), Line(7.0, 3.0, 7.0, 21.0)];
+            arc(&mut s, 10.0, 4.0, 1.0, 1.0, -90.0, 0.0);
+            arc(&mut s, 10.0, 20.0, 1.0, 1.0, 0.0, 90.0);
+            arc(&mut s, 4.0, 20.0, 1.0, 1.0, 90.0, 180.0);
+            arc(&mut s, 4.0, 4.0, 1.0, 1.0, 180.0, 270.0);
+            let lean = [(20.4, 18.9), (19.8, 20.2), (17.9, 20.9), (16.6, 20.3), (11.1, 5.1), (11.7, 3.8), (13.6, 3.1), (14.9, 3.7), (20.4, 18.9)];
+            s.extend(lean.windows(2).map(|w| Line(w[0].0, w[0].1, w[1].0, w[1].1)));
+            (s, STROKE)
+        }
+        Symbol::Search => (vec![Ring(11.0, 11.0, 8.0, STROKE), Line(21.0, 21.0, 16.66, 16.66)], STROKE),
+        Symbol::Ring => (vec![Ring(12.0, 12.0, SPIN_R, SPIN_HALF)], SPIN_HALF),
         Symbol::Spinner { turn, of } => {
             let from = 360.0 * f32::from(turn) / f32::from(of.max(1));
             let mut s = Vec::new();
             arc(&mut s, 12.0, 12.0, SPIN_R, SPIN_R, from, from + SPIN_SWEEP);
-            return (s, SPIN_HALF);
+            (s, SPIN_HALF)
         }
         Symbol::Countdown { left, of } => {
             let step = 360.0 / f32::from(of.max(1));
@@ -168,7 +184,7 @@ fn shapes(symbol: Symbol) -> (Vec<Shape>, f32) {
                 let ((a, b), (c, d)) = (at(k), at(k + 1));
                 Line(a, b, c, d)
             });
-            return (s.collect(), SPIN_HALF);
+            (s.collect(), SPIN_HALF)
         }
         Symbol::Face { kind, face, ring } => {
             let (mut s, half) = match kind {
@@ -180,10 +196,9 @@ fn shapes(symbol: Symbol) -> (Vec<Shape>, f32) {
                 // Inside the button's edge, which is the 12-unit radius.
                 s.push(Ring(12.0, 12.0, 11.4, 0.6));
             }
-            return (s, half);
+            (s, half)
         }
-    };
-    (fixed.to_vec(), STROKE)
+    }
 }
 pub fn draw(layer: &mut ImageLayer, symbol: Symbol, colour: Rgba) {
     let (shapes, half) = shapes(symbol);

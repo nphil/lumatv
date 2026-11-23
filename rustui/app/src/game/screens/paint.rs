@@ -116,6 +116,8 @@ pub struct Plan {
 pub enum Fill {
     Sheet,
     Glass,
+    /// The raised glass's own colour without its backdrop: the mock's pill where nothing is captured behind it.
+    Raised,
     Tint(f32),
     /// The sheet's colour at this opacity, for a layer over the game that must leave it showing.
     Veil(f32),
@@ -291,7 +293,7 @@ impl<'a> Paint<'a> {
     pub fn colour(&self, fill: Fill, stage: bool) -> Rgba {
         match fill {
             Fill::Sheet => self.straight(Role::Sheet, stage).premultiply(0.96),
-            Fill::Glass => self.ink(Role::GlassRaised, stage),
+            Fill::Glass | Fill::Raised => self.ink(Role::GlassRaised, stage),
             Fill::Primary => self.primary(stage).0,
             Fill::Accent => self.ink(Role::Accent, stage),
             Fill::Track => self.ink(Role::TrackOff, stage),

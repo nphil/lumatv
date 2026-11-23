@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+LumaGame's top bar follows the mock: its pill is the raised glass's own colour with a 1 px edge (it was a see-through tint), the places are semibold with the Lucent house, library and search marks, items sit 4 px apart, and the places that are not current read at 90 % ink. The pad's LB/RB marks show only while the focus is on the bar, not at rest. The avatar at the right is the signed-in Steam account's profile picture (a 64 px picture the Steam engine caches, at most 64 KiB, https from steamstatic or akamaihd hosts only) with the word Menu beside it, and a person glyph when signed out or offline. All static; the pill is darker than before, never brighter.
+
+LumaGame's Home shows the focused game as a wide capsule of its hero art with tall covers beside it, low on the screen, and the Down state's cards sit lower.
+
 Camera pop-ups alert only when a detection newly starts: a repeat of the same class on the same camera stays quiet for the cool-down (default now 10 min, set in the Cameras plugin page), and a source that keeps reporting it (a stuck sensor) restarts the window each time. Other classes still alert, `other` (visit) never does, and every event is still listed.
 
 Audio passthrough arms for a player in a webOS app jail: the helper recognises the player's `/dev/lg/aren0` by its device number, since a jailed player's descriptor reads under `/var/palm/jail/<app>/` from the helper and was counted as no renderer (Marquee's TrueHD arm was refused with "holds 0 /dev/lg/aren0 descriptors"). The renderer-closed wait on release matches the same way.

@@ -1,8 +1,8 @@
 //! The top bar: Home, Library and Search in a pill on the left, the Steam profile picture with the word Menu on the right, and under
 //! them the note of a running library refresh. Settings, accounts and Refresh live in the quick menu, which the avatar opens.
 //!
-//! Node ids: 10 the pill, 11-13 each item's label, 14 Library's mark, 15-17 the current item's wash, 20-25 the focus treatment of each
-//! item, 30-37 the avatar, 45-48 the shoulder marks.
+//! Node ids: 10 the pill, 11-13 each item's label, 14, 18 and 19 each item's symbol, 15-17 the current item's wash, 20-25 the focus
+//! treatment of each item, 30-37 the avatar, 45-48 the shoulder marks.
 use crate::game::{
     input::Source,
     model::Focus,
@@ -32,7 +32,21 @@ fn disc_side(p: &Paint<'_>) -> f32 {
 /// The pill that holds the avatar and the word Menu beside it: the pill's padding, the disc, a gap, the word and its end padding. The
 /// word is what tells that the avatar opens the quick menu.
 fn avatar_width(p: &mut Paint<'_>) -> f32 {
-    12.0 + disc_side(p) + 14.0 + p.width("Menu", Type::Label) + 24.0
+    12.0 + disc_side(p) + 14.0 + label_width(p, "Menu") + 24.0
+}
+/// The width of `text` in the bar's type: the mock sets its labels semibold.
+fn label_width(p: &mut Paint<'_>, text: &str) -> f32 {
+    let ty = p.bold(Type::Label);
+    p.fonts.measure(text, ty).width.ceil()
+}
+/// The ink of a label or symbol in the bar: the mock lifts the second ink to 90 % of the first over art, so a place that is not
+/// current reads at that.
+fn nav_ink(p: &Paint<'_>, current: bool) -> compositor_protocol::Rgba {
+    let mut ink = p.straight(Role::Ink, false);
+    if !current {
+        ink.a = (f32::from(ink.a) * 0.9).round() as u8;
+    }
+    ink.premultiply(0.0)
 }
 /// The room between a shoulder mark and the pill it belongs to.
 const BUMP_GAP: f32 = 14.0;
@@ -42,12 +56,13 @@ pub fn needs_attention(p: &Paint<'_>) -> bool {
     p.model.attention().is_some()
 }
 
-/// The pill's look: glass over art, which is captured once with the page; over a flat canvas there is nothing to blur, so it is a tint;
-/// in the light theme a sheet.
+/// The pill's look, the mock's raised glass: captured over art, once with the page; where art dips or there is none to blur, the
+/// raised glass's own flat colour; in the light theme a sheet.
 fn backdrop(p: &Paint<'_>) -> (Fill, bool) {
     match (p.mode, p.art) {
         (Mode::Light, _) => (Fill::Sheet, false),
-        (_, art) => (Fill::Glass, art),
+        (_, true) => (Fill::Glass, true),
+        (_, false) => (Fill::Raised, false),
     }
 }
 
@@ -67,41 +82,37 @@ fn bump(p: &mut Paint<'_>, id: u64, label: &str, x: f32, y: f32, h: f32) -> f32 
 /// Draws the bar for a player who is `here`, with a dot on the avatar when `attention`. Returns where the navigation ends on the right
 /// (a shoulder mark included), for what sits after it.
 pub fn bar(p: &mut Paint<'_>, here: Here, attention: bool) -> f32 {
-    let labels = [("Home", Icon::Home, Here::Home), ("Library", Icon::Cards, Here::Library), ("Search", Icon::Search, Here::Search)];
+    let labels = [("Home", Symbol::Home, Here::Home), ("Library", Symbol::Library, Here::Library), ("Search", Symbol::Search, Here::Search)];
     let side = 30.0 * p.scale;
-    let widths: Vec<f32> = labels.iter().map(|(label, ..)| p.width(label, Type::Label) + side + 66.0).collect();
-    let w = widths.iter().sum::<f32>() + 12.0;
+    let widths: Vec<f32> = labels.iter().map(|(label, ..)| label_width(p, label) + side + 62.0).collect();
+    // The mock sets the items 4 px apart inside a 6 px padding.
+    let w = widths.iter().sum::<f32>() + 12.0 + 4.0 * (widths.len() - 1) as f32;
     let h = p.tokens.target.max(p.line(Type::Label) + 12.0) + 12.0;
     let (fill, cached) = backdrop(p);
-    let pad = p.model.input_source() == Source::Controller;
+    // The mock's bar has no shoulder marks at rest: they show while a pad is in hand and the focus is on the bar, where the bumpers
+    // step along it.
+    let pad = p.model.input_source() == Source::Controller && matches!(p.model.view.focus, Focus::Nav(_));
     let mut left = p.x;
     if pad {
         left += bump(p, 45, "LB", left, p.y, h) + BUMP_GAP;
     }
     p.surface(10, Frame::new(left, p.y, w, h), fill, Radius::Pill, false, false, cached, 60);
     let mut x = left + 6.0;
-    for (i, (label, icon, place)) in labels.into_iter().enumerate() {
+    for (i, (label, symbol, place)) in labels.into_iter().enumerate() {
         let from = p.plan.nodes.len();
         let f = Frame::new(x, p.y + 6.0, widths[i], h - 12.0);
         let current = here == place;
         if current {
             p.surface(15 + i as u64, f, Fill::Tint(p.tokens.states.selected_wash), Radius::Pill, false, false, false, 61);
         }
-        let ink = if current { Role::Ink } else { Role::Ink2 };
-        let marks = if i == 1 { Vec::new() } else { vec![p.mark(icon, side, 24.0, (f.h - side) / 2.0, ink, false)] };
-        p.words(
-            11 + i as u64,
-            f,
-            vec![p.word(label, Type::Label, p.ink(ink, false), side + 36.0, (f.h - p.line(Type::Label)) / 2.0, f.w - side - 48.0)],
-            marks,
-            62,
-        );
-        if i == 1 {
-            p.symbol(14, Symbol::Library, Frame::new(x + 24.0, f.y + (f.h - side) / 2.0, side, side), p.ink(ink, false), 62);
-        }
+        let ink = nav_ink(p, current);
+        let mut word = p.word(label, Type::Label, ink, 22.0 + side + 12.0, (f.h - p.line(Type::Label)) / 2.0, f.w - side - 62.0 + 28.0);
+        word.ty = p.bold(Type::Label);
+        p.words(11 + i as u64, f, vec![word], vec![], 62);
+        p.symbol([14, 18, 19][i], symbol, Frame::new(x + 22.0, f.y + (f.h - side) / 2.0, side, side), ink, 62);
         focus::treat(p, from, 20 + 2 * i as u64, f, Kind::Button, p.focused(Focus::Nav(i)));
         p.hit(Focus::Nav(i), f);
-        x += widths[i];
+        x += widths[i] + 4.0;
     }
     let mut end = left + w;
     if pad {
@@ -133,7 +144,9 @@ fn avatar(p: &mut Paint<'_>, current: bool, attention: bool, fill: Fill, cached:
             marks.push(p.mark(Icon::Person, side, 6.0 + (d - side) / 2.0, (item.h - side) / 2.0, Role::Ink2, false));
         }
     }
-    let label = p.word("Menu", Type::Label, p.ink(Role::Ink2, false), 6.0 + d + 14.0, (item.h - p.line(Type::Label)) / 2.0, item.w - d - 20.0);
+    let ink = nav_ink(p, false);
+    let mut label = p.word("Menu", Type::Label, ink, 6.0 + d + 14.0, (item.h - p.line(Type::Label)) / 2.0, item.w - d - 20.0);
+    label.ty = p.bold(Type::Label);
     p.words(32, item, vec![label], marks, 62);
     focus::treat(p, from, 34, item, Kind::Button, p.focused(Focus::Nav(3)));
     if attention {
@@ -216,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn the_pill_is_captured_glass_over_art_a_tint_over_a_flat_canvas_and_a_sheet_in_the_light_theme() {
+    fn the_pill_is_captured_glass_over_art_flat_raised_glass_where_none_is_captured_and_a_sheet_in_the_light_theme() {
         painted(|_| {}, |p| {
             p.art = true;
             bar(p, Here::Home, false);
@@ -234,12 +247,16 @@ mod tests {
     }
 
     #[test]
-    fn shoulder_marks_flank_the_bar_while_a_pad_is_in_hand() {
+    fn shoulder_marks_flank_the_bar_only_while_a_pad_is_in_hand_and_the_focus_is_on_the_bar() {
         painted(|_| {}, |p| {
             bar(p, Here::Home, false);
             assert!(!ids(p).contains(&45) && !ids(p).contains(&47));
         });
-        painted(|m| { m.step(Input::Controllers([Some("Pad".to_owned()), None, None, None])); }, |p| {
+        painted(|m| { m.step(Input::Controllers([Some("Pad".to_owned()), None, None, None])); m.view.focus = Focus::Home(crate::game::model::home::Spot::Tile(0)); }, |p| {
+            bar(p, Here::Home, false);
+            assert!(!ids(p).contains(&45) && !ids(p).contains(&47), "at rest on the tiles the bar is the mock's");
+        });
+        painted(|m| { m.step(Input::Controllers([Some("Pad".to_owned()), None, None, None])); m.view.focus = Focus::Nav(0); }, |p| {
             let end = bar(p, Here::Home, false);
             assert!(ids(p).contains(&45) && ids(p).contains(&47));
             let pill = p.plan.nodes.iter().find(|n| n.id == 10).unwrap().frame;

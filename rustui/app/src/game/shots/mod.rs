@@ -133,7 +133,7 @@ fn screens() -> Vec<(String, Model)> {
         .iter()
         .filter(|(name, _)| {
             [
-                "library-b-panel", "09-chooser", "32-chooser-text200", "11-pairing", "12-signin", "29-approval", "launch-c-strip", "launch-c-strip-text200",
+                "home-a-spotlight", "library-b-panel", "09-chooser", "32-chooser-text200", "11-pairing", "12-signin", "29-approval", "launch-c-strip", "launch-c-strip-text200",
                 "11-pairing-text200", "12-signin-text200", "launch-c-strip-menu", "launch-c-strip-menu-text200", "launch-b-drawer-end",
             ]
             .contains(&name.as_str())
