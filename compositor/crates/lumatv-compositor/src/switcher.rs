@@ -338,6 +338,8 @@ pub struct Switcher {
     /// The foreground app when it opened: another one coming to the front closes it (`from` is the app that shrinks into its card, which
     /// is not always the one in front).
     over: String,
+    /// `over` was quit from here: the app manager then brings the next app forward, which is the owner's own doing and becomes `over`.
+    over_quit: bool,
     /// What runs, what was seen and what has hung (`list.rs`).
     list: list::Roster,
     /// Which screen draws it, the numbers and the watch on the shell (`basic.rs`).
@@ -443,6 +445,7 @@ impl State {
         sw.seq += 1;
         sw.from = from.clone();
         sw.over = over;
+        sw.over_quit = false;
         sw.cards = cards;
         sw.scrim_rgb = [SCRIM_DEFAULT[0], SCRIM_DEFAULT[1], SCRIM_DEFAULT[2]];
         sw.scrim = Some(Track::still(Pose { x: 0.0, y: 0.0, w: 0.0, h: 0.0, alpha: 0.0, radius: 0.0 }, now));
@@ -654,6 +657,7 @@ impl State {
         self.switcher.quitting.push((id.to_string(), now));
         self.switcher.stuck.retain(|a| a != id);
         self.journal(format!("switcher: quit {id}{}", if hung { " (it has hung)" } else if forced { " (forced)" } else { "" }));
+        self.switcher.over_quit |= id == self.switcher.over;
         self.hook_quit_cancel(id);
         let ended = (hung || forced) && self.kill_app(id);
         let asked = !(hung || forced) && self.hook_quit(id, now);
@@ -721,7 +725,10 @@ impl State {
                 // The app manager brought something else to the front (a launch by voice, by an app of its own): the task manager is not what is
                 // wanted. An app of LumaTV's own that was in front when it opened (it has no card) is not "something else".
                 let from = self.switcher.from.as_deref().unwrap_or("");
-                if !foreground.is_empty() && foreground != HOME_APP && foreground != from && foreground != self.switcher.over {
+                if self.switcher.over_quit && !foreground.is_empty() && foreground != HOME_APP && foreground != self.switcher.over {
+                    self.switcher.over = foreground.to_string();
+                    self.switcher.over_quit = false;
+                } else if !foreground.is_empty() && foreground != HOME_APP && foreground != from && foreground != self.switcher.over {
                     self.switcher_close("another app came to the front", now);
                 }
             }

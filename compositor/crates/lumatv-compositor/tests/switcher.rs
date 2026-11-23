@@ -655,6 +655,27 @@ fn another_app_coming_to_the_front_ends_it() {
 }
 
 #[test]
+fn quitting_the_app_it_opened_over_leaves_it_open_when_the_next_app_comes_forward() {
+    let mut rig = rig_app(&["switcher"]);
+    rig.server.eval(|s| {
+        let t0 = Instant::now();
+        assert!(s.switcher_open(None, t0));
+        op(s, layout(&[("netflix", 112, 340, 400, 225, 22), ("youtube", 544, 340, 400, 225, 22), ("plex", 976, 340, 400, 225, 22)], 0));
+        op(s, json!({"op": "quit", "id": "plex"}));
+    });
+    let plex = rig.apps.pop().unwrap();
+    plex.win.surface.destroy();
+    drop(plex);
+    rig.apps[0]._client.roundtrip();
+    rig.server.eval(|s| {
+        s.luna_notify();
+        s.switcher_frame(Instant::now());
+        assert!(s.switcher_active(), "YouTube coming forward is the quit's doing, not a launch");
+        assert!(!s.journal.iter().any(|l| l.contains("another app came to the front")));
+    });
+}
+
+#[test]
 fn the_switcher_asks_for_nothing_it_has_no_cards_for() {
     let rig = rig_home(&["switcher"]);
     rig.server.eval(|s| {
