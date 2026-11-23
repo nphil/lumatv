@@ -250,7 +250,7 @@ fn layout(kit: &mut Kit, v: &View, shots: &[Option<&Shot>]) -> Layout {
     // foot, so the focus plates and the washes of neighbours line up. A picture's tiles are as tall as they need; the mock's sheet has the room
     // of its taller tile.
     // The devices behind a receiver stand in a column under their tile, a row each, their names wrapped like a tile's and set from the left like
-    // its state line. A column that would take the sheet off the top of the screen carries on in the columns to its right that no other tile's
+    // its state line. A column that would take the sheet off the top of the screen carries on in the columns beside it that no other tile's
     // devices use; the sheet grows by the longest column. One row height for all, as one button size per screen.
     let dot = s2;
     let text_x = s5 + dot + s2;
@@ -260,17 +260,21 @@ fn layout(kit: &mut Kit, v: &View, shots: &[Option<&Shot>]) -> Layout {
     let pitch = kid_h + s1;
     let base_h = if v.pictures { row_y + tallest + s7 } else { SHEET_MIN_H.max(row_y + tallest + s6) };
     let per_col = (((1080.0 - 64.0 - SHEET_TOP_MIN - base_h - s3 + s1) / pitch).floor().max(1.0)) as usize;
-    let per_tile: Vec<usize> = names
-        .iter()
-        .enumerate()
-        .map(|(i, n)| {
-            if n.is_empty() {
-                return 0;
-            }
-            let room = (i + 1..names.len()).find(|j| !names[*j].is_empty()).unwrap_or(names.len()) - i;
-            n.len().div_ceil(n.len().div_ceil(per_col).min(room))
-        })
-        .collect();
+    // Each tile's devices take the columns from where the tile before them stopped to the next tile that has devices: its own column and
+    // the free ones to its right, and when those do not hold them the free ones to its left. `first_col` is where its columns begin.
+    let mut per_tile = vec![0usize; names.len()];
+    let mut first_col = vec![0usize; names.len()];
+    let mut taken = 0;
+    for (i, n) in names.iter().enumerate() {
+        if n.is_empty() {
+            continue;
+        }
+        let end = (i + 1..names.len()).find(|j| !names[*j].is_empty()).unwrap_or(names.len());
+        per_tile[i] = n.len().div_ceil(n.len().div_ceil(per_col).min(end - taken));
+        let cols = n.len().div_ceil(per_tile[i]);
+        first_col[i] = i.min(end - cols);
+        taken = first_col[i] + cols;
+    }
     let kids_h = per_tile.iter().copied().max().unwrap_or(0) as f32;
     let kids_room = if kids_h > 0.0 { s3 + kids_h * pitch - s1 } else { 0.0 };
     let sheet_h = base_h + kids_room;
@@ -280,7 +284,7 @@ fn layout(kit: &mut Kit, v: &View, shots: &[Option<&Shot>]) -> Layout {
         t.frame = Frame::new(sheet.x + s7 + i as f32 * (tile_w + s4), sheet.y + row_y, tile_w, tallest);
         let rows = names[i].iter().enumerate().map(|(k, name)| {
             let (col, row) = (k / per_tile[i], k % per_tile[i]);
-            let frame = Frame::new(sheet.x + s7 + (i + col) as f32 * (tile_w + s4), t.frame.y + tallest + s3 + row as f32 * pitch, tile_w, kid_h);
+            let frame = Frame::new(sheet.x + s7 + (first_col[i] + col) as f32 * (tile_w + s4), t.frame.y + tallest + s3 + row as f32 * pitch, tile_w, kid_h);
             let words_y = ((kid_h - name.len() as f32 * label_line) / 2.0).round();
             ChildLay { frame, dot, dot_at: (s5, ((kid_h - dot) / 2.0).round()), name: name.clone(), name_at: (text_x, words_y, tile_w - text_x - s3) }
         });
@@ -1239,7 +1243,7 @@ mod tests {
         let mut u = Up::new(Mode::Dark, 2.0, 4);
         behind_the_receiver(&mut u, "on");
         let mut list = devices(4);
-        let names = ["Apple TV"];
+        let names = ["Apple TV", "PlayStation 5", "Set top"];
         let mut sub = vec![json!({"osdName": "AVR-S760H", "cecpDevType": 5, "depth": 1, "physicalAddress": 7000})];
         sub.extend(names.iter().enumerate().map(|(i, n)| json!({"osdName": n, "cecpDevType": 4, "depth": 2, "physicalAddress": 8000 + i})));
         list[1]["subList"] = Value::Array(sub);
@@ -1249,8 +1253,18 @@ mod tests {
         let kids = g["children"][2].as_array().expect("devices");
         let at = |k: &Value, f: &str| k["frame"][f].as_f64().unwrap();
         assert!(kids.iter().all(|k| at(k, "h") == at(&kids[0], "h")), "one row height");
+        assert_eq!(kids.len(), 5, "three inputs of the receiver and two devices of the CEC list no input is named like");
         assert!(at(&kids[kids.len() - 1], "x") > at(&kids[0], "x"), "no room for a column: it went on in the next tiles' places");
-        assert!(g["sheet"]["y"].as_f64().unwrap() >= 0.0, "the sheet is on the screen");
+        let sheet = &g["sheet"];
+        assert!(sheet["y"].as_f64().unwrap() >= 0.0, "the sheet is on the screen");
+        let (left, right) = (sheet["x"].as_f64().unwrap(), sheet["x"].as_f64().unwrap() + sheet["w"].as_f64().unwrap());
+        assert!(kids.iter().all(|k| at(k, "x") >= left && at(k, "x") + at(k, "w") <= right), "inside the sheet's width");
+        for (a, ka) in kids.iter().enumerate() {
+            for kb in &kids[a + 1..] {
+                let apart = at(ka, "x") + at(ka, "w") <= at(kb, "x") || at(kb, "x") + at(kb, "w") <= at(ka, "x") || at(ka, "y") + at(ka, "h") <= at(kb, "y") || at(kb, "y") + at(kb, "h") <= at(ka, "y");
+                assert!(apart, "rows do not overlap");
+            }
+        }
         assert!(u.lint().is_empty(), "{:?}", u.lint());
     }
 }
