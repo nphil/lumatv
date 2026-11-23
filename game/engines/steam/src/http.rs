@@ -73,9 +73,13 @@ impl std::error::Error for HttpError {}
 pub trait Http {
     /// A GET. `limit` is the most body bytes accepted.
     fn get(&self, url: &str, limit: usize) -> Result<Resp, HttpError>;
-    /// A POST of an already encoded `application/x-www-form-urlencoded` body (see [`form`]).
-    fn post_form(&self, url: &str, body: &str, limit: usize) -> Result<Resp, HttpError>;
+    /// A POST of an already encoded `application/x-www-form-urlencoded` body (see [`form`]), with `headers` added to it.
+    fn post_form(&self, url: &str, headers: &[(&str, &str)], body: &str, limit: usize) -> Result<Resp, HttpError>;
 }
+
+/// The headers Steam's Android app sends with every authentication call (node-steam-session's `MobileApp` platform data). Steam
+/// renews an access token over HTTP only for a refresh token made as a mobile app.
+pub const MOBILE_APP: [(&str, &str); 2] = [("User-Agent", "okhttp/4.9.2"), ("Cookie", "mobileClient=android; mobileClientVersion=777777 3.10.3")];
 
 /// `text` as one form or query component: letters, digits and `-._~` stay, every other byte becomes `%XX`. Steam's `request_id` is
 /// standard base64, and its `+`, `/` and `=` must not reach the other side as they are.
@@ -126,9 +130,10 @@ impl Http for Ureq {
         finish(self.agent.get(url).call(), limit)
     }
 
-    fn post_form(&self, url: &str, body: &str, limit: usize) -> Result<Resp, HttpError> {
+    fn post_form(&self, url: &str, headers: &[(&str, &str)], body: &str, limit: usize) -> Result<Resp, HttpError> {
         require_https(url)?;
-        finish(self.agent.post(url).set("Content-Type", "application/x-www-form-urlencoded").send_string(body), limit)
+        let request = headers.iter().fold(self.agent.post(url), |request, (name, value)| request.set(name, value));
+        finish(request.set("Content-Type", "application/x-www-form-urlencoded").send_string(body), limit)
     }
 }
 
@@ -198,7 +203,7 @@ mod tests {
         assert_eq!(percent_encode("a+b/c=="), "a%2Bb%2Fc%3D%3D");
         assert_eq!(percent_encode("LumaGame TV"), "LumaGame%20TV");
         assert_eq!(percent_encode("é&"), "%C3%A9%26");
-        assert_eq!(form(&[("device_friendly_name", "LumaGame TV"), ("platform_type", "1")]), "device_friendly_name=LumaGame%20TV&platform_type=1");
+        assert_eq!(form(&[("device_friendly_name", "LumaGame TV"), ("platform_type", "3")]), "device_friendly_name=LumaGame%20TV&platform_type=3");
         assert_eq!(form(&[("a b", "c&d=e")]), "a%20b=c%26d%3De");
     }
 
@@ -239,7 +244,7 @@ mod tests {
     #[test]
     fn the_real_client_refuses_http_before_connecting() {
         assert_eq!(Ureq::new().get(&format!("http://127.0.0.1:9{SECRET_URL}"), 16), Err(HttpError::NotHttps));
-        assert_eq!(Ureq::new().post_form("ftp://example.invalid/", "a=b", 16), Err(HttpError::NotHttps));
+        assert_eq!(Ureq::new().post_form("ftp://example.invalid/", &[], "a=b", 16), Err(HttpError::NotHttps));
         assert_eq!(Ureq::new().get("", 16), Err(HttpError::NotHttps));
     }
 

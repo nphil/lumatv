@@ -28,8 +28,15 @@ const DEFAULT_INTERVAL_S: u64 = 5;
 const APPROVAL_HINT: &str = "Approve the sign-in in the Steam app";
 /// What the owner's Steam app calls this sign-in.
 const DEVICE_NAME: &str = "LumaGame TV";
-/// `k_EAuthTokenPlatformType_SteamClient`: the kind of device the session belongs to.
-const PLATFORM_TYPE: &str = "1";
+/// `k_EAuthTokenPlatformType_MobileApp`, with `k_EOSType_AndroidUnknown` and Steam's gaming-device number for a phone. Steam renews
+/// an access token over HTTP only for a refresh token of this kind: a SteamClient one is refused (error 63) unless the request
+/// comes over a logged-on client connection, and a WebBrowser one is denied (as of 2025-04-30, per node-steam-session).
+const PLATFORM_TYPE: u32 = 3;
+const OS_TYPE: i32 = -500;
+const GAMING_DEVICE_TYPE: u32 = 528;
+const WEBSITE_ID: &str = "Mobile";
+/// The audience a mobile app's tokens name besides `web`; a refresh token without it cannot be renewed over HTTP.
+const MOBILE_AUDIENCE: &str = "mobile";
 /// Steam's result codes that mean the owner (or Steam) said no: access denied, and the request was refused.
 const ACCESS_DENIED: i32 = 15;
 const REFUSED: i32 = 63;
@@ -78,6 +85,8 @@ pub struct Claims {
     pub steamid: String,
     /// Unix seconds.
     pub exp: Option<u64>,
+    /// Who the token is for (`web`, `mobile`, `client`, `renew`, `derive`).
+    pub aud: Vec<String>,
 }
 
 pub fn claims(token: &str) -> Option<Claims> {
@@ -90,7 +99,12 @@ pub fn claims(token: &str) -> Option<Claims> {
     };
     let json: Value = serde_json::from_slice(&base64url(payload)?).ok()?;
     let sub = digits(json.get("sub")?)?.parse::<u64>().ok().filter(|sub| *sub != 0)?;
-    Some(Claims { steamid: sub.to_string(), exp: json.get("exp").and_then(Value::as_u64) })
+    let aud = match json.get("aud") {
+        Some(Value::String(name)) => vec![name.clone()],
+        Some(Value::Array(names)) => names.iter().filter_map(|name| name.as_str().map(str::to_owned)).collect(),
+        _ => Vec::new(),
+    };
+    Some(Claims { steamid: sub.to_string(), exp: json.get("exp").and_then(Value::as_u64), aud })
 }
 
 /// A number written as digits, whether Steam sent it as a string or as a JSON number.
@@ -155,6 +169,8 @@ pub struct Account {
     pub persona: Option<String>,
     /// The refresh token's own end of life, from its claims.
     exp: Option<u64>,
+    /// Whether the refresh token was made for the mobile app, the only kind Steam renews over HTTP.
+    mobile: bool,
     /// Steam no longer accepts the refresh token. The file is kept: the library saved with it is still worth showing.
     pub expired: bool,
     /// An access token and its end of life, in memory only.
@@ -164,7 +180,8 @@ pub struct Account {
 impl Account {
     fn new(refresh_token: String, claims: Claims, persona: Option<String>, now: u64) -> Self {
         let expired = claims.exp.is_some_and(|exp| exp <= now);
-        Self { refresh_token, steamid: claims.steamid, persona, exp: claims.exp, expired, access: None }
+        let mobile = claims.aud.iter().any(|name| name == MOBILE_AUDIENCE);
+        Self { refresh_token, steamid: claims.steamid, persona, exp: claims.exp, mobile, expired, access: None }
     }
 
     /// The saved sign-in, when there is one that can be used: its token must say it belongs to the account the file names.
@@ -321,8 +338,20 @@ impl<H: Http, C: Clock> Adapter<H, C> {
     pub(crate) fn begin_auth(&mut self, seq: u64) {
         self.attempt = None;
         let started = self.clock.mono_ms();
-        let body = http::form(&[("device_friendly_name", DEVICE_NAME), ("platform_type", PLATFORM_TYPE)]);
-        let reply = self.http.post_form(&http::api("/IAuthenticationService/BeginAuthSessionViaQR/v1/"), &body, http::SMALL_BODY);
+        // Steam reads the device from `device_details` and the older flat fields alike; a form cannot carry the nested one.
+        let request = serde_json::json!({
+            "device_friendly_name": DEVICE_NAME,
+            "platform_type": PLATFORM_TYPE,
+            "website_id": WEBSITE_ID,
+            "device_details": {
+                "device_friendly_name": DEVICE_NAME,
+                "platform_type": PLATFORM_TYPE,
+                "os_type": OS_TYPE,
+                "gaming_device_type": GAMING_DEVICE_TYPE,
+            },
+        });
+        let body = http::form(&[("input_json", &request.to_string())]);
+        let reply = self.http.post_form(&http::api("/IAuthenticationService/BeginAuthSessionViaQR/v1/"), &http::MOBILE_APP, &body, http::SMALL_BODY);
         match read_begin(reply) {
             Ok(begun) => {
                 let now = self.clock.mono_ms();
@@ -372,7 +401,7 @@ impl<H: Http, C: Clock> Adapter<H, C> {
     fn poll_once(&mut self) {
         let Some(mut attempt) = self.attempt.take() else { return };
         let body = http::form(&[("client_id", &attempt.client_id), ("request_id", &attempt.request_id)]);
-        let reply = self.http.post_form(&http::api("/IAuthenticationService/PollAuthSessionStatus/v1/"), &body, http::SMALL_BODY);
+        let reply = self.http.post_form(&http::api("/IAuthenticationService/PollAuthSessionStatus/v1/"), &http::MOBILE_APP, &body, http::SMALL_BODY);
         match read_poll(reply) {
             Poll::Approved { refresh, access } => self.approved(attempt.seq, refresh, access),
             Poll::Denied => self.fail_auth(attempt.seq, AuthFail::Denied, "Sign-in was declined"),
@@ -418,7 +447,7 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         };
         let now = self.clock.unix_s();
         let mut account = Account::new(refresh_token, claims, None, now);
-        // Desktop refresh tokens may be refused over HTTP even immediately after approval.
+        // The approval's own access token serves the first reads; later ones are renewed from the refresh token.
         account.access = access.and_then(|token| {
             let claims = self::claims(&token)?;
             let exp = claims.exp?;
@@ -486,10 +515,15 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         {
             return Ok(token.clone());
         }
+        if !account.mobile {
+            // Made by the earlier sign-in as a desktop client: Steam would refuse every renewal, so say so once and ask for a new QR.
+            self.expire();
+            return Err(Refusal::Expired);
+        }
         let body = http::form(&[("refresh_token", &account.refresh_token), ("steamid", &account.steamid)]);
-        let reply = self.http.post_form(&http::api("/IAuthenticationService/GenerateAccessTokenForApp/v1/"), &body, http::SMALL_BODY);
+        let reply = self.http.post_form(&http::api("/IAuthenticationService/GenerateAccessTokenForApp/v1/"), &http::MOBILE_APP, &body, http::SMALL_BODY);
         let resp = reply.map_err(|error| Refusal::Trouble(Trouble::Network(error)))?;
-        if resp.status == 200 && resp.eresult == Some(ACCESS_DENIED) {
+        if resp.status == 200 && matches!(resp.eresult, Some(ACCESS_DENIED | REFUSED)) {
             self.expire();
             return Err(Refusal::Expired);
         }
@@ -587,7 +621,12 @@ mod tests {
         rig.http.on("steamcommunity.com", [fake::ok("<profile><steamID64>1</steamID64><steamID><![CDATA[Persona Name]]></steamID></profile>")]);
 
         assert_eq!(start(&mut rig), [qr(2, CODE, 300)]);
-        assert_eq!(rig.http.to("BeginAuthSessionViaQR")[0].body, "device_friendly_name=LumaGame%20TV&platform_type=1");
+        let begin = &rig.http.to("BeginAuthSessionViaQR")[0];
+        let sent: Value = serde_json::from_str(&percent_decode(begin.body.strip_prefix("input_json=").unwrap())).unwrap();
+        let device = serde_json::json!({"device_friendly_name": "LumaGame TV", "platform_type": 3, "os_type": -500, "gaming_device_type": 528});
+        assert_eq!(sent, serde_json::json!({"device_friendly_name": "LumaGame TV", "platform_type": 3, "website_id": "Mobile", "device_details": device}));
+        let mobile: Vec<_> = http::MOBILE_APP.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect();
+        assert_eq!(begin.headers, mobile);
         assert_eq!(rig.adapter.next_wake(), Some(5_000));
         rig.clock.advance_ms(4_999);
         assert!(rig.tick().is_empty() && rig.http.count("PollAuthSessionStatus") == 0, "nothing is asked before the interval is up");
@@ -851,6 +890,9 @@ mod tests {
         assert_eq!(super::claims(&payload(r#"{"sub":76561198000000001}"#)).unwrap().steamid, "76561198000000001");
         assert_eq!(super::claims(&payload(r#"{"sub":"0076561198000000001"}"#)).unwrap().steamid, "76561198000000001");
         assert_eq!(super::claims(&payload(r#"{"sub":"5","exp":"soon"}"#)).unwrap().exp, None);
+        assert_eq!(claims.aud, ["web", "mobile"]);
+        assert_eq!(super::claims(&payload(r#"{"sub":"5","aud":"web"}"#)).unwrap().aud, ["web"]);
+        assert!(super::claims(&payload(r#"{"sub":"5","aud":7}"#)).unwrap().aud.is_empty());
         let padded = format!("e30.{}==.c2ln", fake::b64url(br#"{"sub":"5"}"#));
         assert_eq!(super::claims(&padded).unwrap().steamid, "5");
 
@@ -893,6 +935,22 @@ mod tests {
             assert_eq!(name(none), None, "{none}");
         }
         assert_eq!(persona_name(&[0xff, 0xfe]), None);
+    }
+
+    fn percent_decode(text: &str) -> String {
+        let bytes = text.as_bytes();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%' {
+                out.push(u8::from_str_radix(&text[i + 1..i + 3], 16).unwrap());
+                i += 3;
+            } else {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+        String::from_utf8(out).unwrap()
     }
 
     fn library_rig(exp: u64) -> Rig {
@@ -955,6 +1013,35 @@ mod tests {
         let events = rig.send(Request::Targets);
         let [FromEngine { event: Event::Targets { targets }, .. }] = events.as_slice() else { panic!("{events:?}") };
         assert_eq!(targets[0].link, Link::Linked);
+    }
+
+    #[test]
+    fn steam_refusing_a_renewal_with_error_63_retires_the_sign_in_like_access_denied() {
+        let mut rig = library_rig(UNIX0 + 30 * 86_400);
+        rig.http.on("GenerateAccessTokenForApp", [fake::eresult(63, r#"{"response":{}}"#)]);
+        let events = library(&mut rig);
+        let [FromEngine { re: Some(2), event: Event::Error { code: ErrorCode::SignIn, .. } }, FromEngine { re: None, event: Event::Targets { targets } }] =
+            events.as_slice()
+        else {
+            panic!("{events:?}")
+        };
+        assert_eq!(targets[0].link, Link::Expired);
+        assert_eq!(rig.http.to("GenerateAccessTokenForApp")[0].headers, http::MOBILE_APP.map(|(name, value)| (name.to_owned(), value.to_owned())));
+    }
+
+    #[test]
+    fn a_saved_sign_in_made_as_a_desktop_client_is_retired_without_asking_steam() {
+        let mut rig = Rig::new();
+        rig.save_token(&fake::jwt_for(STEAMID, Some(UNIX0 + 30 * 86_400), &["client", "web"]), STEAMID, Some("Rig"));
+        rig.hello();
+        let events = library(&mut rig);
+        let [FromEngine { re: Some(2), event: Event::Error { code: ErrorCode::SignIn, .. } }, FromEngine { re: None, event: Event::Targets { targets } }] =
+            events.as_slice()
+        else {
+            panic!("{events:?}")
+        };
+        assert_eq!(targets[0].link, Link::Expired);
+        assert!(rig.http.sent().is_empty());
     }
 
     #[test]

@@ -47,11 +47,17 @@ pub fn b64url(bytes: &[u8]) -> String {
     out
 }
 
-/// A token shaped like Steam's: three parts, the middle one the claims.
+/// A token shaped like Steam's, made for the mobile app: three parts, the middle one the claims.
 pub fn jwt(sub: &str, exp: Option<u64>) -> String {
+    jwt_for(sub, exp, &["web", "mobile"])
+}
+
+/// The same for a token whose audience is `aud`.
+pub fn jwt_for(sub: &str, exp: Option<u64>, aud: &[&str]) -> String {
+    let aud = aud.iter().map(|name| format!("\"{name}\"")).collect::<Vec<_>>().join(",");
     let claims = match exp {
-        Some(exp) => format!(r#"{{"sub":"{sub}","exp":{exp}}}"#),
-        None => format!(r#"{{"sub":"{sub}"}}"#),
+        Some(exp) => format!(r#"{{"sub":"{sub}","aud":[{aud}],"exp":{exp}}}"#),
+        None => format!(r#"{{"sub":"{sub}","aud":[{aud}]}}"#),
     };
     format!("{}.{}.c2ln", b64url(br#"{"alg":"none"}"#), b64url(claims.as_bytes()))
 }
@@ -79,6 +85,7 @@ pub fn owned(games: &[(u32, &str, u64, u64)]) -> String {
 pub struct Sent {
     pub post: bool,
     pub url: String,
+    pub headers: Vec<(String, String)>,
     pub body: String,
 }
 
@@ -118,9 +125,9 @@ impl FakeHttp {
         self.0.borrow_mut().sent.clear();
     }
 
-    fn reply(&self, post: bool, url: &str, body: &str, limit: usize) -> Result<Resp, HttpError> {
+    fn reply(&self, post: bool, url: &str, headers: &[(&str, &str)], body: &str, limit: usize) -> Result<Resp, HttpError> {
         let mut fake = self.0.borrow_mut();
-        fake.sent.push(Sent { post, url: url.to_owned(), body: body.to_owned() });
+        fake.sent.push(Sent { post, url: url.to_owned(), headers: headers.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(), body: body.to_owned() });
         let (_, replies) = fake.routes.iter_mut().find(|(needle, _)| url.contains(needle.as_str())).unwrap_or_else(|| panic!("no scripted reply for {url}"));
         let reply = if replies.len() > 1 { replies.pop_front() } else { replies.front().cloned() };
         match reply.expect("a script holds a reply") {
@@ -132,11 +139,11 @@ impl FakeHttp {
 
 impl Http for FakeHttp {
     fn get(&self, url: &str, limit: usize) -> Result<Resp, HttpError> {
-        self.reply(false, url, "", limit)
+        self.reply(false, url, &[], "", limit)
     }
 
-    fn post_form(&self, url: &str, body: &str, limit: usize) -> Result<Resp, HttpError> {
-        self.reply(true, url, body, limit)
+    fn post_form(&self, url: &str, headers: &[(&str, &str)], body: &str, limit: usize) -> Result<Resp, HttpError> {
+        self.reply(true, url, headers, body, limit)
     }
 }
 
