@@ -155,7 +155,12 @@ impl GameUi {
         self.appearance = None;
         self.revision = None;
     }
+    /// Redraws from scratch: nodes still on their way out go at once, since a fresh model's clock would never let them expire.
     pub fn invalidate(&mut self) {
+        for id in self.leaving.ids().collect::<Vec<_>>() {
+            self.nodes.remove(&id);
+        }
+        self.leaving.clear();
         self.revision = None;
         self.art.reset();
     }
