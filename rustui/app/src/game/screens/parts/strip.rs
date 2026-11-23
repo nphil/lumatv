@@ -117,7 +117,7 @@ mod tests {
         painted(|_| {}, |p| {
             bar(p, &items(), Some(1));
             let ids: Vec<u64> = p.plan.nodes.iter().map(|n| n.id).collect();
-            assert!(ids.contains(&8836) && ids.contains(&8837) && !ids.contains(&8832) && !ids.contains(&8840));
+            assert!(ids.contains(&8836) && !ids.contains(&8837) && !ids.contains(&8832) && !ids.contains(&8840));
             let mark = |id: u64| match &p.plan.nodes.iter().find(|n| n.id == id).unwrap().body {
                 Body::Text { marks, .. } => marks[0].colour,
                 _ => panic!("not text"),

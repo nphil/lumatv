@@ -91,7 +91,7 @@ offline) shown before the press, drawn natively at 120 Hz on the TV.
 
 - Text at 7:1 against what is actually behind it (art, glass, tints); controls and focus at 3:1.
 - Text size 100 % and 200 %; layouts reflow at 200 %.
-- Reduced motion drops lift, growth and dissolves and keeps the focus colour and landing light.
+- Reduced motion drops lift, growth and dissolves and keeps the focus wash and rim.
 - Activation on release; the pointer never steals focus.
 - **[Assumption]** No colour-vision or screen-reader requirement beyond these was stated; status
   never relies on colour alone.

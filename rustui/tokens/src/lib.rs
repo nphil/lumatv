@@ -108,7 +108,6 @@ pub struct Focus {
     pub button_scale: f32,
     pub press_scale: f32,
     pub card_lift: f32,
-    pub landing: f32,
     pub ambient: f32,
 }
 
@@ -326,7 +325,6 @@ impl Tokens {
             button_scale: f(fo.get("buttonScale"), 1.04),
             press_scale: f(fo.get("pressScale"), 0.97),
             card_lift: f(fo.get("cardLift"), 4.0),
-            landing: f(fo.get("landing"), 2.0),
             ambient: f(fo.get("ambient"), 0.3),
         };
         let st = block("states");

@@ -278,15 +278,14 @@ Manrope at three weights only: Regular 400, Medium 500, SemiBold 600.
   focus shadow is active at a time; nothing glows.
 - **Scrims** dim the screen behind a sheet to 74 % canvas when it stays as context and 97 % when it
   must not compete (the end-session confirm).
-- **Focus** is the same everywhere: scale 1.03, lift 4 px, one shadow and a 2 px landing light in
-  the element's own ink. On pills and buttons the light sits 8 px above the bottom edge, inside;
-  on rows and tiles it sits on the bottom edge; on covers it sits on the canvas 12 px below the
-  art, above the caption, because art behind a bar is not contrast-safe. Rows add a 9 % ink wash
-  and an inset lit edge instead of growing. Focus never draws a bright outline or a white pill.
+- **Focus** is the same everywhere (Lucent's Focus state): the element lifts 4 px and grows to 1.03,
+  its fill steps up to the focus wash (9 % ink) with a lit rim (`edgeRaised`) and one soft shadow,
+  eased on the focus clock. Covers and tiles take the rim and shadow without the wash; rows grow
+  in place without lifting. Focus never draws an underline, an outline or a white pill.
 - **Motion**: focus 150 ms, panel enter 180 ms, exit 120 ms, art dissolve 200 ms once focus
   settles. Scrolling (page, rows, grids) is the theme's critically damped spring (`scrollMs`, 260 ms); a
   repeated press retargets it at the speed it has, so a held key glides on. Reduced motion drops lift, growth and
-  dissolves and keeps colour and the landing light.
+  dissolves and keeps the wash and rim.
 
 ## Shapes
 

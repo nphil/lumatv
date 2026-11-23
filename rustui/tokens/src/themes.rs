@@ -220,7 +220,7 @@ pub fn game_tokens(family: &str, mode: Mode, host: &crate::Tokens) -> Option<cra
         "target": 64,
         "row": 80,
         "focus": { "tileScale": 1.03, "cardScale": 1.03, "rowScale": 1.0, "buttonScale": 1.03,
-                   "pressScale": 0.97, "cardLift": 4, "landing": 2 },
+                   "pressScale": 0.97, "cardLift": 4 },
         "states": { "focusWash": [0.09, 0.09] },
         "motion": { "focusMs": 150, "cardMs": 150, "layerMs": 180, "exitMs": 120, "artDissolveMs": 200 }
     }));

@@ -191,7 +191,7 @@ mod tests {
             bar(p, Here::Library, false);
             let all = ids(p);
             assert!(all.contains(&16) && !all.contains(&15) && !all.contains(&17), "only Library is current");
-            assert!(all.contains(&24) && all.contains(&25), "Search is focused: its wash and its light");
+            assert!(all.contains(&24) && !all.contains(&25), "Search is focused: its wash, no underline");
             assert!(!all.contains(&20) && !all.contains(&36) && !all.contains(&37));
         });
         painted(|_| {}, |p| {

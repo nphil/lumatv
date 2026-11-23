@@ -243,7 +243,7 @@ mod tests {
                 _ => unreachable!(),
             };
             assert_ne!(rest, lit);
-            assert!(p.plan.nodes.iter().any(|n| n.id == 7012) && p.plan.nodes.iter().any(|n| n.id == 7013), "the wash and the landing light");
+            assert!(p.plan.nodes.iter().any(|n| n.id == 7012) && !p.plan.nodes.iter().any(|n| n.id == 7013), "the wash and no underline");
         });
     }
 }

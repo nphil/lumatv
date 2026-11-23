@@ -2,14 +2,10 @@
 //! rework: a leading glyph or picture, a name over an optional line of detail, and one control at the right.
 //!
 //! A rework row is two layers: under, the glyph's tile or the picture (a stepper's pill, a switch's track); over, one text layer with
-//! the glyph, the name, the detail and the control's words and marks. Focus adds the wash under both and puts the landing light in the
-//! text layer. Node ids: `id` the glyph's tile, `id + 1` the picture, `id + 2` the text layer, `id + 4` a stepper's pill, `id + 7` a
-//! switch's track, `id + 10` the focus wash. `id + 12` is left to the caller (the rail's wash under its current place). A row
-//! registers no hit: the page that places it knows what it opens. Rows lie `p.content_z` above their own z, on the sheet they are in.
-use crate::game::screens::{
-    paint::{Fill, Mark, Paint, Word},
-    parts::focus::{self, Kind},
-};
+//! the glyph, the name, the detail and the control's words and marks. Focus adds the wash under both. Node ids: `id` the glyph's tile,
+//! `id + 1` the picture, `id + 2` the text layer, `id + 4` a stepper's pill, `id + 7` a switch's track, `id + 10` the focus wash.
+//! `id + 12` is left to the caller (the rail's wash under its current place). A row registers no hit: the page that places it knows what it opens. Rows lie `p.content_z` above their own z, on the sheet they are in.
+use crate::game::screens::paint::{Fill, Mark, Paint, Word};
 use crate::game::{model::Focus, uplink::BITRATE_MAX_MBPS};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use std::path::Path;
@@ -264,11 +260,6 @@ pub(super) fn body(p: &mut Paint<'_>, id: u64, frame: Frame, line: &Line<'_>, tr
         all.push(p.word(text, Type::Caption, p.ink(if focused { Role::Ink } else { Role::Ink2 }, false), x, y + name_h + SUB_GAP, room));
     }
     all.append(&mut words);
-    if focused {
-        let light = focus::landing(p, frame, Kind::Row);
-        let form = Form::Round { w: light.w.round() as u32, h: light.h.round().max(1.0) as u32, radius: (light.h / 2.0).round() as u32 };
-        marks.push(Mark { form, colour: p.ink(Role::Ink, false), x: light.x - frame.x, y: light.y - frame.y });
-    }
     p.words(id + 2, frame, all, marks, z + 1);
     if focused && !p.reduced() {
         p.raise(from, frame, p.tokens.focus.row_scale, 0.0);
@@ -422,8 +413,7 @@ mod tests {
             link(p, 500, FRAME, &line("Appearance", None), true);
             let (words, marks) = text(p);
             assert_eq!(words.len(), 1);
-            let light = focus::landing(p, FRAME, Kind::Row);
-            assert!(marks.iter().any(|m| matches!(m.form, Form::Round { .. }) && m.y == light.y - FRAME.y), "the light is in the text layer");
+            assert!(!marks.iter().any(|m| matches!(m.form, Form::Round { .. })), "no underline");
             assert!(p.plan.nodes.iter().find(|n| n.id == 510).unwrap().z < p.plan.nodes.iter().find(|n| n.id == 500).unwrap().z, "the wash lies under");
         });
     }
