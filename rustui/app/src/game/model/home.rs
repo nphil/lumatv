@@ -7,7 +7,7 @@ use super::*;
 /// The longest the row gets. A service can report hundreds of played games; the Library page lists them all.
 const TILES: usize = 40;
 /// How many tiles the row shows at once, the focused one first.
-pub const TILES_SHOWN: usize = 7;
+pub const TILES_SHOWN: usize = 6;
 
 /// Where focus rests on Home.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

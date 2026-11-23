@@ -68,7 +68,10 @@ pub fn home(p: &mut Paint<'_>) {
         if !line.is_empty() {
             p.text(301, &line, Frame::new(p.x, line_y, W - 2.0 * p.x, p.line(Type::Label)), Type::Label, Role::Ink, true, 10);
         }
-        play(p, game, p.x, play_y);
+        // Under a layer OK is the layer's, so the pill that names it steps away with the hints.
+        if m.view.layers.is_empty() {
+            play(p, game, p.x, play_y);
+        }
     }
     // A layer over Home draws its own hints.
     if m.view.layers.is_empty() {
