@@ -149,7 +149,9 @@ impl Auto {
 
     fn candidate(&self) -> Pick {
         let channels = self.peak.len();
-        let alive: Vec<usize> = (0..channels).filter(|&c| self.peak[c] > DEAD_ENERGY).collect();
+        let alive: Vec<usize> = (0..channels)
+            .filter(|&c| self.peak[c] > DEAD_ENERGY)
+            .collect();
         match alive.len() {
             0 => return Pick::Sum,
             1 if channels > 1 => return Pick::Channel(alive[0]),
@@ -193,7 +195,7 @@ impl Auto {
 }
 
 /// A low-pass and a step down by an integer factor, for a device opened at a multiple of 16 kHz.
-struct Decimator {
+pub(crate) struct Decimator {
     factor: usize,
     taps: Vec<f32>,
     buf: Vec<f32>,
@@ -201,7 +203,7 @@ struct Decimator {
 }
 
 impl Decimator {
-    fn new(factor: usize) -> Self {
+    pub(crate) fn new(factor: usize) -> Self {
         // Windowed sinc at 90 % of the output's Nyquist, a Kaiser window of beta 7 (about 70 dB down past the edge); unity at DC.
         let n = 24 * factor + 1;
         let cutoff = 0.45 / factor as f32;
@@ -233,12 +235,19 @@ impl Decimator {
         }
     }
 
-    fn process(&mut self, input: &[f32], out: &mut Vec<f32>) {
+    pub(crate) fn process(&mut self, input: &[f32], out: &mut Vec<f32>) {
         self.buf.extend_from_slice(input);
         let n = self.taps.len();
         while self.next < self.buf.len() {
             let window = &self.buf[self.next + 1 - n..=self.next];
-            out.push(window.iter().rev().zip(&self.taps).map(|(x, t)| x * t).sum());
+            out.push(
+                window
+                    .iter()
+                    .rev()
+                    .zip(&self.taps)
+                    .map(|(x, t)| x * t)
+                    .sum(),
+            );
             self.next += self.factor;
         }
         let keep = n - 1;
@@ -400,7 +409,9 @@ pub fn peak_dbfs(samples: &[i16]) -> f32 {
 
 /// The root mean square of samples in dBFS (a full-scale square wave is 0).
 pub fn rms_dbfs(samples: impl Iterator<Item = f32>) -> f32 {
-    let (sum, n) = samples.fold((0.0f64, 0u32), |(s, n), v| (s + f64::from(v) * f64::from(v), n + 1));
+    let (sum, n) = samples.fold((0.0f64, 0u32), |(s, n), v| {
+        (s + f64::from(v) * f64::from(v), n + 1)
+    });
     if n == 0 || sum == 0.0 {
         return -120.0;
     }
@@ -418,7 +429,12 @@ mod tests {
         [b[0], b[1], b[2], 0]
     }
 
-    fn stereo(rate: u32, left: impl Fn(usize) -> f32, right: impl Fn(usize) -> f32, frames: usize) -> Vec<u8> {
+    fn stereo(
+        rate: u32,
+        left: impl Fn(usize) -> f32,
+        right: impl Fn(usize) -> f32,
+        frames: usize,
+    ) -> Vec<u8> {
         let _ = rate;
         let mut bytes = Vec::with_capacity(frames * 8);
         for i in 0..frames {
@@ -454,7 +470,18 @@ mod tests {
     fn the_gain_goes_on_before_the_cut_so_a_quiet_floor_survives() {
         // A signal 2 LSB high at 16 bits would read 0 or 1 without the gain; with +12 dB on the 24-bit sample it keeps its shape.
         let mut frames = Frames::new(format(16_000), 12.0, Pick::Channel(0)).unwrap();
-        let bytes = stereo(16_000, |i| if i % 2 == 0 { 2.0 / 32_768.0 } else { -2.0 / 32_768.0 }, |_| 0.0, 64);
+        let bytes = stereo(
+            16_000,
+            |i| {
+                if i % 2 == 0 {
+                    2.0 / 32_768.0
+                } else {
+                    -2.0 / 32_768.0
+                }
+            },
+            |_| 0.0,
+            64,
+        );
         let mut out = Vec::new();
         frames.push(&bytes, &mut out);
         assert_eq!(out.len(), 64);
@@ -466,10 +493,14 @@ mod tests {
     fn sum_halves_and_one_channel_passes_whole() {
         let bytes = stereo(16_000, |_| 0.2, |_| 0.4, 16);
         let mut out = Vec::new();
-        Frames::new(format(16_000), 0.0, Pick::Sum).unwrap().push(&bytes, &mut out);
+        Frames::new(format(16_000), 0.0, Pick::Sum)
+            .unwrap()
+            .push(&bytes, &mut out);
         assert!((f32::from(out[0]) / 32_768.0 - 0.3).abs() < 1e-3);
         out.clear();
-        Frames::new(format(16_000), 0.0, Pick::Channel(1)).unwrap().push(&bytes, &mut out);
+        Frames::new(format(16_000), 0.0, Pick::Channel(1))
+            .unwrap()
+            .push(&bytes, &mut out);
         assert!((f32::from(out[0]) / 32_768.0 - 0.4).abs() < 1e-3);
     }
 
@@ -487,7 +518,9 @@ mod tests {
     fn a_frame_cut_in_two_by_the_read_is_finished_by_the_next() {
         let bytes = stereo(16_000, |i| i as f32 / 100.0, |_| 0.0, 8);
         let mut whole = Vec::new();
-        Frames::new(format(16_000), 0.0, Pick::Channel(0)).unwrap().push(&bytes, &mut whole);
+        Frames::new(format(16_000), 0.0, Pick::Channel(0))
+            .unwrap()
+            .push(&bytes, &mut whole);
         let mut split = Vec::new();
         let mut frames = Frames::new(format(16_000), 0.0, Pick::Channel(0)).unwrap();
         for piece in bytes.chunks(5) {
@@ -510,9 +543,21 @@ mod tests {
             rms_dbfs(settled.iter().map(|&s| f32::from(s) / 32_768.0))
         };
         let reference = 20.0 * (0.25f32 / 2f32.sqrt()).log10();
-        assert!((run(1_000.0) - reference).abs() < 0.3, "1 kHz is kept: {}", run(1_000.0));
-        assert!((run(6_000.0) - reference).abs() < 1.0, "6 kHz is kept: {}", run(6_000.0));
-        assert!(run(11_000.0) < reference - 45.0, "11 kHz would alias to 5 kHz: {}", run(11_000.0));
+        assert!(
+            (run(1_000.0) - reference).abs() < 0.3,
+            "1 kHz is kept: {}",
+            run(1_000.0)
+        );
+        assert!(
+            (run(6_000.0) - reference).abs() < 1.0,
+            "6 kHz is kept: {}",
+            run(6_000.0)
+        );
+        assert!(
+            run(11_000.0) < reference - 45.0,
+            "11 kHz would alias to 5 kHz: {}",
+            run(11_000.0)
+        );
     }
 
     #[test]

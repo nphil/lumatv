@@ -1,11 +1,10 @@
 //! How loud the TV itself is, from the stream that carries what it plays, and what that asks of the wake word.
 //!
 //! The microphones sit in the TV's bezel, a few metres from a receiver whose speakers play the TV's sound. The wake word's false
-//! accepts come from that sound (speech on a screen is the hardest thing it hears), and echo cancellation needs the reference to
-//! line up with what the microphones hear to within its tail; here the reference is the mix *before* the receiver and its delay
-//! (ARC and eARC add tens of milliseconds, more than a 64 ms filter covers), so no cancellation is attempted. What the level
-//! does buy is cheap and measured on the neighbouring Show device: a cutoff a couple of points higher costs a few points of recall
-//! and removes the false accepts. The meter only decides how much higher.
+//! accepts come from that sound (speech on a screen is the hardest thing it hears). The canceller ([`crate::echo`]) takes it out of
+//! the microphone where it can follow the reference; where it cannot (no reference, no lock, an echo it does not reduce) the level
+//! is what is left: a cutoff a couple of points higher costs a few points of recall and removes the false accepts, measured on the
+//! neighbouring Show device. The meter only decides how much higher, from the level less what the canceller has measured it takes off.
 
 use crate::pcm::Format;
 
@@ -82,7 +81,9 @@ mod tests {
 
     fn s16_stereo(level: f32, frames: usize) -> Vec<u8> {
         let v = (level * 32_768.0) as i16;
-        (0..frames).flat_map(|_| [v.to_le_bytes(), v.to_le_bytes()].concat()).collect()
+        (0..frames)
+            .flat_map(|_| [v.to_le_bytes(), v.to_le_bytes()].concat())
+            .collect()
     }
 
     fn format() -> Format {
@@ -108,7 +109,11 @@ mod tests {
         let mut meter = Meter::new(format());
         meter.push(&s16_stereo(0.1, 4_800));
         meter.push(&s16_stereo(0.0, 4_800));
-        assert!((meter.db() - (-23.0)).abs() < 0.1, "3 dB down after 100 ms: {}", meter.db());
+        assert!(
+            (meter.db() - (-23.0)).abs() < 0.1,
+            "3 dB down after 100 ms: {}",
+            meter.db()
+        );
         meter.push(&s16_stereo(0.3, 4_800));
         assert!(meter.db() > -10.6);
     }

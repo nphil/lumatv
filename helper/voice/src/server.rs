@@ -6,11 +6,12 @@
 //! has accepted and, at the client's own request, a [`Tap`] (voice search on the mic key: one reader of the device, so the tap is
 //! this stream and not a second `arecord`).
 
+use crate::echo::{Canceller, EchoConfig, EchoStatus};
 use crate::engine::{Engine, EngineConfig, Out};
 use crate::input::{Card, Input};
-use crate::level::{Meter, strictness};
+use crate::level::{LOUD_DB, Meter, strictness};
 use crate::models;
-use crate::pcm::{Frames, Pick, RATE, peak_dbfs};
+use crate::pcm::{Format, Frames, Pick, RATE, peak_dbfs};
 use crate::speech::{Poll, Speaker};
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
@@ -43,6 +44,13 @@ pub struct Config {
     pub tick: Duration,
     /// How long after a failed open the microphone is tried again.
     pub retry: Duration,
+    /// The echo canceller, which takes what the TV plays out of the microphone while the reference stream is read.
+    pub echo: EchoConfig,
+    /// Which of the reference stream's channels carry the TV's sound (the TV's mixer may give one live channel and one dead one).
+    pub reference_pick: Pick,
+    /// How much stricter the wake word is while the TV is playing and no reference can be read (it did not open, or is lost): the
+    /// level, and what the canceller takes out, are not known, so this is a middle (see [`crate::level::MAX_EXTRA`]).
+    pub unheard_extra: f32,
 }
 
 impl Default for Config {
@@ -57,6 +65,9 @@ impl Default for Config {
             stall_after: Duration::from_secs(5),
             tick: Duration::from_secs(1),
             retry: Duration::from_secs(10),
+            echo: EchoConfig::default(),
+            reference_pick: Pick::Auto,
+            unheard_extra: 0.01,
         }
     }
 }
@@ -88,6 +99,11 @@ pub struct Status {
     /// Detections held back by the TV's level.
     pub held_back: u64,
     pub clipped: u64,
+    /// The echo canceller: its state, the lag it found and what it takes out of the microphone.
+    pub echo: EchoStatus,
+    /// The TV is still loud at the microphone after what the canceller takes out of it: the moment for whoever owns the volume to
+    /// lower it. The server never touches a volume.
+    pub duck: bool,
 }
 
 /// The audio of a [`Handle::tap`]: 16 kHz mono, from the stream the engine reads. While it is held no wake word is listened for.
@@ -126,17 +142,22 @@ pub struct Handle {
 
 impl Handle {
     pub fn status(&self) -> Status {
-        self.shared.status.lock().map(|s| s.clone()).unwrap_or_default()
+        self.shared
+            .status
+            .lock()
+            .map(|s| s.clone())
+            .unwrap_or_default()
     }
 
     /// Says whether the TV is playing sound, so that its level is worth reading (the reference stream is opened only then).
     pub fn tv_playing(&self, playing: bool) {
-        self.shared
-            .tv_playing
-            .store(playing, Ordering::Relaxed);
+        self.shared.tv_playing.store(playing, Ordering::Relaxed);
     }
 
-    fn ask<T>(&self, make: impl FnOnce(SyncSender<Result<T, String>>) -> Command) -> Result<T, String> {
+    fn ask<T>(
+        &self,
+        make: impl FnOnce(SyncSender<Result<T, String>>) -> Command,
+    ) -> Result<T, String> {
         let (tx, rx) = mpsc::sync_channel(1);
         self.shared
             .commands
@@ -184,6 +205,10 @@ pub fn start(
     speaker: Box<dyn Speaker>,
     config: Config,
 ) -> io::Result<Handle> {
+    config
+        .echo
+        .check()
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
     let _ = std::fs::remove_file(socket);
     let listener = UnixListener::bind(socket)?;
     listener.set_nonblocking(true)?;
@@ -315,11 +340,20 @@ struct Capture {
     silent_since: Option<Instant>,
     /// Samples still to drop at the start.
     settle: usize,
+    /// Reads of the scratch buffer per wake-up (see [`reads_per_wake`]).
+    reads: usize,
+    echo: Canceller,
 }
 
 struct Reference {
     input: Box<dyn Input>,
     meter: Meter,
+    /// The stream at 16 kHz for the canceller; `None` when its format cannot be brought there (it is read for its level alone).
+    frames: Option<Frames>,
+    /// The last time a byte arrived.
+    fed: Instant,
+    /// Reads of the scratch buffer per wake-up (see [`reads_per_wake`]).
+    reads: usize,
 }
 
 /// A clip being played into the engine in place of the microphone.
@@ -335,6 +369,19 @@ const INJECT_TAIL_SECS: usize = 4;
 /// Samples dropped at the start of a capture: the TV's microphone opens with a 40 ms pop at full scale (measured), which no wake
 /// word or noise estimate should learn from.
 const SETTLE: usize = RATE as usize / 4;
+/// The buffer a stream is read through.
+const SCRATCH: usize = 8192;
+/// The most a wake-up reads of a stream, in time: one that is far ahead cannot starve the socket, and the microphone and the
+/// reference, which the canceller holds side by side, drain a backlog at the same pace (the TV's mixer stream carries half as many
+/// bytes again per second as the microphone's).
+const WAKE_SPAN_MS: usize = 250;
+
+/// The reads of [`SCRATCH`] bytes that cover [`WAKE_SPAN_MS`] of a stream.
+fn reads_per_wake(format: &Format) -> usize {
+    (format.rate as usize * format.frame_bytes() * WAKE_SPAN_MS / 1_000)
+        .div_ceil(SCRATCH)
+        .max(1)
+}
 
 struct Server {
     shared: Arc<Shared>,
@@ -384,7 +431,7 @@ fn bytes_of(pcm: &[i16]) -> Vec<u8> {
 impl Server {
     fn run(mut self) {
         let mut next_tick = Instant::now() + self.config.tick;
-        let mut scratch = vec![0u8; 8192];
+        let mut scratch = vec![0u8; SCRATCH];
         loop {
             // Descriptors, in a fixed order: stop, wake, listener, then the optional ones whose indices are noted.
             let mut fds = vec![
@@ -573,7 +620,9 @@ impl Server {
                 if self.speaking {
                     self.speaker.stop();
                     self.speaking = false;
-                    self.send(Event::SpeechDone { end: SpeechEnd::Cut });
+                    self.send(Event::SpeechDone {
+                        end: SpeechEnd::Cut,
+                    });
                 }
             }
         }
@@ -636,7 +685,8 @@ impl Server {
         }
         let opened = (|| {
             let engine = self.engine()?;
-            let frames = Frames::new(self.card.mic_format(), self.config.gain_db, self.config.pick)
+            let format = self.card.mic_format();
+            let frames = Frames::new(format, self.config.gain_db, self.config.pick)
                 .map_err(|e| e.to_string())?;
             let input = self
                 .card
@@ -649,10 +699,14 @@ impl Server {
                 fed: Instant::now(),
                 silent_since: None,
                 settle: SETTLE,
+                reads: reads_per_wake(&format),
+                echo: Canceller::new(&self.config.echo),
             })
         })();
         match opened {
             Ok(capture) => {
+                // A reference stream opened for the last microphone is not the new one's: the next tick opens it again.
+                self.reference = None;
                 self.capture = Some(capture);
                 self.failure = None;
                 self.retry_at = None;
@@ -678,7 +732,9 @@ impl Server {
                     self.wakes += 1;
                     self.send(Event::Wake { word, score, level });
                 }
-                Out::Audio(pcm) => self.send(Event::Audio { pcm: bytes_of(&pcm) }),
+                Out::Audio(pcm) => self.send(Event::Audio {
+                    pcm: bytes_of(&pcm),
+                }),
                 Out::Ended(reason) => self.send(Event::TurnEnded { reason }),
             }
         }
@@ -686,7 +742,12 @@ impl Server {
 
     fn commands(&mut self) {
         loop {
-            let command = self.shared.commands.lock().ok().and_then(|mut c| c.pop_front());
+            let command = self
+                .shared
+                .commands
+                .lock()
+                .ok()
+                .and_then(|mut c| c.pop_front());
             let Some(command) = command else { break };
             match command {
                 Command::Tap(reply) => {
@@ -736,7 +797,7 @@ impl Server {
         let mut failed = None;
         if let Some(c) = self.capture.as_mut() {
             // A few reads at most per wake-up, so that a stream that is far ahead cannot starve the socket.
-            for _ in 0..4 {
+            for _ in 0..c.reads {
                 match c.input.read(scratch) {
                     Ok(0) => break,
                     Ok(n) => {
@@ -765,18 +826,31 @@ impl Server {
         if mono.is_empty() {
             return;
         }
-        self.feed(mono);
+        self.hear(mono);
     }
 
-    /// One stretch of microphone audio: the engine, the tap, and what comes of them.
-    fn feed(&mut self, mut mono: Vec<i16>) {
+    /// One stretch of microphone audio: what the echo canceller makes of it goes on to the engine and the tap.
+    fn hear(&mut self, mono: Vec<i16>) {
+        let mut clean = Vec::with_capacity(mono.len() + 256);
         if let Some(c) = self.capture.as_mut() {
+            // Exact digital silence is judged on what the microphone gave, not on what is left of it.
             let exact_silence = mono.iter().all(|&s| s == 0);
             if exact_silence {
                 c.silent_since.get_or_insert_with(Instant::now);
             } else {
                 c.silent_since = None;
             }
+            // A person speaking in a turn is not the TV's echo: the filter stops learning for as long as the turn is open.
+            c.echo.set_adapt(!c.engine.in_turn());
+            c.echo.push_mic(&mono, &mut clean);
+        }
+        self.deliver(clean);
+    }
+
+    /// Microphone audio after the canceller: the engine, the tap, and what comes of them.
+    fn deliver(&mut self, mut mono: Vec<i16>) {
+        if mono.is_empty() {
+            return;
         }
         // An injected clip takes the place of the microphone's audio, sample for sample, so that it runs at the microphone's pace.
         if let Some(inj) = self.injection.as_mut() {
@@ -825,12 +899,17 @@ impl Server {
 
     fn reference_ready(&mut self, scratch: &mut [u8]) {
         let mut lost = false;
+        let mut heard: Vec<i16> = Vec::new();
         if let Some(r) = self.reference.as_mut() {
-            for _ in 0..4 {
+            for _ in 0..r.reads {
                 match r.input.read(scratch) {
                     Ok(0) => break,
                     Ok(n) => {
+                        r.fed = Instant::now();
                         r.meter.push(&scratch[..n]);
+                        if let Some(frames) = r.frames.as_mut() {
+                            frames.push(&scratch[..n], &mut heard);
+                        }
                         if n < scratch.len() {
                             break;
                         }
@@ -843,13 +922,64 @@ impl Server {
             }
         }
         if lost {
-            // The level is a help, not a need: without the stream the cutoff is the plain one.
-            self.reference = None;
+            // The level and the echo are a help, not a need: without the stream the microphone is as it is.
+            self.close_reference();
+            return;
+        }
+        if !heard.is_empty() {
+            let mut clean = Vec::new();
             if let Some(c) = self.capture.as_mut() {
-                c.engine.set_strictness(0.0);
+                c.echo.push_reference(&heard, &mut clean);
             }
-        } else if let (Some(r), Some(c)) = (self.reference.as_ref(), self.capture.as_mut()) {
-            c.engine.set_strictness(strictness(r.meter.db()));
+            self.deliver(clean);
+        }
+        self.raise_bar();
+    }
+
+    /// Opens the reference stream for the microphone that is open, and starts the canceller's side of it.
+    fn open_reference(&mut self) {
+        let Ok(input) = self.card.open_reference() else {
+            return;
+        };
+        let format = self.card.reference_format();
+        let frames = Frames::new(format, 0.0, self.config.reference_pick).ok();
+        let mut clean = Vec::new();
+        if frames.is_some()
+            && let Some(c) = self.capture.as_mut()
+        {
+            c.echo.open_reference(&mut clean);
+        }
+        self.reference = Some(Reference {
+            input,
+            meter: Meter::new(format),
+            frames,
+            fed: Instant::now(),
+            reads: reads_per_wake(&format),
+        });
+        self.deliver(clean);
+    }
+
+    /// Closes the reference stream; the microphone the canceller held back is let go as it is.
+    fn close_reference(&mut self) {
+        if self.reference.take().is_none() {
+            return;
+        }
+        let mut clean = Vec::new();
+        if let Some(c) = self.capture.as_mut() {
+            c.echo.close_reference(&mut clean);
+        }
+        self.deliver(clean);
+        self.raise_bar();
+    }
+
+    /// What the TV asks of the wake word now (see [`bar`]).
+    fn raise_bar(&mut self) {
+        let playing = self.shared.tv_playing.load(Ordering::Relaxed) && self.config.reference;
+        let credit = self.capture.as_ref().map_or(0.0, |c| c.echo.credit_db());
+        let tv_db = self.reference.as_ref().map(|r| r.meter.db());
+        let extra = bar(tv_db, credit, playing, self.config.unheard_extra);
+        if let Some(c) = self.capture.as_mut() {
+            c.engine.set_strictness(extra);
         }
     }
 
@@ -865,16 +995,19 @@ impl Server {
         let playing = self.shared.tv_playing.load(Ordering::Relaxed);
         let want_reference = self.config.reference && self.capture.is_some() && playing;
         if want_reference && self.reference.is_none() {
-            self.reference = self.card.open_reference().ok().map(|input| Reference {
-                input,
-                meter: Meter::new(self.card.reference_format()),
-            });
+            self.open_reference();
         } else if !want_reference && self.reference.is_some() {
-            self.reference = None;
-            if let Some(c) = self.capture.as_mut() {
-                c.engine.set_strictness(0.0);
-            }
+            self.close_reference();
         }
+        // A reference that has given nothing for as long as the microphone may is closed; the next tick opens it again while it is wanted.
+        if self
+            .reference
+            .as_ref()
+            .is_some_and(|r| r.fed.elapsed() > self.config.stall_after)
+        {
+            self.close_reference();
+        }
+        self.raise_bar();
         let stalled = self
             .capture
             .as_ref()
@@ -893,6 +1026,7 @@ impl Server {
             wakes: self.wakes,
             ..Status::default()
         };
+        let mut credit = 0.0;
         if let Some(c) = self.capture.as_mut() {
             status.capturing = true;
             status.in_turn = c.engine.in_turn();
@@ -902,10 +1036,49 @@ impl Server {
             status.held_back = c.engine.refused();
             status.clipped = c.frames.clipped();
             status.silent = c.silent_since.is_some_and(|t| t.elapsed() >= silent_for);
+            status.echo = c.echo.status();
+            credit = c.echo.credit_db();
         }
         status.tv_db = self.reference.as_ref().map(|r| r.meter.db());
+        status.duck = duck(status.tv_db, credit);
         if let Ok(mut slot) = self.shared.status.lock() {
             *slot = status;
         }
+    }
+}
+
+/// What the TV asks of the wake word: its level at the microphone less what the canceller takes out of it. A TV that is playing and
+/// cannot be read asks the configured middle; one that is not playing asks nothing.
+fn bar(tv_db: Option<f32>, credit_db: f32, playing: bool, unheard: f32) -> f32 {
+    match tv_db {
+        Some(db) => strictness(db - credit_db),
+        None if playing => unheard,
+        None => 0.0,
+    }
+}
+
+/// Whether the TV is loud enough, after what the canceller takes out of it, that the wake word cannot be heard over it.
+fn duck(tv_db: Option<f32>, credit_db: f32) -> bool {
+    tv_db.is_some_and(|db| db - credit_db >= LOUD_DB)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::level::MAX_EXTRA;
+
+    #[test]
+    fn what_the_canceller_takes_out_of_the_tv_is_not_asked_of_the_wake_word() {
+        assert_eq!(bar(Some(-30.0), 0.0, true, 0.01), MAX_EXTRA);
+        assert_eq!(bar(Some(-30.0), 24.0, true, 0.01), 0.0);
+        assert_eq!(bar(None, 24.0, true, 0.01), 0.01);
+        assert_eq!(bar(None, 0.0, false, 0.01), 0.0);
+    }
+
+    #[test]
+    fn the_tv_ducks_only_while_it_is_loud_after_the_canceller() {
+        assert!(duck(Some(-25.0), 0.0));
+        assert!(!duck(Some(-25.0), 24.0));
+        assert!(!duck(None, 0.0));
     }
 }

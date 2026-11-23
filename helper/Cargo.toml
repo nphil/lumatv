@@ -69,3 +69,8 @@ strip = true
 # The phone remote's pairing key is 131,072 rounds of PBKDF2: 0.37 s in an unoptimised `ring`, which every pairing test pays twice.
 [profile.dev.package.ring]
 opt-level = 3
+
+# The echo canceller's filter and transforms run 16,000 samples a second through 2,048 taps: unoptimised, 15 s of audio takes 2 s,
+# which every echo test pays.
+[profile.dev.package.voice-dsp]
+opt-level = 3

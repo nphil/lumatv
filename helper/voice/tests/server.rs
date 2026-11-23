@@ -2,6 +2,7 @@
 //! to listen and not before, a recorded wake word makes a turn that goes up only when the client takes it, the microphone is let go
 //! at a mute or a lost client, and a card that fails is told once and tried again.
 
+use lumavoice::echo::EchoState;
 use lumavoice::input::{Card, Input};
 use lumavoice::pcm::{Format, Pick, Sample};
 use lumavoice::server::{self, Config, Handle};
@@ -19,6 +20,7 @@ use wake_word::wav;
 
 const OKAY_NABU: &[u8] = include_bytes!("data/okay_nabu_hazel.wav");
 const OKAY_NABU_TIME: &[u8] = include_bytes!("data/okay_nabu_time.wav");
+const SPEECH: &[u8] = include_bytes!("data/speech_no_wake.wav");
 
 const MIC: Format = Format {
     rate: 16_000,
@@ -119,7 +121,13 @@ impl Card for Rig {
 impl Rig {
     /// The test's end of the newest microphone, once the server has opened it.
     fn mic(&self) -> UnixStream {
-        self.mics.lock().unwrap().last().expect("the microphone was opened").try_clone().unwrap()
+        self.mics
+            .lock()
+            .unwrap()
+            .last()
+            .expect("the microphone was opened")
+            .try_clone()
+            .unwrap()
     }
 }
 
@@ -191,7 +199,13 @@ fn fixture(config: Config) -> Fixture {
     let path = dir.path().join("voice.sock");
     let rig = Arc::new(Rig::default());
     let played = Arc::new(Played::default());
-    let handle = server::start(&path, rig.clone(), Box::new(FakeSpeaker(played.clone())), config).unwrap();
+    let handle = server::start(
+        &path,
+        rig.clone(),
+        Box::new(FakeSpeaker(played.clone())),
+        config,
+    )
+    .unwrap();
     Fixture {
         rig,
         played,
@@ -211,13 +225,21 @@ impl Fixture {
 fn client(path: &Path) -> (Client, Vec<Event>) {
     let mut client = Client::connect(path).unwrap();
     let mut seen = Vec::new();
-    until(&mut client, &mut seen, |s| s.contains(&Event::Ready { rate: 16_000 }));
+    until(&mut client, &mut seen, |s| {
+        s.contains(&Event::Ready { rate: 16_000 })
+    });
     (client, seen)
 }
 
 fn listen(client: &mut Client, seen: &mut Vec<Event>, word: &str) {
-    client.send(&Request::Listen { words: vec![word.to_owned()] }).unwrap();
-    until(client, seen, |s| s.iter().any(|e| matches!(e, Event::Listening { .. })));
+    client
+        .send(&Request::Listen {
+            words: vec![word.to_owned()],
+        })
+        .unwrap();
+    until(client, seen, |s| {
+        s.iter().any(|e| matches!(e, Event::Listening { .. }))
+    });
 }
 
 /// Waits, without sleeping on a timer, until what the client has been told satisfies `done`.
@@ -281,6 +303,48 @@ fn speak(mic: UnixStream, samples: Vec<i16>) -> JoinHandle<()> {
     })
 }
 
+/// What the card's mixer stream holds for `samples` of the TV's sound: 48 kHz, 16 bits, both channels, the samples between on a line.
+fn reference_bytes(samples: &[i16]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(samples.len() * 12);
+    for (i, &s) in samples.iter().enumerate() {
+        let (s, next) = (
+            i32::from(s),
+            i32::from(samples.get(i + 1).copied().unwrap_or(s)),
+        );
+        for step in 0..3 {
+            let frame = (((3 - step) * s + step * next) / 3) as i16;
+            let [lo, hi] = frame.to_le_bytes();
+            bytes.extend_from_slice(&[lo, hi, lo, hi]);
+        }
+    }
+    bytes
+}
+
+/// What the server has not read yet of what was written to `stream`, as the kernel counts it: a period of the microphone is 4.3 KB.
+fn unread(stream: &UnixStream) -> usize {
+    let mut bytes: libc::c_int = 0;
+    // SAFETY: SIOCOUTQ writes one int.
+    unsafe { libc::ioctl(stream.as_raw_fd(), libc::TIOCOUTQ, &mut bytes) };
+    usize::try_from(bytes).unwrap_or(0)
+}
+
+/// The room and the mixer, a period at a time, the reference first, as fast as the server reads them. A feeder that gets ahead of
+/// a server on a loaded machine puts the microphone seconds in front of the reference, and where the filter finds its lag then
+/// depends on how far.
+fn play(mic: &mut UnixStream, reference: Option<&mut UnixStream>, heard: &[i16], played: &[i16]) {
+    const BACKLOG: usize = 6_000;
+    let mut reference = reference;
+    for (period, tv) in heard.chunks(PERIOD).zip(played.chunks(PERIOD)) {
+        while unread(mic) > BACKLOG || reference.as_deref().is_some_and(|r| unread(r) > BACKLOG) {
+            thread::sleep(Duration::from_millis(1));
+        }
+        if let Some(reference) = reference.as_deref_mut() {
+            reference.write_all(&reference_bytes(tv)).unwrap();
+        }
+        mic.write_all(&s24_stereo(period)).unwrap();
+    }
+}
+
 fn audio_samples(seen: &[Event]) -> usize {
     seen.iter()
         .map(|e| match e {
@@ -303,10 +367,16 @@ fn failures(seen: &[Event]) -> Vec<&str> {
 fn nothing_is_opened_until_the_client_asks_to_listen() {
     let fx = fixture(config());
     let (mut c, mut seen) = client(&fx.path);
-    assert_eq!(fx.rig.mic_opens.load(Ordering::SeqCst), 0, "a hello opens nothing");
+    assert_eq!(
+        fx.rig.mic_opens.load(Ordering::SeqCst),
+        0,
+        "a hello opens nothing"
+    );
     listen(&mut c, &mut seen, "okay_nabu");
     assert_eq!(fx.rig.mic_opens.load(Ordering::SeqCst), 1);
-    assert!(seen.contains(&Event::Listening { words: vec!["okay_nabu".to_owned()] }));
+    assert!(seen.contains(&Event::Listening {
+        words: vec!["okay_nabu".to_owned()]
+    }));
     eventually("the status", || fx.handle().status().capturing);
     assert!(fx.handle().status().client);
 }
@@ -319,13 +389,19 @@ fn a_mute_and_a_lost_client_both_let_the_microphone_go() {
     assert_eq!(fx.rig.mic_live.load(Ordering::SeqCst), 1);
     c.send(&Request::Mute).unwrap();
     until(&mut c, &mut seen, |s| s.contains(&Event::Muted));
-    assert_eq!(fx.rig.mic_live.load(Ordering::SeqCst), 0, "released before the mute is answered");
+    assert_eq!(
+        fx.rig.mic_live.load(Ordering::SeqCst),
+        0,
+        "released before the mute is answered"
+    );
 
     seen.clear();
     listen(&mut c, &mut seen, "hey_jarvis");
     assert_eq!(fx.rig.mic_live.load(Ordering::SeqCst), 1);
     drop(c);
-    eventually("the microphone to be released", || fx.rig.mic_live.load(Ordering::SeqCst) == 0);
+    eventually("the microphone to be released", || {
+        fx.rig.mic_live.load(Ordering::SeqCst) == 0
+    });
     assert_eq!(fx.rig.mic_opens.load(Ordering::SeqCst), 2);
 }
 
@@ -336,15 +412,27 @@ fn a_change_of_word_keeps_the_stream_open() {
     listen(&mut c, &mut seen, "okay_nabu");
     seen.clear();
     listen(&mut c, &mut seen, "hey_jarvis");
-    assert_eq!(seen, [Event::Listening { words: vec!["hey_jarvis".to_owned()] }]);
-    assert_eq!(fx.rig.mic_opens.load(Ordering::SeqCst), 1, "the device is not closed and reopened for a word");
+    assert_eq!(
+        seen,
+        [Event::Listening {
+            words: vec!["hey_jarvis".to_owned()]
+        }]
+    );
+    assert_eq!(
+        fx.rig.mic_opens.load(Ordering::SeqCst),
+        1,
+        "the device is not closed and reopened for a word"
+    );
 }
 
 #[test]
 fn a_word_the_engine_does_not_carry_is_refused_in_words() {
     let fx = fixture(config());
     let (mut c, mut seen) = client(&fx.path);
-    c.send(&Request::Listen { words: vec!["alexa".to_owned()] }).unwrap();
+    c.send(&Request::Listen {
+        words: vec!["alexa".to_owned()],
+    })
+    .unwrap();
     until(&mut c, &mut seen, |s| !failures(s).is_empty());
     assert_eq!(failures(&seen), ["there is no wake word alexa"]);
     c.send(&Request::Listen { words: Vec::new() }).unwrap();
@@ -361,19 +449,31 @@ fn a_wake_word_makes_a_turn_that_goes_up_when_the_client_takes_it() {
     room.extend(clip(OKAY_NABU));
     room.extend(silence(2.0));
     let feeder = speak(fx.rig.mic(), room);
-    until(&mut c, &mut seen, |s| s.iter().any(|e| matches!(e, Event::Wake { .. })));
-    let Some(Event::Wake { word, score, .. }) = seen.iter().find(|e| matches!(e, Event::Wake { .. })) else {
+    until(&mut c, &mut seen, |s| {
+        s.iter().any(|e| matches!(e, Event::Wake { .. }))
+    });
+    let Some(Event::Wake { word, score, .. }) =
+        seen.iter().find(|e| matches!(e, Event::Wake { .. }))
+    else {
         unreachable!()
     };
     assert_eq!(word, "okay_nabu");
     assert!(*score >= 0.97);
-    assert_eq!(audio_samples(&seen), 0, "no sample left before the client took the turn");
+    assert_eq!(
+        audio_samples(&seen),
+        0,
+        "no sample left before the client took the turn"
+    );
 
     c.send(&Request::Accept).unwrap();
     until(&mut c, &mut seen, |s| audio_samples(s) >= 16_000);
-    feeder.join().unwrap();
     c.send(&Request::End).unwrap();
-    until(&mut c, &mut seen, |s| s.contains(&Event::TurnEnded { reason: EndReason::Client }));
+    feeder.join().unwrap();
+    until(&mut c, &mut seen, |s| {
+        s.contains(&Event::TurnEnded {
+            reason: EndReason::Client,
+        })
+    });
     eventually("the turn to be over", || !fx.handle().status().in_turn);
     assert_eq!(fx.handle().status().wakes, 1);
 }
@@ -387,7 +487,11 @@ fn a_wake_nobody_takes_ends_and_no_audio_left() {
     room.extend(clip(OKAY_NABU));
     room.extend(silence(4.0));
     let feeder = speak(fx.rig.mic(), room);
-    until(&mut c, &mut seen, |s| s.contains(&Event::TurnEnded { reason: EndReason::NoAck }));
+    until(&mut c, &mut seen, |s| {
+        s.contains(&Event::TurnEnded {
+            reason: EndReason::NoAck,
+        })
+    });
     feeder.join().unwrap();
     assert_eq!(audio_samples(&seen), 0);
 }
@@ -400,11 +504,21 @@ fn a_mute_in_a_turn_ends_it_first() {
     let mut room = silence(0.3);
     room.extend(clip(OKAY_NABU));
     let feeder = speak(fx.rig.mic(), room);
-    until(&mut c, &mut seen, |s| s.iter().any(|e| matches!(e, Event::Wake { .. })));
+    until(&mut c, &mut seen, |s| {
+        s.iter().any(|e| matches!(e, Event::Wake { .. }))
+    });
     seen.clear();
     c.send(&Request::Mute).unwrap();
     until(&mut c, &mut seen, |s| s.contains(&Event::Muted));
-    assert_eq!(seen, [Event::TurnEnded { reason: EndReason::Muted }, Event::Muted]);
+    assert_eq!(
+        seen,
+        [
+            Event::TurnEnded {
+                reason: EndReason::Muted
+            },
+            Event::Muted
+        ]
+    );
     let _ = feeder.join();
 }
 
@@ -412,17 +526,26 @@ fn a_mute_in_a_turn_ends_it_first() {
 fn an_injected_clip_wakes_the_engine_in_place_of_the_microphone() {
     let fx = fixture(config());
     let (mut c, mut seen) = client(&fx.path);
-    assert!(fx.handle().inject(silence(0.1)).is_err(), "no microphone is open to take the place of");
+    assert!(
+        fx.handle().inject(silence(0.1)).is_err(),
+        "no microphone is open to take the place of"
+    );
     listen(&mut c, &mut seen, "okay_nabu");
     // The room is silent: the card gives zeros for as long as the test lasts.
     let feeder = speak(fx.rig.mic(), silence(8.0));
     fx.handle().inject(clip(OKAY_NABU_TIME)).unwrap();
     assert!(fx.handle().inject(silence(0.1)).is_err(), "one at a time");
-    until(&mut c, &mut seen, |s| s.iter().any(|e| matches!(e, Event::Wake { .. })));
+    until(&mut c, &mut seen, |s| {
+        s.iter().any(|e| matches!(e, Event::Wake { .. }))
+    });
     c.send(&Request::Accept).unwrap();
     until(&mut c, &mut seen, |s| audio_samples(s) >= 16_000);
     c.send(&Request::End).unwrap();
-    until(&mut c, &mut seen, |s| s.contains(&Event::TurnEnded { reason: EndReason::Client }));
+    until(&mut c, &mut seen, |s| {
+        s.contains(&Event::TurnEnded {
+            reason: EndReason::Client,
+        })
+    });
     drop(c);
     drop(fx);
     let _ = feeder.join();
@@ -443,7 +566,10 @@ fn a_tap_takes_the_stream_and_the_wake_word_is_not_listened_for_while_it_is_held
     let feeder = speak(fx.rig.mic(), room);
     let mut heard = 0;
     while heard < total - 6_000 {
-        heard += tap.recv_timeout(Duration::from_secs(5)).expect("the tap gets the stream").len();
+        heard += tap
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the tap gets the stream")
+            .len();
     }
     feeder.join().unwrap();
     seen.extend(c.poll().unwrap());
@@ -455,7 +581,9 @@ fn a_tap_takes_the_stream_and_the_wake_word_is_not_listened_for_while_it_is_held
     let mut again = clip(OKAY_NABU);
     again.extend(silence(0.5));
     let feeder = speak(fx.rig.mic(), again);
-    until(&mut c, &mut seen, |s| s.iter().any(|e| matches!(e, Event::Wake { .. })));
+    until(&mut c, &mut seen, |s| {
+        s.iter().any(|e| matches!(e, Event::Wake { .. }))
+    });
     feeder.join().unwrap();
 }
 
@@ -464,9 +592,18 @@ fn a_failed_open_is_told_once_and_tried_again() {
     let fx = fixture(config());
     *fx.rig.refuse.lock().unwrap() = 2;
     let (mut c, mut seen) = client(&fx.path);
-    c.send(&Request::Listen { words: vec!["okay_nabu".to_owned()] }).unwrap();
-    until(&mut c, &mut seen, |s| s.iter().any(|e| matches!(e, Event::Listening { .. })));
-    assert_eq!(fx.rig.mic_opens.load(Ordering::SeqCst), 3, "refused twice, then opened");
+    c.send(&Request::Listen {
+        words: vec!["okay_nabu".to_owned()],
+    })
+    .unwrap();
+    until(&mut c, &mut seen, |s| {
+        s.iter().any(|e| matches!(e, Event::Listening { .. }))
+    });
+    assert_eq!(
+        fx.rig.mic_opens.load(Ordering::SeqCst),
+        3,
+        "refused twice, then opened"
+    );
     let told = failures(&seen);
     assert_eq!(told.len(), 1, "the same words are not told again: {told:?}");
     assert!(told[0].contains("did not open"), "{}", told[0]);
@@ -481,7 +618,9 @@ fn a_capture_that_gives_no_sound_is_called_stalled_and_opened_again() {
     let (mut c, mut seen) = client(&fx.path);
     listen(&mut c, &mut seen, "okay_nabu");
     seen.clear();
-    until(&mut c, &mut seen, |s| s.iter().any(|e| matches!(e, Event::Listening { .. })));
+    until(&mut c, &mut seen, |s| {
+        s.iter().any(|e| matches!(e, Event::Listening { .. }))
+    });
     assert_eq!(failures(&seen), ["the microphone stopped giving sound"]);
     assert_eq!(fx.rig.mic_opens.load(Ordering::SeqCst), 2);
 }
@@ -494,13 +633,20 @@ fn a_microphone_that_ends_is_a_lost_turn_and_a_failure() {
     let mut room = silence(0.3);
     room.extend(clip(OKAY_NABU));
     let feeder = speak(fx.rig.mic(), room);
-    until(&mut c, &mut seen, |s| s.iter().any(|e| matches!(e, Event::Wake { .. })));
+    until(&mut c, &mut seen, |s| {
+        s.iter().any(|e| matches!(e, Event::Wake { .. }))
+    });
     feeder.join().unwrap();
     fx.rig.mics.lock().unwrap().clear();
     until(&mut c, &mut seen, |s| {
-        s.contains(&Event::TurnEnded { reason: EndReason::Lost }) && !failures(s).is_empty()
+        s.contains(&Event::TurnEnded {
+            reason: EndReason::Lost,
+        }) && !failures(s).is_empty()
     });
-    assert!(failures(&seen)[0].contains("the microphone stopped"), "{seen:?}");
+    assert!(
+        failures(&seen)[0].contains("the microphone stopped"),
+        "{seen:?}"
+    );
 }
 
 #[test]
@@ -528,28 +674,88 @@ fn the_tvs_level_is_read_only_while_it_plays_and_the_microphone_is_open() {
     let fx = fixture(config());
     let (mut c, mut seen) = client(&fx.path);
     fx.handle().tv_playing(true);
-    assert_eq!(fx.rig.reference_live.load(Ordering::SeqCst), 0, "no microphone, no reference");
+    assert_eq!(
+        fx.rig.reference_live.load(Ordering::SeqCst),
+        0,
+        "no microphone, no reference"
+    );
     listen(&mut c, &mut seen, "okay_nabu");
-    eventually("the reference to open", || fx.rig.reference_live.load(Ordering::SeqCst) == 1);
+    eventually("the reference to open", || {
+        fx.rig.reference_live.load(Ordering::SeqCst) == 1
+    });
     let mut mix = fx.rig.references.lock().unwrap()[0].try_clone().unwrap();
     // Half-scale 16-bit stereo: -6 dBFS.
-    let loud: Vec<u8> = (0..4_800).flat_map(|_| [0x00u8, 0x40, 0x00, 0x40]).collect();
+    let loud: Vec<u8> = (0..4_800)
+        .flat_map(|_| [0x00u8, 0x40, 0x00, 0x40])
+        .collect();
     mix.write_all(&loud).unwrap();
-    eventually("a level", || fx.handle().status().tv_db.is_some_and(|db| db > -12.0));
+    eventually("a level that nothing takes out", || {
+        let s = fx.handle().status();
+        s.tv_db.is_some_and(|db| db > -12.0) && s.duck && s.echo.state != EchoState::Cancelling
+    });
     fx.handle().tv_playing(false);
-    eventually("the reference to close", || fx.rig.reference_live.load(Ordering::SeqCst) == 0);
+    eventually("the reference to close", || {
+        fx.rig.reference_live.load(Ordering::SeqCst) == 0
+    });
     eventually("the level to go", || fx.handle().status().tv_db.is_none());
+}
+
+/// The TV says five seconds of speech and "okay nabu", in a room that gives its sound back to the microphone 400 ms late (4000
+/// samples of that are the settling the server skips) at half the level. The card gives the microphone as 24-bit stereo at 16 kHz
+/// and the mixer as 16-bit stereo at 48 kHz; the server finds the lag between them and takes the echo out. The word listened for is
+/// not said, so nothing wakes and the client has nothing to read.
+#[test]
+fn the_server_lines_the_tvs_stream_up_with_the_microphone_and_takes_the_echo_out() {
+    let fx = fixture(config());
+    let (mut c, mut seen) = client(&fx.path);
+    fx.handle().tv_playing(true);
+    c.send(&Request::Listen {
+        words: vec!["hey_jarvis".to_owned()],
+    })
+    .unwrap();
+    until(&mut c, &mut seen, |s| {
+        s.iter().any(|e| matches!(e, Event::Listening { .. }))
+    });
+    eventually("the reference to open", || {
+        fx.rig.reference_live.load(Ordering::SeqCst) == 1
+    });
+    let mut reference = fx.rig.references.lock().unwrap()[0].try_clone().unwrap();
+
+    let mut tv = clip(SPEECH)[..80_000].to_vec();
+    tv.extend(silence(0.5));
+    tv.extend(clip(OKAY_NABU_TIME));
+    tv.extend(silence(1.0));
+    let mut heard = vec![0i16; 10_400];
+    heard.extend(tv.iter().map(|&s| s / 2));
+    let mut played = tv;
+    played.resize(heard.len(), 0);
+    play(&mut fx.rig.mic(), Some(&mut reference), &heard, &played);
+
+    eventually("the echo to be found and taken out", || {
+        let echo = fx.handle().status().echo;
+        echo.state == EchoState::Cancelling
+            && echo.lag_ms.is_some_and(|ms| (ms - 400.0).abs() < 3.0)
+            && echo.erle_db.is_some_and(|db| db >= 10.0)
+    });
 }
 
 #[test]
 fn a_reply_is_played_at_the_asked_rate_and_volume_and_its_end_is_told() {
     let fx = fixture(config());
     let (mut c, mut seen) = client(&fx.path);
-    c.send(&Request::Speak { rate: 24_000, percent: 40 }).unwrap();
+    c.send(&Request::Speak {
+        rate: 24_000,
+        percent: 40,
+    })
+    .unwrap();
     c.send(&Request::Pcm { pcm: vec![0; 480] }).unwrap();
     c.send(&Request::Pcm { pcm: vec![0; 480] }).unwrap();
     c.send(&Request::SpeakEnd).unwrap();
-    until(&mut c, &mut seen, |s| s.contains(&Event::SpeechDone { end: SpeechEnd::Played }));
+    until(&mut c, &mut seen, |s| {
+        s.contains(&Event::SpeechDone {
+            end: SpeechEnd::Played,
+        })
+    });
     assert_eq!(*fx.played.begun.lock().unwrap(), [(24_000, 40)]);
     assert_eq!(fx.played.bytes.load(Ordering::SeqCst), 960);
 }
@@ -558,12 +764,24 @@ fn a_reply_is_played_at_the_asked_rate_and_volume_and_its_end_is_told() {
 fn a_reply_that_is_stopped_is_cut_and_one_that_cannot_start_is_refused() {
     let fx = fixture(config());
     let (mut c, mut seen) = client(&fx.path);
-    c.send(&Request::Speak { rate: 16_000, percent: 60 }).unwrap();
+    c.send(&Request::Speak {
+        rate: 16_000,
+        percent: 60,
+    })
+    .unwrap();
     c.send(&Request::StopSpeech).unwrap();
-    until(&mut c, &mut seen, |s| s.contains(&Event::SpeechDone { end: SpeechEnd::Cut }));
+    until(&mut c, &mut seen, |s| {
+        s.contains(&Event::SpeechDone {
+            end: SpeechEnd::Cut,
+        })
+    });
     assert!(fx.played.stopped.load(Ordering::SeqCst));
     fx.played.refuse.store(true, Ordering::SeqCst);
-    c.send(&Request::Speak { rate: 16_000, percent: 60 }).unwrap();
+    c.send(&Request::Speak {
+        rate: 16_000,
+        percent: 60,
+    })
+    .unwrap();
     until(&mut c, &mut seen, |s| {
         s.contains(&Event::SpeechDone {
             end: SpeechEnd::Refused {
@@ -576,7 +794,9 @@ fn a_reply_that_is_stopped_is_cut_and_one_that_cannot_start_is_refused() {
 /// A connection with no hello of its own: what the server says to whoever comes.
 fn raw(path: &Path) -> UnixStream {
     let stream = UnixStream::connect(path).unwrap();
-    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
     stream
 }
 
@@ -604,7 +824,13 @@ fn one_client_at_a_time_and_only_the_wire_version_it_speaks() {
 
     let fx = fixture(config());
     let mut old = raw(&fx.path);
-    old.write_all(&encode(&Request::Hello { version: VERSION + 1 }).unwrap()).unwrap();
+    old.write_all(
+        &encode(&Request::Hello {
+            version: VERSION + 1,
+        })
+        .unwrap(),
+    )
+    .unwrap();
     let Event::Failed { text } = first_event(&mut old) else {
         panic!("a hello of another version is refused in words")
     };
