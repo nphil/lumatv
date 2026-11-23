@@ -39,6 +39,12 @@ impl Slice for Rules {
     fn adjust(_m: &mut Model, _f: Focus, _forward: bool, _out: &mut Vec<Command>) -> bool {
         false
     }
+    fn subject(m: &Model) -> Option<GameId> {
+        match m.view.focus {
+            Focus::Grid(i) => m.filtered.get(i).copied(),
+            _ => None,
+        }
+    }
 }
 impl Model {
     fn library_grid(&self, layer: Option<Layer>) -> Vec<Vec<Focus>> {

@@ -141,8 +141,7 @@ fn all_stats_controls_share_one_setting_and_off_stops_frame_capture() {
     m.step(Input::StatsSetting(Overlay {mode:Mode::Compact,changed:1}));
     assert!(m.hud_visible() && m.wants_frames());
     m.step(Input::Overlay);
-    m.step(Input::Key {key:Key::Menu,down:true});
-    m.step(Input::Key {key:Key::Menu,down:false});
+    m.view.focus=Focus::Overlay(2);activate(&mut m);
     assert_eq!(m.prefs.stats.mode,Mode::Full);
     m.view.focus=Focus::Overlay(2);activate(&mut m);
     assert_eq!(m.prefs.stats.mode,Mode::Off);

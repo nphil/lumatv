@@ -29,6 +29,16 @@ impl Slice for Rules {
     fn adjust(_m: &mut Model, _f: Focus, _forward: bool, _out: &mut Vec<Command>) -> bool {
         false
     }
+    fn subject(m: &Model) -> Option<GameId> {
+        match m.view.focus {
+            Focus::Hero(_) => m.view.featured,
+            Focus::Home(r, i) => match m.home_rows.get(r).and_then(|row| row.items.get(i)) {
+                Some(HomeItem::Game(id)) => Some(*id),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
 }
 impl Model {
     fn home_grid(&self) -> Vec<Vec<Focus>> {

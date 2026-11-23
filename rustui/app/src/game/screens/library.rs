@@ -1,6 +1,6 @@
 //! The Library and Search pages and the sort and genre choices.
 use crate::game::screens::paint::{Fill, H, Paint, W};
-use crate::game::model::{Focus, Key};
+use crate::game::model::Focus;
 use compositor_protocol::Rect;
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{components::Icon, geometry::Frame, lucent::palette::PaletteRole as Role};
@@ -48,10 +48,7 @@ pub fn library(p: &mut Paint<'_>, search: bool) {
             }
         }
         labels.extend([m.view.filter.genre.clone().unwrap_or_else(|| "Genre".into()), "Favourites".into(), "Sort".into(), "Refresh libraries".into()]);
-        let face = p.pad_face(Key::Menu);
-        let side = 30.0 * p.scale;
-        let extra = |i: usize| if face.is_some() && i + 2 == labels.len() { side + 4.0 } else { 0.0 };
-        let widths: Vec<_> = labels.iter().enumerate().map(|(i, s)| p.width(s, Type::Label) + 52.0 + extra(i)).collect();
+        let widths: Vec<_> = labels.iter().map(|s| p.width(s, Type::Label) + 52.0).collect();
         let focused = if let Focus::Filter(i) = m.view.focus { Some(i) } else { None };
         let total_before = focused.map_or(0.0, |i| widths.iter().take(i + 1).sum::<f32>() + 12.0 * i as f32);
         let shift = (total_before - (W - p.x * 2.0)).max(0.0);
@@ -81,15 +78,12 @@ pub fn library(p: &mut Paint<'_>, search: bool) {
                 p.text(
                     101 + i as u64 * 4,
                     label,
-                    Frame::new(x + 26.0 + extra(i), y + (h - p.line(Type::Label)) / 2.0, f.w - 52.0 - extra(i), p.line(Type::Label)),
+                    Frame::new(x + 26.0, y + (h - p.line(Type::Label)) / 2.0, f.w - 52.0, p.line(Type::Label)),
                     Type::Label,
                     Role::Ink,
                     false,
                     11,
                 );
-                if let (Some(face), true) = (face, extra(i) > 0.0) {
-                    p.pad_glyph(102 + i as u64 * 4, face, Frame::new(x + 18.0, y + (h - side) / 2.0, side, side), false, false, 11);
-                }
                 p.hit(Focus::Filter(i), f);
                 if p.focused(Focus::Filter(i)) {
                     p.zoom(from, f, p.tokens.focus.button_scale);

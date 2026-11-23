@@ -1,6 +1,6 @@
 //! The navigation contract the slices code against: the one trait a screen implements, the [`Owner`] that dispatches to it, and what
 //! navigation keeps between keys (where focus last rested in each region, which device the hints show, the auto-hide timer).
-use super::{Command, Focus, Key, Layer, Model, Page, accounts, game, home, launch, library, settings, text};
+use super::{Command, Focus, Key, Layer, Model, Page, accounts, game, home, launch, library, quick, settings, text};
 use lumagame_core::ids::GameId;
 
 /// One screen's rules. Each slice implements it once, and [`Owner`] dispatches to it on the open layer, else the page.
@@ -135,6 +135,7 @@ pub enum Owner {
     Accounts,
     Launch,
     Text,
+    Quick,
 }
 /// Calls the slice behind an [`Owner`].
 macro_rules! slice {
@@ -148,6 +149,7 @@ macro_rules! slice {
             Owner::Accounts => accounts::Rules::$call($($arg),*),
             Owner::Launch => launch::Rules::$call($($arg),*),
             Owner::Text => text::Rules::$call($($arg),*),
+            Owner::Quick => quick::Rules::$call($($arg),*),
         }
     };
 }
@@ -171,6 +173,7 @@ impl Owner {
             Layer::Auth => Self::Accounts,
             Layer::StreamMenu | Layer::EndSession => Self::Launch,
             Layer::AddHost | Layer::EditText => Self::Text,
+            Layer::Quick | Layer::QuickSettings => Self::Quick,
         }
     }
     /// The open layer's slice, else the page's.
@@ -275,7 +278,7 @@ mod tests {
         }
         m.view.page = Page::Home;
         use Layer::*;
-        for layer in [Chooser, Viewer, Sort, Genre, Theme, Delete, Auth, StreamMenu, EndSession, AddHost, EditText] {
+        for layer in [Chooser, Viewer, Sort, Genre, Theme, Delete, Auth, StreamMenu, EndSession, AddHost, EditText, Quick, QuickSettings] {
             m.view.push(layer, Focus::None);
             assert!(!m.menu_allowed(), "{layer:?}");
             m.view.pop();

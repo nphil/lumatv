@@ -100,6 +100,11 @@ impl Model {
         self.refresher.result.as_ref().map(|r| Line::Done { text: r.text.clone(), problem: r.problem })
     }
 
+    /// How long ago the latest library finished loading; none before the first.
+    pub fn libraries_age_ms(&self) -> Option<u64> {
+        self.refresher.fetched.values().max().map(|at| self.now_ms.saturating_sub(*at))
+    }
+
     pub fn refreshing(&self) -> bool {
         self.refresher.run.is_some()
     }

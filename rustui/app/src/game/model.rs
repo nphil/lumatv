@@ -382,6 +382,11 @@ pub enum Layer {
     // text
     AddHost,
     EditText,
+    // quick
+    /// The quick menu, on the Menu key over any page.
+    Quick,
+    /// Quick settings, over the quick menu.
+    QuickSettings,
 }
 impl Layer {
     /// Whether the layer is a sheet drawn over its page, which then takes no pointer hits. The viewer and the in-stream menu are
@@ -617,6 +622,7 @@ pub struct Model {
     sources: Sources,
     refresher: refresh::Refresher,
     answers: facts::Cache,
+    pub quick: quick::State,
 }
 impl Model {
     pub fn new(state: State, mut listing: Listing, manifests: Vec<Manifest>) -> Self {
@@ -682,6 +688,7 @@ impl Model {
             sources: Sources::default(),
             refresher: refresh::Refresher::default(),
             answers: facts::Cache::default(),
+            quick: quick::State::default(),
         };
         m.rebuild_catalog();
         m.rebuild_navigation();
@@ -901,6 +908,7 @@ impl Model {
                 self.session_input(session::Input::Tick, &mut out);
                 changed = second && (self.stream_menu() || self.view.idle.is_some() || self.view.auth.as_ref().is_some_and(|a| a.expires_ms.is_some()));
                 changed |= self.tick_navigation(before, &mut out);
+                changed |= self.quick_tick(before);
                 changed |= self.refresh_tick(second);
                 self.look_ahead(&mut out);
                 self.facts_ahead(&mut out);
@@ -1046,16 +1054,25 @@ impl Model {
         for game in &mut self.games {
             game.sources.sort_by_key(|source| self.integrations.iter().position(|e| e.manifest.id == source.engine).unwrap_or(usize::MAX));
         }
-        if self.view.featured.is_none_or(|id| self.game(id).is_none()) {
-            self.view.featured = activity::recently_played(&self.games, &self.state.profile().history).first().copied().or_else(|| self.games.first().map(|g| g.id));
-        }
+        self.refeature();
         self.rebuild_rows();
         self.rebuild_filter();
+    }
+    /// Features the game played last, or the first, when the featured game is gone or hidden.
+    fn refeature(&mut self) {
+        let hidden = &self.state.profile().user.hidden;
+        if self.view.featured.is_none_or(|id| self.game(id).is_none() || hidden.contains(&id)) {
+            self.view.featured = activity::recently_played(&self.games, &self.state.profile().history)
+                .into_iter()
+                .find(|id| !hidden.contains(id))
+                .or_else(|| self.games.iter().map(|g| g.id).find(|id| !hidden.contains(id)));
+        }
     }
     /// Groups the games by genre from every source of genres, one label each.
     fn rebuild_genres(&mut self) {
         let mut by_genre: BTreeMap<String, BTreeSet<GameId>> = BTreeMap::new();
-        for game in &self.games {
+        let hidden = &self.state.profile().user.hidden;
+        for game in self.games.iter().filter(|g| !hidden.contains(&g.id)) {
             for genre in activity::genres(game, self.details.get(&game.id).map_or(&[][..], |d| d.genres.as_slice())) {
                 by_genre.entry(genre).or_default().insert(game.id);
             }
@@ -1235,7 +1252,9 @@ impl Model {
                 | Layer::StreamMenu
                 | Layer::EndSession
                 | Layer::AddHost
-                | Layer::EditText,
+                | Layer::EditText
+                | Layer::Quick
+                | Layer::QuickSettings,
             ) => false,
             None => !matches!(self.view.page, Page::Launch | Page::Running),
         }
@@ -1320,10 +1339,7 @@ impl Model {
             Key::Ok => self.activate(out),
             Key::Back => self.go_back(out),
             Key::Guide => self.open_overlay(out),
-            Key::Menu if self.view.page == Page::Library && self.view.layers.is_empty() => {
-                self.push_layer(Layer::Sort, Focus::SheetRow(Sort::ALL.iter().position(|s| *s == self.view.sort).unwrap_or(0)))
-            }
-            Key::Menu if self.view.top() == Some(Layer::StreamMenu) => self.set_stats(self.prefs.stats.mode.next(), out),
+            Key::Menu => self.toggle_quick(),
             Key::Alt if self.view.top() == Some(Layer::StreamMenu) && self.steam_overlay() => self.open_steam_overlay(out),
             _ => {}
         }
@@ -1369,6 +1385,7 @@ impl Model {
     }
     fn activate(&mut self, out: &mut Vec<Command>) {
         match self.view.focus {
+            Focus::Nav(3) => self.open_quick(),
             Focus::Nav(i) => self.switch_tab(i, Focus::Nav(i)),
             Focus::None => {}
             f => Owner::of(self).activate(self, f, out),
