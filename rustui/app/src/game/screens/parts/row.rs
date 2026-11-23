@@ -287,12 +287,21 @@ pub fn link(p: &mut Paint<'_>, id: u64, frame: Frame, line: &Line<'_>, focused: 
     body(p, id, frame, line, Trail { words: Vec::new(), marks: vec![chevron], w: 28.0 * p.scale }, focused);
 }
 
-/// A row that shows a value at the right, and after it `mark` (a status icon and its colour) when there is one.
+/// A row that shows a value at the right, and after it `mark` (a status icon and its colour) when there is one. The value takes the
+/// room its name and detail leave, and never less than the control's share.
 pub fn value(p: &mut Paint<'_>, id: u64, frame: Frame, line: &Line<'_>, value: &str, mark: Option<(Icon, Role)>, focused: bool) {
     let side = 28.0 * p.scale;
     let mark_w = if mark.is_some() { side } else { 0.0 };
     let ty = p.ty(Type::Body);
-    let text = clip(p, value, ty, control_room(frame) - mark_w - if mark.is_some() { MARK_GAP } else { 0.0 });
+    let lead_w = lead_width(p, line.lead);
+    let words_x = PAD_X + if lead_w > 0.0 { lead_w + GAP } else { 0.0 };
+    let bold = p.bold(Type::Body);
+    let mut words_w = p.fonts.measure(line.name, bold).width.ceil();
+    if let Some(sub) = line.sub {
+        words_w = words_w.max(p.width(sub, Type::Caption));
+    }
+    let room = control_room(frame).max(frame.w - PAD_X - words_x - words_w - GAP);
+    let text = clip(p, value, ty, room - mark_w - if mark.is_some() { MARK_GAP } else { 0.0 });
     let text_w = if text.is_empty() { 0.0 } else { p.width(&text, Type::Body) };
     let gap = if text_w > 0.0 && mark.is_some() { MARK_GAP } else { 0.0 };
     let mut trail = Trail { words: Vec::new(), marks: Vec::new(), w: text_w + gap + mark_w };
