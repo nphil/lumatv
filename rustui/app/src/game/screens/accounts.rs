@@ -4,10 +4,11 @@ use crate::game::model::{Focus, Key};
 use lumagame_core::{engine::{EngineKind, Feature}, ipc::{AuthState, Link, Reach}, settings::{FieldKind, Value}};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{components::{Align, Icon}, geometry::Frame, lucent::palette::PaletteRole as Role};
-use crate::game::screens::parts::{dialog::*, keyboard::*, row::*, topbar::*};
+use crate::game::screens::parts::{dialog::*, keyboard::*, row::*, topbar::{self, Here}};
 
 pub fn first_run(p: &mut Paint<'_>) {
-    nav(p, false);
+    let attention = topbar::needs_attention(p);
+    topbar::bar(p, Here::Elsewhere, attention);
     let title = "Add a way to play";
     let y = if p.scale > 1.0 { 220.0 } else { 300.0 };
     let title_h = p.wrapped(100, title, Frame::new(p.x, y, W - p.x * 2.0, 0.0), Type::Display, Role::Ink, false, 10);
@@ -55,7 +56,8 @@ pub fn first_run(p: &mut Paint<'_>) {
     }
 }
 pub fn integration(p: &mut Paint<'_>) {
-    nav(p, false);
+    let attention = topbar::needs_attention(p);
+    topbar::bar(p, Here::Elsewhere, attention);
     let m = p.model;
     let Some(e) = m.view.selected_engine.as_ref().and_then(|id| m.integration(id)) else {
         return;

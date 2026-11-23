@@ -8,8 +8,8 @@ mod lab;
 mod launch;
 mod library;
 mod idle;
-mod paint;
-mod parts;
+pub(super) mod paint;
+pub(super) mod parts;
 mod quick;
 mod settings;
 mod symbols;
@@ -21,6 +21,7 @@ use compositor_protocol::{Ease, GroupPose, PoseBinding, PoseProperties, Props};
 use lumagame_meta::Image;
 use lumatv_tokens::{Tokens, TypeRole};
 use paint::{Body, Node, Paint};
+use parts::motion::{self, Enter, Leaving};
 #[cfg(test)]
 pub(super) use paint::HUD;
 use std::{
@@ -59,6 +60,13 @@ pub struct GameUi {
     groups: BTreeMap<u32, Scroll>,
     /// The pass of the page's moving bar that is under way, if the page has one.
     sweep: Option<Pass>,
+    /// The nodes the plan dropped that are still going off the screen with their layer, and when each is let go.
+    leaving: Leaving,
+    /// How the nodes of the last plan that arrive with a layer (`Paint::arrives`) come on and go off.
+    enters: BTreeMap<u64, Enter>,
+    /// The last plan was drawn on a page the screen already showed: a node of a layer that is new to it arrives, where on a page that has
+    /// only just been cut in everything is simply there.
+    settled: bool,
 }
 struct Cached {
     image: Image,
@@ -68,6 +76,8 @@ struct Kept {
     node: Node,
     layer: Layer,
     group: Option<u32>,
+    /// How the node came onto the screen with its layer, so it goes off the same way.
+    enter: Option<Enter>,
 }
 struct Scroll {
     clip: Group,
@@ -85,30 +95,22 @@ enum Layer {
     Image(ImageLayer),
 }
 impl Layer {
-    fn set(&mut self, props: Props, animate: bool, ms: u32) {
+    fn jump(&mut self, props: Props) {
         match self {
-            Self::Surface(layer) => {
-                if animate {
-                    layer.animate(props, ms, Ease::Out)
-                } else {
-                    layer.set(props)
-                }
-            }
-            Self::Text(layer) => {
-                if animate {
-                    layer.animate_props(props, ms, Ease::Out)
-                } else {
-                    layer.set_props(props)
-                }
-            }
-            Self::Image(layer) => {
-                if animate {
-                    layer.animate(props, ms, Ease::Out)
-                } else {
-                    layer.set(props)
-                }
-            }
+            Self::Surface(layer) => layer.set(props),
+            Self::Text(layer) => layer.set_props(props),
+            Self::Image(layer) => layer.set(props),
         }
+    }
+    fn ease(&mut self, props: Props, ms: u32, ease: Ease) {
+        match self {
+            Self::Surface(layer) => layer.animate(props, ms, ease),
+            Self::Text(layer) => layer.animate_props(props, ms, ease),
+            Self::Image(layer) => layer.animate(props, ms, ease),
+        }
+    }
+    fn set(&mut self, props: Props, animate: bool, ms: u32) {
+        if animate { self.ease(props, ms, Ease::Out) } else { self.jump(props) }
     }
     /// One pass of a constant-speed move from `from` to `to`: the compositor runs a move once and holds its end. Nobody's gesture
     /// drives it, so it is drawn at most every 16 ms (60 a second on a 120 Hz panel): the soft edge moves under 10 px a frame.
@@ -172,6 +174,9 @@ impl GameUi {
             page: None,
             groups: BTreeMap::new(),
             sweep: None,
+            leaving: Leaving::default(),
+            enters: BTreeMap::new(),
+            settled: false,
         })
     }
     pub fn set_host_tokens(&mut self, tokens: Tokens) {
@@ -196,7 +201,7 @@ impl GameUi {
     }
     /// How long until the page has to be shown again with nothing else changed: the next pass of its moving bar.
     pub fn wake_ms(&self, now_ms: u64) -> Option<u64> {
-        self.sweep.as_ref().map(|pass| pass.wait_ms(now_ms))
+        [self.sweep.as_ref().map(|pass| pass.wait_ms(now_ms)), self.leaving.wait_ms(now_ms)].into_iter().flatten().min()
     }
     /// Starts the next pass of the page's moving bar when the last has ended; true when one started.
     fn continue_sweep(&mut self, now_ms: u64) -> bool {
@@ -205,6 +210,31 @@ impl GameUi {
         let Some((from, to, ms)) = pass.start(now_ms) else { return false };
         kept.layer.glide(from, to, ms);
         true
+    }
+    /// Lets go of the nodes whose way off the screen has ended; true when any went. The next plan then reaches the groups they held.
+    fn expire(&mut self, now_ms: u64) -> bool {
+        let due = self.leaving.due(now_ms);
+        for id in &due {
+            self.nodes.remove(id);
+        }
+        if !due.is_empty() {
+            self.revision = None;
+        }
+        !due.is_empty()
+    }
+    /// Drops the nodes the plan no longer has. One that arrived with a layer goes off the screen the way it came and is let go when that
+    /// ends (`expire`); every other node goes at once.
+    fn depart(&mut self, ids: &BTreeSet<u64>, now_ms: u64, reduced: bool) {
+        self.nodes.retain(|id, kept| {
+            if ids.contains(id) || self.leaving.contains(*id) {
+                return true;
+            }
+            let Some(enter) = kept.enter else { return false };
+            let go = motion::leave(kept.node.props, enter, reduced);
+            kept.layer.ease(go.away, go.ms, go.ease);
+            self.leaving.begin(*id, now_ms, go.ms);
+            true
+        });
     }
     #[cfg(test)]
     pub(super) fn retained_counts(&self) -> (usize, usize) {
@@ -238,10 +268,11 @@ impl GameUi {
             self.groups.clear();
             self.page = None;
             self.sweep = None;
+            self.leaving.clear();
             self.revision = Some(model.revision());
             return Ok(changed);
         }
-        let swept = self.continue_sweep(model.now_ms());
+        let swept = self.continue_sweep(model.now_ms()) | self.expire(model.now_ms());
         let scrolling = self.groups.values().any(|g| g.motion.is_active());
         if self.revision == Some(model.revision()) && !decoded && !self.unfinished_text && self.ui.glyph_text_settled() && !scrolling {
             return Ok(swept);
@@ -268,18 +299,21 @@ impl GameUi {
         self.hits.clear();
         let scrolled = plan.shift != self.shift;
         self.shift = plan.shift;
-        if self.page != Some(model.view.page) {
+        let cut = self.page != Some(model.view.page);
+        if cut {
             self.nodes.clear();
             self.groups.clear();
+            self.leaving.clear();
         }
         self.page = Some(model.view.page);
         let ids = plan.nodes.iter().map(|n| n.id).collect::<BTreeSet<_>>();
         debug_assert_eq!(ids.len(), plan.nodes.len(), "duplicate retained node on {:?}", model.view.page);
-        self.nodes.retain(|id, _| ids.contains(id));
+        let reduced = model.prefs.reduce_motion || self.tokens.motion.reduced;
+        self.depart(&ids, model.now_ms(), reduced);
         let sweep = plan.sweep;
         let crossing = sweep.is_some_and(|s| self.nodes.contains_key(&s.id));
-        let reduced = model.prefs.reduce_motion || self.tokens.motion.reduced;
-        self.sync_groups(&plan.groups, reduced)?;
+        let cleared = self.sync_groups(&plan.groups, reduced)?;
+        self.settled = !cut && !cleared;
         for (focus, mut frame) in plan.hits.drain(..) {
             let group = plan.hit_groups.get(&focus).copied();
             let mut parent = group;
@@ -297,6 +331,7 @@ impl GameUi {
             }
         }
         self.unfinished_text = false;
+        self.enters = std::mem::take(&mut plan.enters);
         for mut node in plan.nodes.drain(..) {
             let group = membership.get(&node.id).copied();
             let mut parent = group;
@@ -332,14 +367,20 @@ impl GameUi {
         self.revision = Some(model.revision());
         Ok(true)
     }
-    fn sync_groups(&mut self, specs: &[paint::ScrollGroup], reduced: bool) -> io::Result<()> {
-        if specs.iter().any(|spec| self.groups.get(&spec.id).is_some_and(|group| {
+    /// Makes the scroll groups the plan names; true when a group changed in a way that rebuilt every node.
+    fn sync_groups(&mut self, specs: &[paint::ScrollGroup], reduced: bool) -> io::Result<bool> {
+        let cleared = specs.iter().any(|spec| self.groups.get(&spec.id).is_some_and(|group| {
             group.parent != spec.parent || group.horizontal != spec.horizontal || group.extent != spec.extent.max(1.0)
-        })) {
+        }));
+        if cleared {
             self.nodes.clear();
             self.groups.clear();
+            self.leaving.clear();
         }
-        self.groups.retain(|id, _| specs.iter().any(|spec| spec.id == *id));
+        // A group stays while a node going off the screen is in it.
+        self.groups.retain(|id, _| {
+            specs.iter().any(|spec| spec.id == *id) || self.nodes.iter().any(|(node, kept)| kept.group == Some(*id) && self.leaving.contains(*node))
+        });
         for spec in specs {
             let extent = spec.extent.max(1.0);
             if !self.groups.contains_key(&spec.id) {
@@ -367,7 +408,7 @@ impl GameUi {
                 }
             }
         }
-        Ok(())
+        Ok(cleared)
     }
     fn keep(&mut self, node: Node, reduced: bool, scrolled: bool, group: Option<u32>) -> io::Result<()> {
         if let Body::Image(key) = &node.body {
@@ -381,6 +422,8 @@ impl GameUi {
                 return Ok(());
             }
         }
+        let enter = self.enters.get(&node.id).copied();
+        let fresh = self.settled && !self.nodes.contains_key(&node.id);
         let recreate = self.nodes.get(&node.id).is_none_or(|kept| {
             kept.group != group ||
             kept.node.frame.w != node.frame.w
@@ -434,7 +477,12 @@ impl GameUi {
             } else {
                 layer.set(node.props, false, 0);
             }
-            self.nodes.insert(node.id, Kept { node, layer, group });
+            if let Some(enter) = enter.filter(|_| fresh) {
+                let come = motion::arrive(node.props, enter, reduced, self.tokens.motion.layer_ms);
+                layer.jump(come.away);
+                layer.ease(node.props, come.ms, come.ease);
+            }
+            self.nodes.insert(node.id, Kept { node, layer, group, enter });
             return Ok(());
         }
         let kept = self.nodes.get_mut(&node.id).unwrap();
@@ -452,6 +500,10 @@ impl GameUi {
                 _ => unreachable!(),
             }
         }
+        if self.leaving.stop(node.id) {
+            let back = motion::arrive(node.props, enter.unwrap_or(Enter::FADE), reduced, self.tokens.motion.layer_ms);
+            kept.layer.ease(node.props, back.ms, back.ease);
+        }
         if kept.node.props != node.props {
             let animate = !reduced
                 && (scrolled || !paint::LIVE.contains(&node.id))
@@ -461,6 +513,7 @@ impl GameUi {
             let ms = if self.page == Some(Page::Launch) && node.id == launch::FILL { self.tokens.motion.scroll_ms } else { self.tokens.motion.focus_ms };
             kept.layer.set(node.props, animate, ms);
         }
+        kept.enter = enter;
         kept.node = node;
         Ok(())
     }
@@ -511,10 +564,27 @@ fn draw_qr(layer: &mut ImageLayer, value: &str) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+thread_local! {
+    /// What the parts gallery has `plan_page` paint in place of the page (`shots::foundation`).
+    static GALLERY: std::cell::Cell<Option<fn(&mut Paint<'_>)>> = const { std::cell::Cell::new(None) };
+}
+/// Has `plan_page` paint `painter` in place of the page, or the page again with `None`.
+#[cfg(test)]
+pub(super) fn gallery(painter: Option<fn(&mut Paint<'_>)>) {
+    GALLERY.with(|g| g.set(painter));
+}
+
 /// Everything the page at `model.view.page` puts on screen, before layers are made for it.
 fn plan_page(tokens: &Tokens, model: &Model, fonts: &mut ui::Fonts, scroll_positions: BTreeMap<u32, f32>) -> paint::Plan {
     let mut p = Paint::new(tokens, model, fonts);
     p.scroll_positions = scroll_positions;
+    #[cfg(test)]
+    if let Some(gallery) = GALLERY.with(|g| g.get()) {
+        gallery(&mut p);
+        p.finish();
+        return p.plan;
+    }
     if model.view.page != Page::Running { parts::stage::canvas(&mut p, model.view.page == Page::Launch); }
     match model.view.page {
         Page::Home => home::home(&mut p),
@@ -531,6 +601,7 @@ fn plan_page(tokens: &Tokens, model: &Model, fonts: &mut ui::Fonts, scroll_posit
         Page::Leadjoy => settings::leadjoy(&mut p),
         Page::Running => stats::show(&mut p),
     }
+    p.finish();
     idle::show(&mut p);
     p.fit_focus();
     let sheet_start = p.plan.nodes.len();
@@ -538,6 +609,7 @@ fn plan_page(tokens: &Tokens, model: &Model, fonts: &mut ui::Fonts, scroll_posit
         p.plan.hits.clear();
     }
     parts::layer::sheet(&mut p);
+    p.finish();
     for node in &mut p.plan.nodes[sheet_start..] {
         node.z += 100;
     }

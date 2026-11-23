@@ -4,7 +4,7 @@ use crate::game::model::{Density, Focus, home::HomeItem};
 use lumagame_core::catalog::ArtKind;
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{components::Icon, geometry::Frame, lucent::palette::{Mode, PaletteRole as Role}};
-use crate::game::screens::parts::{stage::*, topbar::*};
+use crate::game::screens::parts::{stage::*, topbar::{self, Here, refresh_note}};
 use super::accounts::first_run;
 
 pub fn home(p: &mut Paint<'_>) {
@@ -56,7 +56,9 @@ pub fn home(p: &mut Paint<'_>) {
     );
     p.solid(3, Frame::new(0.0, 0.0, W, H), p.ink(Role::Canvas, false), 0.0, 2);
     p.plan.nodes.last_mut().unwrap().props.opacity = if deep { if p.mode == Mode::Light { 1.0 } else { 0.5 } } else { 0.0 };
-    let nav_end = nav(p, !deep);
+    p.art = !deep;
+    let attention = topbar::needs_attention(p);
+    let nav_end = topbar::bar(p, Here::Home, attention);
     refresh_note(p, 40, nav_end, p.y);
     if !deep {
         let top = hero_end - content;

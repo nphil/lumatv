@@ -4,10 +4,11 @@ use crate::game::model::{Focus, Key};
 use compositor_protocol::Rect;
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{components::Icon, geometry::Frame, lucent::palette::PaletteRole as Role};
-use crate::game::screens::parts::{dialog::*, keyboard::*, stage::*, topbar::*};
+use crate::game::screens::parts::{dialog::*, keyboard::*, stage::*, topbar::{self, Here, refresh_note}};
 
 pub fn library(p: &mut Paint<'_>, search: bool) {
-    let nav_end = nav(p, false);
+    let attention = topbar::needs_attention(p);
+    let nav_end = topbar::bar(p, if search { Here::Search } else { Here::Library }, attention);
     refresh_note(p, 40, nav_end, p.y);
     let m = p.model;
     let mut y = 162.0;

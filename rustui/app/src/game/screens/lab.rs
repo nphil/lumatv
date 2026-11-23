@@ -3,7 +3,7 @@
 
 use super::{
     paint::{Fill, H, LIVE, Paint, W},
-    parts::{row::{Control, row}, topbar::nav},
+    parts::{row::{Control, row}, topbar::{self, Here}},
 };
 use crate::game::model::{Focus, settings::{Capture, LabPad, Trip}};
 use compositor_protocol::Rect;
@@ -50,7 +50,8 @@ pub fn lab(p: &mut Paint<'_>) {
         button_test(p);
         return;
     }
-    nav(p, false);
+    let attention = topbar::needs_attention(p);
+    topbar::bar(p, Here::Elsewhere, attention);
     let (x, w) = (p.x, W - p.x * 2.0);
     let mut y = 170.0;
     p.text(100, "Controller lab", Frame::new(x + 26.0, y, w - 52.0, p.line(Type::Title)), Type::Title, Role::Ink, false, 10);

@@ -1,4 +1,4 @@
-use super::{art, glyph::Lead, symbols::Symbol};
+use super::{art, glyph::Lead, parts::motion::Enter, symbols::Symbol};
 use crate::game::model::{Focus, Model};
 use compositor_protocol::{Backdrop, Edges, Glass, Props, Rect, Rgba};
 use lumatv_tokens::{Radius, Tokens, TypeRole};
@@ -88,6 +88,8 @@ pub struct Plan {
     pub shift: f32,
     /// The page's moving bar segment, if it has one.
     pub sweep: Option<Sweep>,
+    /// How the nodes that arrive with a layer (`Paint::arrives`) come on and go off, by node id.
+    pub enters: std::collections::BTreeMap<u64, Enter>,
 }
 #[derive(Clone, Copy)]
 pub enum Fill {
@@ -101,6 +103,12 @@ pub enum Fill {
     Accent,
     Track,
 }
+/// What `Paint::arrives` opened: the nodes from `from` on, until the next scope, come in with `enter`, scaled about `about`.
+struct Scope {
+    from: usize,
+    about: Frame,
+    enter: Enter,
+}
 pub struct Paint<'a> {
     pub plan: Plan,
     pub tokens: &'a Tokens,
@@ -112,12 +120,19 @@ pub struct Paint<'a> {
     pub y: f32,
     pub gap: f32,
     pub scroll_positions: std::collections::BTreeMap<u32, f32>,
+    /// The page paints over stage art (Home, Launch, Game): its ink follows the dark palette there. A layer is a sheet, so each layer's
+    /// opening clears it.
+    pub art: bool,
+    /// The box hints are set in: the safe area of the screen, or the layer that is open.
+    pub anchor: Frame,
+    scopes: Vec<Scope>,
 }
 // Keep drawing coordinates and token choices explicit, like the underlying toolkit.
 #[allow(clippy::too_many_arguments)]
 impl<'a> Paint<'a> {
     pub fn new(tokens: &'a Tokens, model: &'a Model, fonts: &'a mut ui::Fonts) -> Self {
         let layout = &tokens.json()["layout"];
+        let (x, y) = (layout["edgeX"].as_f64().unwrap_or(96.0) as f32, layout["edgeY"].as_f64().unwrap_or(54.0) as f32);
         Self {
             plan: Plan::default(),
             tokens,
@@ -125,10 +140,13 @@ impl<'a> Paint<'a> {
             fonts,
             mode: tokens.mode(None),
             scale: model.prefs.text_scale(),
-            x: layout["edgeX"].as_f64().unwrap_or(96.0) as f32,
-            y: layout["edgeY"].as_f64().unwrap_or(54.0) as f32,
+            x,
+            y,
             gap: layout["gutter"].as_f64().unwrap_or(24.0) as f32,
             scroll_positions: std::collections::BTreeMap::new(),
+            art: false,
+            anchor: Frame::new(x, y, W - 2.0 * x, H - 2.0 * y),
+            scopes: Vec::new(),
         }
     }
     pub fn mode_at(&self, stage: bool) -> Mode {
@@ -411,11 +429,39 @@ impl<'a> Paint<'a> {
     /// so each is also moved to where the group's scale puts that centre. With reduced motion `GameUi::keep` sets the scale without
     /// easing, so the cue stays without the movement.
     pub fn zoom(&mut self, from: usize, frame: Frame, scale: f32) {
+        self.raise(from, frame, scale, 0.0);
+    }
+    /// `zoom`, and lifts what the control drew `lift` px.
+    pub fn raise(&mut self, from: usize, frame: Frame, scale: f32, lift: f32) {
         let (cx, cy) = (frame.x + frame.w / 2.0, frame.y + frame.h / 2.0);
         for node in &mut self.plan.nodes[from..] {
             node.props.x += (node.frame.x + node.frame.w / 2.0 - cx) * (scale - 1.0);
-            node.props.y += (node.frame.y + node.frame.h / 2.0 - cy) * (scale - 1.0);
+            node.props.y += (node.frame.y + node.frame.h / 2.0 - cy) * (scale - 1.0) - lift;
             node.props.scale = scale;
+        }
+    }
+    /// Whether movement is cut: the player's choice or the theme's.
+    pub fn reduced(&self) -> bool {
+        self.model.prefs.reduce_motion || self.tokens.motion.reduced
+    }
+    /// What is painted from here on, up to the next `arrives` or `finish`, comes onto the screen with `enter` and goes off it the same
+    /// way. `about` is the box the layer scales about, so each node of a layer that grows or shrinks moves with the layer.
+    pub fn arrives(&mut self, about: Frame, enter: Enter) {
+        self.scopes.push(Scope { from: self.plan.nodes.len(), about, enter });
+    }
+    /// Closes the scopes `arrives` opened: tags every node of each with its `Enter`. Call it before anything removes nodes from the
+    /// plan (`fit_focus` culls them).
+    pub fn finish(&mut self) {
+        let scopes = std::mem::take(&mut self.scopes);
+        for (i, scope) in scopes.iter().enumerate() {
+            let to = scopes.get(i + 1).map_or(self.plan.nodes.len(), |next| next.from);
+            let (ax, ay) = (scope.about.x + scope.about.w / 2.0, scope.about.y + scope.about.h / 2.0);
+            let grown = scope.enter.scale - 1.0;
+            for node in &self.plan.nodes[scope.from..to] {
+                let (cx, cy) = (node.frame.x + node.frame.w / 2.0, node.frame.y + node.frame.h / 2.0);
+                let enter = Enter { dx: scope.enter.dx + (cx - ax) * grown, dy: scope.enter.dy + (cy - ay) * grown, ..scope.enter };
+                self.plan.enters.insert(node.id, enter);
+            }
         }
     }
     pub fn button(&mut self, id: u64, focus: Focus, label: &str, icon: Option<Icon>, x: f32, y: f32, primary: bool, stage: bool, z: i32) -> f32 {
@@ -494,10 +540,14 @@ impl<'a> Paint<'a> {
         );
         w
     }
+    /// How wide a hint reads: its key's mark, a gap, then `label`.
+    pub fn hint_width(&mut self, label: &str) -> f32 {
+        self.width(label, TypeRole::Label) + 37.0 * self.scale + 10.0
+    }
     /// A hint: its key's mark, then what the key does. A face button takes the same room as an icon.
     pub fn hint(&mut self, id: u64, label: &str, lead: impl Into<Lead>, x: f32, y: f32, stage: bool, z: i32) -> f32 {
         let side = 37.0 * self.scale;
-        let w = self.width(label, TypeRole::Label) + side + 10.0;
+        let w = self.hint_width(label);
         let frame = Frame::new(x, y, w, side.max(self.line(TypeRole::Label)));
         let word = self.word(label, TypeRole::Label, self.ink(Role::Ink2, stage), side + 10.0, (side - self.line(TypeRole::Label)) / 2.0, w - side - 10.0);
         match lead.into() {

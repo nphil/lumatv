@@ -1,6 +1,6 @@
 use super::{
     paint::{Fill, Paint, W},
-    parts::{dialog::{panel, scrolling}, rail::rail, row::{Control, row}, topbar::nav},
+    parts::{dialog::{panel, scrolling}, rail::rail, row::{Control, row}, topbar::{self, Here}},
 };
 use crate::game::helper::{GameSirState, LeadjoyState};
 use crate::game::model::{Focus, Key, settings::Place};
@@ -18,7 +18,8 @@ use ui::{
 };
 
 pub fn settings(p: &mut Paint<'_>) {
-    nav(p, false);
+    let attention = topbar::needs_attention(p);
+    topbar::bar(p, Here::Elsewhere, attention);
     let x = rail(p);
     let w = W - p.x - x;
     match p.model.view.place {
@@ -229,7 +230,8 @@ fn controllers(p: &mut Paint<'_>, x: f32, w: f32) {
 }
 
 pub fn gamesir(p: &mut Paint<'_>) {
-    nav(p, false);
+    let attention = topbar::needs_attention(p);
+    topbar::bar(p, Here::Elsewhere, attention);
     let (x, w) = (p.x, W - p.x * 2.0);
     let (tx, tw) = (x + 26.0, w - 52.0);
     let mut y = 170.0;
@@ -278,7 +280,8 @@ pub fn gamesir(p: &mut Paint<'_>) {
 
 pub fn leadjoy(p: &mut Paint<'_>) {
     use crate::game::helper::LeadjoyState;
-    nav(p, false);
+    let attention = topbar::needs_attention(p);
+    topbar::bar(p, Here::Elsewhere, attention);
     let (x, w) = (p.x, W - p.x * 2.0);
     let (tx, tw) = (x + 26.0, w - 52.0);
     let mut y = 170.0;
