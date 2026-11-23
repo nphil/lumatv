@@ -59,8 +59,6 @@ pub struct GameUi {
     shift: f32,
     page: Option<Page>,
     groups: BTreeMap<u32, Scroll>,
-    /// The pass of the page's moving bar that is under way, if the page has one.
-    sweep: Option<Pass>,
     /// The nodes the plan dropped that are still going off the screen with their layer, and when each is let go.
     leaving: Leaving,
     /// How the nodes of the last plan that arrive with a layer (`Paint::arrives`) come on and go off.
@@ -113,34 +111,6 @@ impl Layer {
     fn set(&mut self, props: Props, animate: bool, ms: u32) {
         if animate { self.ease(props, ms, Ease::Out) } else { self.jump(props) }
     }
-    /// One pass of a constant-speed move from `from` to `to`: the compositor runs a move once and holds its end. Nobody's gesture
-    /// drives it, so it is drawn at most every 16 ms (60 a second on a 120 Hz panel): the soft edge moves under 10 px a frame.
-    fn glide(&mut self, from: Props, to: Props, ms: u32) {
-        if let Self::Surface(layer) = self {
-            layer.set(from);
-            layer.animate_stepped(to, ms, Ease::Linear, 16);
-        }
-    }
-}
-/// The pass an indeterminate bar's segment is on. The next is asked for when this one has ended.
-struct Pass {
-    sweep: paint::Sweep,
-    ends_ms: u64,
-}
-impl Pass {
-    fn new(sweep: paint::Sweep) -> Self {
-        Self { sweep, ends_ms: 0 }
-    }
-    /// The move to ask for at `now_ms`, when no pass is under way.
-    fn start(&mut self, now_ms: u64) -> Option<(Props, Props, u32)> {
-        (now_ms >= self.ends_ms).then(|| {
-            self.ends_ms = now_ms + u64::from(self.sweep.ms);
-            (self.sweep.from, self.sweep.to, self.sweep.ms)
-        })
-    }
-    fn wait_ms(&self, now_ms: u64) -> u64 {
-        self.ends_ms.saturating_sub(now_ms)
-    }
 }
 impl GameUi {
     pub fn build(mut ui: Ui, _assets: &Path, land: &mut dyn FnMut(&mut Ui) -> io::Result<()>) -> io::Result<Self> {
@@ -175,7 +145,6 @@ impl GameUi {
             shift: 0.0,
             page: None,
             groups: BTreeMap::new(),
-            sweep: None,
             leaving: Leaving::default(),
             enters: BTreeMap::new(),
             settled: false,
@@ -202,17 +171,9 @@ impl GameUi {
     pub fn art_busy(&self) -> bool {
         self.loader.busy() || self.art.busy() || self.unfinished_text || !self.ui.glyph_text_settled()
     }
-    /// How long until the page has to be shown again with nothing else changed: the next pass of its moving bar.
+    /// How long until the page has to be shown again with nothing else changed: the next node to finish leaving.
     pub fn wake_ms(&self, now_ms: u64) -> Option<u64> {
-        [self.sweep.as_ref().map(|pass| pass.wait_ms(now_ms)), self.leaving.wait_ms(now_ms)].into_iter().flatten().min()
-    }
-    /// Starts the next pass of the page's moving bar when the last has ended; true when one started.
-    fn continue_sweep(&mut self, now_ms: u64) -> bool {
-        let Some(pass) = &mut self.sweep else { return false };
-        let Some(kept) = self.nodes.get_mut(&pass.sweep.id) else { return false };
-        let Some((from, to, ms)) = pass.start(now_ms) else { return false };
-        kept.layer.glide(from, to, ms);
-        true
+        self.leaving.wait_ms(now_ms)
     }
     /// Lets go of the nodes whose way off the screen has ended; true when any went. The next plan then reaches the groups they held.
     fn expire(&mut self, now_ms: u64) -> bool {
@@ -268,15 +229,14 @@ impl GameUi {
             self.hits.clear();
             self.groups.clear();
             self.page = None;
-            self.sweep = None;
             self.leaving.clear();
             self.revision = Some(model.revision());
             return Ok(changed);
         }
-        let swept = self.continue_sweep(model.now_ms()) | self.expire(model.now_ms());
+        let expired = self.expire(model.now_ms());
         let scrolling = self.groups.values().any(|g| g.motion.is_active());
         if self.revision == Some(model.revision()) && !decoded && !self.unfinished_text && self.ui.glyph_text_settled() && !scrolling {
-            return Ok(swept || dipped);
+            return Ok(expired || dipped);
         }
         let appearance = (model.prefs.family.clone(), model.prefs.light, model.prefs.text_percent, model.prefs.reduce_motion);
         if self.appearance.as_ref() != Some(&appearance) {
@@ -311,8 +271,6 @@ impl GameUi {
         debug_assert_eq!(ids.len(), plan.nodes.len(), "duplicate retained node on {:?}", model.view.page);
         let reduced = model.prefs.reduce_motion || self.tokens.motion.reduced;
         self.depart(&ids, model.now_ms(), reduced);
-        let sweep = plan.sweep;
-        let crossing = sweep.is_some_and(|s| self.nodes.contains_key(&s.id));
         let cleared = self.sync_groups(&plan.groups, reduced)?;
         self.settled = !cut && !cleared;
         for (focus, mut frame) in plan.hits.drain(..) {
@@ -349,13 +307,6 @@ impl GameUi {
             }
             self.keep(node, reduced, scrolled, group)?;
         }
-        // A bar already crossing carries on through a re-plan that leaves it as it was; a new or changed one starts a pass of its own.
-        self.sweep = match sweep {
-            Some(next) if crossing && self.sweep.as_ref().is_some_and(|pass| pass.sweep == next) => self.sweep.take(),
-            Some(next) => Some(Pass::new(next)),
-            None => None,
-        };
-        self.continue_sweep(model.now_ms());
         self.end_art(model)?;
         while self.bytes > 64 << 20 {
             let victim = self.images.iter().filter(|(_, c)| c.used != self.generation).min_by_key(|(_, c)| c.used).map(|(k, _)| k.clone());
@@ -635,11 +586,8 @@ pub(super) fn plan_in(model: &Model, mode: ui::lucent::palette::Mode) -> paint::
 }
 #[cfg(test)]
 mod tests {
-    use super::{Pass, paint::Sweep, scroll_settle};
-    use compositor_protocol::{
-        Props,
-        motion::{MotionBounds, Track, Units},
-    };
+    use super::scroll_settle;
+    use compositor_protocol::motion::{MotionBounds, Track, Units};
 
     /// One refresh at 120 Hz.
     const FRAME_NS: u64 = 8_333_333;
@@ -730,14 +678,5 @@ mod tests {
         run.go(600.0, 260, true);
         run.frames(1);
         assert_eq!(run.track.value(), 600.0);
-    }
-
-    #[test]
-    fn a_bar_segment_starts_its_next_pass_when_the_last_ends_and_the_shell_wakes_for_it() {
-        let sweep = Sweep { id: 1, from: Props::at(0.0, 0.0), to: Props::at(100.0, 0.0), ms: 1800 };
-        let mut pass = Pass::new(sweep);
-        assert!(pass.start(5000).is_some(), "the first pass starts at once");
-        assert!(pass.start(5000 + 1799).is_none() && pass.wait_ms(5000 + 1799) == 1, "not before the pass has ended");
-        assert!(pass.start(5000 + 1800).is_some() && pass.wait_ms(5000 + 1800) == 1800, "and then again, with a full pass to wait for");
     }
 }

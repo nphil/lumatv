@@ -69,15 +69,6 @@ pub struct ScrollGroup {
     pub extent: f32,
     pub nodes: Vec<u64>,
 }
-/// A segment that crosses its track again and again, from `from` (the node's own props) to `to` in `ms`. The compositor runs an
-/// animation once, so the shell starts the next pass when each ends.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Sweep {
-    pub id: u64,
-    pub from: Props,
-    pub to: Props,
-    pub ms: u32,
-}
 #[derive(Default)]
 pub struct Plan {
     pub nodes: Vec<Node>,
@@ -86,8 +77,6 @@ pub struct Plan {
     pub hit_groups: std::collections::BTreeMap<Focus, u32>,
     /// How far the page is scrolled to keep the focus in view.
     pub shift: f32,
-    /// The page's moving bar segment, if it has one.
-    pub sweep: Option<Sweep>,
     /// How the nodes that arrive with a layer (`Paint::arrives`) come on and go off, by node id.
     pub enters: std::collections::BTreeMap<u64, Enter>,
 }
