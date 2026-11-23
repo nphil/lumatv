@@ -3,12 +3,12 @@
 //! Node ids of the text-entry layer: 8000 its scrim, 8001 its sheet, 8010 the title, 8011 the field's label, 8020 and 8021 the input,
 //! 8100 the keys' words and 8101 the focused key's wash, 8500 and 8501 the action button, 8510 the notice.
 use crate::game::screens::{
-    paint::{Fill, H, Paint, W},
+    paint::{Fill, H, Mark, Paint, W},
     parts::motion::Enter,
 };
 use crate::game::{helper::LeadjoyState, model::{Focus, Layer, settings::Pane}};
 use lumatv_tokens::{Radius, TypeRole as Type};
-use ui::{components::Icon, geometry::Frame, lucent::palette::PaletteRole as Role};
+use ui::{components::{Form, Icon}, geometry::Frame, lucent::palette::PaletteRole as Role};
 use crate::game::screens::parts::dialog::*;
 
 /// What the text-entry layer shows: a `title`, an optional `label` over the input, the `value` typed so far (`placeholder` while it is
@@ -62,14 +62,18 @@ pub fn flat(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, columns: usize, 
 }
 /// `keys` `columns` across as words on the sheet beneath them: one text layer for every key, and only the focused key gets its own
 /// layer, the focus wash under its word. `id` is the text layer, `id + 1` the wash. A key of its own per letter cost two layers each,
-/// 90 for the letter keys.
+/// 90 for the letter keys. Delete, Space, Done and the case key are marks on the same layer: their words do not fit a six-across key, and
+/// the font has no ⌫.
 #[allow(clippy::too_many_arguments)]
 fn grid(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, columns: usize, keys: &[String], z: i32) {
     let gap = 8.0;
     let width = (w - gap * (columns - 1) as f32) / columns as f32;
     let h = (52.0 * p.scale).min(80.0);
     let rows = keys.len().div_ceil(columns);
+    let side = p.line(Type::Caption).round();
+    let ink = p.ink(Role::Ink, false);
     let mut words = Vec::with_capacity(keys.len());
+    let mut marks = Vec::new();
     for (i, key) in keys.iter().enumerate() {
         let (kx, ky) = ((i % columns) as f32 * (width + gap), (i / columns) as f32 * (h + gap));
         let f = Frame::new(x + kx, y + ky, width, h);
@@ -77,12 +81,31 @@ fn grid(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, columns: usize, keys
             let wash = p.tokens.states.focus_wash[usize::from(p.mode == ui::lucent::palette::Mode::Light)];
             p.surface(id + 1, f, Fill::Tint(wash), Radius::Control, false, true, false, z);
         }
-        let mut word = p.word(key, Type::Caption, p.ink(Role::Ink, false), kx + 2.0, ky + (h - p.line(Type::Caption)) / 2.0, width - 4.0);
-        word.align = ui::components::Align::Centre;
-        words.push(word);
+        let (mx, my) = (kx + (width - side) / 2.0, ky + (h - side) / 2.0);
+        let icon = match key.as_str() {
+            "⌫" => Some(Icon::Backspace),
+            "Done" => Some(Icon::Enter),
+            "ABC" | "abc" => Some(Icon::Shift),
+            _ => None,
+        };
+        if let Some(icon) = icon {
+            marks.push(Mark { form: Form::Icon(icon, side as u32), colour: ink, x: mx, y: my });
+        } else if key == "Space" {
+            // The space bar's bracket: a rule with a short upturn at each end.
+            let (bar, tick) = (side.round() as u32, (side / 4.0).round() as u32);
+            let base = my + side * 0.75;
+            marks.push(Mark { form: Form::Round { w: bar, h: 2, radius: 1 }, colour: ink, x: mx, y: base });
+            for end in [mx, mx + side - 2.0] {
+                marks.push(Mark { form: Form::Round { w: 2, h: tick, radius: 1 }, colour: ink, x: end, y: base + 2.0 - tick as f32 });
+            }
+        } else {
+            let mut word = p.word(key, Type::Caption, ink, kx + 2.0, ky + (h - p.line(Type::Caption)) / 2.0, width - 4.0);
+            word.align = ui::components::Align::Centre;
+            words.push(word);
+        }
         p.hit(Focus::Keyboard(i), f);
     }
-    p.words(id, Frame::new(x, y, w, rows as f32 * (h + gap) - gap), words, vec![], z + 1);
+    p.words(id, Frame::new(x, y, w, rows as f32 * (h + gap) - gap), words, marks, z + 1);
 }
 pub fn edit_text(p: &mut Paint<'_>) {
     let model = p.model;
