@@ -95,6 +95,18 @@ STORE_SETUP = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"{STORE_ID}\"}}'",
                f"luna-send -n 1 {SAM}/launch '{{\"id\":\"{STORE_ID}\"}}'", 'sleep 20']
 STORE_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"{STORE_ID}\"}}'", 'sleep 2',
                   f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
+# LumaGame (`org.nphil.lumagame`), cold, on its Home: a fresh start each run, so the first page's art and the library load are waited out. Teardown
+# closes it and puts LG's Home back. The surfaces below move the app's own focus only; none presses OK on a game's play button (Home's Hero 0) or
+# changes a setting (Left and Right on a Settings row change its value, so a walk of Settings uses Up and Down and Left only on the first row).
+GAME_ID = 'org.nphil.lumagame'
+GAME_SETUP = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"{GAME_ID}\"}}'", 'sleep 3',
+              f"luna-send -n 1 {SAM}/launch '{{\"id\":\"{GAME_ID}\"}}'", 'sleep 14']
+GAME_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"{GAME_ID}\"}}'", 'sleep 2',
+                 f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
+# Keys that put the app on its Library page with the focus on the grid's first row, from Home or from the Library at any focus: Up clamps on the
+# nav row, Left clamps on its first tab, Right is Library's, OK on it opens the page (again, when already there: it resets the focus), two Downs
+# reach the filter row and the first grid row. The Library's walks leave focus anywhere in the grid and come back through this.
+GAME_LIBRARY_PREP = 'UPx20@0.03 LEFTx4@0.06 RIGHT OK s1.0 DOWNx2@0.3'
 # LG's Search app (`com.webos.app.voice`, resident, an overlay over Home), cold, with its keyboard hidden by Back so that the keys
 # move focus: what `lumatv voice on` restyles. The first launch after a close is dropped by the app inside 300 ms, hence the sleep.
 VOICE_ID = 'com.webos.app.voice'
@@ -325,6 +337,36 @@ SURFACES = [
     {'name': 'store-scroll', 'default': False, 'setup': STORE_SETUP, 'teardown': STORE_TEARDOWN,
      'open': '@store-scroll-open DOWNx5@0.35 UPx5@0.35', 'close': '@store-scroll-close', 'settle_s': 1,
      'transition': False,
+     'thresholds': {'burst_end_ms': None}},
+    # LumaGame's own UI (`--surfaces game-home,game-library,game-page,game-settings`; the app is closed and launched by setup, LG's Home put
+    # back by teardown): the baseline for the UI rework (docs/lumagame/ux-rework/BUILD-PLAN.md section 6.4). The UI is its own LG card window
+    # drawn at 120 Hz by its own engine, so its frames are the app's; the first frame after each key is what is asked, the burst-end check is
+    # not (a walk's burst never ends at a point of its own). Every walk is D-pad only and ends where its prep starts it again; Back is pressed at
+    # most once and never on Home, where it leaves the app.
+    # `game-home`: Home's nav tabs, the hero's three buttons, the shelves down and up with taps and a held key, no OK.
+    {'name': 'game-home', 'default': False, 'setup': GAME_SETUP, 'teardown': GAME_TEARDOWN, 'transition': False, 'app_retries': 0,
+     'prep': 'UPx8@0.08 LEFTx4@0.08',
+     'open': '@game-home-open RIGHTx3@0.15 LEFTx3@0.15 DOWN s0.15 RIGHTx2@0.15 LEFTx2@0.15 DOWN s0.15 RIGHTx4@0.12 LEFTx4@0.12 DOWN s0.15 '
+             'DOWN:900 s0.2 UP:900 s0.2 UPx6@0.1',
+     'close': '@game-home-close', 'settle_s': 0.6, 'close_settle_s': 0.5,
+     'thresholds': {'burst_end_ms': None}},
+    # `game-library`: the Library's grid with the focus across a row, then down and up with a held key twice (the grid scrolls by rows).
+    {'name': 'game-library', 'default': False, 'setup': GAME_SETUP, 'teardown': GAME_TEARDOWN, 'transition': False, 'app_retries': 0,
+     'prep': GAME_LIBRARY_PREP,
+     'open': '@game-library-open RIGHTx3@0.12 LEFTx3@0.12 DOWN:1500 s0.3 UP:1500 s0.3 DOWNx4@0.15 UPx4@0.15',
+     'close': '@game-library-close', 'settle_s': 0.6, 'close_settle_s': 0.5,
+     'thresholds': {'burst_end_ms': None}},
+    # `game-page`: a game's page opened from the Library's first grid row (the page acts on the release of OK, so does Back) and left again.
+    {'name': 'game-page', 'default': False, 'act': 'release', 'setup': GAME_SETUP, 'teardown': GAME_TEARDOWN, 'app_retries': 0,
+     'prep': GAME_LIBRARY_PREP,
+     'open': '@game-page-open OK', 'close': '@game-page-close BACK', 'settle_s': 1.5, 'close_settle_s': 1.0,
+     'thresholds': {'burst_end_ms': None}},
+    # `game-settings`: Settings from Home's fourth nav tab (OK, on its release), the Appearance list down and up, out to the rail, down through
+    # its six sections and up, back to the nav row and Back to Home. Taps only: Left and Right on a row of the list change the value.
+    {'name': 'game-settings', 'default': False, 'act': 'release', 'setup': GAME_SETUP, 'teardown': GAME_TEARDOWN, 'transition': False,
+     'app_retries': 0, 'prep': 'UPx8@0.06 LEFTx4@0.06 RIGHTx3@0.1',
+     'open': '@game-settings-open OK s0.8 DOWNx2@0.15 DOWNx3@0.1 UPx3@0.1 LEFT s0.15 DOWNx5@0.2 UPx5@0.2 UP s0.15 BACK',
+     'close': '@game-settings-close', 'settle_s': 0.8, 'close_settle_s': 0.5,
      'thresholds': {'burst_end_ms': None}},
     # LG's Search app over Home, restyled by `lumatv voice on` (`--surfaces voice-focus`): the keyboard is hidden, then focus walks the field,
     # the keyword rows and the genre cards and the top row's buttons and back, the same cycle in either look. The app is LG's native Qt
