@@ -102,6 +102,10 @@ impl AutoHide {
     pub fn show(&mut self, now_ms: u64) {
         self.until = now_ms + self.ms;
     }
+    /// Ends the showing now, unless it ends sooner of itself.
+    pub fn hide(&mut self, now_ms: u64) {
+        self.until = self.until.min(now_ms);
+    }
     pub fn visible(&self, now_ms: u64) -> bool {
         now_ms < self.until
     }
@@ -170,7 +174,7 @@ impl Owner {
             Layer::Sort | Layer::Genre => Self::Library,
             Layer::Delete => Self::Settings,
             Layer::Auth | Layer::SignOut => Self::Accounts,
-            Layer::StreamMenu | Layer::EndSession => Self::Launch,
+            Layer::Picture | Layer::Achievements | Layer::EndConfirm => Self::Launch,
             Layer::AddHost | Layer::EditText => Self::Text,
             Layer::Quick | Layer::QuickSettings => Self::Quick,
         }
@@ -277,7 +281,7 @@ mod tests {
         }
         m.view.page = Page::Home;
         use Layer::*;
-        for layer in [Chooser, Viewer, Sort, Genre, Delete, Auth, SignOut, StreamMenu, EndSession, AddHost, EditText, Quick, QuickSettings] {
+        for layer in [Chooser, Viewer, Sort, Genre, Delete, Auth, SignOut, Picture, Achievements, EndConfirm, AddHost, EditText, Quick, QuickSettings] {
             m.view.push(layer, Focus::None);
             assert!(!m.menu_allowed(), "{layer:?}");
             m.view.pop();
@@ -317,15 +321,15 @@ mod tests {
     }
 
     #[test]
-    fn on_a_bare_stream_a_key_only_brings_the_strip_back_and_back_opens_the_menu() {
+    fn on_a_bare_stream_a_key_only_brings_the_strip_back_and_back_resumes_it() {
         let mut m = launching("Game", false);
         report(&mut m, SessionState::Running { stream: None });
         assert!(m.strip_visible(), "the strip shows as the stream starts");
         tick(&mut m, 6_000);
         assert!(!m.strip_visible());
-        key(&mut m, Key::Ok);
-        assert!(m.strip_visible() && !m.stream_menu());
         key(&mut m, Key::Back);
-        assert!(m.stream_menu());
+        assert!(m.strip_visible() && m.view.focus == Focus::Strip(0), "the first key does nothing but bring the strip back");
+        key(&mut m, Key::Back);
+        assert!(!m.strip_visible(), "Back with the strip up resumes");
     }
 }

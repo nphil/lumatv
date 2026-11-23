@@ -2,7 +2,7 @@
 //!
 //! Node ids of `modal`: 8810 the backdrop, 8811 the panel, 8812 the title, 8813 the body, 8820 and up four to an action (its pill, its
 //! words, its pad glyph).
-use crate::game::model::{Focus, Layer};
+use crate::game::model::Focus;
 use crate::game::screens::{
     paint::{Fill, H, PAGE_EXTENT, Paint, SHEET_GROUP, ScrollGroup, W},
     parts::{SCRIM_Z, SHEET_Z, motion::Enter},
@@ -25,8 +25,7 @@ pub fn veil(p: &mut Paint<'_>, id: u64, frame: Frame, hides: bool) {
 }
 /// The dim over the whole screen behind the open layer.
 pub fn curtain(p: &mut Paint<'_>) {
-    let hides = p.model.view.top() == Some(Layer::EndSession);
-    veil(p, 8000, Frame::new(0.0, 0.0, W, H), hides);
+    veil(p, 8000, Frame::new(0.0, 0.0, W, H), false);
 }
 pub fn panel(p: &mut Paint<'_>, width: f32, height: f32) -> Frame {
     let frame = Frame::new((W - width) / 2.0, (H - height) / 2.0, width, height);

@@ -1,401 +1,402 @@
-//! The launch curtain: the game's art on the stage, three step chips, one status line and a bar that moves only as far as the wait
-//! has. It is laid out from the bottom up on measured text, so no block can reach into the next at any text size.
+//! The start screen of a launch and what the app draws over the running stream: the strip, the figures pill and the drawers.
+//!
+//! The start screen is a flat canvas: the game's logo, a turning ring and one line of what the launch is doing. The ring is
+//! `RING_FRAMES` images made once, one per turn of the arc; a step only changes which one is opaque, so nothing is drawn again.
+//! Over the stream the app draws only opaque sheets, never glass: nothing behind them is captured.
+//!
+//! Node ids: 700 the logo, 701 the line, 702 the caption under it, 703 the ring's track, `LIVE` + 300 and up the ring's images; the
+//! figures pill takes two of the HUD's ids (it sits above y = 150, which the page's cull spares only for them); 8300 and up the rows of
+//! a drawer, 20 to a row.
 use super::{
-    paint::{Fill, H, Paint, Sweep, W},
-    parts::{dialog::panel, stage::{art, logo, logo_art}},
+    paint::{Body, Fill, H, HUD, LIVE, Paint, W},
+    parts::{
+        SHEET_Z, Side,
+        dialog::{self, Action},
+        drawer, hints,
+        motion::Enter,
+        row::{self, Leading, Line},
+        stage::logo_art,
+        strip::{self, Item},
+    },
+    stats,
+    symbols::Symbol,
 };
-use crate::game::model::launch::OverlayAction;
-use crate::game::model::{Focus, Key};
-use compositor_protocol::{Edges, Props, Rect};
-use lumagame_core::session::Phase;
+use crate::game::model::{
+    Focus, Layer,
+    launch::{Achieved, RING_FRAMES, StripItem},
+};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{
-    components::{Icon, line_height},
+    components::{Align, Icon, ellipsise},
     geometry::Frame,
     lucent::palette::PaletteRole as Role,
 };
 
-const IDENTITY: u64 = 100;
-const CHIPS: u64 = 120;
-const STATUS: u64 = 140;
-const DETAIL: u64 = 141;
-const CANCEL: u64 = 150;
-const TRACK: u64 = 160;
-/// The bar's moving part: the shell eases its width at the scroll time rather than the focus time.
-pub const FILL: u64 = 161;
-/// The logo's art fits this frame, at its bottom left.
-const LOGO: (f32, f32) = (640.0, 240.0);
-/// How wide the text runs: the part of the art the curtain keeps dark, so what is written there reads over any game.
-const COLUMN: f32 = 1100.0;
-const BAR_W: f32 = 760.0;
-/// Between the blocks, top down: identity to steps, steps to status, status to bar, bar to Cancel.
-const GAPS: [f32; 4] = [44.0, 36.0, 28.0, 40.0];
-/// Between the status and the wait written under it.
-const UNDER: f32 = 10.0;
+const IDENTITY: u64 = 700;
+const HEADLINE: u64 = 701;
+const CAPTION: u64 = 702;
+const TRACK: u64 = 703;
+const RING: u64 = LIVE.start + 300;
+const PILL: u64 = HUD.start + 2;
+const ROWS: u64 = 8300;
 
+/// The logo's box, the ring and the room between the blocks of the stack.
+const LOGO: (f32, f32) = (520.0, 150.0);
+const RING_SIDE: f32 = 92.0;
+const GAP: f32 = 30.0;
+/// The room between the line and its caption.
+const UNDER: f32 = 6.0;
+/// The light a dimmed logo and line rest at.
+const REST: f32 = 0.4;
+/// The figures pill: room at the sides and above and below the figures, and between them.
+const PILL_PAD_X: f32 = 26.0;
+const PILL_PAD_Y: f32 = 12.0;
+const PILL_GAP: f32 = 22.0;
+/// A drawer's rows, and how many an achievements list shows at once.
+const ROW_H: f32 = 88.0;
+const ROW_GAP: f32 = 8.0;
+const WINDOW: usize = 7;
+
+/// Draws one line of text centred on the screen's middle, at most `width` wide: a title line in bold, anything else as a caption.
+/// Returns the height it took.
+fn centred(p: &mut Paint<'_>, id: u64, text: &str, role: Type, y: f32, width: f32) -> f32 {
+    let (ink, bold) = if matches!(role, Type::Title) { (Role::Ink, true) } else { (Role::Ink2, false) };
+    let ty = if bold { p.bold(role) } else { p.ty(role) };
+    let shown = ellipsise(p.fonts, text, ty, width);
+    let mut word = p.word(shown, role, p.ink(ink, false), 0.0, 0.0, width);
+    word.ty = ty;
+    word.align = Align::Centre;
+    p.words(id, Frame::new((W - width) / 2.0, y, width, p.line(role)), vec![word], vec![], 12);
+    p.plan.nodes.last().map_or(0.0, |node| node.frame.h)
+}
+/// Sets the light of every node from `from` on.
+fn light(p: &mut Paint<'_>, from: usize, opacity: f32) {
+    for node in &mut p.plan.nodes[from..] {
+        node.props.opacity = opacity;
+    }
+}
+
+/// The start screen: the logo, the ring and the step the launch is at. Both the logo and the line dim after a minute without a key;
+/// the ring keeps turning, so the screen still reads as alive.
 pub fn launch(p: &mut Paint<'_>) {
-    let Some(session) = p.model.session() else {
+    let m = p.model;
+    let (Some(game), Some(step)) = (m.session().map(|s| s.game), m.start_step()) else { return };
+    let reduced = m.prefs.reduce_motion || p.tokens.motion.reduced;
+    let width = (W - 2.0 * p.x).min(1200.0);
+    let head_h = p.line(Type::Title);
+    let caption_h = step.caption.as_ref().map_or(0.0, |_| UNDER + p.line(Type::Body));
+    let mut y = (H - (LOGO.1 + GAP + RING_SIDE + GAP + head_h + caption_h)) / 2.0;
+    let dim = m.start_dim();
+
+    let from = p.plan.nodes.len();
+    let logo = Frame::new((W - LOGO.0) / 2.0, y, LOGO.0, LOGO.1);
+    if let Some(path) = logo_art(p, game) {
+        p.image(IDENTITY, path, logo, 0.0, true, None, 10);
+    } else if let Some(title) = m.game(game).map(|g| g.title.clone()) {
+        let lines = p.fit(&title, Type::Title, logo.w, p.rows(Type::Title, logo.h));
+        let used = p.block(Type::Title, lines.len());
+        let top = logo.y + (logo.h - used) / 2.0;
+        for (i, line) in lines.iter().enumerate() {
+            centred(p, IDENTITY + 100 + i as u64, line, Type::Title, top + i as f32 * p.line(Type::Title), logo.w);
+        }
+    }
+    y += LOGO.1 + GAP;
+    let ring = Frame::new((W - RING_SIDE) / 2.0, y, RING_SIDE, RING_SIDE);
+    y += RING_SIDE + GAP;
+    y += centred(p, HEADLINE, &step.headline, Type::Title, y, width);
+    if let Some(caption) = &step.caption {
+        centred(p, CAPTION, caption, Type::Body, y + UNDER, width);
+    }
+    if dim {
+        light(p, from, REST);
+    }
+
+    // The track stands still. Each image of the arc is a fixed symbol drawn once; only one is opaque at a time. Reduced motion
+    // has one image that does not move, and dims with the words.
+    let ring_from = p.plan.nodes.len();
+    p.symbol(TRACK, Symbol::Ring, ring, p.ink(Role::TrackOff, false), 10);
+    let shown = m.ring_frame();
+    for k in 0..RING_FRAMES {
+        if reduced && k != 0 {
+            continue;
+        }
+        p.symbol(RING + u64::from(k), Symbol::Spinner { turn: k, of: RING_FRAMES }, ring, p.ink(Role::Accent, false), 11);
+        let at = p.plan.nodes.len() - 1;
+        p.plan.nodes[at].props.opacity = if k == shown || reduced { 1.0 } else { 0.0 };
+    }
+    if reduced && dim {
+        light(p, ring_from, REST);
+    }
+    let hints_now = m.hints();
+    hints::bar(p, &hints_now, Side::Right, m.hints_dim);
+}
+
+/// The page while the stream runs: nothing, the strip with the figures, a drawer or the End prompt.
+pub fn running(p: &mut Paint<'_>) {
+    match p.model.view.top() {
+        Some(Layer::Picture) => picture(p),
+        Some(Layer::Achievements) => achievements(p),
+        Some(Layer::EndConfirm) => end(p),
+        _ => bare(p),
+    }
+}
+
+fn icon(item: StripItem) -> Icon {
+    match item {
+        StripItem::Resume => Icon::Play,
+        StripItem::Picture => Icon::Sun,
+        StripItem::Controller => Icon::Cog,
+        StripItem::Achievements => Icon::Checklist,
+        StripItem::End => Icon::Power,
+    }
+}
+
+/// The stats overlay when it is on, and for the first seconds and after each key the strip with the figures.
+fn bare(p: &mut Paint<'_>) {
+    stats::show(p);
+    let m = p.model;
+    if !m.strip_visible() {
         return;
+    }
+    pill(p);
+    let items: Vec<Item<'_>> = StripItem::ALL
+        .iter()
+        .enumerate()
+        .map(|(i, item)| Item { icon: icon(*item), label: Some(item.label()), focus: Focus::Strip(i), danger: *item == StripItem::End })
+        .collect();
+    let focused = match m.view.focus {
+        Focus::Strip(i) => Some(i),
+        _ => None,
     };
-    let (game, phase) = (session.game, session.phase());
-    art(p, game, H, 0.0, H, true);
-    let x = p.x;
-    let col = COLUMN.min(W - 2.0 * x);
-    let reduced = p.model.prefs.reduce_motion || p.tokens.motion.reduced;
-
-    // The status takes the big size while it fits the column and the title size when it does not; the wait goes beside it when
-    // both fit on one line, and under it when not.
-    let (head, wait) = status(phase);
-    let queued = matches!(phase, Phase::Queue { position: Some(_), .. });
-    let role = if queued && p.width(&head, Type::Display) <= col { Type::Display } else { Type::Title };
-    let head = p.fit(&head, role, col, 2);
-    let head_w = head.iter().map(|line| p.width(line, role)).fold(0.0, f32::max);
-    let gap = (p.ty(role).px as f32 * 0.4).round();
-    let wait = wait.map(|text| {
-        let beside = format!("· {text}");
-        if head.len() == 1 && head_w + gap + p.width(&beside, Type::Title) <= col { (beside, true) } else { (text, false) }
-    });
-    let head_h = p.block(role, head.len());
-    let status_h = head_h + wait.as_ref().map_or(0.0, |(_, beside)| if *beside { 0.0 } else { UNDER + p.block(Type::Title, 1) });
-
-    // Bottom up: each block sits above the one under it, whatever height its text came to.
-    let button_h = p.tokens.target.max(p.line(Type::Label) + 24.0);
-    let cancel_y = H - p.y - button_h;
-    let bar_h = (6.0 * p.scale).round();
-    let bar = Rect { x, y: cancel_y - GAPS[3] - bar_h, w: BAR_W.min(col), h: bar_h };
-    let status_y = bar.y - GAPS[2] - status_h;
-    let chip_h = 52.0f32.max(p.line(Type::Label) + 12.0);
-    let chips_y = status_y - GAPS[1] - chip_h;
-    let art = logo_art(p, game);
-    let title = if art.is_some() {
-        Vec::new()
-    } else {
-        let name = p.model.game(game).map(|g| g.title.clone()).unwrap_or_default();
-        p.fit(&name, Type::Title, col, 2)
-    };
-    let identity_h = if art.is_some() { LOGO.1 } else { p.block(Type::Title, title.len()) };
-    let identity_y = chips_y - GAPS[0] - identity_h;
-
-    match art {
-        Some(path) => p.image(IDENTITY, path, Frame::new(x, identity_y, LOGO.0, LOGO.1), 0.0, true, None, 10),
-        None => {
-            p.lines(IDENTITY, title, Frame::new(x, identity_y, col, 0.0), Type::Title, Role::Ink, true, 10);
-        }
-    }
-    let step = match phase {
-        Phase::Checking | Phase::SignIn => 0,
-        Phase::Queue { .. } => 1,
-        _ => 2,
-    };
-    let mut chip_x = x;
-    for (i, label) in ["Checking", "In queue", "Starting"].into_iter().enumerate() {
-        let f = Frame::new(chip_x, chips_y, p.width(label, Type::Label) + 74.0, chip_h);
-        let id = CHIPS + i as u64 * 3;
-        p.surface(id, f, Fill::Tint(if step == i { 0.12 } else { 0.04 }), Radius::Pill, true, false, false, 10);
-        p.words(
-            id + 1,
-            f,
-            vec![p.word(label, Type::Label, p.ink(if step == i { Role::Ink } else { Role::Ink2 }, true), 42.0, (f.h - p.line(Type::Label)) / 2.0, f.w - 60.0)],
-            vec![p.mark(
-                if i < step { Icon::Tick } else { Icon::Circle },
-                22.0,
-                14.0,
-                (f.h - 22.0) / 2.0,
-                if i < step { Role::Positive } else { Role::Ink2 },
-                true,
-            )],
-            11,
-        );
-        chip_x += f.w + 14.0;
-    }
-    if let Some((text, beside)) = wait {
-        // Two sizes on one line share a baseline, not a top.
-        let (dx, dy) = if beside { (head_w + gap, baseline(p, &head[0], role) - baseline(p, &text, Type::Title)) } else { (0.0, head_h + UNDER) };
-        p.text(DETAIL, &text, Frame::new(x + dx, status_y + dy, col - dx, 0.0), Type::Title, Role::Ink2, true, 10);
-    }
-    p.lines(STATUS, head, Frame::new(x, status_y, col, 0.0), role, Role::Ink, true, 10);
-
-    // A bar for the wait only where the wait can be measured, as far as it has gone. Otherwise a segment keeps crossing the track;
-    // with reduced motion there is no bar, because a still, empty one reads as no progress.
-    let track = Frame::new(bar.x, bar.y, bar.w, bar.h);
-    let ink = p.ink(Role::Ink, true);
-    match p.model.queue_progress() {
-        Some(share) => {
-            p.solid(TRACK, track, p.ink(Role::TrackOff, true), bar_h / 2.0, 12);
-            p.solid(FILL, track, ink, bar_h / 2.0, 13);
-            window(p, Rect { w: bar.w * share, ..bar }, Edges::NONE);
-        }
-        None if !reduced => {
-            p.solid(TRACK, track, p.ink(Role::TrackOff, true), bar_h / 2.0, 12);
-            let segment = (bar.w / 3.0).round();
-            p.solid(FILL, Frame::new(bar.x - segment, bar.y, segment, bar_h), ink, bar_h / 2.0, 13);
-            let from = window(p, bar, Edges::horizontal(segment / 2.0));
-            let to = Props { x: bar.x + bar.w, ..from };
-            p.plan.sweep = Some(Sweep { id: FILL, from, to, ms: (6 * p.tokens.motion.scroll_ms).max(600) });
-        }
-        None => {}
-    }
-    if p.model.can_cancel() {
-        let lead = p.lead(Key::Back, Icon::Back);
-        p.button_lead(CANCEL, Focus::Cancel, "Cancel", Some(lead), x, cancel_y, false, true, 12);
-    }
+    strip::bar(p, &items, focused);
+    let hints_now = m.hints();
+    hints::bar(p, &hints_now, Side::Right, m.hints_dim);
 }
 
-/// The launch's one line: what it is doing and, when the engine can say, how long it will take.
-fn status(phase: &Phase) -> (String, Option<String>) {
-    match phase {
-        Phase::Queue { position, eta_s } => (
-            position.map_or_else(|| "Waiting for a free machine".into(), |n| format!("You're {} in line", ordinal(n))),
-            eta_s.map(wait),
-        ),
-        Phase::SignIn => ("Sign in to continue".into(), None),
-        Phase::Starting => ("Getting your game ready".into(), None),
-        Phase::Stopping => ("Closing the session".into(), None),
-        _ => ("Checking the connection".into(), None),
-    }
-}
-
-// shortcut: no thousands separator; a queue seldom passes four digits. Upgrade if one shows 12345th.
-fn ordinal(n: u32) -> String {
-    let suffix = match (n % 100, n % 10) {
-        (11..=13, _) => "th",
-        (_, 1) => "st",
-        (_, 2) => "nd",
-        (_, 3) => "rd",
-        _ => "th",
-    };
-    format!("{n}{suffix}")
-}
-
-/// An estimate of seconds, as the owner would say it.
-fn wait(seconds: u32) -> String {
-    if seconds < 60 { "less than a minute".into() } else { format!("about {} min", (seconds + 30) / 60) }
-}
-
-/// Where the baseline of `text` falls in its line box, as the glyph layer sets it.
-fn baseline(p: &mut Paint<'_>, text: &str, role: Type) -> f32 {
-    let ty = p.ty(role);
-    let extent = p.fonts.measure(text, ty);
-    ((line_height(ty) - extent.height()) / 2.0 + extent.ascent).round()
-}
-
-/// Shows the node just drawn only inside `rect`, fading over `feather` at its edges; returns the props that gives it.
-fn window(p: &mut Paint<'_>, rect: Rect, feather: Edges) -> Props {
-    let node = p.plan.nodes.last_mut().expect("the node just drawn");
-    node.props = node.props.clip_feathered(rect, feather);
-    node.props
-}
-pub fn end_session(p: &mut Paint<'_>) {
-    let (title, body, confirm) = p.model.end_copy();
-    let f = panel(p, 1080.0, if p.scale > 1.0 { 700.0 } else { 400.0 });
-    let x = f.x + 40.0;
-    p.text(8010, title, Frame::new(x, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0), Type::Title, Role::Ink, false, 32);
-    p.wrapped(8020, &body, Frame::new(x, f.y + 78.0 + p.line(Type::Title), f.w - 80.0, 0.0), Type::Body, Role::Ink2, false, 32);
-    let y = f.y + f.h - 104.0;
-    let w = p.button(8030, Focus::SheetAction(0), "Keep playing", Some(Icon::Play), x, y, true, false, 34);
-    p.button(8040, Focus::SheetAction(1), confirm, Some(Icon::Stop), x + w + 16.0, y, false, false, 34);
-}
-pub fn overlay(p: &mut Paint<'_>) {
-    let Some(session) = p.model.session() else {
+/// The stream's figures, top right: the picture, the frame rate and the round trip. The stats overlay says the same in full, so with
+/// it on there is no pill.
+fn pill(p: &mut Paint<'_>) {
+    let m = p.model;
+    let figures = m.figures();
+    if m.hud_visible() || figures.is_empty() {
         return;
-    };
-    art(p, session.game, 1080.0, 0.0, 1080.0, true);
-    let button_h = p.tokens.target.max(p.line(Type::Label) + 24.0);
-    let actions_y = H - 118.0 - button_h * if p.scale >= 2.0 { 2.0 } else { 1.0 } - if p.scale >= 2.0 { 16.0 } else { 0.0 };
-    let mut stats = Vec::new();
-    let s = &p.model.view.stats;
-    if let Some(v) = s.rtt_ms {
-        stats.push(format!("{v:.0} ms network"));
     }
-    if let Some(v) = s.loss_pct {
-        stats.push(format!("{v:.1}% packet loss"));
+    let ty = p.bold(Type::Label);
+    let colour = p.ink(Role::Ink, false);
+    let mut words = Vec::new();
+    let mut x = PILL_PAD_X;
+    for (i, text) in figures.iter().enumerate() {
+        if i > 0 {
+            x += PILL_GAP;
+        }
+        let (mut cut, w) = p.figures(text, ty, colour, 0.0, PILL_PAD_Y);
+        for word in &mut cut {
+            word.x += x;
+        }
+        words.extend(cut);
+        x += w;
     }
-    if let Some(v) = s.bitrate_kbps {
-        stats.push(format!("{:.0} Mb/s", v as f32 / 1000.0));
+    let frame = Frame::new(W - p.x - (x + PILL_PAD_X), p.y, x + PILL_PAD_X, p.line(Type::Label) + 2.0 * PILL_PAD_Y);
+    p.arrives(frame, Enter::FADE);
+    p.surface(PILL, frame, Fill::Sheet, Radius::Pill, false, false, false, SHEET_Z);
+    p.words(PILL + 1, frame, words, vec![], SHEET_Z + 1);
+}
+
+/// What a drawer's rows are drawn with sits under the drawer's sheet; this lifts it over.
+fn above_sheet(p: &mut Paint<'_>, from: usize) {
+    for node in &mut p.plan.nodes[from..] {
+        node.z += SHEET_Z;
     }
-    if let Some(v) = s.host_ms {
-        stats.push(format!("{v:.1} ms host"));
+}
+
+fn picture(p: &mut Paint<'_>) {
+    let m = p.model;
+    let content = drawer::open(p, Side::Right, drawer::WIDTH, "Picture");
+    let from = p.plan.nodes.len();
+    let mut y = content.y;
+    for (i, picture) in m.picture_rows().iter().enumerate() {
+        let frame = Frame::new(content.x, y, content.w, ROW_H);
+        let line = Line { lead: Leading::Glyph(picture.icon), name: picture.label, sub: None };
+        let (id, focused) = (ROWS + 20 * i as u64, p.focused(Focus::SheetRow(i)));
+        if picture.switch {
+            row::switch(p, id, frame, &line, picture.on, focused);
+        } else {
+            row::stepper(p, id, frame, &line, &picture.value, focused);
+        }
+        p.hit(Focus::SheetRow(i), frame);
+        y += ROW_H + ROW_GAP;
     }
-    if let Some(v) = s.client_ms {
-        stats.push(format!("{v:.1} ms client"));
+    above_sheet(p, from);
+    let hints_now = m.hints();
+    hints::bar(p, &hints_now, Side::Left, m.hints_dim);
+}
+
+fn achievements(p: &mut Paint<'_>) {
+    let m = p.model;
+    let content = drawer::open(p, Side::Right, drawer::WIDTH, "Achievements");
+    let from = p.plan.nodes.len();
+    let inner = Frame::new(content.x + 28.0, content.y, content.w - 56.0, 0.0);
+    match m.achievement_list() {
+        Achieved::Words(text) => p.text(ROWS, &text, inner, Type::Body, Role::Ink2, false, 12),
+        Achieved::List { summary, rows } => {
+            p.text(ROWS, &summary, inner, Type::Body, Role::Ink2, false, 12);
+            let mut y = content.y + p.line(Type::Body) + 20.0;
+            let at = match m.view.focus {
+                Focus::SheetRow(i) => i,
+                _ => 0,
+            };
+            let first = (at + 1).saturating_sub(WINDOW).min(rows.len().saturating_sub(WINDOW));
+            for (slot, (i, achievement)) in rows.iter().enumerate().skip(first).take(WINDOW).enumerate() {
+                let frame = Frame::new(content.x, y, content.w, ROW_H);
+                let lead = Leading::Glyph(if achievement.unlocked { Icon::Check } else { Icon::Circle });
+                let line = Line { lead, name: &achievement.name, sub: Some(&achievement.note) };
+                row::value(p, ROWS + 20 * (slot as u64 + 1), frame, &line, "", None, p.focused(Focus::SheetRow(i)));
+                p.hit(Focus::SheetRow(i), frame);
+                y += ROW_H + ROW_GAP;
+            }
+        }
     }
-    let stats_text = stats.join("  ·  ");
-    let stats_h = if stats.is_empty() { 0.0 } else { ui::components::wrap(p.fonts, &stats_text, p.ty(Type::Label), W - p.x * 2.0).len() as f32 * p.line(Type::Label) + 10.0 };
-    let mut session_line = vec![p.model.engine_name(&session.source.engine).to_string()];
-    if let Some(stream) = &p.model.view.stream {
-        session_line.push(format!(
-            "{}p · {} fps · {} · {}",
-            stream.height,
-            stream.fps,
-            stream.codec.as_str().to_uppercase(),
-            if stream.hdr { "HDR" } else { "SDR" }
-        ));
+    above_sheet(p, from);
+    let hints_now = m.hints();
+    hints::bar(p, &hints_now, Side::Left, m.hints_dim);
+}
+
+/// The second action of `dialog::modal`: the one that ends the session. Its words are the surface's id and one.
+const LEAVE_LABEL: u64 = 8825;
+
+/// The prompt before a session ends, on an opaque backdrop. Focus starts on Keep playing, which is also what a half minute of quiet
+/// chooses. Nothing behind a sheet over the stream is captured, so the buttons rest as plain tint, and the one that ends reads in the
+/// danger ink.
+fn end(p: &mut Paint<'_>) {
+    let m = p.model;
+    let (title, body, confirm) = m.end_copy();
+    let keep = Action { label: "Keep playing", icon: Some(Icon::Play), focus: Focus::SheetAction(0) };
+    let leave = Action { label: confirm, icon: Some(Icon::Power), focus: Focus::SheetAction(1) };
+    let from = p.plan.nodes.len();
+    dialog::modal(p, title, &body, &[keep, leave], 0);
+    let danger = p.ink(Role::Danger, false);
+    for node in &mut p.plan.nodes[from..] {
+        match &mut node.body {
+            Body::Surface(glass) => glass.backdrop = compositor_protocol::Backdrop::None,
+            Body::Text { words, marks } if node.id == LEAVE_LABEL => {
+                words.iter_mut().for_each(|word| word.colour = danger);
+                marks.iter_mut().for_each(|mark| mark.colour = danger);
+            }
+            _ => {}
+        }
     }
-    let elapsed = p.model.elapsed();
-    session_line.push(format!("{}:{:02} elapsed", elapsed / 60, elapsed % 60));
-    let line = session_line.join("  ·  ");
-    let line_h = ui::components::wrap(p.fonts, &line, p.ty(Type::Label), W - p.x * 2.0).len() as f32 * p.line(Type::Label);
-    let logo_y = actions_y - 40.0 - stats_h - line_h - 30.0 - 240.0;
-    logo(p, 100, session.game, Frame::new(p.x, logo_y, 640.0, 240.0));
-    p.wrapped(101, &line, Frame::new(p.x, logo_y + 270.0, W - p.x * 2.0, line_h), Type::Label, Role::Ink, true, 10);
-    if !stats.is_empty() {
-        p.wrapped(102, &stats_text, Frame::new(p.x, logo_y + 270.0 + line_h + 10.0, W - p.x * 2.0, stats_h), Type::Label, Role::Ink2, true, 10);
-    }
-    if let Some(reason) = p.model.view.stream.as_ref().and_then(|s| s.sdr_reason.as_deref()) {
-        p.text(103, reason, Frame::new(p.x, logo_y - 60.0, W - p.x * 2.0, p.line(Type::Caption)), Type::Caption, Role::Warning, true, 10);
-    }
-    let mut x = p.x;
-    let stats_label = format!("Stats · {}", p.model.prefs.stats.mode.name());
-    let mut y = actions_y;
-    let stats = p.lead(Key::Menu, Icon::Gauge);
-    // X opens it from any item, so on a pad the button wears X's marking in the pad's own style.
-    let steam = p.lead(Key::Alt, Icon::Apps);
-    for (i, action) in p.model.overlay_actions().enumerate() {
-        let (label, lead) = match action {
-            OverlayAction::Resume => ("Resume", Icon::Play.into()),
-            OverlayAction::Settings => ("Stream settings", Icon::Sliders.into()),
-            OverlayAction::Stats => (stats_label.as_str(), stats),
-            OverlayAction::SteamOverlay => ("Steam overlay", steam),
-            OverlayAction::EndSession => ("End session", Icon::Stop.into()),
-        };
-        if p.scale >= 2.0 && i == 2 { x = p.x; y += button_h + 16.0; }
-        x += p.button_lead(110 + i as u64 * 5, Focus::Overlay(i), label, Some(lead), x, y, i == 0, true, 12) + 16.0;
-    }
+    let hints_now = m.hints();
+    hints::bar(p, &hints_now, Side::Left, m.hints_dim);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::model::{Input, Key, Model, tests::{launching, report}};
-    use super::super::paint::{Body, Plan, assert_readable};
-    use lumagame_core::ipc::SessionState;
-    use lumatv_tokens::Tokens;
-    use ui::{components::Form, lucent::palette::Mode};
+    use crate::game::{
+        model::{
+            Input, Key, Model,
+            tests::{describe, key, launching, report},
+        },
+        screens::{
+            paint::{Body, Node, Plan, assert_readable},
+            plan_in,
+        },
+    };
+    use lumagame_core::{engine::Feature, ipc::SessionState};
+    use ui::lucent::palette::Mode;
 
-    /// A title no game has: many words, and then one that fits no line.
-    const LONG: &str = "The Extraordinarily Long-Winded Chronicles of Sir Bartholomew Fitzwilliam-Montgomery the Third and the Quest for the Unpronounceable Artefact of Everlasting Disappointment";
-    const WORD: &str = "Supercalifragilisticexpialidocious-Hippopotomonstrosesquippedaliophobia-Pneumonoultramicroscopicsilicovolcanoconiosis";
+    /// A title the logo's box holds only in part.
+    const LONG: &str = "The Extraordinarily Long-Winded Chronicles of Sir Bartholomew Fitzwilliam-Montgomery the Third and the Quest for the Unpronounceable Artefact";
 
-    fn reports() -> Vec<SessionState> {
-        let queue = |position, eta_s| SessionState::Queue { position, eta_s };
-        vec![
-            SessionState::Checking,
-            SessionState::SignIn,
-            queue(Some(12), Some(185)),
-            queue(Some(1234), Some(7200)),
-            queue(None, Some(45)),
-            queue(None, None),
-            SessionState::Starting,
-        ]
+    fn queued(title: &str) -> Model {
+        let mut m = launching(title, false);
+        describe(&mut m, "gfn", vec![], &[Feature::EndGame, Feature::Queue]);
+        report(&mut m, SessionState::Queue { position: Some(12), eta_s: Some(185) });
+        m
     }
-    fn page<R>(m: &Model, mode: Mode, fonts: &mut ui::Fonts, then: impl FnOnce(&mut Paint<'_>) -> R) -> R {
-        let tokens = lumatv_tokens::themes::game_tokens("rose-pine", mode, &Tokens::shipped()).unwrap();
-        let mut p = Paint::new(&tokens, m, fonts);
-        launch(&mut p);
-        p.fit_focus();
-        then(&mut p)
+    fn running() -> Model {
+        let mut m = launching("Hades", false);
+        let stream = serde_json::json!({"codec":"h265","width":3840,"height":2160,"fps":120,"hdr":true,"audio_channels":2});
+        report(&mut m, SessionState::Running { stream: Some(serde_json::from_value(stream).unwrap()) });
+        m.view.stats.rtt_ms = Some(18.0);
+        m
     }
-    fn union(plan: &Plan, ids: std::ops::RangeInclusive<u64>) -> Option<Frame> {
-        plan.nodes.iter().filter(|n| ids.contains(&n.id)).map(|n| n.frame).reduce(|a, b| {
-            let (x, y) = (a.x.min(b.x), a.y.min(b.y));
-            Frame::new(x, y, (a.x + a.w).max(b.x + b.w) - x, (a.y + a.h).max(b.y + b.h) - y)
-        })
+    fn node(plan: &Plan, id: u64) -> &Node {
+        plan.nodes.iter().find(|n| n.id == id).unwrap_or_else(|| panic!("node {id}"))
     }
-    /// The blocks of the screen keep their distance from each other and from the screen's edge, and no icon touches its text.
-    fn assert_clear(p: &mut Paint<'_>, what: &str) {
-        assert_readable(&p.plan, p.fonts, true);
-        let blocks: Vec<_> = [("identity", IDENTITY..=IDENTITY), ("steps", CHIPS..=CHIPS + 8), ("status", STATUS..=DETAIL), ("bar", TRACK..=TRACK), ("cancel", CANCEL..=CANCEL + 1)]
-            .into_iter()
-            .filter_map(|(name, ids)| union(&p.plan, ids).map(|f| (name, f)))
-            .collect();
-        assert!(blocks.len() >= 4, "{what}: a block is missing: {blocks:?}");
-        for (name, f) in &blocks {
-            assert!(f.x >= p.x - 1.0 && f.x + f.w <= W - p.x + 1.0 && f.y >= p.y - 1.0 && f.y + f.h <= H - p.y + 1.0, "{what}: {name} leaves the safe area: {f:?}");
-        }
-        for (i, (a, fa)) in blocks.iter().enumerate() {
-            for (b, fb) in &blocks[..i] {
-                let apart = (fa.y - (fb.y + fb.h)).max(fb.y - (fa.y + fa.h));
-                assert!(apart >= 3.0, "{what}: {a} and {b} are {apart} apart: {fa:?} {fb:?}");
-            }
-        }
-        for node in &p.plan.nodes {
-            let Body::Text { words, marks } = &node.body else { continue };
-            for mark in marks {
-                let Form::Icon(_, side) = mark.form else { continue };
-                for word in words {
-                    let width = p.fonts.measure(&word.text, word.ty).width;
-                    let apart = (word.x - (mark.x + side as f32)).max(mark.x - (word.x + width));
-                    assert!(apart >= 2.0, "{what}: an icon touches {:?} ({apart} apart)", word.text);
-                }
-            }
-        }
+    /// The ring's images, by turn, that are opaque.
+    fn lit(plan: &Plan) -> Vec<u64> {
+        plan.nodes.iter().filter(|n| LIVE.contains(&n.id) && n.id >= RING && n.props.opacity > 0.5).map(|n| n.id - RING).collect()
     }
 
     #[test]
-    fn no_phase_crowds_or_overlaps_at_either_text_size_in_either_theme() {
+    fn the_start_screen_keeps_its_blocks_apart_inside_the_screen_at_both_text_sizes_in_both_themes() {
         let mut fonts = ui::Fonts::new();
         for percent in [100, 200] {
             for mode in [Mode::Dark, Mode::Light] {
-                let mut cases: Vec<(&str, bool, SessionState)> = reports().into_iter().map(|state| (LONG, false, state)).collect();
-                cases.push((WORD, false, SessionState::Queue { position: Some(12), eta_s: Some(185) }));
-                cases.push(("Hades", true, SessionState::Queue { position: Some(12), eta_s: Some(185) }));
-                for (title, art, state) in cases {
-                    let mut m = launching(title, art);
+                for title in [LONG, "Hades"] {
+                    let mut m = queued(title);
                     m.prefs.text_percent = percent;
-                    report(&mut m, state.clone());
-                    page(&m, mode, &mut fonts, |p| assert_clear(p, &format!("{percent}% {mode:?} {state:?} {title:.12}")));
+                    let plan = plan_in(&m, mode);
+                    assert_readable(&plan, &mut fonts, false);
+                    let (ring, head, caption) = (node(&plan, TRACK).frame, node(&plan, HEADLINE).frame, node(&plan, CAPTION).frame);
+                    for f in [ring, head, caption] {
+                        assert!(f.x >= 0.0 && f.x + f.w <= W && f.y >= 0.0 && f.y + f.h <= H, "{percent}% {mode:?} {title:.8}: {f:?} leaves the screen");
+                    }
+                    assert!(head.y >= ring.y + ring.h && caption.y >= head.y + head.h, "{percent}% {mode:?}: the ring, the line and the caption stack in that order");
                 }
-                // Mid-queue, with the bar full of what it has measured, and a launch being stopped.
-                let mut m = launching(LONG, false);
-                m.prefs.text_percent = percent;
-                report(&mut m, SessionState::Queue { position: Some(12), eta_s: None });
-                report(&mut m, SessionState::Queue { position: Some(3), eta_s: Some(185) });
-                page(&m, mode, &mut fonts, |p| assert_clear(p, &format!("{percent}% {mode:?} measured queue")));
-                m.step(Input::Key { key: Key::Back, down: true });
-                m.step(Input::Key { key: Key::Back, down: false });
-                page(&m, mode, &mut fonts, |p| assert_clear(p, &format!("{percent}% {mode:?} stopping")));
             }
         }
     }
-
     #[test]
-    fn the_bar_follows_the_queue_and_otherwise_keeps_moving_unless_motion_is_reduced() {
-        let mut fonts = ui::Fonts::new();
-        let mut m = launching("Hades", false);
-        let bar = |m: &Model, fonts: &mut ui::Fonts| {
-            page(m, Mode::Dark, fonts, |p| {
-                let track = p.plan.nodes.iter().find(|n| n.id == TRACK).map(|n| n.frame);
-                let fill = p.plan.nodes.iter().find(|n| n.id == FILL).and_then(|n| n.props.clip);
-                (track, fill, p.plan.sweep)
-            })
-        };
-        let (track, fill, sweep) = bar(&m, &mut fonts);
-        let (track, fill, sweep) = (track.unwrap(), fill.unwrap(), sweep.unwrap());
-        assert_eq!(fill, Rect { x: track.x, y: track.y, w: track.w, h: track.h }, "the moving part never draws outside the track");
-        assert!(sweep.from.x + 1.0 < track.x && sweep.to.x >= track.x + track.w, "it crosses the whole track, from outside one end to outside the other");
-
-        report(&mut m, SessionState::Queue { position: Some(12), eta_s: None });
-        report(&mut m, SessionState::Queue { position: Some(3), eta_s: None });
-        let (track, fill, sweep) = bar(&m, &mut fonts);
-        assert_eq!(sweep, None, "a measured wait does not sweep");
-        assert_eq!(fill.unwrap().w, track.unwrap().w * 0.75, "nine of the twelve places ahead are behind");
-
-        report(&mut m, SessionState::Queue { position: None, eta_s: None });
-        assert!(bar(&m, &mut fonts).2.is_some(), "with no position there is nothing to measure");
-
+    fn the_ring_is_fixed_images_that_swap_by_opacity_and_one_still_image_when_motion_is_reduced() {
+        let mut m = queued("Hades");
+        let first = plan_in(&m, Mode::Dark);
+        assert_eq!((lit(&first), first.nodes.iter().filter(|n| n.id >= RING && LIVE.contains(&n.id)).count()), (vec![0], usize::from(RING_FRAMES)));
+        m.step(Input::Tick { now_ms: 225, unix_s: 0 });
+        let later = plan_in(&m, Mode::Dark);
+        assert_eq!(lit(&later), [3], "a step only changes which image is opaque");
+        for k in 0..RING_FRAMES {
+            let Body::Symbol(Symbol::Spinner { turn, of }, _) = &node(&later, RING + u64::from(k)).body else { panic!("image {k} is not a ring symbol") };
+            assert_eq!((*turn, *of), (k, RING_FRAMES), "image {k} is the same symbol at every step, so it is drawn once");
+        }
         m.prefs.reduce_motion = true;
-        let (track, _, sweep) = bar(&m, &mut fonts);
-        assert!(track.is_none() && sweep.is_none(), "no bar rather than an empty one");
-        report(&mut m, SessionState::Queue { position: Some(2), eta_s: None });
-        let (track, fill, sweep) = bar(&m, &mut fonts);
-        assert!(track.is_some() && fill.is_some() && sweep.is_none(), "a measured wait is still shown, still");
+        let still = plan_in(&m, Mode::Dark);
+        assert_eq!((lit(&still), still.nodes.iter().filter(|n| n.id >= RING && LIVE.contains(&n.id)).count()), (vec![0], 1));
     }
-
     #[test]
-    fn the_status_reads_in_plain_words() {
-        assert_eq!(["1", "2", "3", "4", "11", "12", "13", "21", "112"].map(|n| ordinal(n.parse().unwrap())), ["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "112th"]);
-        assert_eq!([0, 59, 60, 185, 7200].map(wait), ["less than a minute", "less than a minute", "about 1 min", "about 3 min", "about 120 min"]);
-        assert_eq!(status(&Phase::Queue { position: Some(12), eta_s: Some(185) }), ("You're 12th in line".into(), Some("about 3 min".into())));
-        assert_eq!(status(&Phase::Starting).0, "Getting your game ready");
+    fn after_a_minute_the_logo_and_line_dim_and_the_ring_keeps_its_light() {
+        let mut m = queued("Hades");
+        m.step(Input::Tick { now_ms: 60_000, unix_s: 60 });
+        let plan = plan_in(&m, Mode::Dark);
+        assert_eq!([IDENTITY + 100, HEADLINE, CAPTION].map(|id| node(&plan, id).props.opacity), [REST; 3]);
+        assert_eq!((node(&plan, TRACK).props.opacity, lit(&plan).len()), (1.0, 1), "the ring keeps turning at full light");
+    }
+    #[test]
+    fn the_strip_has_its_five_items_and_the_figures_pill_and_leaves_with_a_key_back() {
+        let mut m = running();
+        let plan = plan_in(&m, Mode::Dark);
+        let items: Vec<usize> = plan.hits.iter().filter_map(|(f, _)| if let Focus::Strip(i) = f { Some(*i) } else { None }).collect();
+        assert_eq!(items, [0, 1, 2, 3, 4]);
+        assert!(plan.nodes.iter().any(|n| n.id == PILL), "no pill: figures {:?}, hud {}, ids {:?}", m.figures(), m.hud_visible(), plan.nodes.iter().map(|n| n.id).collect::<Vec<_>>());
+        let pill = node(&plan, PILL).frame;
+        assert!(pill.x + pill.w <= W && pill.y >= 0.0 && pill.x > W / 2.0, "the pill sits top right: {pill:?}");
+        key(&mut m, Key::Back);
+        let bare = plan_in(&m, Mode::Dark);
+        assert!(bare.hits.is_empty() && bare.nodes.iter().all(|n| n.id != PILL));
+    }
+    #[test]
+    fn the_drawers_and_the_end_prompt_draw_their_rows_and_actions_over_the_stream() {
+        let mut m = running();
+        key(&mut m, Key::Right);
+        key(&mut m, Key::Ok);
+        let rows = |m: &Model| plan_in(m, Mode::Dark).hits.iter().filter(|(f, _)| matches!(f, Focus::SheetRow(_))).count();
+        assert_eq!(rows(&m), 3, "Stream, HDR and Stats");
+        key(&mut m, Key::Back);
+        m.view.focus = Focus::Strip(4);
+        key(&mut m, Key::Ok);
+        let end = plan_in(&m, Mode::Dark);
+        let actions: Vec<Focus> = end.hits.iter().map(|(f, _)| *f).filter(|f| matches!(f, Focus::SheetAction(_))).collect();
+        assert_eq!(actions, [Focus::SheetAction(0), Focus::SheetAction(1)]);
     }
 }

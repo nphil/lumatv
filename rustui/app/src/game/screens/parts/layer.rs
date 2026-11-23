@@ -7,7 +7,7 @@ use crate::game::model::{Layer, library::Sort};
 use crate::game::screens::parts::{SHEET_Z, dialog::*, keyboard::*, motion::Enter};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{geometry::Frame, lucent::palette::PaletteRole as Role};
-use crate::game::screens::{accounts::{auth, sign_out}, quick::quick, game::chooser, launch::end_session, library::list, settings::delete};
+use crate::game::screens::{accounts::{auth, sign_out}, quick::quick, game::chooser, library::list, settings::delete};
 
 pub fn sheet(p: &mut Paint<'_>) {
     let Some(sheet) = p.model.view.top().filter(|layer| layer.is_sheet()) else {
@@ -27,12 +27,11 @@ pub fn sheet(p: &mut Paint<'_>) {
         }
         Layer::SignOut => sign_out(p),
         Layer::Auth => auth(p),
-        Layer::EndSession => end_session(p),
         Layer::AddHost | Layer::EditText => edit_text(p),
         Layer::Delete => delete(p),
         Layer::Quick | Layer::QuickSettings => quick(p),
         // Drawn by their page in place of its own content.
-        Layer::Viewer | Layer::StreamMenu => {}
+        Layer::Viewer | Layer::Picture | Layer::Achievements | Layer::EndConfirm => {}
     }
 }
 

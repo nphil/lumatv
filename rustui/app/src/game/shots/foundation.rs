@@ -135,9 +135,9 @@ fn confirm(p: &mut Paint<'_>) {
 fn quick_strip(p: &mut Paint<'_>) {
     art(p);
     let items = [
-        Item { icon: Icon::Gauge, label: Some("Stats"), focus: Focus::Overlay(0), danger: false },
-        Item { icon: Icon::Sliders, label: Some("Settings"), focus: Focus::Overlay(1), danger: false },
-        Item { icon: Icon::Power, label: Some("End session"), focus: Focus::Overlay(2), danger: true },
+        Item { icon: Icon::Gauge, label: Some("Stats"), focus: Focus::Strip(0), danger: false },
+        Item { icon: Icon::Sliders, label: Some("Settings"), focus: Focus::Strip(1), danger: false },
+        Item { icon: Icon::Power, label: Some("End session"), focus: Focus::Strip(2), danger: true },
     ];
     strip::bar(p, &items, Some(1));
 }
@@ -190,7 +190,7 @@ fn gallery() -> Vec<Shot> {
         Shot { name: "rows", setup: none, paint: rows },
         Shot { name: "drawer", setup: none, paint: drawer_menu },
         Shot { name: "dialog", setup: |m| m.view.focus = Focus::SheetAction(0), paint: confirm },
-        Shot { name: "strip", setup: |m| m.view.focus = Focus::Overlay(1), paint: quick_strip },
+        Shot { name: "strip", setup: |m| m.view.focus = Focus::Strip(1), paint: quick_strip },
         Shot { name: "section", setup: none, paint: reader },
         Shot { name: "rail", setup: |m| m.view.focus = Focus::Rail(3), paint: settings_shell },
         Shot { name: "keyboard", setup: |m| m.view.focus = Focus::Keyboard(0), paint: entry },

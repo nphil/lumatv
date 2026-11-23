@@ -66,13 +66,11 @@ fn screens() -> Vec<(String, Model)> {
         .filter(|(name, _)| {
             [
                 "51-stats-full-stale",
-                "settings-a-picture", "15-overlay",
+                "settings-a-picture",
                 "11-pairing",
                 "12-signin",
                 "28-enter-pin",
                 "29-approval",
-                "16-overlay-end-confirm",
-                "17-state-checking", "18-state-queue", "19-state-starting", "17-state-queue-unknown", "17-state-long-title",
                 "home-a-empty", "settings-a-first-run",
                 "38-search-keyboard",
                 "41-add-pc",
@@ -137,8 +135,8 @@ fn screens() -> Vec<(String, Model)> {
         .iter()
         .filter(|(name, _)| {
             [
-                "07-library", "09-chooser", "32-chooser-text200", "11-pairing", "12-signin", "29-approval", "18-state-queue", "18-state-queue-text200",
-                "11-pairing-text200", "12-signin-text200", "15-overlay", "15-overlay-text200", "16-overlay-end-confirm",
+                "07-library", "09-chooser", "32-chooser-text200", "11-pairing", "12-signin", "29-approval", "launch-c-strip", "launch-c-strip-text200",
+                "11-pairing-text200", "12-signin-text200", "launch-c-strip-menu", "launch-c-strip-menu-text200", "launch-b-drawer-end",
             ]
             .contains(&name.as_str())
         })

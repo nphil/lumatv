@@ -37,7 +37,7 @@ pub(crate) mod tests;
 use accounts::{LinkFlow, PC_SEARCH_MS};
 use game::{HubTab, media::Media};
 use home::{HomeItem, HomeRow};
-use launch::{Cause, IdleWarning, QueueWatch};
+use launch::{Cause, IdleWarning};
 use library::{Filter, Sort};
 use nav::{Device, Hints, Neighbours, Owner, Region};
 use settings::{Lab, PadMode, Trip};
@@ -374,9 +374,12 @@ pub enum Layer {
     /// Asks before an account signs out or a PC is removed.
     SignOut,
     // launch
-    /// The in-stream menu, over the stream.
-    StreamMenu,
-    EndSession,
+    /// The Picture drawer over the stream: its stream, HDR and stats settings.
+    Picture,
+    /// The achievements drawer over the stream.
+    Achievements,
+    /// Asks before the session ends; it opens on Keep playing.
+    EndConfirm,
     // text
     AddHost,
     EditText,
@@ -387,10 +390,10 @@ pub enum Layer {
     QuickSettings,
 }
 impl Layer {
-    /// Whether the layer is a sheet drawn over its page, which then takes no pointer hits. The viewer and the in-stream menu are
+    /// Whether the layer is a sheet drawn over its page, which then takes no pointer hits. The viewer and the layers over a stream are
     /// screens that their page draws itself.
     pub fn is_sheet(self) -> bool {
-        !matches!(self, Self::Viewer | Self::StreamMenu)
+        !matches!(self, Self::Viewer | Self::Picture | Self::Achievements | Self::EndConfirm)
     }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -427,9 +430,8 @@ pub enum Focus {
     SheetRow(usize),
     SheetAction(usize),
     // launch
-    Overlay(usize),
-    /// The launch screen's Cancel: a key reaches it, so an impatient second OK never cancels the wait.
-    Cancel,
+    /// An item of the in-stream strip: Resume, Picture, Controller, Achievements, End.
+    Strip(usize),
 }
 #[derive(Clone, Debug)]
 pub struct Integration {
@@ -591,7 +593,7 @@ pub struct Model {
     pub diagnostics_status: DiagnosticsStatus,
     session: Option<Session>,
     session_start: u64,
-    queue: QueueWatch,
+    run: launch::Run,
     foreground: bool,
     now_ms: u64,
     unix_s: u64,
@@ -662,7 +664,7 @@ impl Model {
             diagnostics_status: DiagnosticsStatus::Off,
             session: None,
             session_start: 0,
-            queue: QueueWatch::default(),
+            run: launch::Run::default(),
             foreground: true,
             now_ms: 0,
             unix_s: 0,
@@ -748,7 +750,7 @@ impl Model {
         self.foreground && !self.session_active()
     }
     pub fn wants_frames(&self) -> bool {
-        self.foreground && (self.view.page != Page::Running || !self.view.layers.is_empty() || self.hud_visible() || self.idle_left().is_some())
+        self.foreground && (self.view.page != Page::Running || !self.stream_bare() || self.hud_visible() || self.idle_left().is_some())
     }
     pub fn game(&self, id: GameId) -> Option<&Game> {
         self.games.iter().find(|g| g.id == id)
@@ -858,7 +860,7 @@ impl Model {
                 }
             }
             Input::Engine { engine, message } => {
-                changed = self.view.page != Page::Running || !self.view.layers.is_empty() || !matches!(message.event, ipc::Event::Stats { .. });
+                changed = self.view.page != Page::Running || !self.stream_bare() || !matches!(message.event, ipc::Event::Stats { .. });
                 self.engine_event(engine, message.event, &mut out);
             }
             Input::EngineGone(id) => {
@@ -898,14 +900,14 @@ impl Model {
                     out.push(Command::Exit);
                 }
             }
-            Input::Overlay => self.open_overlay(&mut out),
+            Input::Overlay => changed = self.open_strip(&mut out),
             Input::Tick { now_ms, unix_s } => {
                 let before = self.now_ms;
                 let second = self.now_ms / 1000 != now_ms / 1000;
                 self.now_ms = now_ms;
                 self.unix_s = unix_s;
                 self.session_input(session::Input::Tick, &mut out);
-                changed = second && (self.stream_menu() || self.view.idle.is_some() || self.view.auth.as_ref().is_some_and(|a| a.expires_ms.is_some()));
+                changed = second && (self.view.idle.is_some() || self.view.auth.as_ref().is_some_and(|a| a.expires_ms.is_some()));
                 changed |= self.tick_navigation(before, &mut out);
                 changed |= self.quick_tick(before);
                 changed |= self.refresh_tick(second);
@@ -1139,10 +1141,6 @@ impl Model {
         self.view.pop();
         self.pressed = None;
     }
-    /// The in-stream menu is open over the stream.
-    pub fn stream_menu(&self) -> bool {
-        self.view.page == Page::Running && self.view.layers.first() == Some(&Layer::StreamMenu)
-    }
     /// Puts focus on `focus` and brings along what follows it: the Home shelf in view, the first grid row on screen, the place Settings
     /// shows, and the game page's sections folding up behind Play. Where focus was is kept for the way back into its region.
     fn set_focus(&mut self, focus: Focus) {
@@ -1235,7 +1233,7 @@ impl Model {
             self.leave_until = 0;
             changed = true;
         }
-        changed | (self.strip.visible(before_ms) && !self.strip.visible(now))
+        changed | self.tick_launch(before_ms, out)
     }
     /// Whether the Menu key opens the quick menu here: on every page, and over no layer that is a dialog, the viewer or the keyboard.
     /// The Launch screens and a stream have their own menu. (No layer is a section of the game page yet.)
@@ -1249,8 +1247,9 @@ impl Model {
                 | Layer::Delete
                 | Layer::Auth
                 | Layer::SignOut
-                | Layer::StreamMenu
-                | Layer::EndSession
+                | Layer::Picture
+                | Layer::Achievements
+                | Layer::EndConfirm
                 | Layer::AddHost
                 | Layer::EditText
                 | Layer::Quick
@@ -1280,8 +1279,7 @@ impl Model {
         let held = self.repeat.map(|held| held.wake_in(now_ms));
         let dim = (!self.hints_dim).then(|| (self.last_key_ms + HINTS_DIM_MS).saturating_sub(now_ms));
         let leave = (self.leave_until > now_ms).then(|| self.leave_until - now_ms);
-        let strip = self.strip.left(now_ms).filter(|_| self.view.page == Page::Running && self.view.layers.is_empty());
-        [held, dim, leave, strip].into_iter().flatten().min()
+        [held, dim, leave, self.launch_wake(now_ms)].into_iter().flatten().min()
     }
     fn key(&mut self, key: Key, down: bool, out: &mut Vec<Command>) -> bool {
         if !self.foreground {
@@ -1299,17 +1297,17 @@ impl Model {
             }
             return false;
         }
-        if self.view.page == Page::Running && self.view.layers.is_empty() {
-            // While a game runs, the pad is read by the engine; the remote never reaches the game, so its Back is the only way to the
-            // strip (and to ending the session) without a controller. Any other key only brings the strip back.
-            if matches!(key, Key::Guide | Key::Back) {
-                if down {
-                    return false;
+        if self.view.page == Page::Running {
+            if self.view.layers.is_empty() {
+                // The remote never reaches the game and a pad is read by the engine, so while the strip is away a key (Back too) only
+                // brings it back: the strip is the way to Resume and to End.
+                if down && self.strip.swallow(self.now_ms) {
+                    self.stats_request(out);
+                    return true;
                 }
-                self.open_overlay(out);
-                return true;
+            } else if down {
+                self.run.quiet.show(self.now_ms);
             }
-            return down && self.strip.swallow(self.now_ms);
         }
         if down {
             if key != Key::Back {
@@ -1338,9 +1336,9 @@ impl Model {
         match key {
             Key::Ok => self.activate(out),
             Key::Back => self.go_back(out),
-            Key::Guide => self.open_overlay(out),
+            Key::Guide if self.view.page == Page::Running => self.resume(out),
             Key::Menu => self.toggle_quick(),
-            Key::Alt if self.view.top() == Some(Layer::StreamMenu) && self.steam_overlay() => self.open_steam_overlay(out),
+            Key::Alt if self.view.page == Page::Running && self.steam_overlay() => self.open_steam_overlay(out),
             _ => {}
         }
         true
@@ -1392,7 +1390,7 @@ impl Model {
     fn stats_request(&self, out: &mut Vec<Command>) {
         if let Some(s) = self.session.as_ref().filter(|s| *s.phase() == Phase::Running) {
             let pad_timing = self.hud_visible() || self.diagnostics.active();
-            Self::send(out, &s.source.engine, Request::Stats { session: s.id, on: self.foreground && (pad_timing || self.stream_menu()), pad_timing });
+            Self::send(out, &s.source.engine, Request::Stats { session: s.id, on: self.foreground && (pad_timing || self.over_stream()), pad_timing });
         }
     }
     /// Copies the values every engine shares (the stream's shape and the stick settings) into each enabled engine's settings where
@@ -1454,16 +1452,12 @@ impl Model {
         }
         match self.view.page {
             Page::Launch => return self.session_input(session::Input::Cancel, out),
-            Page::Running => return,
+            Page::Running => return self.resume(out),
             _ => {}
         }
-        // Settings opened from the in-stream menu returns to it from any row.
-        let from_stream = self.back.last().is_some_and(|way| way.page == Page::Running);
-        if !from_stream {
-            if let Some(anchor) = Owner::of(self).anchor(self).filter(|anchor| *anchor != self.view.focus) {
-                self.set_focus(anchor);
-                return;
-            }
+        if let Some(anchor) = Owner::of(self).anchor(self).filter(|anchor| *anchor != self.view.focus) {
+            self.set_focus(anchor);
+            return;
         }
         if let Some(way) = self.back.pop() {
             self.view.restore(way);
@@ -1488,7 +1482,7 @@ impl Model {
                     self.session_input(session::Input::Cancel, out);
                 }
             }
-            Layer::StreamMenu => return self.resume(out),
+            Layer::Picture | Layer::Achievements | Layer::EndConfirm => return self.close_stream_layer(out),
             _ => {}
         }
         self.pop_layer();
@@ -1620,7 +1614,7 @@ impl Model {
             }
             ipc::Event::Overlay { session } => {
                 if self.session.as_ref().is_some_and(|s| s.id == session && s.source.engine == id) {
-                    self.open_overlay(out);
+                    self.open_strip(out);
                 }
             }
             ipc::Event::IdleWarning { session, seconds } => {

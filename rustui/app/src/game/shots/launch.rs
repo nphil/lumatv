@@ -1,30 +1,58 @@
 //! Launch, running, stats, idle and overlay shots.
 use super::*;
 
+/// Declares `feature` on `engine`, which a shot's engine does not always have.
+fn feature(m: &mut Model, engine: &str, feature: Feature) {
+    use crate::game::model::tests::describe;
+    let described = m.integrations.iter().any(|e| e.manifest.id.as_str() == engine && e.descriptor.is_some());
+    if !described {
+        describe(m, engine, vec![], &[feature]);
+        return;
+    }
+    m.integrations.iter_mut().find(|e| e.manifest.id.as_str() == engine).and_then(|e| e.descriptor.as_mut()).unwrap().capabilities.features.insert(feature);
+}
+
 pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
+    // The start screen, step by step: GeForce NOW connects, signs in, queues and starts; a sleeping PC wakes first.
     let mut launched = base.clone();
+    feature(&mut launched, "gfn", Feature::Queue);
     launched.view.selected = Some(id(&launched, "Cyberpunk 2077"));
     launched.view.page = Page::Game;
     launched.view.chooser_selected = launched.selected_game().unwrap().sources.iter().find(|s| s.engine.as_str() == "gfn").map(|s| s.key());
     launched.view.focus = Focus::HubAction(0);
     activate(&mut launched);
-    add("17-state-checking", launched.clone());
     let session = launched.session().unwrap().id;
-    event(&mut launched, "gfn", ipc::Event::Session { session, state: SessionState::Queue { position: Some(4), eta_s: Some(120) } });
-    add("18-state-queue", launched.clone());
+    add("launch-start-connecting", launched.clone());
+    let mut sign_in = launched.clone();
+    event(&mut sign_in, "gfn", ipc::Event::Session { session, state: SessionState::SignIn });
+    add("launch-start-signin", sign_in);
+    event(&mut launched, "gfn", ipc::Event::Session { session, state: SessionState::Queue { position: Some(15), eta_s: Some(120) } });
+    let variants = [("", false, 100), ("-light", true, 100), ("-text200", false, 200)];
+    for (suffix, light, percent) in variants {
+        let mut m = launched.clone();
+        m.prefs.light = light;
+        m.prefs.text_percent = percent;
+        add(&format!("launch-c-strip{suffix}"), m);
+    }
     let mut unknown = launched.clone();
     event(&mut unknown, "gfn", ipc::Event::Session { session, state: SessionState::Queue { position: None, eta_s: None } });
-    add("17-state-queue-unknown", unknown);
-    let mut long = base.clone();
-    long.view.selected = Some(id(&long, "Ori and the Will of the Wisps"));
-    long.view.page = Page::Game;
-    long.view.chooser_selected = long.selected_game().unwrap().sources.iter().find(|s| s.engine.as_str() == "gamestream").map(|s| s.key());
-    long.view.focus = Focus::HubAction(0);
-    activate(&mut long);
-    long.prefs.light = true;
-    add("17-state-long-title", long);
+    add("launch-start-queue-unknown", unknown);
+    let mut dim = launched.clone();
+    dim.step(Input::Tick { now_ms: 61_000, unix_s: 1_800_000_061 });
+    add("launch-start-dim", dim);
+    let mut wake = base.clone();
+    feature(&mut wake, "gamestream", Feature::Wake);
+    wake.integrations.iter_mut().find(|e| e.manifest.id.as_str() == "gamestream").unwrap().targets.iter_mut().for_each(|t| t.reach = ipc::Reach::Asleep);
+    wake.view.selected = Some(id(&wake, "Ori and the Will of the Wisps"));
+    wake.view.page = Page::Game;
+    wake.view.chooser_selected = wake.selected_game().unwrap().sources.iter().find(|s| s.engine.as_str() == "gamestream").map(|s| s.key());
+    wake.view.focus = Focus::HubAction(0);
+    activate(&mut wake);
+    add("launch-start-wake", wake.clone());
+    wake.prefs.light = true;
+    add("launch-start-wake-light", wake);
     event(&mut launched, "gfn", ipc::Event::Session { session, state: SessionState::Starting });
-    add("19-state-starting", launched.clone());
+    add("launch-start-starting", launched.clone());
     event(
         &mut launched,
         "gfn",
@@ -37,6 +65,8 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
             },
         },
     );
+    // The strip and its figures leave after five seconds; the shots below are of the bare stream and of what shows over it.
+    launched.step(Input::Tick { now_ms: 6_000, unix_s: 1_800_000_006 });
     add("40-running-transparent", launched.clone());
     // The idle prompt over a game frame (a dark and a bright one), then the Hub after the far side ended the session for it.
     let mut idle = launched.clone();
@@ -68,11 +98,25 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
     stale.step(Input::Tick {now_ms:40_000,unix_s:1_800_000_040});
     add("51-stats-full-stale",stale);
     launched.step(Input::Tick { now_ms: 1_932_000, unix_s: 1_800_001_932 });
-    launched.integrations.iter_mut().find(|e| e.manifest.id.as_str() == "gfn").unwrap()
-        .descriptor.as_mut().unwrap().capabilities.features.insert(Feature::SteamOverlay);
     launched.step(Input::Overlay);
-    launched.view.stats = ipc::Stats { rtt_ms: Some(8.0), loss_pct: Some(0.0), bitrate_kbps: Some(78_000), ..Default::default() };
-    add("15-overlay", launched.clone());
+    launched.view.stats = ipc::Stats { rtt_ms: Some(18.0), loss_pct: Some(0.0), bitrate_kbps: Some(78_000), ..Default::default() };
+    for (suffix, light, percent) in variants {
+        let mut m = launched.clone();
+        m.prefs.light = light;
+        m.prefs.text_percent = percent;
+        add(&format!("launch-c-strip-menu{suffix}"), m);
+    }
+    let mut steam = launched.clone();
+    feature(&mut steam, "gfn", Feature::SteamOverlay);
+    add("launch-strip-steam", steam);
+    let mut picture = launched.clone();
+    picture.view.focus = Focus::Strip(1);
+    activate(&mut picture);
+    add("launch-picture", picture);
+    let mut medals = launched.clone();
+    medals.view.focus = Focus::Strip(3);
+    activate(&mut medals);
+    add("launch-achievements", medals);
     let mut lab_stream = launched.clone();
     lab_stream.integrations.iter_mut().find(|e| e.manifest.id.as_str() == "gfn").unwrap()
         .descriptor.as_mut().unwrap().capabilities.features.insert(Feature::RoundTrip);
@@ -88,9 +132,54 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
     add("45-controller-lab-stream", lab_stream.clone());
     lab_stream.view.focus = Focus::Lab(12);
     add("45-controller-lab-stream-bottom", lab_stream);
-    launched.view.focus = Focus::Overlay(3);
+    launched.view.focus = Focus::Strip(4);
     activate(&mut launched);
-    add("16-overlay-end-confirm", launched);
+    for (suffix, light, percent) in variants {
+        let mut m = launched.clone();
+        m.prefs.light = light;
+        m.prefs.text_percent = percent;
+        add(&format!("launch-b-drawer-end{suffix}"), m);
+    }
+}
+
+/// The budget walks: a queued start held for more than two turns of the ring, and the strip leaving, coming back on a key and opening a
+/// drawer.
+pub(super) fn walks() -> Vec<super::budget::Walk> {
+    use super::budget::{Step, Walk};
+    let mut start = fixture();
+    feature(&mut start, "gfn", Feature::Queue);
+    start.view.page = Page::Game;
+    start.view.selected = Some(id(&start, "Cyberpunk 2077"));
+    start.view.focus = Focus::HubAction(0);
+    activate(&mut start);
+    let session = start.session().unwrap().id;
+    event(&mut start, "gfn", ipc::Event::Session { session, state: SessionState::Queue { position: Some(15), eta_s: Some(120) } });
+    let mut running = start.clone();
+    let stream = serde_json::json!({"codec":"h265","width":3840,"height":2160,"fps":120,"hdr":true,"audio_channels":2});
+    event(&mut running, "gfn", ipc::Event::Session { session, state: SessionState::Running { stream: Some(serde_json::from_value(stream).unwrap()) } });
+    running.view.stats = ipc::Stats { rtt_ms: Some(18.0), ..Default::default() };
+    let waiting = vec![
+        Step::Settle,
+        Step::Expect("the start screen with its line", |m, _| m.view.page == Page::Launch && m.start_step().is_some()),
+        Step::Wait(2_500),
+        Step::Expect("the ring to have turned", |m, _| m.now_ms() >= 2_500),
+    ];
+    let strip = vec![
+        Step::Wait(500),
+        Step::Expect("the strip with its figures", |m, _| m.strip_visible() && m.figures().len() == 3),
+        Step::Wait(5_000),
+        Step::Expect("the strip to have left", |m, _| !m.strip_visible()),
+        Step::Tap(Key::Left),
+        Step::Expect("the first key to bring only the strip back", |m, _| m.strip_visible() && m.view.top().is_none()),
+        Step::Tap(Key::Right),
+        Step::Tap(Key::Ok),
+        Step::Expect("the Picture drawer", |m, _| m.view.top() == Some(crate::game::model::Layer::Picture)),
+        Step::Wait(300),
+        Step::Tap(Key::Back),
+        Step::Wait(5_500),
+        Step::Expect("the stream bare again", |m, _| m.stream_bare()),
+    ];
+    vec![Walk { name: "launch-start".into(), base: start, script: waiting }, Walk { name: "strip-in-out".into(), base: running, script: strip }]
 }
 
 #[test]
@@ -115,21 +204,6 @@ fn closing_waits_for_session_end_and_records_the_final_seconds() {
 }
 
 #[test]
-fn remote_back_opens_the_overlay_while_a_game_runs() {
-    let mut m = fixture();
-    m.view.page = Page::Game;
-    m.view.selected = Some(id(&m, "Cyberpunk 2077"));
-    m.view.focus = Focus::HubAction(0);
-    activate(&mut m);
-    let session = m.session().unwrap().id;
-    event(&mut m, "gfn", ipc::Event::Session { session, state: SessionState::Running { stream: None } });
-    assert_eq!(m.view.page, Page::Running);
-    m.step(Input::Key { key: Key::Back, down: true });
-    m.step(Input::Key { key: Key::Back, down: false });
-    assert!(m.stream_menu());
-}
-
-#[test]
 fn all_stats_controls_share_one_setting_and_off_stops_frame_capture() {
     use crate::game::stats::{Mode,Overlay};
     let mut m=fixture();
@@ -137,13 +211,13 @@ fn all_stats_controls_share_one_setting_and_off_stops_frame_capture() {
     activate(&mut m);
     let session=m.session().unwrap().id;
     event(&mut m,"gfn",ipc::Event::Session {session,state:SessionState::Running {stream:None}});
+    m.step(Input::Tick {now_ms:6_000,unix_s:0});
     assert!(!m.hud_visible() && !m.wants_frames());
     m.step(Input::StatsSetting(Overlay {mode:Mode::Compact,changed:1}));
     assert!(m.hud_visible() && m.wants_frames());
     m.step(Input::Overlay);
-    m.view.focus=Focus::Overlay(2);activate(&mut m);
-    assert_eq!(m.prefs.stats.mode,Mode::Full);
-    m.view.focus=Focus::Overlay(2);activate(&mut m);
+    m.view.focus=Focus::Strip(1);activate(&mut m);
+    m.view.focus=Focus::SheetRow(2);activate(&mut m);
     assert_eq!(m.prefs.stats.mode,Mode::Off);
     m.view.clear_layers();m.view.page=Page::Settings;m.view.place=Place::Picture;m.view.focus=Focus::Setting(8);
     m.step(Input::Key {key:Key::Right,down:true});m.step(Input::Key {key:Key::Right,down:false});
@@ -153,7 +227,7 @@ fn all_stats_controls_share_one_setting_and_off_stops_frame_capture() {
     assert_eq!(m.prefs.stats.mode,Mode::Compact,"an older helper reply cannot undo a local edit");
     let out=m.step(Input::StatsSetting(Overlay {mode:Mode::Off,changed:changed+1}));
     assert!(out.iter().any(|c| matches!(c,Command::Send {request:ipc::Request::Stats {on:false,..},..})));
-    m.view.page=Page::Running;
+    m.view.page=Page::Running;m.step(Input::Tick {now_ms:20_000,unix_s:0});
     assert!(!m.hud_visible() && !m.wants_frames());
 }
 
@@ -220,6 +294,7 @@ fn the_idle_countdown_runs_on_the_model_clock_and_only_the_far_sides_clear_dismi
     m.step(Input::Key {key:Key::Ok,down:true});
     assert!(m.idle_left().is_some());
     event(&mut m,"gfn",ipc::Event::IdleWarning {session,seconds:None});
+    m.step(Input::Tick {now_ms:100_000,unix_s:0});
     assert_eq!((m.idle_left(),m.wants_frames()),(None,false));
 }
 
@@ -290,13 +365,17 @@ fn controller_sampling_follows_the_visible_hud_not_menu_statistics() {
     }).expect("a visibility change updates both measurement flags");
     assert_eq!(flags(m.step(Input::Overlay)),(true,false));
     for (mode,changed) in [(Mode::Compact,1),(Mode::Full,2)] {
-        assert_eq!(flags(m.step(Input::StatsSetting(Overlay {mode,changed}))),(true,false));
-        let mut commands=m.step(Input::Key {key:Key::Back,down:true});
-        commands.extend(m.step(Input::Key {key:Key::Back,down:false}));
-        assert_eq!(flags(commands),(true,true));
-        assert_eq!(flags(m.step(Input::Overlay)),(true,false));
+        // The strip leaves the HUD showing, so its readings go on; a drawer covers it, and nothing is read for a HUD that is not there.
+        assert_eq!(flags(m.step(Input::StatsSetting(Overlay {mode,changed}))),(true,true));
+        m.view.focus=Focus::Strip(1);
+        let mut opened=m.step(Input::Key {key:Key::Ok,down:true});
+        opened.extend(m.step(Input::Key {key:Key::Ok,down:false}));
+        assert_eq!(flags(opened),(true,false));
+        let mut closed=m.step(Input::Key {key:Key::Back,down:true});
+        closed.extend(m.step(Input::Key {key:Key::Back,down:false}));
+        assert_eq!(flags(closed),(true,true));
     }
     assert_eq!(flags(m.step(Input::StatsSetting(Overlay {mode:Mode::Off,changed:3}))),(true,false));
-    assert_eq!(flags(m.step(Input::StatsSetting(Overlay {mode:Mode::Compact,changed:4}))),(true,false));
+    assert_eq!(flags(m.step(Input::StatsSetting(Overlay {mode:Mode::Compact,changed:4}))),(true,true));
     assert_eq!(flags(m.step(Input::Foreground(false))),(false,false));
 }

@@ -262,7 +262,7 @@ impl GameUi {
         }
         self.art.poll();
         let dipped = self.step_art(model)?;
-        if model.view.page == Page::Running && !model.hud_visible() && model.idle_left().is_none() {
+        if model.view.page == Page::Running && model.stream_bare() && !model.hud_visible() && model.idle_left().is_none() {
             let changed = !self.nodes.is_empty();
             self.nodes.clear();
             self.hits.clear();
@@ -515,8 +515,7 @@ impl GameUi {
                 && (scrolled || !paint::LIVE.contains(&node.id))
                 && (kept.node.props.scale != node.props.scale
                     || (kept.node.props.x - node.props.x).abs() < 100.0 && (kept.node.props.y - node.props.y).abs() < 100.0);
-            // The queue's fill is a long move, not a focus change: it follows at the scroll time.
-            let ms = if self.page == Some(Page::Launch) && node.id == launch::FILL { self.tokens.motion.scroll_ms } else { self.tokens.motion.focus_ms };
+            let ms = self.tokens.motion.focus_ms;
             kept.layer.set(node.props, animate, ms);
         }
         kept.enter = enter;
@@ -592,7 +591,7 @@ fn plan_page(tokens: &Tokens, model: &Model, fonts: &mut ui::Fonts, scroll_posit
         return p.plan;
     }
     let view = &model.view;
-    if view.page != Page::Running || model.stream_menu() { parts::stage::canvas(&mut p, view.page == Page::Launch); }
+    if view.page != Page::Running { parts::stage::canvas(&mut p, false); }
     match view.page {
         Page::Home => home::home(&mut p),
         Page::Library => library::library(&mut p, view.search),
@@ -600,8 +599,7 @@ fn plan_page(tokens: &Tokens, model: &Model, fonts: &mut ui::Fonts, scroll_posit
         Page::Game => game::hub(&mut p),
         Page::Settings => settings::settings(&mut p),
         Page::Launch => launch::launch(&mut p),
-        Page::Running if model.stream_menu() => launch::overlay(&mut p),
-        Page::Running => stats::show(&mut p),
+        Page::Running => launch::running(&mut p),
     }
     p.finish();
     idle::show(&mut p);
