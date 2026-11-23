@@ -527,7 +527,7 @@ mod tests {
         plan_in(m, ui::lucent::palette::Mode::Dark)
             .nodes
             .iter()
-            .filter_map(|n| if let Body::Text { words, .. } = &n.body { Some(words.iter().map(|w| w.text.clone()).collect::<String>()) } else { None })
+            .flat_map(|n| if let Body::Text { words, .. } = &n.body { words.iter().map(|w| w.text.clone()).collect() } else { Vec::new() })
             .collect()
     }
 
