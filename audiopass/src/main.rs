@@ -5,6 +5,8 @@ use audiopass::{firmware, graph, health, sndout};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    // The TV starts processes with an unlimited core size; a crash would leave a dump of hundreds of MB.
+    let _ = audiopass::host::no_core_dumps();
     match std::env::args().nth(1).as_deref() {
         Some("status") => {
             status();

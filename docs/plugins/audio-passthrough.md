@@ -24,7 +24,7 @@ The player names the decoder input (ADEC, 0 to 7) LG's resource manager granted 
 
 ## What the TV is compared with
 
-The journal keeps the granted decoder's kernel line from before the session (`Open`, `Connect`, `Start`, `Gain`, `Mute`). After every restore the helper checks that the audio service lists no connection, the kernel has no input connected and the decoder's line equals the saved one. A difference is reported as `after` on the topic and on the page, not hidden. LG's HDMI input service (`extinputs.hdmi getStatus`) must also answer; if it does not, the plugin reports not ready until it does (asked every 10 s while idle).
+The journal keeps the granted decoder's kernel line from before the session (`Open`, `Connect`, `Start`, `Gain`, `Mute`). After every restore the helper checks that the audio service lists no connection, the kernel has no input connected and the decoder's line equals the saved one. A difference is reported as `after` on the topic and on the page, not hidden. LG's input services must also have come through: no task may be stuck in the sound card's control lock (read from `/proc`, where nothing can hang; both wedges left `audiooutputd` and `extinput-integration` in uninterruptible sleep in `snd_ctl_elem_info`), and the HDMI input service must answer a ping (its introspection call, 5 s). A reply of any kind counts; only silence is a fault. While either fails the plugin reports not ready (checked every 10 s while idle).
 
 ## What a player calls
 
@@ -66,12 +66,18 @@ The player polls `GET route` and stops sending the moment `bypassing` is false o
 - Never read: `/proc/aaudio/instances/*/prop`, the sound card with `amixer`, `controlC0` with `ioctl`. The Denon is never contacted by this plugin; the page shows the receiver topic's sound mode when the Denon plugin is on.
 - If the route is lost, LG's mix is restored and the state says `lost`. Audio is never left silent or noisy.
 
+## What it writes
+
+- One file: the journal, `audio-passthrough/journal` in the helper's data directory. About 250 bytes (a boot id, the process, two sets of words, the decoder number and its kernel line); it is rewritten whole through `journal.tmp` and deleted when the session is restored. Nothing is appended, so there is at most the journal and one temporary file.
+- No log, capture, cache or state file of its own. The helper's log gets one line when a journal left by a crash is replayed at start, and one when the page or the sound-output follower fails (the same message is logged once until the call works again). The helper keeps the current and the previous log, size-capped.
+- Its child processes (`amixer`, `luna-send`) and the `audiopass` command set their core file size to 0, so a crash leaves no dump. The helper's own core limit is the helper's rule, not this plugin's.
+
 ## Risks
 
-- The audio stack has wedged twice around sessions (`audiooutputd` and `extinput-integration` stuck in uninterruptible sleep in `snd_ctl_elem_info`): at 21:21 on 2026-11-22 (`research/truehd-from-marquee/WEDGE.md`) and again at about 23:51, after a TrueHD window at 23:28 and an HDMI2 input switch. The cause is not proven. The working inference is that connecting ADEC1 and toggling its mute left the audio service's view and the kernel's inconsistent before an HDMI input started. This is why the decoder is the granted one, why a session starts only on an idle audio output, why the restore is compared with the journal and why the HDMI service is asked afterwards.
+- The audio stack has wedged twice around sessions (`audiooutputd` and `extinput-integration` stuck in uninterruptible sleep in `snd_ctl_elem_info`): at 21:21 on 2026-11-22 (`research/truehd-from-marquee/WEDGE.md`) and again at about 23:51, after a TrueHD window at 23:28 and an HDMI2 input switch. The cause is not proven. The working inference is that connecting ADEC1 and toggling its mute left the audio service's view and the kernel's inconsistent before an HDMI input started. This is why the decoder is the granted one, why a session starts only on an idle audio output, why the restore is compared with the journal and why LG's input services are checked afterwards.
 - The helper does not read the audio service's own mute flag for the decoder, only the kernel's. The service's flag is kept consistent by sending the same mute calls in the same order and is not compared after a restore; the service's connection list and the kernel's decoder line are.
 - If the player still holds `/dev/lg/aren0` when it releases and the input was found unmuted, the input is left muted (the kernel differs from the journal) and `after` says so. It does not block the next session. A player that closes its sink first avoids it.
-- The HDMI input service URI (`luna://com.webos.service.extinputs.hdmi/getStatus`) is not yet verified on the TV; one constant in `audiopass/src/health.rs`. If it does not answer there, the plugin holds itself not ready after the first session.
+- LG's HDMI input service has no `getStatus` method (it answers "Unknown method"), so its liveness is its introspection call, `luna://com.webos.service.extinputs.hdmi/com/palm/luna/private/introspection`, which a healthy C4 answers with its method list (`getVRRInfo` among them). That it stays silent on a wedged TV is not measured here, which is why the stuck-task scan comes first. The call is the one constant `HDMI_INTROSPECTION` in `audiopass/src/health.rs`.
 - The receiver hung twice in earlier windows; the cause is unknown.
 - That disconnecting a decoder found unmuted leaves the kernel mute unchanged is inferred, not measured.
 

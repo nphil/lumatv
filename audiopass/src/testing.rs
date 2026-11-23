@@ -50,6 +50,8 @@ pub struct Sim {
     pub hdmi_ok: bool,
     pub hdmi_calls: u32,
     pub stuck: Vec<Stuck>,
+    /// Whether writing the words wedges `extinput-integration` in the sound card's control lock, as it did on the TV.
+    pub wedge_on_words: bool,
     pub status_ok: bool,
     pub connect_ok: bool,
     pub disconnect_ok: bool,
@@ -196,6 +198,7 @@ impl FakeHost {
                 hdmi_ok: true,
                 hdmi_calls: 0,
                 stuck: Vec::new(),
+                wedge_on_words: false,
                 status_ok: true,
                 connect_ok: true,
                 disconnect_ok: true,
@@ -315,6 +318,13 @@ impl Host for FakeHost {
             }
             sim.words = words;
             sim.note(format!("words {words}"));
+            if sim.wedge_on_words {
+                sim.stuck.push(Stuck {
+                    comm: "extinput-integration".into(),
+                    wchan: "snd_ctl_elem_info".into(),
+                    stack: String::new(),
+                });
+            }
             Ok(())
         })
     }
@@ -322,14 +332,15 @@ impl Host for FakeHost {
     fn luna(&self, uri: &str, payload: &str) -> Option<String> {
         const OK: &str = r#"{"returnValue":true}"#;
         const NO: &str = r#"{"returnValue":false,"errorText":"Audio not connected"}"#;
+        const HDMI_METHODS: &str = r#"{"/":{"open":"METHOD","getVRRInfo":"METHOD"}}"#;
         self.with(|sim| {
             let verb = uri.rsplit('/').next().unwrap_or_default();
             // A call that names another decoder input than the granted one finds nothing to act on.
             let ours = payload.contains(&format!(r#""source":"ADEC{}""#, sim.adec));
             match verb {
-                "getStatus" if uri.contains("extinputs") => {
+                "introspection" if uri == crate::health::HDMI_INTROSPECTION => {
                     sim.hdmi_calls += 1;
-                    sim.hdmi_ok.then(|| OK.to_owned())
+                    sim.hdmi_ok.then(|| HDMI_METHODS.to_owned())
                 }
                 "getStatus" => sim.status_ok.then(|| sim.render_umi()),
                 "connect" => {

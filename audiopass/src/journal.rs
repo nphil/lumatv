@@ -104,6 +104,14 @@ mod tests {
     }
 
     #[test]
+    fn a_journal_is_a_few_hundred_bytes() {
+        let mut journal = sample(true);
+        journal.boot = "x".repeat(36);
+        journal.pid = u32::MAX;
+        assert!(journal.render().len() < 512);
+    }
+
+    #[test]
     fn damaged_journals_are_rejected() {
         let text = sample(false).render();
         assert_eq!(Journal::parse(""), None);

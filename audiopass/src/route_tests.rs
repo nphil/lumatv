@@ -1050,6 +1050,36 @@ fn a_silent_hdmi_service_after_a_restore_holds_the_next_session_off_until_it_ans
 }
 
 #[test]
+fn a_wedged_task_after_a_restore_holds_the_next_session_off_and_skips_the_ping() {
+    let mut rig = Rig::audible();
+    rig.host.with(|s| s.wedge_on_words = true);
+    let asked = rig.host.with(|s| s.hdmi_calls);
+    assert_eq!(rig.route.release(PID), Ok(true));
+    assert_eq!(
+        rig.host.with(|s| s.hdmi_calls),
+        asked,
+        "a wedged stack is found in /proc and not asked anything"
+    );
+    let after = rig.snap().after.expect("reported");
+    assert!(after.contains("extinput-integration"), "{after}");
+    rig.run(2_100);
+    assert!(!rig.snap().ready);
+    let refusal = rig.arm().unwrap_err();
+    assert!(
+        refusal.reason.contains("extinput-integration") && !refusal.retry,
+        "{refusal:?}"
+    );
+    rig.host.with(|s| {
+        s.wedge_on_words = false;
+        s.stuck.clear();
+    });
+    rig.run(IDLE_HEALTH_MS + 2_100);
+    let snap = rig.snap();
+    assert!(snap.ready && snap.after.is_none(), "{snap:?}");
+    assert_eq!(rig.arm(), Ok(CONVERTER.to_owned()));
+}
+
+#[test]
 fn an_input_that_takes_the_audio_mid_session_ends_it_and_is_left_alone() {
     let mut rig = Rig::audible();
     rig.host.with(|s| s.others = vec![0]);

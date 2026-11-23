@@ -181,8 +181,8 @@ fn session_json(s: &audiopass::route::SessionView) -> Value {
 /// `session.phase`) or `lost` (the last session ended because LG changed the route; LG's own mix is playing). `ready` says whether an
 /// arm would be accepted now. `carrier` is what the player sends: IEC 61937 bursts (`burstBytes` every `burstMs`) as 16-bit PCM,
 /// 8 channels at 192 kHz, the 16-bit words in `byteOrder` (the proven bursts start `f8 72 4e 1f`).
-/// `after` is a sentence when the TV, read once the last session was put back, differs from what that session found or LG's HDMI
-/// input service did not answer; null when it matches.
+/// `after` is a sentence when the TV, read once the last session was put back, differs from what that session found or LG's input
+/// services did not come through it (a wedged audio task, a silent HDMI input service); null when it matches.
 fn topic(s: &Snapshot) -> Value {
     json!({
         "schema": 1,
@@ -557,6 +557,17 @@ pub fn spawn(ctx: &Ctx, shared: Arc<Shared>) -> std::io::Result<JoinHandle<()>> 
     )
 }
 
+/// Logs `text` unless it is what was logged last for this failure, and says whether it did. A failure that persists is retried every
+/// few seconds and would otherwise fill the helper's two log files with one line.
+fn log_once(last: &mut Option<String>, text: String) -> bool {
+    if last.as_deref() == Some(text.as_str()) {
+        return false;
+    }
+    crate::log_info!("audio passthrough: {text}");
+    *last = Some(text);
+    true
+}
+
 /// The page, LG's sound output subscription and the facts the page shows, around [`Service::step`].
 struct Surroundings {
     page: Option<Arc<Local>>,
@@ -564,6 +575,9 @@ struct Surroundings {
     follow: Option<Follow>,
     follow_retry: Option<Instant>,
     facts: Value,
+    /// What was last logged when the page or the follower failed, so a message that keeps coming back is logged once.
+    page_error: Option<String>,
+    follow_error: Option<String>,
 }
 
 impl Surroundings {
@@ -577,10 +591,14 @@ impl Surroundings {
             match Local::start(shared, &OPT_IN.spec, register(), Arc::new(handler)) {
                 Ok(page) => {
                     self.page = Some(page);
+                    self.page_error = None;
                     self.facts = Value::Null;
                 }
                 Err(e) => {
-                    crate::log_info!("audio passthrough: the page did not register: {e}");
+                    log_once(
+                        &mut self.page_error,
+                        format!("the page did not register: {e}"),
+                    );
                     self.page_retry = Some(Instant::now() + PAGE_RETRY);
                 }
             }
@@ -632,9 +650,15 @@ impl Surroundings {
             }),
         );
         match started {
-            Ok(follow) => self.follow = Some(follow),
+            Ok(follow) => {
+                self.follow = Some(follow);
+                self.follow_error = None;
+            }
             Err(e) => {
-                crate::log_info!("audio passthrough: LG's sound output cannot be followed: {e}");
+                log_once(
+                    &mut self.follow_error,
+                    format!("LG's sound output cannot be followed: {e}"),
+                );
                 self.follow_retry = Some(Instant::now() + FOLLOW_RETRY);
             }
         }
@@ -655,6 +679,8 @@ fn run(service: &Arc<Service>, ctx: &Ctx, shared: &Arc<Shared>, again: bool) {
         follow: None,
         follow_retry: None,
         facts: Value::Null,
+        page_error: None,
+        follow_error: None,
     };
     loop {
         let enabled = (service.enabled)();
@@ -676,6 +702,28 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     const JOURNAL: &str = "/data/audio-passthrough/journal";
+
+    #[test]
+    fn a_failure_that_keeps_coming_back_is_logged_once() {
+        let mut last = None;
+        assert!(log_once(
+            &mut last,
+            "the page did not register: busy".into()
+        ));
+        assert!(!log_once(
+            &mut last,
+            "the page did not register: busy".into()
+        ));
+        assert!(log_once(
+            &mut last,
+            "the page did not register: gone".into()
+        ));
+        last = None;
+        assert!(log_once(
+            &mut last,
+            "the page did not register: gone".into()
+        ));
+    }
 
     struct Rig {
         service: Arc<Service>,

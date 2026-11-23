@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::thread;
@@ -16,6 +17,27 @@ use std::time::{Duration, Instant};
 
 /// How long `amixer` and `luna-send` get before they are abandoned.
 const CHILD_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// A crashed child must not leave a core dump on the TV: SAM starts processes with an unlimited core size and a dump is 160-290 MB.
+pub fn no_core_dumps() -> io::Result<()> {
+    let none = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: `setrlimit` only reads the struct it is given.
+    match unsafe { libc::setrlimit(libc::RLIMIT_CORE, &none) } {
+        0 => Ok(()),
+        _ => Err(io::Error::last_os_error()),
+    }
+}
+
+/// A child that sets its own core size to 0 before it runs, whatever limit the helper was started with.
+fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut command = Command::new(program);
+    // SAFETY: `no_core_dumps` only calls `setrlimit`, which is async-signal-safe.
+    unsafe { command.pre_exec(no_core_dumps) };
+    command
+}
 
 /// A task in uninterruptible sleep (state `D`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -188,7 +210,7 @@ impl Host for System {
     }
 
     fn set_earc_words(&self, words: Words) -> Result<(), WriteError> {
-        let child = Command::new(&self.amixer)
+        let child = command(&self.amixer)
             .args([
                 "-c",
                 "0",
@@ -209,7 +231,7 @@ impl Host for System {
     }
 
     fn luna(&self, uri: &str, payload: &str) -> Option<String> {
-        let mut child = Command::new(&self.luna_send)
+        let mut child = command(&self.luna_send)
             .args(["-n", "1", uri, payload])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

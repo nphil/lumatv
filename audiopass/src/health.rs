@@ -5,8 +5,10 @@
 use crate::host::Host;
 
 const STATUS: &str = "luna://com.webos.service.audiooutput/audio/getStatus";
-/// LG's HDMI input service. Not yet read back from a C4: a reply of any kind, an error reply included, counts as answering.
-const HDMI_STATUS: &str = "luna://com.webos.service.extinputs.hdmi/getStatus";
+/// LG's HDMI input service has no `getStatus` method (it answers "Unknown method"). Every luna service lists its methods at this
+/// path, and a healthy C4 answers it with `{"/":{"open":"METHOD",...,"getVRRInfo":"METHOD",...}}`.
+pub(crate) const HDMI_INTROSPECTION: &str =
+    "luna://com.webos.service.extinputs.hdmi/com/palm/luna/private/introspection";
 /// A stuck task whose kernel stack or wait channel names one of these holds the control lock.
 const LOCK: [&str; 3] = ["snd_ctl", "sndout", "rwsem"];
 /// Audio daemons that sit in `D` for a moment while LG reconfigures its output.
@@ -54,13 +56,9 @@ pub fn connections(host: &dyn Host) -> Option<Vec<String>> {
     Some(sources)
 }
 
-/// Whether LG's HDMI input service answers a status call. It is the service that stopped answering after a badly ended session, so
-/// a reply of any kind is the sign of life; only silence is a fault.
-pub fn hdmi_answers(host: &dyn Host) -> bool {
-    host.luna(HDMI_STATUS, "{}").is_some()
-}
-
-pub fn check(host: &dyn Host) -> Health {
+/// The /proc half of the gate, no luna call: `Wedged` when a stuck task holds the sound card's control lock, `Busy` when an audio
+/// daemon is only waiting on the kernel.
+fn task_state(host: &dyn Host) -> Health {
     let mut busy = None;
     for task in host.stuck_tasks() {
         if LOCK
@@ -76,13 +74,31 @@ pub fn check(host: &dyn Host) -> Health {
             busy = Some(format!("{} is waiting on the kernel", task.comm));
         }
     }
-    if let Some(why) = busy {
-        return Health::Busy(why);
+    busy.map_or(Health::Ok, Health::Busy)
+}
+
+pub fn check(host: &dyn Host) -> Health {
+    let tasks = task_state(host);
+    if tasks != Health::Ok {
+        return tasks;
     }
     match host.luna(STATUS, "{}") {
         Some(reply) if returned_true(&reply) => Health::Ok,
         _ => Health::Busy("the audio service does not answer".into()),
     }
+}
+
+/// Whether LG's audio and HDMI input services came through a restore. Both wedges so far left `audiooutputd` and
+/// `extinput-integration` in uninterruptible sleep in `snd_ctl_elem_info`, so the tasks are read first, from /proc, where nothing
+/// can hang; a daemon that only waits for a moment is not a fault. Only then is the HDMI input service pinged, and only silence is a
+/// fault: a service that lists its methods or answers with an error is running its message loop.
+pub fn input_services(host: &dyn Host) -> Result<(), String> {
+    if let Health::Wedged(why) = task_state(host) {
+        return Err(why);
+    }
+    host.luna(HDMI_INTROSPECTION, "{}")
+        .map(|_| ())
+        .ok_or_else(|| "LG's HDMI input service does not answer".to_owned())
 }
 
 #[cfg(test)]
@@ -162,10 +178,43 @@ mod tests {
     }
 
     #[test]
-    fn the_hdmi_service_answers_or_it_does_not() {
+    fn the_hdmi_input_service_is_pinged_through_its_introspection_call() {
         let host = FakeHost::c4();
-        assert!(hdmi_answers(&host));
+        assert_eq!(input_services(&host), Ok(()));
+        assert_eq!(host.with(|sim| sim.hdmi_calls), 1);
+    }
+
+    #[test]
+    fn a_silent_hdmi_input_service_is_a_fault() {
+        let host = FakeHost::c4();
         host.with(|sim| sim.hdmi_ok = false);
-        assert!(!hdmi_answers(&host));
+        let why = input_services(&host).unwrap_err();
+        assert!(why.contains("HDMI input service"), "{why}");
+    }
+
+    #[test]
+    fn a_wedged_audio_task_is_a_fault_found_before_anything_is_asked() {
+        let host = FakeHost::c4();
+        host.with(|sim| {
+            sim.stuck.push(Stuck {
+                comm: "extinput-integration".into(),
+                wchan: "snd_ctl_elem_info".into(),
+                stack: String::new(),
+            })
+        });
+        let why = input_services(&host).unwrap_err();
+        assert!(why.contains("extinput-integration"), "{why}");
+        assert_eq!(host.with(|sim| sim.hdmi_calls), 0);
+    }
+
+    #[test]
+    fn a_daemon_that_only_waits_is_not_a_fault() {
+        let host = FakeHost::c4();
+        host.with(|sim| {
+            sim.stuck
+                .push(stuck("audiooutputd", "[<0>] msleep+0x1c/0x40\n"))
+        });
+        assert_eq!(input_services(&host), Ok(()));
+        assert_eq!(host.with(|sim| sim.hdmi_calls), 1);
     }
 }

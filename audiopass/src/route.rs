@@ -18,8 +18,8 @@
 //!
 //! Ending reverses 3 and 2: mute, put the mute back as the session found it once the player has closed its renderer, disconnect,
 //! put the words back. Then the TV is compared with what the session found (audiooutputd's connection list, the kernel's
-//! connected inputs, the ADEC's own kernel line) and LG's HDMI input service is asked for its status; a service that does not
-//! answer holds the next session off.
+//! connected inputs, the ADEC's own kernel line) and LG's input services are checked (no audio task wedged in the sound card's
+//! control lock, the HDMI input service answers a ping); a fault holds the next session off.
 //!
 //! Ported from `lgroute.c` and `lgroute-control.c` of dts_restore_plus (LGPL-2.1-or-later): the converter command, the words and
 //! their ranges, and the rule that gives up once LG has mixed or re-encoded the stream for about a second.
@@ -59,7 +59,6 @@ const IDLE_TICK_MS: u64 = 2000;
 const IDLE_HEALTH_MS: u64 = 10_000;
 /// The highest decoder input number LG's resource manager hands out on the C4 (`adec.p0` to `adec.p7`).
 pub const MAX_ADEC: u8 = 7;
-const HDMI_SILENT: &str = "LG's HDMI input service has not answered since the last session ended";
 
 #[derive(Clone, Copy)]
 struct Wait {
@@ -302,8 +301,9 @@ pub struct Route {
     pending: Option<(Journal, String)>,
     /// What the last restore found different from what the session found, until the next arm.
     after: Option<String>,
-    /// LG's HDMI input service did not answer after the last restore: no session starts until it does.
-    hdmi_stuck: bool,
+    /// What is wrong with LG's input services after the last restore (a wedged audio task, a silent HDMI input service): no session
+    /// starts until they are healthy again.
+    input_fault: Option<String>,
     /// An `amixer` write that did not answer: nothing touches the route again until the helper restarts.
     hung: Option<String>,
     firmware: Option<Firmware>,
@@ -328,7 +328,7 @@ impl Route {
             end: None,
             pending: None,
             after: None,
-            hdmi_stuck: false,
+            input_fault: None,
             hung: None,
             firmware: None,
             sndout: None,
@@ -482,16 +482,16 @@ impl Route {
         {
             self.health = health::check(&*self.host);
             self.health_at = Some(now);
-            if self.hdmi_stuck && health::hdmi_answers(&*self.host) {
-                self.hdmi_stuck = false;
+            if self.input_fault.is_some() {
+                self.probe_input_services();
             }
         }
         self.ready = if let Some((_, note)) = &self.pending {
             Err(note.clone())
         } else if let Some(why) = &self.hung {
             Err(why.clone())
-        } else if self.hdmi_stuck {
-            Err(HDMI_SILENT.to_owned())
+        } else if let Some(why) = &self.input_fault {
+            Err(why.clone())
         } else if let Health::Wedged(why) | Health::Busy(why) = &self.health {
             Err(format!("audio services are not healthy: {why}"))
         } else {
@@ -627,11 +627,11 @@ impl Route {
                     "an earlier session's journal has not been replayed",
                 ));
             }
-            if self.hdmi_stuck {
-                if !health::hdmi_answers(&*self.host) {
-                    return Err(Refusal::now(HDMI_SILENT));
+            if self.input_fault.is_some() {
+                self.probe_input_services();
+                if let Some(why) = &self.input_fault {
+                    return Err(Refusal::now(why.clone()));
                 }
-                self.hdmi_stuck = false;
             }
         }
         let start = self.owner(pid).map_err(Refusal::now)?;
@@ -996,8 +996,8 @@ impl Route {
     }
 
     /// Compares the TV with what the session found: audiooutputd's connection list, the kernel's connected inputs and the ADEC's own
-    /// line must read as before, and LG's HDMI input service must answer. Differences are kept for the page; a silent HDMI service
-    /// also holds the next session off.
+    /// line must read as before, and LG's input services must have come through. Differences are kept for the page; a wedged audio
+    /// task or a silent HDMI input service also holds the next session off.
     fn audit(&mut self, journal: &Journal) {
         let adec = journal.adec;
         let mut notes = Vec::new();
@@ -1024,14 +1024,25 @@ impl Route {
             )),
             None => notes.push(format!("ADEC{adec} cannot be read")),
         }
-        self.hdmi_stuck = !health::hdmi_answers(&*self.host);
+        self.probe_input_services();
         self.after = (!notes.is_empty()).then(|| notes.join("; "));
     }
 
-    /// What the page shows of the last restore: the differences it found, and a silent HDMI input service.
+    /// Looks at LG's input services and keeps what is wrong with them, if anything, until they are healthy again.
+    fn probe_input_services(&mut self) {
+        self.input_fault = health::input_services(&*self.host)
+            .err()
+            .map(|why| format!("LG's input services did not come through the last session: {why}"));
+    }
+
+    /// What the page shows of the last restore: the differences it found, and what is wrong with LG's input services.
     fn after_note(&self) -> Option<String> {
-        let hdmi = self.hdmi_stuck.then(|| HDMI_SILENT.to_owned());
-        let parts: Vec<String> = self.after.iter().cloned().chain(hdmi).collect();
+        let parts: Vec<String> = self
+            .after
+            .iter()
+            .chain(&self.input_fault)
+            .cloned()
+            .collect();
         (!parts.is_empty()).then(|| parts.join("; "))
     }
 
