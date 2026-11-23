@@ -1,6 +1,6 @@
 use super::*;
 use crate::host::Stuck;
-use crate::testing::{ADEC, CONVERTER, FakeHost, PID, TAIL, graph_with};
+use crate::testing::{ADEC, CONVERTER, FakeHost, Fault, PID, TAIL, graph_with};
 use std::sync::Mutex;
 
 const JOURNAL: &str = "/data/audio-passthrough/journal";
@@ -122,10 +122,13 @@ fn assert_restored(rig: &Rig, why: Why) {
         snap.after, None,
         "the TV reads as it did before the session"
     );
-    assert!(
-        rig.host.with(|sim| sim.hdmi_calls) >= 1,
-        "the HDMI input service is asked after the restore"
-    );
+    // A stopping helper keeps its few seconds for the restore itself and skips the check afterwards.
+    if why != Why::HelperExit {
+        assert!(
+            rig.host.with(|sim| sim.hdmi_calls) >= 1,
+            "the HDMI input service is asked after the restore"
+        );
+    }
 }
 
 // ---- arming --------------------------------------------------------------------------------------------------------------
@@ -234,8 +237,8 @@ fn refused(mutate: impl FnOnce(&mut Rig)) -> (Rig, Refusal) {
 fn every_precondition_refuses_before_touching_the_tv() {
     let wedge = Stuck {
         comm: "kworker/0:1".into(),
-        wchan: String::new(),
-        stack: "[<0>] rwsem_down_write_slowpath+0x300/0x500\n".into(),
+        wchan: "snd_ctl_elem_info".into(),
+        stack: String::new(),
     };
     type Case = (&'static str, fn(&mut Rig), &'static str, bool);
     let cases: Vec<Case> = vec![
@@ -654,8 +657,8 @@ fn a_wedged_sound_card_is_never_written_to_and_the_restore_waits() {
     let mut rig = Rig::audible();
     let wedge = Stuck {
         comm: "kworker/1:2".into(),
-        wchan: String::new(),
-        stack: "[<0>] rwsem_down_read_slowpath+0x1d4/0x420\n".into(),
+        wchan: "snd_ctl_elem_info".into(),
+        stack: String::new(),
     };
     rig.host.with(|s| s.stuck.push(wedge));
     rig.host.with(|s| s.log.clear());
@@ -814,7 +817,7 @@ fn a_wedge_that_appears_while_idle_is_reported_within_the_health_interval() {
     rig.host.with(|s| {
         s.stuck.push(Stuck {
             comm: "x".into(),
-            wchan: "snd_ctl_elem_write".into(),
+            wchan: "snd_ctl_elem_info".into(),
             stack: String::new(),
         })
     });
@@ -892,7 +895,7 @@ fn recovery_of_a_wedged_tv_keeps_the_journal() {
     rig.host.with(|s| {
         s.stuck.push(Stuck {
             comm: "x".into(),
-            wchan: "rwsem".into(),
+            wchan: "snd_ctl_elem_info".into(),
             stack: String::new(),
         });
         s.log.clear();
@@ -1123,4 +1126,234 @@ fn a_journal_written_before_the_connect_never_touches_a_decoder_lg_connected_its
     rig.host
         .with(|s| assert!(s.adec_connected, "LG's own connection stays"));
     assert_words_restored(&rig);
+}
+
+// ---- LG's own input on the decoder, how long the route is held, and what a cut-off restore leaves --------------------------
+
+/// LG's HDMI input starts decoding on the session's ADEC. The kernel line still reads `Connect=HDMI_PORT2`; only `Start=` and the
+/// mute change.
+fn lg_starts_decoding(rig: &Rig) {
+    rig.host.with(|s| {
+        s.adec_start = true;
+        s.adec_mute = false;
+        s.belief_muted = false;
+        s.log.clear();
+    });
+}
+
+/// Nothing of LG's live input was muted or disconnected, and the words are back.
+fn assert_lgs_input_untouched(rig: &Rig) {
+    assert_eq!(
+        rig.count("luna mute true") + rig.count("luna mute false") + rig.count("luna disconnect"),
+        0,
+        "{:?}",
+        rig.host.log()
+    );
+    rig.host.with(|s| {
+        assert!(
+            s.adec_connected && s.adec_start && !s.adec_mute,
+            "LG's live audio stays as LG made it"
+        );
+    });
+    assert_words_restored(rig);
+}
+
+#[test]
+fn an_hdmi_input_decoding_on_the_same_adec_ends_the_session_and_is_left_alone() {
+    let mut rig = Rig::audible();
+    lg_starts_decoding(&rig);
+    rig.run(300);
+    let snap = rig.snap();
+    assert_eq!(snap.state, State::Lost);
+    assert!(snap.reason.contains("LG is using ADEC1"), "{}", snap.reason);
+    assert_lgs_input_untouched(&rig);
+    let after = snap.after.expect("reported");
+    assert!(after.contains("left as LG has it"), "{after}");
+}
+
+#[test]
+fn an_hdmi_switch_just_before_the_release_is_left_alone_too() {
+    let mut rig = Rig::audible();
+    lg_starts_decoding(&rig);
+    assert_eq!(rig.route.release(PID), Ok(true));
+    assert_lgs_input_untouched(&rig);
+    assert_eq!(rig.snap().end.map(|e| e.why), Some(Why::Released));
+}
+
+#[test]
+fn a_journal_replayed_after_lg_took_the_decoder_leaves_lgs_connection() {
+    let rig = Rig::audible();
+    // The helper dies; the viewer switches to HDMI2 before the next one starts: same decoder, same source, now decoding.
+    lg_starts_decoding(&rig);
+    let mut next = Route::new(rig.host.clone(), JOURNAL);
+    let note = next.recover().unwrap();
+    assert!(note.contains("put LG's audio settings back"), "{note}");
+    assert_lgs_input_untouched(&rig);
+    let after = next.snapshot().after.expect("reported");
+    assert!(after.contains("left as LG has it"), "{after}");
+}
+
+#[test]
+fn watching_a_session_asks_luna_nothing_and_never_holds_the_route_for_a_luna_call() {
+    let mut rig = Rig::audible();
+    rig.host.with(|s| {
+        s.luna_ms = 300;
+        s.scan_ms = 40;
+        s.luna_calls = 0;
+    });
+    let end = rig.host.now() + 10_000;
+    while rig.host.now() < end {
+        let started = rig.host.now();
+        let wait = rig.route.tick(&rig.env);
+        let held = rig.host.now() - started;
+        assert!(
+            held <= ARMED_TICK_MS,
+            "one step held the route for {held} ms"
+        );
+        rig.host.sleep_ms(wait);
+    }
+    assert_eq!(rig.host.with(|s| s.luna_calls), 0);
+    assert!(rig.session().audible);
+}
+
+#[test]
+fn a_step_that_talks_to_lg_is_followed_by_a_fresh_reading() {
+    let mut rig = Rig::new();
+    rig.host.with(|s| s.luna_ms = 400);
+    rig.arm().unwrap();
+    while rig.host.at("luna connect").is_none() {
+        let wait = rig.route.tick(&rig.env);
+        rig.host.sleep_ms(wait);
+    }
+    let connected_at = rig.host.at("luna connect").unwrap();
+    let session = rig.session();
+    assert!(session.connected);
+    assert!(
+        session.at >= connected_at,
+        "read at {} for a step at {connected_at}: the player would be told it is stale",
+        session.at
+    );
+}
+
+#[test]
+fn a_task_in_the_control_lock_for_a_moment_does_not_end_the_session() {
+    let mut rig = Rig::audible();
+    rig.host.with(|s| {
+        s.stuck.push(Stuck {
+            comm: "extinput-integration".into(),
+            wchan: "snd_ctl_elem_info".into(),
+            stack: String::new(),
+        });
+        s.stuck_scans = Some(1);
+    });
+    rig.run(2_500);
+    assert_eq!(rig.snap().end, None);
+    assert!(rig.session().audible);
+}
+
+#[test]
+fn a_helper_that_is_stopping_restores_in_about_a_second_while_the_player_still_streams() {
+    let mut rig = Rig::new();
+    rig.host.with(|s| s.adec_mute = false); // the input was found unmuted
+    rig.arm().unwrap();
+    rig.run(10_000);
+    assert_eq!(rig.session().phase, Phase::Audible);
+    rig.host.with(|s| {
+        s.luna_ms = 200;
+        s.log.clear();
+    });
+    rig.env.stopping = true;
+    let started = rig.host.now();
+    rig.route.tick(&rig.env);
+    let took = rig.host.now() - started;
+    assert!(
+        took <= 1_200,
+        "the restore took {took} ms of the helper's 4 s"
+    );
+    assert_eq!(rig.snap().end.map(|e| e.why), Some(Why::HelperExit));
+    assert_eq!(rig.snap().pending, None);
+    assert_words_restored(&rig);
+    rig.host.with(|s| {
+        assert!(!s.adec_connected);
+        assert!(
+            s.adec_mute,
+            "an input found unmuted stays muted: the player has not closed its renderer"
+        );
+    });
+}
+
+#[test]
+fn a_restore_cut_off_at_any_step_is_finished_by_the_next_helper() {
+    for cut in ["luna mute true", "luna disconnect", "words 2,1,0,0,1"] {
+        let mut rig = Rig::audible();
+        rig.host.with(|s| {
+            s.log.clear();
+            s.trip = Some((cut.to_owned(), Fault::Dead));
+        });
+        // The helper is stopped and dies right after `cut`.
+        rig.env.stopping = true;
+        rig.route.tick(&rig.env);
+        assert!(
+            rig.host.with(|s| s.files.contains_key(JOURNAL)),
+            "{cut}: the journal is what the next helper works from"
+        );
+        // The next helper starts on the same TV.
+        rig.host.with(|s| s.fault = None);
+        let mut next = Route::new(rig.host.clone(), JOURNAL);
+        let note = next.recover().unwrap();
+        assert!(
+            note.contains("put LG's audio settings back"),
+            "{cut}: {note}"
+        );
+        let log = rig.host.log();
+        assert_eq!(rig.count("luna disconnect"), 1, "{cut}: {log:?}");
+        assert_eq!(rig.count("words 2,1,0,0,1"), 1, "{cut}: {log:?}");
+        assert_words_restored(&rig);
+        rig.host
+            .with(|s| assert!(!s.adec_connected && s.adec_mute, "{cut}"));
+    }
+}
+
+#[test]
+fn a_blocked_proc_read_mid_restore_leaves_the_journal_and_a_later_tick_finishes() {
+    let mut rig = Rig::audible();
+    rig.host.with(|s| {
+        s.log.clear();
+        s.trip = Some(("luna mute true".to_owned(), Fault::Blocked));
+    });
+    assert_eq!(rig.route.release(PID), Ok(true));
+    assert!(rig.snap().pending.is_some());
+    assert!(rig.host.with(|s| s.files.contains_key(JOURNAL)));
+    assert_eq!(
+        rig.count("words 2,1,0,0,1"),
+        0,
+        "the words are not written blind"
+    );
+    rig.host.with(|s| s.fault = None);
+    rig.run(2_100);
+    assert_eq!(rig.snap().pending, None);
+    assert_eq!(rig.count("luna disconnect"), 1);
+    assert_words_restored(&rig);
+}
+
+#[test]
+fn audiooutputd_going_silent_mid_restore_holds_the_words_until_it_answers() {
+    let mut rig = Rig::audible();
+    rig.host.with(|s| {
+        s.log.clear();
+        s.trip = Some(("luna mute true".to_owned(), Fault::Silent));
+    });
+    assert_eq!(rig.route.release(PID), Ok(true));
+    assert!(rig.snap().pending.is_some());
+    assert_eq!(
+        rig.count("luna disconnect"),
+        0,
+        "it never reached audiooutputd"
+    );
+    assert_eq!(rig.count("words 2,1,0,0,1"), 0);
+    rig.host.with(|s| s.fault = None);
+    rig.run(2_100);
+    assert_eq!(rig.snap().pending, None);
+    assert_words_restored(&rig);
+    assert!(!rig.host.with(|s| s.adec_connected));
 }

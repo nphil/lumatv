@@ -24,6 +24,17 @@ pub const PLAYER_START: u64 = 123_456;
 /// The decoder input the proven player's renderer was granted.
 pub const ADEC: u8 = 1;
 
+/// How the scripted TV or helper fails from some point on (`Sim::fault`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fault {
+    /// The helper is gone: nothing it does after this lands.
+    Dead,
+    /// Reads and writes of LG's driver files block until their deadline.
+    Blocked,
+    /// audiooutputd does not answer luna calls.
+    Silent,
+}
+
 pub struct Sim {
     pub now: u64,
     pub files: BTreeMap<String, String>,
@@ -64,6 +75,16 @@ pub struct Sim {
     pub log: Vec<(u64, String)>,
     /// How often `sndout` was read.
     pub sndout_reads: u32,
+    /// How often luna was called, whatever it was asked.
+    pub luna_calls: u32,
+    /// What one luna call and one scan of the tasks cost on the fake clock.
+    pub luna_ms: u64,
+    pub scan_ms: u64,
+    /// The stuck tasks are gone after this many scans: a wait that lasted a moment.
+    pub stuck_scans: Option<u32>,
+    pub fault: Option<Fault>,
+    /// `fault` starts right after this entry is logged.
+    pub trip: Option<(String, Fault)>,
 }
 
 pub fn graph_with(tail: &str, converter: &str) -> String {
@@ -137,7 +158,25 @@ impl Sim {
     }
 
     fn note(&mut self, entry: impl Into<String>) {
-        self.log.push((self.now, entry.into()));
+        let entry = entry.into();
+        match self.trip.take() {
+            Some((at, fault)) if at == entry => self.fault = Some(fault),
+            other => self.trip = other,
+        }
+        self.log.push((self.now, entry));
+    }
+
+    /// A read or write of LG's driver files.
+    fn driver_io(&self) -> io::Result<()> {
+        match self.fault {
+            Some(Fault::Dead) => Err(io::ErrorKind::BrokenPipe.into()),
+            Some(Fault::Blocked) => Err(io::ErrorKind::TimedOut.into()),
+            _ => Ok(()),
+        }
+    }
+
+    fn gone(&self) -> bool {
+        self.fault == Some(Fault::Dead)
     }
 }
 
@@ -212,6 +251,12 @@ impl FakeHost {
                     .join("\n"),
                 log: Vec::new(),
                 sndout_reads: 0,
+                luna_calls: 0,
+                luna_ms: 0,
+                scan_ms: 0,
+                stuck_scans: None,
+                fault: None,
+                trip: None,
             }),
         }
     }
@@ -242,27 +287,38 @@ fn not_found() -> io::Error {
 impl Host for FakeHost {
     fn read(&self, path: &str) -> io::Result<String> {
         let mut sim = self.sim.lock().unwrap();
+        if sim.gone() {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
         match path {
             SNDOUT => {
+                sim.driver_io()?;
                 sim.sndout_reads += 1;
                 Ok(sim.render_sndout())
             }
-            path if path == adec_path(sim.adec) => Ok(sim.render_adec()),
-            GRAPH => Ok(if sim.now >= sim.graph_at {
-                sim.chain_graph.clone()
-            } else {
-                sim.idle_graph.clone()
-            }),
+            path if path == adec_path(sim.adec) => {
+                sim.driver_io()?;
+                Ok(sim.render_adec())
+            }
+            GRAPH => {
+                sim.driver_io()?;
+                Ok(if sim.now >= sim.graph_at {
+                    sim.chain_graph.clone()
+                } else {
+                    sim.idle_graph.clone()
+                })
+            }
             _ => sim.files.get(path).cloned().ok_or_else(not_found),
         }
     }
 
     fn is_dir(&self, path: &str) -> bool {
-        self.with(|sim| sim.dirs.contains(path))
+        self.with(|sim| sim.driver_io().is_ok() && sim.dirs.contains(path))
     }
 
     fn write(&self, path: &str, _text: &str) -> io::Result<()> {
         self.with(|sim| {
+            sim.driver_io()?;
             let converter = path
                 .strip_prefix(INSTANCES)
                 .and_then(|rest| rest.strip_prefix('/'))
@@ -279,6 +335,9 @@ impl Host for FakeHost {
 
     fn save(&self, path: &str, text: &str) -> io::Result<()> {
         self.with(|sim| {
+            if sim.gone() {
+                return Err(io::ErrorKind::BrokenPipe.into());
+            }
             sim.files.insert(path.to_owned(), text.to_owned());
             sim.note("save");
             Ok(())
@@ -287,6 +346,9 @@ impl Host for FakeHost {
 
     fn remove(&self, path: &str) -> io::Result<()> {
         self.with(|sim| {
+            if sim.gone() {
+                return Err(io::ErrorKind::BrokenPipe.into());
+            }
             if sim.files.remove(path).is_some() {
                 sim.note("remove");
             }
@@ -313,6 +375,9 @@ impl Host for FakeHost {
 
     fn set_earc_words(&self, words: Words) -> Result<(), WriteError> {
         self.with(|sim| {
+            if sim.gone() {
+                return Err(WriteError::Failed("the helper is gone".into()));
+            }
             if let Some(error) = sim.words_error.clone() {
                 return Err(error);
             }
@@ -334,6 +399,11 @@ impl Host for FakeHost {
         const NO: &str = r#"{"returnValue":false,"errorText":"Audio not connected"}"#;
         const HDMI_METHODS: &str = r#"{"/":{"open":"METHOD","getVRRInfo":"METHOD"}}"#;
         self.with(|sim| {
+            sim.luna_calls += 1;
+            sim.now += sim.luna_ms;
+            if matches!(sim.fault, Some(Fault::Dead | Fault::Silent)) {
+                return None;
+            }
             let verb = uri.rsplit('/').next().unwrap_or_default();
             // A call that names another decoder input than the granted one finds nothing to act on.
             let ours = payload.contains(&format!(r#""source":"ADEC{}""#, sim.adec));
@@ -378,7 +448,20 @@ impl Host for FakeHost {
     }
 
     fn stuck_tasks(&self) -> Vec<Stuck> {
-        self.with(|sim| sim.stuck.clone())
+        self.with(|sim| {
+            sim.now += sim.scan_ms;
+            if sim.gone() {
+                return Vec::new();
+            }
+            let seen = sim.stuck.clone();
+            if let Some(left) = sim.stuck_scans {
+                sim.stuck_scans = (left > 1).then_some(left - 1);
+                if left <= 1 {
+                    sim.stuck.clear();
+                }
+            }
+            seen
+        })
     }
 
     fn now_ms(&self) -> u64 {

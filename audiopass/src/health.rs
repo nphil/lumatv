@@ -9,8 +9,11 @@ const STATUS: &str = "luna://com.webos.service.audiooutput/audio/getStatus";
 /// path, and a healthy C4 answers it with `{"/":{"open":"METHOD",...,"getVRRInfo":"METHOD",...}}`.
 pub(crate) const HDMI_INTROSPECTION: &str =
     "luna://com.webos.service.extinputs.hdmi/com/palm/luna/private/introspection";
-/// A stuck task whose kernel stack or wait channel names one of these holds the control lock.
-const LOCK: [&str; 3] = ["snd_ctl", "sndout", "rwsem"];
+/// Both wedges left `audiooutputd` and `extinput-integration` in uninterruptible sleep inside this kernel function, waiting for the
+/// sound card's control lock. A wider match (`rwsem`, `snd_ctl`) also catches tasks that wait on some lock for a moment.
+const LOCK: &str = "snd_ctl_elem_info";
+/// A task in the lock counts as stuck only when it is still there this long after the first look.
+const PERSIST_MS: u64 = 500;
 /// Audio daemons that sit in `D` for a moment while LG reconfigures its output.
 const DAEMONS: [&str; 4] = [
     "audiooutputd",
@@ -56,15 +59,12 @@ pub fn connections(host: &dyn Host) -> Option<Vec<String>> {
     Some(sources)
 }
 
-/// The /proc half of the gate, no luna call: `Wedged` when a stuck task holds the sound card's control lock, `Busy` when an audio
-/// daemon is only waiting on the kernel.
+/// One look at the tasks, from /proc, no luna call: `Wedged` when a stuck task waits in the sound card's control lock, `Busy` when an
+/// audio daemon is only waiting on the kernel.
 fn task_state(host: &dyn Host) -> Health {
     let mut busy = None;
     for task in host.stuck_tasks() {
-        if LOCK
-            .iter()
-            .any(|word| task.stack.contains(word) || task.wchan.contains(word))
-        {
+        if task.stack.contains(LOCK) || task.wchan.contains(LOCK) {
             return Health::Wedged(format!(
                 "{} is stuck in the sound card's control lock",
                 task.comm
@@ -77,10 +77,27 @@ fn task_state(host: &dyn Host) -> Health {
     busy.map_or(Health::Ok, Health::Busy)
 }
 
+/// The /proc half of the gate and what a running session is watched with: a luna call there would leave the player's sample stale
+/// for as long as LG takes to answer. A task in the control lock is a wedge only when it is still there [`PERSIST_MS`] after the
+/// first look; the lock is also held for a moment in normal use.
+pub fn tasks(host: &dyn Host) -> Health {
+    match task_state(host) {
+        Health::Wedged(first) => {
+            host.sleep_ms(PERSIST_MS);
+            match task_state(host) {
+                wedged @ Health::Wedged(_) => wedged,
+                _ => Health::Busy(format!("{first}, but it let go again")),
+            }
+        }
+        seen => seen,
+    }
+}
+
+/// The gate before a step that touches LG's route: the tasks, then LG's audio service has to answer.
 pub fn check(host: &dyn Host) -> Health {
-    let tasks = task_state(host);
-    if tasks != Health::Ok {
-        return tasks;
+    let seen = tasks(host);
+    if seen != Health::Ok {
+        return seen;
     }
     match host.luna(STATUS, "{}") {
         Some(reply) if returned_true(&reply) => Health::Ok,
@@ -93,7 +110,7 @@ pub fn check(host: &dyn Host) -> Health {
 /// can hang; a daemon that only waits for a moment is not a fault. Only then is the HDMI input service pinged, and only silence is a
 /// fault: a service that lists its methods or answers with an error is running its message loop.
 pub fn input_services(host: &dyn Host) -> Result<(), String> {
-    if let Health::Wedged(why) = task_state(host) {
+    if let Health::Wedged(why) = tasks(host) {
         return Err(why);
     }
     host.luna(HDMI_INTROSPECTION, "{}")
@@ -124,12 +141,67 @@ mod tests {
     fn a_task_in_the_control_lock_is_a_wedge_whatever_its_name() {
         let host = FakeHost::c4();
         host.with(|sim| {
+            sim.stuck.push(Stuck {
+                comm: "kworker/1:2".into(),
+                wchan: "snd_ctl_elem_info".into(),
+                stack: String::new(),
+            })
+        });
+        assert!(matches!(check(&host), Health::Wedged(why) if why.contains("kworker/1:2")));
+        // The kernel stack names it as well as the wait channel does.
+        host.with(|sim| {
+            sim.stuck[0].wchan.clear();
+            sim.stuck[0].stack = "[<0>] snd_ctl_elem_info+0x44/0x1d0\n".into();
+        });
+        assert!(matches!(check(&host), Health::Wedged(_)));
+    }
+
+    #[test]
+    fn waiting_on_some_other_lock_is_not_a_wedge() {
+        let host = FakeHost::c4();
+        host.with(|sim| {
             sim.stuck.push(stuck(
                 "kworker/1:2",
                 "[<0>] rwsem_down_read_slowpath+0x1d4/0x420\n",
             ))
         });
-        assert!(matches!(check(&host), Health::Wedged(why) if why.contains("kworker/1:2")));
+        assert_eq!(check(&host), Health::Ok);
+    }
+
+    #[test]
+    fn a_task_that_lets_go_within_the_window_is_not_a_wedge() {
+        let host = FakeHost::c4();
+        host.with(|sim| {
+            sim.stuck.push(Stuck {
+                comm: "extinput-integration".into(),
+                wchan: "snd_ctl_elem_info".into(),
+                stack: String::new(),
+            });
+            sim.stuck_scans = Some(1);
+        });
+        let before = host.now();
+        let seen = tasks(&host);
+        assert!(
+            matches!(&seen, Health::Busy(why) if why.contains("let go")),
+            "{seen:?}"
+        );
+        assert_eq!(host.now() - before, PERSIST_MS, "the second look waits");
+    }
+
+    #[test]
+    fn a_task_still_in_the_lock_after_the_window_is_a_wedge() {
+        let host = FakeHost::c4();
+        host.with(|sim| {
+            sim.stuck.push(Stuck {
+                comm: "extinput-integration".into(),
+                wchan: "snd_ctl_elem_info".into(),
+                stack: String::new(),
+            })
+        });
+        let before = host.now();
+        assert!(matches!(tasks(&host), Health::Wedged(_)));
+        assert_eq!(host.now() - before, PERSIST_MS);
+        assert_eq!(host.with(|sim| sim.luna_calls), 0, "no luna call is made");
     }
 
     #[test]

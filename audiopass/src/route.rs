@@ -13,13 +13,18 @@
 //!    receiver.
 //!
 //! The ADEC comes from the player, never from an assumption, and a session starts only while audiooutputd and the kernel show
-//! nothing connected, so no HDMI input's decoder is touched. The words are only written back while they still hold what this
-//! route wrote, and the ADEC only while it is still fed from the input it was fed from when the session was armed.
+//! nothing connected and the decoder stopped, so no HDMI input's decoder is touched. The words are only written back while they
+//! still hold what this route wrote. The ADEC is only muted and disconnected while it is not decoding: its `Connect=` reads the
+//! same (`HDMI_PORT2` on ADEC1) before, during and after a session, so it cannot tell LG's connection from ours, but `Start=` stayed 0
+//! through every measured session. An HDMI input that starts decoding on the same ADEC is therefore left as LG has it.
 //!
 //! Ending reverses 3 and 2: mute, put the mute back as the session found it once the player has closed its renderer, disconnect,
 //! put the words back. Then the TV is compared with what the session found (audiooutputd's connection list, the kernel's
 //! connected inputs, the ADEC's own kernel line) and LG's input services are checked (no audio task wedged in the sound card's
-//! control lock, the HDMI input service answers a ping); a fault holds the next session off.
+//! control lock, the HDMI input service answers a ping); a fault holds the next session off. A helper that is stopping has seconds
+//! (`hurry`): it does not wait for the renderer or compare afterwards, and what it cannot finish stays journalled for the next start.
+//! A running session is watched from /proc and the kernel only, and read again after every step, so the reading a player polls is
+//! never old by the length of a luna call.
 //!
 //! Ported from `lgroute.c` and `lgroute-control.c` of dts_restore_plus (LGPL-2.1-or-later): the converter command, the words and
 //! their ranges, and the rule that gives up once LG has mixed or re-encoded the stream for about a second.
@@ -615,7 +620,7 @@ impl Route {
             None => false,
         };
         if !rearm {
-            self.retry_pending();
+            self.retry_pending(false);
             if let Some((_, note)) = &self.pending {
                 return Err(Refusal::now(format!(
                     "an earlier session's settings are not back yet: {note}"
@@ -773,7 +778,8 @@ impl Route {
             .health_at
             .is_none_or(|at| now.saturating_sub(at) >= ARMED_HEALTH_MS)
         {
-            self.health = health::check(&*self.host);
+            // Tasks only, from /proc: a luna call here would hold the route for as long as LG takes to answer.
+            self.health = health::tasks(&*self.host);
             self.health_at = Some(now);
             if let Health::Wedged(why) = &self.health {
                 return Some((Why::RouteLost, format!("audio control is stuck: {why}")));
@@ -821,17 +827,24 @@ impl Route {
                     format!("LG connected ADEC{other} while the session held ADEC{adec}"),
                 ));
             }
-            if kernel.as_ref().is_some_and(|a| a.connect != base.connect) {
+            if let Some(a) = kernel.as_ref().filter(|a| lg_uses(a, &base)) {
                 return Some((
                     Why::RouteLost,
-                    "LG moved the audio input to another source".into(),
+                    format!("LG is using ADEC{adec} itself: it reads {}", a.render()),
                 ));
             }
             if phase == Phase::Audible && kernel.as_ref().and_then(|a| a.mute) == Some(true) {
                 return Some((Why::RouteLost, "LG muted the audio input".into()));
             }
         }
-        self.advance(now)
+        let was = phase;
+        let ended = self.advance(now);
+        if ended.is_none() && self.session.as_ref().is_some_and(|s| s.phase != was) {
+            // A step that talks to LG takes a while, and the player stops sending once the reading it polls is older than 300 ms:
+            // read again after the step, so the stamp is not from before it.
+            self.observe();
+        }
+        ended
     }
 
     /// Moves the connect sequence on by at most one step.
@@ -930,8 +943,10 @@ impl Route {
 
     /// Puts one session's changes back: silence, the input's mute as it was found, disconnect, words. Every step checks that what
     /// it would undo is still what the session did, nothing is written while the audio stack is wedged, and what the TV looks like
-    /// afterwards is compared with what the session found.
-    fn restore(&mut self, journal: &Journal, owner_alive: bool) -> Restore {
+    /// afterwards is compared with what the session found. A helper that is stopping has seconds, not minutes (`hurry`): it does
+    /// not wait for the player to close its renderer, so an input found unmuted stays muted, and it skips the comparison. What
+    /// cannot be finished stays journalled for the next start.
+    fn restore(&mut self, journal: &Journal, owner_alive: bool, hurry: bool) -> Restore {
         if let Some(why) = &self.hung {
             return Restore::Pending(why.clone());
         }
@@ -942,35 +957,36 @@ impl Route {
         }
         let adec = journal.adec;
         let base = sndout::parse_adec(&journal.kernel);
-        if journal.connected {
-            let ours = self
-                .read_adec(adec)
-                .is_some_and(|a| a.connect == base.connect);
-            if self.read_sndout().is_some_and(|s| s.adec_connected(adec)) && ours {
-                // Silence first: the player may still be writing the stream.
-                self.luna_mute(adec, true);
+        let kernel = self.read_adec(adec);
+        // The connection and the source read the same whether LG's input or the session made it, so only `lg_uses` tells them apart.
+        // Muting or disconnecting a decoder LG decodes on would cut its live audio.
+        let lg = kernel.as_ref().is_some_and(|a| lg_uses(a, &base));
+        let ours = kernel.is_some() && !lg;
+        if journal.connected && ours && self.read_sndout().is_some_and(|s| s.adec_connected(adec)) {
+            // Silence first: the player may still be writing the stream.
+            self.luna_mute(adec, true);
+            self.poll(VERIFY_WAIT, || {
+                self.read_adec(adec).and_then(|a| a.mute) == Some(true)
+            });
+            // An input found unmuted goes back unmuted, but only once the player has closed its renderer: with the stream gone
+            // there is nothing left to play, so no noise. Otherwise it stays muted and the audit says so.
+            if base.mute == Some(false)
+                && !hurry
+                && self.poll(RENDERER_CLOSE_WAIT, || self.renderer_closed(journal.pid))
+            {
+                self.luna_mute(adec, false);
                 self.poll(VERIFY_WAIT, || {
-                    self.read_adec(adec).and_then(|a| a.mute) == Some(true)
+                    self.read_adec(adec).and_then(|a| a.mute) == Some(false)
                 });
-                // An input found unmuted goes back unmuted, but only once the player has closed its renderer: with the stream gone
-                // there is nothing left to play, so no noise. Otherwise it stays muted and the audit says so.
-                if base.mute == Some(false)
-                    && self.poll(RENDERER_CLOSE_WAIT, || self.renderer_closed(journal.pid))
-                {
-                    self.luna_mute(adec, false);
-                    self.poll(VERIFY_WAIT, || {
-                        self.read_adec(adec).and_then(|a| a.mute) == Some(false)
-                    });
-                }
-                self.luna_link("disconnect", adec);
-                let gone = self.poll(VERIFY_WAIT, || {
-                    !self.read_sndout().is_some_and(|s| s.adec_connected(adec))
-                });
-                if !gone && owner_alive {
-                    return Restore::Pending(format!("ADEC{adec} will not disconnect"));
-                }
-                self.host.sleep_ms(SETTLE_MS);
             }
+            self.luna_link("disconnect", adec);
+            let gone = self.poll(VERIFY_WAIT, || {
+                self.read_sndout().is_some_and(|s| !s.adec_connected(adec))
+            });
+            if !gone && owner_alive {
+                return Restore::Pending(format!("ADEC{adec} will not disconnect"));
+            }
+            self.host.sleep_ms(SETTLE_MS);
         }
         if journal.applied != journal.before {
             let Some(current) = self.read_sndout().and_then(|s| s.earc) else {
@@ -983,7 +999,9 @@ impl Route {
             }
         }
         let _ = self.host.remove(&self.journal_path);
-        self.audit(journal);
+        if !hurry {
+            self.audit(journal, lg);
+        }
         Restore::Done
     }
 
@@ -997,32 +1015,41 @@ impl Route {
 
     /// Compares the TV with what the session found: audiooutputd's connection list, the kernel's connected inputs and the ADEC's own
     /// line must read as before, and LG's input services must have come through. Differences are kept for the page; a wedged audio
-    /// task or a silent HDMI input service also holds the next session off.
-    fn audit(&mut self, journal: &Journal) {
+    /// task or a silent HDMI input service also holds the next session off. When LG's own input has the decoder (`lg`) its
+    /// connection and kernel line are LG's, not differences the route left, so only the note that it was left alone is kept.
+    fn audit(&mut self, journal: &Journal, lg: bool) {
         let adec = journal.adec;
         let mut notes = Vec::new();
-        match health::connections(&*self.host) {
-            Some(list) if list.is_empty() => {}
-            Some(list) => notes.push(format!("the audio service still lists {}", list.join(", "))),
-            None => notes.push("the audio service's connections cannot be read".to_owned()),
-        }
-        match self.read_sndout() {
-            Some(snd) if snd.connected_adecs().is_empty() => {}
-            Some(snd) => notes.push(format!(
-                "the kernel still has ADEC{} connected",
-                snd.connected_adecs().join(", ADEC")
-            )),
-            None => notes.push("LG's sound status cannot be read".to_owned()),
-        }
-        let base = sndout::parse_adec(&journal.kernel);
-        match self.read_adec(adec) {
-            Some(now) if now == base => {}
-            Some(now) => notes.push(format!(
-                "ADEC{adec} reads {} but was {}",
-                now.render(),
-                base.render()
-            )),
-            None => notes.push(format!("ADEC{adec} cannot be read")),
+        if lg {
+            notes.push(format!(
+                "LG started using ADEC{adec} during the session; it was left as LG has it"
+            ));
+        } else {
+            match health::connections(&*self.host) {
+                Some(list) if list.is_empty() => {}
+                Some(list) => {
+                    notes.push(format!("the audio service still lists {}", list.join(", ")))
+                }
+                None => notes.push("the audio service's connections cannot be read".to_owned()),
+            }
+            match self.read_sndout() {
+                Some(snd) if snd.connected_adecs().is_empty() => {}
+                Some(snd) => notes.push(format!(
+                    "the kernel still has ADEC{} connected",
+                    snd.connected_adecs().join(", ADEC")
+                )),
+                None => notes.push("LG's sound status cannot be read".to_owned()),
+            }
+            let base = sndout::parse_adec(&journal.kernel);
+            match self.read_adec(adec) {
+                Some(now) if now == base => {}
+                Some(now) => notes.push(format!(
+                    "ADEC{adec} reads {} but was {}",
+                    now.render(),
+                    base.render()
+                )),
+                None => notes.push(format!("ADEC{adec} cannot be read")),
+            }
         }
         self.probe_input_services();
         self.after = (!notes.is_empty()).then(|| notes.join("; "));
@@ -1046,12 +1073,12 @@ impl Route {
         (!parts.is_empty()).then(|| parts.join("; "))
     }
 
-    fn retry_pending(&mut self) {
+    fn retry_pending(&mut self, hurry: bool) {
         let Some((journal, _)) = self.pending.take() else {
             return;
         };
         let alive = self.host.start_time(journal.pid).is_some();
-        if let Restore::Pending(note) = self.restore(&journal, alive) {
+        if let Restore::Pending(note) = self.restore(&journal, alive, hurry) {
             self.pending = Some((journal, note));
         }
     }
@@ -1067,7 +1094,8 @@ impl Route {
         let (journal, pid, start) = (session.journal.clone(), session.pid, session.start);
         self.notify();
         let alive = self.host.start_time(pid) == Some(start);
-        if let Restore::Pending(note) = self.restore(&journal, alive) {
+        let hurry = why == Why::HelperExit;
+        if let Restore::Pending(note) = self.restore(&journal, alive, hurry) {
             self.pending = Some((journal, note));
         }
         self.session = None;
@@ -1103,7 +1131,7 @@ impl Route {
             let _ = self.host.remove(&self.journal_path);
             return Some("dropped a stale journal".into());
         };
-        let note = match self.restore(&journal, false) {
+        let note = match self.restore(&journal, false, false) {
             Restore::Done => "put LG's audio settings back after a helper restart".to_owned(),
             Restore::Pending(why) => {
                 let note = format!("LG's audio settings are not back yet: {why}");
@@ -1123,6 +1151,7 @@ impl Route {
     /// helper stopping, player gone), watches a live session, and keeps the readiness reading fresh.
     pub fn tick(&mut self, env: &Env) -> u64 {
         self.env = env.clone();
+        let mut ended = false;
         if let Some(s) = &self.session {
             let gone = self.host.start_time(s.pid) != Some(s.start);
             let ending = if !env.enabled {
@@ -1141,10 +1170,14 @@ impl Route {
                 .or_else(|| self.monitor());
             if let Some((why, detail)) = ending {
                 self.end(why, &detail);
+                ended = true;
             }
         }
         if self.session.is_none() {
-            self.retry_pending();
+            // A restore that has just failed is not tried again in the same breath, and a stopping helper has no time for a slow one.
+            if !ended {
+                self.retry_pending(env.stopping);
+            }
             if env.enabled && !env.stopping {
                 self.refresh_idle();
             }
@@ -1234,6 +1267,13 @@ fn status_text(s: &Session) -> String {
         Phase::Ending => "Putting LG's settings back",
     }
     .to_owned()
+}
+
+/// Whether the kernel's line of the session's decoder shows LG using it. `Connect=` reads the same on the C4's ADEC1 (`HDMI_PORT2`)
+/// before, during and after a session, so it cannot tell LG's connection from the route's; `Start=` stays 0 through a session and
+/// is 1 while LG's own input decodes on it (`idle_adec` refuses a decoder that is). A changed `Connect=` is LG rewiring it.
+fn lg_uses(now: &Adec, base: &Adec) -> bool {
+    now.start == Some(true) || now.connect != base.connect
 }
 
 #[cfg(test)]
