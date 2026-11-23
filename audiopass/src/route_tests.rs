@@ -1,5 +1,5 @@
 use super::*;
-use crate::host::Stuck;
+use crate::host::{PUMP_MS, Stuck};
 use crate::testing::{ADEC, CONVERTER, FakeHost, Fault, PID, TAIL, graph_with};
 use std::sync::Mutex;
 
@@ -470,6 +470,36 @@ fn a_failed_words_write_leaves_nothing_behind() {
     assert_eq!(rig.snap().pending, None);
 }
 
+#[test]
+fn a_read_that_times_out_right_after_the_words_were_written_keeps_the_journal() {
+    let mut rig = Rig::new();
+    // The driver stops answering the moment the mix words are written: they are changed, but not read back.
+    rig.host
+        .with(|s| s.trip = Some(("words 2,1,0,0,0".to_owned(), Fault::Blocked)));
+    let refusal = rig.arm().unwrap_err();
+    assert!(refusal.reason.contains("did not take") && !refusal.retry);
+    assert!(
+        rig.snap().pending.is_some(),
+        "the journal is what puts the words back"
+    );
+    rig.host.with(|s| {
+        assert!(s.files.contains_key(JOURNAL));
+        assert_eq!(s.words.to_string(), "2,1,0,0,0");
+    });
+    // Nothing new starts over an unrestored journal.
+    let again = rig.arm().unwrap_err();
+    assert!(
+        again.reason.contains("settings are not back yet"),
+        "{}",
+        again.reason
+    );
+    // Once the driver answers, the restore puts the words back and drops the journal.
+    rig.host.with(|s| s.fault = None);
+    rig.run(2_100);
+    assert_eq!(rig.snap().pending, None);
+    assert_words_restored(&rig);
+}
+
 // ---- the ways a session ends ---------------------------------------------------------------------------------------------
 
 #[test]
@@ -843,6 +873,67 @@ fn a_foreign_firmware_is_refused_and_says_why() {
     assert_eq!(snap.state, State::Refused);
     assert!(snap.reason.contains("10.3.0-6000"), "{}", snap.reason);
     assert!(!snap.ready);
+}
+
+#[test]
+fn a_busy_audio_driver_waits_and_is_not_taken_for_a_foreign_firmware() {
+    let mut rig = Rig::new();
+    rig.run(2_100);
+    // A read of the driver's files is stuck, so its files fail at once. The firmware's own files do not.
+    rig.host.with(|s| s.fault = Some(Fault::Blocked));
+    rig.run(2_100);
+    let snap = rig.snap();
+    assert_eq!(
+        (snap.state, snap.ready),
+        (State::NotReady, false),
+        "{snap:?}"
+    );
+    assert!(
+        snap.reason.contains("audio driver is busy"),
+        "{}",
+        snap.reason
+    );
+    assert_eq!(snap.firmware.as_ref().map(|fw| &fw.verdict), Some(&Ok(())));
+    let refusal = rig.arm().unwrap_err();
+    assert!(
+        refusal.retry && refusal.reason.contains("audio driver is busy"),
+        "{}",
+        refusal.reason
+    );
+    // The next read of the driver's files finds it answering again.
+    rig.host.with(|s| s.fault = None);
+    rig.run(2_100);
+    assert_eq!(rig.snap().state, State::Ready);
+}
+
+#[test]
+fn an_identity_that_cannot_be_read_waits_and_is_read_again_instead_of_refusing() {
+    let mut rig = Rig::new();
+    let release = rig
+        .host
+        .with(|s| s.files.remove("/etc/starfish-release"))
+        .unwrap();
+    rig.run(2_100);
+    let snap = rig.snap();
+    assert_eq!(
+        (snap.state, snap.ready),
+        (State::NotReady, false),
+        "{snap:?}"
+    );
+    assert!(
+        snap.reason.contains("cannot read /etc/starfish-release"),
+        "{}",
+        snap.reason
+    );
+    assert!(snap.firmware.as_ref().is_some_and(|fw| fw.unread));
+    assert!(
+        rig.arm().unwrap_err().retry,
+        "a player is told to ask again"
+    );
+    rig.host
+        .with(|s| s.files.insert("/etc/starfish-release".into(), release));
+    rig.run(2_100);
+    assert_eq!(rig.snap().state, State::Ready);
 }
 
 #[test]
@@ -1233,6 +1324,59 @@ fn a_step_that_talks_to_lg_is_followed_by_a_fresh_reading() {
         "read at {} for a step at {connected_at}: the player would be told it is stale",
         session.at
     );
+}
+
+#[test]
+fn the_reading_a_player_polls_is_never_old_by_the_length_of_a_luna_call() {
+    let mut rig = Rig::new();
+    rig.host.with(|s| {
+        s.luna_ms = 400;
+        s.scan_ms = 120;
+    });
+    // Every reading that was published: when, and when the kernel was read for it.
+    let published = Arc::new(Mutex::new(Vec::new()));
+    let (host, sink) = (rig.host.clone(), published.clone());
+    rig.route.observe_with(move |snap| {
+        if let Some(session) = &snap.session {
+            sink.lock().unwrap().push((host.now(), session.at));
+        }
+    });
+    rig.arm().unwrap();
+    rig.run(10_000);
+    assert_eq!(rig.session().phase, Phase::Audible);
+    // A player that polls just before a publish sees the previous reading at its oldest.
+    let published = published.lock().unwrap();
+    let oldest = published
+        .windows(2)
+        .map(|pair| pair[1].0 - pair[0].1)
+        .max()
+        .unwrap();
+    assert!(
+        oldest <= ARMED_TICK_MS + PUMP_MS,
+        "a reading was {oldest} ms old when the next one replaced it"
+    );
+}
+
+#[test]
+fn a_re_arm_publishes_once_it_is_done_not_while_the_old_converter_is_gone() {
+    let mut rig = Rig::audible();
+    let (tail, converter) = ("0424000f", "04270010");
+    rig.host.with(|s| {
+        s.dirs.clear();
+        s.dirs.insert(format!("{INSTANCES}/{converter}"));
+        s.chain_graph = graph_with(tail, converter);
+        s.luna_ms = 400;
+    });
+    let published = Arc::new(Mutex::new(Vec::new()));
+    let sink = published.clone();
+    rig.route.observe_with(move |snap| {
+        sink.lock()
+            .unwrap()
+            .push(snap.session.as_ref().map(|s| s.bypassing));
+    });
+    rig.route.arm(PID, tail, ADEC, &rig.env).unwrap();
+    // The old converter reads as gone while LG's graph is rebuilt: a reading taken mid-way would say the route is not bypassing.
+    assert_eq!(*published.lock().unwrap(), vec![Some(true)]);
 }
 
 #[test]

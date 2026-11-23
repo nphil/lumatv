@@ -23,8 +23,9 @@
 //! connected inputs, the ADEC's own kernel line) and LG's input services are checked (no audio task wedged in the sound card's
 //! control lock, the HDMI input service answers a ping); a fault holds the next session off. A helper that is stopping has seconds
 //! (`hurry`): it does not wait for the renderer or compare afterwards, and what it cannot finish stays journalled for the next start.
-//! A running session is watched from /proc and the kernel only, and read again after every step, so the reading a player polls is
-//! never old by the length of a luna call.
+//! A running session is watched from /proc and the kernel only. A step of the watch that waits on LG (a luna call, a health check, a
+//! read-back) reads the kernel again and publishes the reading about every [`crate::host::PUMP_MS`] while it waits, so the reading a
+//! player polls is never old by the length of a luna call.
 //!
 //! Ported from `lgroute.c` and `lgroute-control.c` of dts_restore_plus (LGPL-2.1-or-later): the converter command, the words and
 //! their ranges, and the rule that gives up once LG has mixed or re-encoded the stream for about a second.
@@ -42,6 +43,8 @@ pub const GRAPH: &str = "/proc/aaudio/dot_module_connection";
 pub const INSTANCES: &str = "/proc/aaudio/instances";
 pub const BOOT_ID: &str = "/proc/sys/kernel/random/boot_id";
 const AUDIO: &str = "luna://com.webos.service.audiooutput/audio/";
+/// Why LG's sound status cannot be read while an earlier read of the driver's files is still waiting.
+const DRIVER_BUSY: &str = "LG's audio driver is busy: a read of its files has not returned yet";
 /// 8 channels of 16-bit PCM at 192 kHz, which carry an encoded stream in IEC 61937 bursts (lgroute.c).
 const CONVERTER_COMMAND: &str = "0x50020020 192000 8 16 0 0 192000 8 16\n";
 
@@ -294,6 +297,13 @@ enum Restore {
     Pending(String),
 }
 
+/// Why [`Route::apply_words`] did not end with the words read back as asked.
+struct Unapplied {
+    why: String,
+    /// The write was made, so LG's words may have changed all the same.
+    written: bool,
+}
+
 pub struct Route {
     host: Arc<dyn Host>,
     journal_path: String,
@@ -316,6 +326,9 @@ pub struct Route {
     ready: Result<(), String>,
     health: Health,
     health_at: Option<u64>,
+    /// A monitoring step is running: its waits publish a fresh reading. An arm, a re-arm and a restore do not, as the player waits
+    /// for those calls to return.
+    monitoring: bool,
     observer: Option<Observer>,
 }
 
@@ -340,6 +353,7 @@ impl Route {
             ready: Err("starting".into()),
             health: Health::Ok,
             health_at: None,
+            monitoring: false,
             observer: None,
         }
     }
@@ -376,14 +390,35 @@ impl Route {
             .map(|text| sndout::parse_adec(&text))
     }
 
-    fn poll(&self, wait: Wait, mut done: impl FnMut() -> bool) -> bool {
+    /// Reads the kernel again and publishes the reading during a monitoring step. A step that waits on LG (a luna call, a health
+    /// check, a wait for the kernel) takes longer than the 300 ms a player tolerates, and the reading it polls would be older than
+    /// that when the step ends.
+    fn publish_reading(&mut self) {
+        if self.monitoring {
+            self.observe();
+            self.notify();
+        }
+    }
+
+    /// Sleeps `ms`; during a monitoring step a fresh reading is published about every [`crate::host::PUMP_MS`] of it.
+    fn nap(&mut self, ms: u64) {
+        if !self.monitoring {
+            self.host.sleep_ms(ms);
+            return;
+        }
+        let host = self.host.clone();
+        host.sleep_pumped(ms, &mut || self.publish_reading());
+    }
+
+    /// Looks every `wait.every_ms` until `done` says yes, up to `wait.polls` times.
+    fn poll(&mut self, wait: Wait, mut done: impl FnMut(&Self) -> bool) -> bool {
         for _ in 0..wait.polls {
-            if done() {
+            if done(self) {
                 return true;
             }
-            self.host.sleep_ms(wait.every_ms);
+            self.nap(wait.every_ms);
         }
-        done()
+        done(self)
     }
 
     fn save_journal(&self, journal: &Journal) -> Result<(), String> {
@@ -392,13 +427,15 @@ impl Route {
             .map_err(|e| format!("cannot write the recovery journal: {e}"))
     }
 
-    fn luna(&self, verb: &str, payload: &str) -> bool {
-        self.host
-            .luna(&format!("{AUDIO}{verb}"), payload)
-            .is_some_and(|reply| returned_true(&reply))
+    fn luna(&mut self, verb: &str, payload: &str) -> bool {
+        let host = self.host.clone();
+        host.luna_pumped(&format!("{AUDIO}{verb}"), payload, &mut || {
+            self.publish_reading()
+        })
+        .is_some_and(|reply| returned_true(&reply))
     }
 
-    fn luna_mute(&self, adec: u8, mute: bool) -> bool {
+    fn luna_mute(&mut self, adec: u8, mute: bool) -> bool {
         self.luna(
             "mute",
             &format!(r#"{{"source":"ADEC{adec}","sink":"MAIN","mute":{mute}}}"#),
@@ -406,7 +443,7 @@ impl Route {
     }
 
     /// `connect` or `disconnect` of the ADEC to the main output.
-    fn luna_link(&self, verb: &str, adec: u8) -> bool {
+    fn luna_link(&mut self, verb: &str, adec: u8) -> bool {
         self.luna(verb, &format!(r#"{{"source":"ADEC{adec}","sink":"MAIN"}}"#))
     }
 
@@ -429,7 +466,13 @@ impl Route {
             }
             None => return Err("LG's sound output setting has not been read yet".into()),
         }
-        let snd = snd.ok_or("LG's sound status cannot be read")?;
+        let snd = snd.ok_or_else(|| {
+            if self.host.driver_busy() {
+                DRIVER_BUSY
+            } else {
+                "LG's sound status cannot be read"
+            }
+        })?;
         match snd.earc_on {
             Some(true) => {}
             Some(false) => return Err("eARC is off".into()),
@@ -458,10 +501,10 @@ impl Route {
         if let Some(why) = &self.hung {
             return Err(Refusal::now(why.clone()));
         }
-        let mut now = health::check(&*self.host);
+        let mut now = self.check_health();
         if matches!(now, Health::Busy(_)) {
-            self.host.sleep_ms(HEALTH_RETRY_MS);
-            now = health::check(&*self.host);
+            self.nap(HEALTH_RETRY_MS);
+            now = self.check_health();
         }
         self.health = now.clone();
         self.health_at = Some(self.host.now_ms());
@@ -474,9 +517,16 @@ impl Route {
         }
     }
 
+    /// [`health::check`], publishing a fresh reading meanwhile during a monitoring step.
+    fn check_health(&mut self) -> Health {
+        let host = self.host.clone();
+        health::check_pumped(&*host, &mut || self.publish_reading())
+    }
+
     fn refresh_idle(&mut self) {
         let now = self.host.now_ms();
-        if self.firmware.is_none() {
+        // An identity that could not be read says nothing about the build and is read again; a verdict is kept.
+        if self.firmware.as_ref().is_none_or(|fw| fw.unread) {
             self.firmware = Some(firmware::check(&*self.host));
         }
         self.sndout = self.read_sndout();
@@ -531,9 +581,10 @@ impl Route {
     }
 
     /// The converter feeding `tail`'s lipsync stage, once LG's graph shows exactly one.
-    fn converter_for(&self, tail: &str) -> Result<String, Refusal> {
-        if !self.poll(GRAPH_WAIT, || {
-            self.host
+    fn converter_for(&mut self, tail: &str) -> Result<String, Refusal> {
+        if !self.poll(GRAPH_WAIT, |route| {
+            route
+                .host
                 .read(GRAPH)
                 .is_ok_and(|g| graph::has_lipsync(&g, tail))
         }) {
@@ -542,9 +593,10 @@ impl Route {
             )));
         }
         let mut found = Chain::Missing;
-        self.poll(CONVERTER_WAIT, || {
-            found = graph::bypass_converter(&self.host.read(GRAPH).unwrap_or_default(), Some(tail));
-            matches!(&found, Chain::One { converter, .. } if self.host.is_dir(&format!("{INSTANCES}/{converter}")))
+        self.poll(CONVERTER_WAIT, |route| {
+            found =
+                graph::bypass_converter(&route.host.read(GRAPH).unwrap_or_default(), Some(tail));
+            matches!(&found, Chain::One { converter, .. } if route.host.is_dir(&format!("{INSTANCES}/{converter}")))
         });
         match found {
             Chain::One { converter, .. }
@@ -565,22 +617,30 @@ impl Route {
     }
 
     /// Puts the eARC words to `words` and waits for the kernel to report them.
-    fn apply_words(&mut self, words: Words) -> Result<(), String> {
+    fn apply_words(&mut self, words: Words) -> Result<(), Unapplied> {
         match self.host.set_earc_words(words) {
             Ok(()) => {}
             Err(WriteError::Hung) => {
                 let why = "a sound card write did not answer; restart the helper once the TV's audio is healthy".to_owned();
                 self.hung = Some(why.clone());
-                return Err(why);
+                return Err(Unapplied { why, written: true });
             }
-            Err(WriteError::Failed(e)) => return Err(e),
+            Err(WriteError::Failed(why)) => {
+                return Err(Unapplied {
+                    why,
+                    written: false,
+                });
+            }
         }
-        if self.poll(VERIFY_WAIT, || {
-            self.read_sndout().and_then(|s| s.earc) == Some(words)
+        if self.poll(VERIFY_WAIT, |route| {
+            route.read_sndout().and_then(|s| s.earc) == Some(words)
         }) {
             Ok(())
         } else {
-            Err(format!("LG did not take the eARC words {words}"))
+            Err(Unapplied {
+                why: format!("LG did not take the eARC words {words}"),
+                written: true,
+            })
         }
     }
 
@@ -640,9 +700,16 @@ impl Route {
             }
         }
         let start = self.owner(pid).map_err(Refusal::now)?;
-        self.firmware = Some(firmware::check(&*self.host));
-        if let Some(Err(why)) = self.firmware.as_ref().map(|fw| &fw.verdict) {
-            return Err(Refusal::now(why.clone()));
+        let firmware = firmware::check(&*self.host);
+        let (verdict, unread) = (firmware.verdict.clone(), firmware.unread);
+        self.firmware = Some(firmware);
+        if let Err(why) = verdict {
+            // A file that could not be read says nothing about the build: the same request may succeed in a moment.
+            return Err(if unread {
+                Refusal::later(why)
+            } else {
+                Refusal::now(why)
+            });
         }
         self.health_gate()?;
         let snd = self.read_sndout();
@@ -684,14 +751,15 @@ impl Route {
             )));
         }
         if words.mix != 0 {
-            if let Err(why) = self.apply_words(journal.applied) {
-                if self.hung.is_some() {
-                    // The write may have landed; the journal stays so a restart can put the words back.
-                    self.pending = Some((journal, why.clone()));
+            if let Err(unapplied) = self.apply_words(journal.applied) {
+                if unapplied.written && !rearm {
+                    // The write was made, so LG's words may have changed although they were not read back (the driver did not
+                    // answer, or LG did not take them): the journal stays, and the restore puts them back once they read again.
+                    self.pending = Some((journal, unapplied.why.clone()));
                 } else {
                     drop_journal(self);
                 }
-                return Err(Refusal::now(why));
+                return Err(Refusal::now(unapplied.why));
             }
         }
 
@@ -751,6 +819,7 @@ impl Route {
         let snd = self.read_sndout();
         let present = self.host.is_dir(&format!("{INSTANCES}/{converter}"));
         let why = match &snd {
+            None if self.host.driver_busy() => DRIVER_BUSY,
             None => "LG's sound status cannot be read",
             Some(_) if !present => "LG rebuilt its audio path: the converter is gone",
             Some(s) if s.earc_on != Some(true) => "eARC is off",
@@ -778,8 +847,10 @@ impl Route {
             .health_at
             .is_none_or(|at| now.saturating_sub(at) >= ARMED_HEALTH_MS)
         {
-            // Tasks only, from /proc: a luna call here would hold the route for as long as LG takes to answer.
-            self.health = health::tasks(&*self.host);
+            // Tasks only, from /proc: a luna call here would hold the route for as long as LG takes to answer. The scan cannot be
+            // cut into slices, so the reading is refreshed on either side of it.
+            let host = self.host.clone();
+            self.health = health::tasks_pumped(&*host, &mut || self.publish_reading());
             self.health_at = Some(now);
             if let Health::Wedged(why) = &self.health {
                 return Some((Why::RouteLost, format!("audio control is stuck: {why}")));
@@ -875,8 +946,8 @@ impl Route {
                     set(self, Phase::Audible);
                 } else {
                     if !self.luna_mute(adec, true)
-                        || !self.poll(VERIFY_WAIT, || {
-                            self.read_adec(adec).and_then(|a| a.mute) == Some(true)
+                        || !self.poll(VERIFY_WAIT, |route| {
+                            route.read_adec(adec).and_then(|a| a.mute) == Some(true)
                         })
                     {
                         return Some((Why::RouteLost, format!("ADEC{adec} did not mute")));
@@ -886,8 +957,8 @@ impl Route {
             }
             Phase::Unmuting if now.saturating_sub(since) >= UNMUTE_AFTER_MUTE_MS => {
                 if !self.luna_mute(adec, false)
-                    || !self.poll(VERIFY_WAIT, || {
-                        self.read_adec(adec).and_then(|a| a.mute) == Some(false)
+                    || !self.poll(VERIFY_WAIT, |route| {
+                        route.read_adec(adec).and_then(|a| a.mute) == Some(false)
                     })
                 {
                     return Some((Why::RouteLost, format!("ADEC{adec} stayed muted")));
@@ -924,15 +995,18 @@ impl Route {
         }
         let mut journal = self.session.as_ref().ok_or("no session")?.journal.clone();
         journal.connected = true;
+        // A write to flash cannot be cut into slices, so the reading is refreshed on either side of it.
+        self.publish_reading();
         self.save_journal(&journal)?;
+        self.publish_reading();
         if let Some(s) = &mut self.session {
             s.journal = journal;
         }
         if !self.luna_link("connect", adec) {
             return Err(format!("the audio service refused to connect ADEC{adec}"));
         }
-        if !self.poll(VERIFY_WAIT, || {
-            self.read_sndout().is_some_and(|s| s.adec_connected(adec))
+        if !self.poll(VERIFY_WAIT, |route| {
+            route.read_sndout().is_some_and(|s| s.adec_connected(adec))
         }) {
             return Err(format!("ADEC{adec} did not show as connected"));
         }
@@ -965,23 +1039,25 @@ impl Route {
         if journal.connected && ours && self.read_sndout().is_some_and(|s| s.adec_connected(adec)) {
             // Silence first: the player may still be writing the stream.
             self.luna_mute(adec, true);
-            self.poll(VERIFY_WAIT, || {
-                self.read_adec(adec).and_then(|a| a.mute) == Some(true)
+            self.poll(VERIFY_WAIT, |route| {
+                route.read_adec(adec).and_then(|a| a.mute) == Some(true)
             });
             // An input found unmuted goes back unmuted, but only once the player has closed its renderer: with the stream gone
             // there is nothing left to play, so no noise. Otherwise it stays muted and the audit says so.
             if base.mute == Some(false)
                 && !hurry
-                && self.poll(RENDERER_CLOSE_WAIT, || self.renderer_closed(journal.pid))
+                && self.poll(RENDERER_CLOSE_WAIT, |route| {
+                    route.renderer_closed(journal.pid)
+                })
             {
                 self.luna_mute(adec, false);
-                self.poll(VERIFY_WAIT, || {
-                    self.read_adec(adec).and_then(|a| a.mute) == Some(false)
+                self.poll(VERIFY_WAIT, |route| {
+                    route.read_adec(adec).and_then(|a| a.mute) == Some(false)
                 });
             }
             self.luna_link("disconnect", adec);
-            let gone = self.poll(VERIFY_WAIT, || {
-                self.read_sndout().is_some_and(|s| !s.adec_connected(adec))
+            let gone = self.poll(VERIFY_WAIT, |route| {
+                route.read_sndout().is_some_and(|s| !s.adec_connected(adec))
             });
             if !gone && owner_alive {
                 return Restore::Pending(format!("ADEC{adec} will not disconnect"));
@@ -993,8 +1069,8 @@ impl Route {
                 return Restore::Pending("LG's eARC words cannot be read".into());
             };
             if current == journal.applied {
-                if let Err(why) = self.apply_words(journal.before) {
-                    return Restore::Pending(why);
+                if let Err(unapplied) = self.apply_words(journal.before) {
+                    return Restore::Pending(unapplied.why);
                 }
             }
         }
@@ -1167,7 +1243,12 @@ impl Route {
             };
             let ending = ending
                 .map(|(why, detail)| (why, detail.to_owned()))
-                .or_else(|| self.monitor());
+                .or_else(|| {
+                    self.monitoring = true;
+                    let ending = self.monitor();
+                    self.monitoring = false;
+                    ending
+                });
             if let Some((why, detail)) = ending {
                 self.end(why, &detail);
                 ended = true;
@@ -1194,9 +1275,11 @@ impl Route {
 
     pub fn snapshot(&self) -> Snapshot {
         let env = &self.env;
+        // An identity that could not be read is not a refusal: the route waits and looks again.
         let refused = self
             .firmware
             .as_ref()
+            .filter(|fw| !fw.unread)
             .and_then(|fw| fw.verdict.as_ref().err());
         let (state, reason) = if !env.enabled {
             (State::Off, "Switched off".to_owned())

@@ -7,7 +7,7 @@
 //! | Request | Answer |
 //! |---|---|
 //! | `POST /v1/audio-passthrough/arm` | `{pid, tail, adec}`: `{armed, converter, reason, retry}` |
-//! | `GET /v1/audio-passthrough/route` | `{armed, phase, bypassing, mixed, converterPresent, connected, audible, reason, ageMs, sampledUptimeMs}` |
+//! | `GET /v1/audio-passthrough/route` | `{armed, phase, adec, bypassing, mixed, converterPresent, connected, audible, reason, ageMs, sampledUptimeMs}` |
 //! | `POST /v1/audio-passthrough/release` | `{pid}`: `{released}`; the TV is put back before the answer |
 //!
 //! All three are for a player on the TV itself (loopback). The topic `audio.passthrough` carries the same state, plus readiness, the
@@ -46,7 +46,7 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     (
         "GET",
         "/v1/audio-passthrough/route",
-        "the route as the player must watch it while it streams: {armed, phase, bypassing, mixed, converterPresent, connected, audible, reason, ageMs, sampledUptimeMs}",
+        "the route as the player must watch it while it streams: {armed, phase, adec, bypassing, mixed, converterPresent, connected, audible, reason, ageMs, sampledUptimeMs}",
     ),
     (
         "POST",
@@ -444,6 +444,7 @@ impl Service {
         ok(json!({
             "armed": session.is_some_and(|v| v.phase != Phase::Ending),
             "phase": session.map(|v| v.phase.name()),
+            "adec": session.map(|v| v.adec),
             "bypassing": session.is_some_and(|v| v.bypassing),
             "mixed": session.is_some_and(|v| v.mixed),
             "converterPresent": session.is_some_and(|v| v.converter_present),
@@ -900,6 +901,7 @@ mod tests {
         let (_, route) = rig.call("GET", "route", "");
         assert_eq!(route["armed"], true);
         assert_eq!(route["phase"], "audible");
+        assert_eq!(route["adec"], ADEC);
         assert!(
             route["bypassing"] == true && route["connected"] == true && route["audible"] == true
         );
@@ -914,6 +916,7 @@ mod tests {
         assert_eq!(body["released"], true);
         let topic = rig.topic();
         assert_eq!(topic["session"], Value::Null);
+        assert_eq!(rig.call("GET", "route", "").1["adec"], Value::Null);
         assert_eq!(topic["end"]["why"], "released");
         assert_eq!(topic["after"], Value::Null);
         let log = rig.host.log();

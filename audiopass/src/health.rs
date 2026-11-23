@@ -9,9 +9,11 @@ const STATUS: &str = "luna://com.webos.service.audiooutput/audio/getStatus";
 /// path, and a healthy C4 answers it with `{"/":{"open":"METHOD",...,"getVRRInfo":"METHOD",...}}`.
 pub(crate) const HDMI_INTROSPECTION: &str =
     "luna://com.webos.service.extinputs.hdmi/com/palm/luna/private/introspection";
-/// Both wedges left `audiooutputd` and `extinput-integration` in uninterruptible sleep inside this kernel function, waiting for the
-/// sound card's control lock. A wider match (`rwsem`, `snd_ctl`) also catches tasks that wait on some lock for a moment.
-const LOCK: &str = "snd_ctl_elem_info";
+/// Both wedges left `audiooutputd`, `amixer` and `extinput-integration` in uninterruptible sleep waiting for the sound card's control
+/// lock, in one of two kernel functions (`/proc/<pid>/stack`, WEDGE.md): `snd_ctl_elem_info` for a reader, `snd_ctl_release` for the
+/// writer that closing a control file takes (`rwsem_down_write_slowpath` is all `wchan` says of it). A wider match (`rwsem`, `snd_ctl`)
+/// also catches tasks that wait on some lock for a moment.
+const LOCKS: [&str; 2] = ["snd_ctl_elem_info", "snd_ctl_release"];
 /// A task in the lock counts as stuck only when it is still there this long after the first look.
 const PERSIST_MS: u64 = 500;
 /// Audio daemons that sit in `D` for a moment while LG reconfigures its output.
@@ -64,7 +66,10 @@ pub fn connections(host: &dyn Host) -> Option<Vec<String>> {
 fn task_state(host: &dyn Host) -> Health {
     let mut busy = None;
     for task in host.stuck_tasks() {
-        if task.stack.contains(LOCK) || task.wchan.contains(LOCK) {
+        if LOCKS
+            .iter()
+            .any(|lock| task.stack.contains(lock) || task.wchan.contains(lock))
+        {
             return Health::Wedged(format!(
                 "{} is stuck in the sound card's control lock",
                 task.comm
@@ -81,10 +86,16 @@ fn task_state(host: &dyn Host) -> Health {
 /// for as long as LG takes to answer. A task in the control lock is a wedge only when it is still there [`PERSIST_MS`] after the
 /// first look; the lock is also held for a moment in normal use.
 pub fn tasks(host: &dyn Host) -> Health {
-    match task_state(host) {
+    tasks_pumped(host, &mut || {})
+}
+
+/// [`tasks`] for a caller that keeps a reading fresh: `pump` runs about every [`crate::host::PUMP_MS`] of the wait for the second
+/// look, and on either side of each scan, which cannot be cut into slices.
+pub fn tasks_pumped(host: &dyn Host, pump: &mut dyn FnMut()) -> Health {
+    match look(host, pump) {
         Health::Wedged(first) => {
-            host.sleep_ms(PERSIST_MS);
-            match task_state(host) {
+            host.sleep_pumped(PERSIST_MS, pump);
+            match look(host, pump) {
                 wedged @ Health::Wedged(_) => wedged,
                 _ => Health::Busy(format!("{first}, but it let go again")),
             }
@@ -93,22 +104,35 @@ pub fn tasks(host: &dyn Host) -> Health {
     }
 }
 
+/// [`task_state`] with a `pump` on either side, so that the reading a player polls is only as old as the scan took.
+fn look(host: &dyn Host, pump: &mut dyn FnMut()) -> Health {
+    pump();
+    let seen = task_state(host);
+    pump();
+    seen
+}
+
 /// The gate before a step that touches LG's route: the tasks, then LG's audio service has to answer.
 pub fn check(host: &dyn Host) -> Health {
-    let seen = tasks(host);
+    check_pumped(host, &mut || {})
+}
+
+/// [`check`] for a caller that keeps a reading fresh: `pump` also runs while LG's audio service takes its time to answer.
+pub fn check_pumped(host: &dyn Host, pump: &mut dyn FnMut()) -> Health {
+    let seen = tasks_pumped(host, pump);
     if seen != Health::Ok {
         return seen;
     }
-    match host.luna(STATUS, "{}") {
+    match host.luna_pumped(STATUS, "{}", pump) {
         Some(reply) if returned_true(&reply) => Health::Ok,
         _ => Health::Busy("the audio service does not answer".into()),
     }
 }
 
 /// Whether LG's audio and HDMI input services came through a restore. Both wedges so far left `audiooutputd` and
-/// `extinput-integration` in uninterruptible sleep in `snd_ctl_elem_info`, so the tasks are read first, from /proc, where nothing
-/// can hang; a daemon that only waits for a moment is not a fault. Only then is the HDMI input service pinged, and only silence is a
-/// fault: a service that lists its methods or answers with an error is running its message loop.
+/// `extinput-integration` in uninterruptible sleep in the sound card's control lock, so the tasks are read first, from /proc, where
+/// nothing can hang; a daemon that only waits for a moment is not a fault. Only then is the HDMI input service pinged, and only silence
+/// is a fault: a service that lists its methods or answers with an error is running its message loop.
 pub fn input_services(host: &dyn Host) -> Result<(), String> {
     if let Health::Wedged(why) = tasks(host) {
         return Err(why);
@@ -121,7 +145,7 @@ pub fn input_services(host: &dyn Host) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::host::Stuck;
+    use crate::host::{PUMP_MS, Stuck};
     use crate::testing::FakeHost;
 
     fn stuck(comm: &str, stack: &str) -> Stuck {
@@ -157,6 +181,27 @@ mod tests {
     }
 
     #[test]
+    fn a_writer_waiting_in_the_control_lock_on_close_is_a_wedge_too() {
+        // As audiooutputd and amixer were in the first wedge: the wait channel names only the semaphore, the stack names the close.
+        let host = FakeHost::c4();
+        host.with(|sim| {
+            sim.stuck.push(Stuck {
+                comm: "audiooutputd".into(),
+                wchan: "rwsem_down_write_slowpath".into(),
+                stack: "[<0>] rwsem_down_write_slowpath+0x2c/0x60\n[<0>] snd_ctl_release+0x70/0x1b0\n[<0>] __fput+0xb0/0x240\n"
+                    .into(),
+            })
+        });
+        let before = host.now();
+        assert!(matches!(tasks(&host), Health::Wedged(why) if why.contains("audiooutputd")));
+        assert_eq!(
+            host.now() - before,
+            PERSIST_MS,
+            "it has to stay for the window"
+        );
+    }
+
+    #[test]
     fn waiting_on_some_other_lock_is_not_a_wedge() {
         let host = FakeHost::c4();
         host.with(|sim| {
@@ -189,6 +234,25 @@ mod tests {
     }
 
     #[test]
+    fn a_writer_that_gets_the_lock_within_the_window_is_not_a_wedge() {
+        // Every amixer exit and every closed control file waits here for a moment.
+        let host = FakeHost::c4();
+        host.with(|sim| {
+            sim.stuck.push(Stuck {
+                comm: "amixer".into(),
+                wchan: "rwsem_down_write_slowpath".into(),
+                stack: "[<0>] snd_ctl_release+0x70/0x1b0\n".into(),
+            });
+            sim.stuck_scans = Some(1);
+        });
+        let seen = tasks(&host);
+        assert!(
+            matches!(&seen, Health::Busy(why) if why.contains("let go")),
+            "{seen:?}"
+        );
+    }
+
+    #[test]
     fn a_task_still_in_the_lock_after_the_window_is_a_wedge() {
         let host = FakeHost::c4();
         host.with(|sim| {
@@ -202,6 +266,33 @@ mod tests {
         assert!(matches!(tasks(&host), Health::Wedged(_)));
         assert_eq!(host.now() - before, PERSIST_MS);
         assert_eq!(host.with(|sim| sim.luna_calls), 0, "no luna call is made");
+    }
+
+    #[test]
+    fn the_wait_for_the_second_look_never_goes_a_pump_without_handing_control_back() {
+        let host = FakeHost::c4();
+        host.with(|sim| {
+            sim.stuck
+                .push(stuck("amixer", "[<0>] snd_ctl_release+0x70/0x1b0\n"))
+        });
+        let (mut at, before) = (Vec::new(), host.now());
+        let seen = tasks_pumped(&host, &mut || at.push(host.now() - before));
+        assert!(matches!(seen, Health::Wedged(_)));
+        assert_eq!(at.last(), Some(&PERSIST_MS));
+        let longest = at.windows(2).map(|pair| pair[1] - pair[0]).max();
+        assert_eq!(longest, Some(PUMP_MS), "{at:?}");
+    }
+
+    #[test]
+    fn a_scan_that_cannot_be_sliced_has_a_pump_on_either_side() {
+        let host = FakeHost::c4();
+        host.with(|sim| sim.scan_ms = 120);
+        let (mut at, before) = (Vec::new(), host.now());
+        assert_eq!(
+            tasks_pumped(&host, &mut || at.push(host.now() - before)),
+            Health::Ok
+        );
+        assert_eq!(at, [0, 120]);
     }
 
     #[test]

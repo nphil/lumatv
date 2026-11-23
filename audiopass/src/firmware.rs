@@ -26,6 +26,9 @@ pub struct Firmware {
     pub kernel: Option<String>,
     /// `Ok` when every version and file matches, otherwise the first difference in words.
     pub verdict: Result<(), String>,
+    /// The verdict is an error because a version or a file could not be read, not because it differs. That says nothing about the
+    /// build, so the route looks again instead of refusing.
+    pub unread: bool,
 }
 
 fn short(text: &str) -> &str {
@@ -34,6 +37,14 @@ fn short(text: &str) -> &str {
 
 fn name(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
+}
+
+/// Why a firmware is not accepted.
+enum Refused {
+    /// A version or a file is not the proven one.
+    Differs(String),
+    /// A version or a file could not be read.
+    Unreadable(String),
 }
 
 pub fn check(host: &dyn Host) -> Firmware {
@@ -45,45 +56,54 @@ pub fn check(host: &dyn Host) -> Firmware {
         .read(KERNEL_PATH)
         .ok()
         .map(|text| text.trim().to_owned());
-    let verdict = verdict(host, release.as_deref(), kernel.as_deref());
+    let (verdict, unread) = match verdict(host, release.as_deref(), kernel.as_deref()) {
+        Ok(()) => (Ok(()), false),
+        Err(Refused::Differs(why)) => (Err(why), false),
+        Err(Refused::Unreadable(why)) => (Err(why), true),
+    };
     Firmware {
         release,
         kernel,
         verdict,
+        unread,
     }
 }
 
-fn verdict(host: &dyn Host, release: Option<&str>, kernel: Option<&str>) -> Result<(), String> {
+fn verdict(host: &dyn Host, release: Option<&str>, kernel: Option<&str>) -> Result<(), Refused> {
     match release {
         Some(RELEASE) => {}
         Some(other) => {
-            return Err(format!(
+            return Err(Refused::Differs(format!(
                 "TV software is \"{other}\"; the route is proven only on \"{RELEASE}\""
-            ));
+            )));
         }
-        None => return Err(format!("cannot read {RELEASE_PATH}")),
+        None => {
+            return Err(Refused::Unreadable(format!("cannot read {RELEASE_PATH}")));
+        }
     }
     match kernel {
         Some(KERNEL) => {}
         Some(other) => {
-            return Err(format!(
+            return Err(Refused::Differs(format!(
                 "kernel is {other}; the route is proven only on {KERNEL}"
-            ));
+            )));
         }
-        None => return Err(format!("cannot read {KERNEL_PATH}")),
+        None => {
+            return Err(Refused::Unreadable(format!("cannot read {KERNEL_PATH}")));
+        }
     }
     for (path, want) in FILES {
         match host.sha256(path) {
             Ok(found) if found == want => {}
             Ok(found) => {
-                return Err(format!(
+                return Err(Refused::Differs(format!(
                     "{} is not the build this route is proven on (sha256 {}…, expected {}…)",
                     name(path),
                     short(&found),
                     short(want)
-                ));
+                )));
             }
-            Err(e) => return Err(format!("cannot read {path}: {e}")),
+            Err(e) => return Err(Refused::Unreadable(format!("cannot read {path}: {e}"))),
         }
     }
     Ok(())
@@ -99,6 +119,7 @@ mod tests {
         let host = FakeHost::c4();
         let fw = check(&host);
         assert_eq!(fw.verdict, Ok(()));
+        assert!(!fw.unread);
         assert_eq!(fw.release.as_deref(), Some(RELEASE));
         assert_eq!(fw.kernel.as_deref(), Some(KERNEL));
     }
@@ -129,32 +150,38 @@ mod tests {
                     sim.hashes.insert(FILES[1].0.into(), "f".repeat(64));
                 }
             });
-            let reason = check(&host).verdict.unwrap_err();
+            let fw = check(&host);
+            let reason = fw.verdict.clone().unwrap_err();
             assert!(reason.contains(expect), "{what}: {reason}");
+            assert!(!fw.unread, "{what} differs, it is not unreadable");
         }
     }
 
     #[test]
-    fn unreadable_identity_refuses() {
+    fn an_identity_that_cannot_be_read_is_not_accepted_and_is_marked_unread() {
         let host = FakeHost::c4();
         host.with(|sim| {
             sim.files.remove(RELEASE_PATH);
         });
+        let fw = check(&host);
         assert!(
-            check(&host)
-                .verdict
+            fw.verdict
+                .clone()
                 .unwrap_err()
                 .contains("cannot read /etc/starfish-release")
         );
+        assert!(fw.unread);
         let host = FakeHost::c4();
         host.with(|sim| {
             sim.hashes.remove(FILES[0].0);
         });
+        let fw = check(&host);
         assert!(
-            check(&host)
-                .verdict
+            fw.verdict
+                .clone()
                 .unwrap_err()
                 .contains("cannot read /usr/lib/gstreamer-1.0/libgstlgaudiosink.so")
         );
+        assert!(fw.unread);
     }
 }
