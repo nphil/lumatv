@@ -21,9 +21,16 @@ fn unique_context<'a>(mut contexts: impl Iterator<Item = &'a str>) -> Option<&'a
     (!context.is_empty() && contexts.next().is_none()).then_some(context)
 }
 
+/// A playing video of an overlay window (`kind`) placed over the whole screen.
+fn fills_as_overlay(kind: Option<crate::window::WindowType>, playing: bool, placed: Rect) -> bool {
+    kind == Some(crate::window::WindowType::Overlay) && playing && placed.w >= crate::OUTPUT_WIDTH as i32 && placed.h >= crate::OUTPUT_HEIGHT as i32
+}
+
 #[cfg(test)]
 mod tests {
-    use super::unique_context;
+    use super::{fills_as_overlay, unique_context};
+    use crate::Rect;
+    use crate::window::WindowType;
 
     #[test]
     fn foreground_context_must_be_single_and_nonempty() {
@@ -31,6 +38,16 @@ mod tests {
         assert_eq!(unique_context([""].into_iter()), None);
         assert_eq!(unique_context(["one"].into_iter()), Some("one"));
         assert_eq!(unique_context(["one", "two"].into_iter()), None);
+    }
+
+    #[test]
+    fn only_an_overlays_playing_full_screen_video_fills() {
+        let full = Rect { x: 0, y: 0, w: 1920, h: 1080 };
+        let card = Rect { x: 720, y: 405, w: 480, h: 270 };
+        assert!(fills_as_overlay(Some(WindowType::Overlay), true, full));
+        assert!(!fills_as_overlay(Some(WindowType::Overlay), true, card), "a card");
+        assert!(!fills_as_overlay(Some(WindowType::Overlay), false, full), "no decoder attached");
+        assert!(!fills_as_overlay(Some(WindowType::Card), true, full), "an app's own video");
     }
 }
 
@@ -357,6 +374,18 @@ impl State {
     /// Where an element's video is placed, in the output's space: what `getForegroundVideoWindow` reports.
     pub(crate) fn exported_placement(&self, e: &Exported) -> Rect {
         self.exported_output_rect(e.surface, self.exported_destination(e))
+    }
+
+    /// A video of an overlay app (LumaGame's player in the frame app) fills the screen: the mute mark keeps off it.
+    pub(crate) fn overlay_video_full(&self) -> bool {
+        self.luna_state.power.rendering && self.foreign.exported.values().any(|e| {
+            let mut root = e.surface;
+            while let Some(crate::surface::Role::Subsurface { parent }) = self.surfaces.get(root).map(|s| s.role) {
+                root = parent;
+            }
+            let kind = self.scene.window_of(root).and_then(|w| self.scene.window(w)).map(|w| w.kind);
+            self.surfaces.get(e.surface).is_some_and(|s| s.is_mapped()) && fills_as_overlay(kind, !e.contexts.is_empty(), self.exported_placement(e))
+        })
     }
 
     /// The one visible video belonging to the foreground card, if its identity is unambiguous.

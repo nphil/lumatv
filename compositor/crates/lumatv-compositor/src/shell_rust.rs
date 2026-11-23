@@ -1049,6 +1049,10 @@ impl State {
         if !self.shell_rust.enabled() {
             return;
         }
+        let full = self.overlay_video_full();
+        if self.shell_rust.topic("overlayVideo").and_then(|v| v.get("full")).and_then(Value::as_bool) != Some(full) {
+            self.shell_rust.push("overlayVideo", json!({"full": full}));
+        }
         let video = self.shell_rust.topic("foreground").and_then(|v| v.get("video"));
         let same = match (video, self.foreground_video()) {
             (Some(Value::Null), None) => true,

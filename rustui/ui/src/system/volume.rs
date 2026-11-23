@@ -254,6 +254,8 @@ pub struct Volume {
     /// The places of a mark the owner placed (`placement`'s drift), top left corners; none while the mark has its own corners.
     placed: Option<Vec<(i32, i32)>>,
     over_video: bool,
+    /// An overlay's video fills the screen (LumaGame's player): nothing may be drawn over it, the mark included.
+    overlay_video_full: bool,
     foreground: Option<(String, u64)>,
     subtitles: Subtitles,
     changed: bool,
@@ -308,6 +310,7 @@ impl Volume {
             avoid_right: false,
             placed: None,
             over_video: false,
+            overlay_video_full: false,
             foreground: None,
             subtitles: Subtitles::Unknown,
             changed: false,
@@ -445,7 +448,7 @@ impl Volume {
         } else {
             (String::new(), String::new())
         };
-        let mark_up = self.enabled && self.muted_shown() && !self.pill;
+        let mark_up = self.enabled && self.muted_shown() && !self.pill && !self.overlay_video_full;
         View {
             up: self.pill && source != Source::Wait,
             source,
@@ -780,6 +783,11 @@ impl Model for Volume {
             }
             Input::Topic { topic, data } if topic == "screen" => {
                 self.dark = data.get("on").and_then(Value::as_bool) == Some(false);
+            }
+            Input::Topic { topic, data } if topic == "overlayVideo" => {
+                let full = data.get("full").and_then(Value::as_bool) == Some(true);
+                self.changed |= full != self.overlay_video_full;
+                self.overlay_video_full = full;
             }
             Input::Topic { topic, data } if topic == "foreground" => {
                 let home = data.get("home").and_then(Value::as_bool).unwrap_or(false);
@@ -1463,6 +1471,21 @@ mod tests {
         }
         v.update(&Input::Tick, 41_200);
         assert_eq!(v.view().mark_place, 1, "awake: it hops again after hopMs");
+    }
+
+    #[test]
+    fn the_mute_mark_leaves_while_an_overlays_video_fills_the_screen() {
+        let mut v = Volume::default();
+        v.update(&up(), 10_000);
+        v.update(&receiver(40.0, true, 10_000), 10_000);
+        v.update(&audio(12, false, "external_arc", "setVolume"), 10_000);
+        v.update(&Input::Tick, 12_600);
+        assert!(v.view().mark_up);
+        let overlay = |full: bool| Input::Topic { topic: "overlayVideo".into(), data: json!({"full": full}) };
+        v.update(&overlay(true), 13_000);
+        assert!(!v.view().mark_up, "full screen: gone");
+        v.update(&overlay(false), 14_000);
+        assert!(v.view().mark_up, "back in a card or closed: shown again");
     }
 
     #[test]
