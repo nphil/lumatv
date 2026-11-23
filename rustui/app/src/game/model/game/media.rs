@@ -11,10 +11,10 @@ pub struct Media {
 pub struct Rules;
 impl Slice for Rules {
     fn rows(_m: &Model, _layer: Option<Layer>) -> Vec<Vec<Focus>> {
-        vec![vec![Focus::HubTop(0)]]
+        vec![vec![Focus::Media(0)]]
     }
     fn activate(m: &mut Model, f: Focus, out: &mut Vec<Command>) {
-        if f == Focus::HubTop(0) {
+        if f == Focus::Media(0) {
             m.go_back(out);
         }
     }
@@ -30,7 +30,7 @@ impl Model {
                 out.push(Command::PlayMedia { url: url.clone() });
             } else {
                 self.view.media = i;
-                self.push_layer(Layer::Viewer, Focus::HubTop(0));
+                self.push_layer(Layer::Viewer, Focus::Media(0));
             }
         }
     }

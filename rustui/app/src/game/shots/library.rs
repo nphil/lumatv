@@ -75,24 +75,10 @@ pub(super) fn refresh_screens(base: &Model) -> Vec<(String, Model)> {
         fresh.external.clear();
         entries.push(fresh);
         event(&mut done, "gfn", ipc::Event::Library { target: TargetId::new("main").unwrap(), entries, next: None });
-        let hub = |title: &str, tab: usize| {
-            let mut m = base.clone();
-            m.view.page = Page::Game;
-            m.view.selected = Some(id(&m, title));
-            m.view.hub_tab = tab;
-            m.view.focus = if tab == 0 && text == 100 { Focus::HubAction(0) } else if tab == 2 || tab == 3 { Focus::Item(0) } else { Focus::Tab(tab) };
-            m
-        };
         for (name, m) in [
             ("70-refresh-working", working),
             ("71-refresh-failed", failed),
             ("71-refresh-result", done),
-            ("73-hub-steam", hub("Hades II", 0)),
-            ("74-hub-achievements", hub("Hades II", 2)),
-            ("75-hub-news", hub("Hades II", 3)),
-            ("76-hub-details", hub("Hades II", 5)),
-            ("77-hub-gfn-only", hub("Cyberpunk 2077", 0)),
-            ("78-hub-native", hub("Celeste Classic", 0)),
         ] {
             let mut m = m;
             m.rebuild_navigation();

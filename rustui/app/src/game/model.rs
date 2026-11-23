@@ -35,7 +35,7 @@ pub mod text;
 #[cfg(test)]
 pub(crate) mod tests;
 use accounts::{LinkFlow, PC_SEARCH_MS};
-use game::{HubTab, media::Media};
+use game::media::Media;
 use home::{HomeItem, HomeRow};
 use launch::{Cause, IdleWarning};
 use library::{Filter, Sort};
@@ -360,8 +360,10 @@ pub enum Page {
 /// What opens over the page, on top of the layers beneath it (`View::layers`). The top layer takes the keys until it closes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layer {
-    // game
+    // game: the where-to-play chooser, a section opened from its card, and the reader of a post over the section
     Chooser,
+    Section(facts::Section),
+    Reader,
     /// The full-screen picture viewer over the game page.
     Viewer,
     // library
@@ -391,10 +393,10 @@ pub enum Layer {
     QuickSettings,
 }
 impl Layer {
-    /// Whether the layer is a sheet drawn over its page, which then takes no pointer hits. The viewer and the layers over a stream are
-    /// screens that their page draws itself.
+    /// Whether the layer is a sheet drawn over its page, which then takes no pointer hits. The game page's layers, the viewer and the
+    /// layers over a stream are drawn by their page.
     pub fn is_sheet(self) -> bool {
-        !matches!(self, Self::Viewer | Self::Picture | Self::Achievements | Self::EndConfirm)
+        !matches!(self, Self::Chooser | Self::Section(_) | Self::Reader | Self::Viewer | Self::Picture | Self::Achievements | Self::EndConfirm)
     }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -411,13 +413,13 @@ pub enum Focus {
     Grid(usize),
     // text
     Keyboard(usize),
-    // game
-    HubTop(usize),
-    HubAction(usize),
-    Tab(usize),
-    Way(usize),
-    /// A row of the achievements or news section.
-    Item(usize),
+    // game: Play (or "Try again"), the where-to-play button, the cards in `game::SECTIONS` order, a row of the open section, a page
+    // of the reader, and the chooser's Remember switch
+    Play,
+    Where,
+    Card(usize),
+    Entry(usize),
+    ReaderPage(usize),
     Media(usize),
     Remember,
     // settings: `Setting` is a row of the open place or pane, counted over its groups and notes too
@@ -462,7 +464,8 @@ pub struct View {
     /// Where focus last rested in each region of the page.
     pub memory: nav::Memory,
     pub place: settings::Place,
-    pub hub_tab: usize,
+    /// The game page's sections and reader.
+    pub glance: game::Glance,
     pub selected: Option<GameId>,
     pub featured: Option<GameId>,
     pub home_row: usize,
@@ -500,7 +503,7 @@ impl Default for View {
             focus: Focus::Hero(0),
             memory: nav::Memory::default(),
             place: settings::Place::Appearance,
-            hub_tab: 0,
+            glance: game::Glance::default(),
             selected: None,
             featured: None,
             home_row: 0,
@@ -1032,10 +1035,9 @@ impl Model {
         // a black screen that no key, and no relaunch, leaves.
         if self.view.page == Page::Running && !self.session.as_ref().is_some_and(|s| *s.phase() == Phase::Running) {
             self.view.clear_layers();
-            self.view.hub_tab = 0;
             if self.view.selected.is_some() {
                 self.view.page = Page::Game;
-                self.view.focus = Focus::HubAction(0);
+                self.view.focus = Focus::Play;
                 self.view.memory.forget();
             } else {
                 self.switch_tab(0, Focus::Nav(0));
@@ -1161,7 +1163,6 @@ impl Model {
             Focus::Grid(i) => self.view.first_grid_row = i / self.library_columns(),
             Focus::Rail(i) => self.view.place = settings::Place::ALL[i],
             Focus::Setting(i) if self.view.page == Page::Settings && self.view.pane.is_none() => self.view.settings_rows[self.view.place.index()] = i,
-            Focus::HubAction(_) => self.view.hub_tab = 0,
             _ => {}
         }
     }
@@ -1241,12 +1242,14 @@ impl Model {
         }
         changed | self.tick_launch(before_ms, out)
     }
-    /// Whether the Menu key opens the quick menu here: on every page, and over no layer that is a dialog, the viewer or the keyboard.
-    /// The Launch screens and a stream have their own menu. (No layer is a section of the game page yet.)
+    /// Whether the Menu key opens the quick menu here: on every page and over a section of the game page, and over no layer that is a
+    /// dialog, the reader, the viewer or the keyboard. The Launch screens and a stream have their own menu.
     pub fn menu_allowed(&self) -> bool {
         match self.view.top() {
+            Some(Layer::Section(_)) => true,
             Some(
                 Layer::Chooser
+                | Layer::Reader
                 | Layer::Viewer
                 | Layer::Sort
                 | Layer::Genre
@@ -1694,16 +1697,13 @@ impl Model {
                     out.push(Command::FetchDetails { game: id });
                 }
                 self.request_owned(id, out);
-                let media_open = self.view.top() == Some(Layer::Viewer) || self.hub_tab() == HubTab::Media;
-                let icons_open = self.hub_tab() == HubTab::Achievements;
-                if let Some(details) = self.details.get(&id) {
-                    if media_open {
+                let media_open = self.view.top() == Some(Layer::Viewer);
+                if media_open {
+                    if let Some(details) = self.details.get(&id) {
                         wanted.extend(details.media.iter().map(|m| m.image.clone()).filter(|url| !url.is_empty()));
                     }
-                    if icons_open {
-                        wanted.extend(details.hub.achievements.shown.iter().map(|a| a.icon.clone()));
-                    }
                 }
+                wanted.extend(self.glance_art(id));
             }
         }
         let ids: Vec<GameId> = match self.view.page {

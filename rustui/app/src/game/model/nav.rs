@@ -169,7 +169,7 @@ impl Owner {
     }
     pub fn of_layer(layer: Layer) -> Self {
         match layer {
-            Layer::Chooser => Self::Game,
+            Layer::Chooser | Layer::Section(_) | Layer::Reader => Self::Game,
             Layer::Viewer => Self::Media,
             Layer::Sort | Layer::Genre | Layer::PlaysOn => Self::Library,
             Layer::Delete => Self::Settings,
@@ -244,13 +244,13 @@ mod tests {
         let mut m = home();
         m.open_game(GameId(1), None);
         m.rebuild_navigation();
-        let other = m.navigation.iter().map(|n| n.id).find(|f| *f != Focus::HubAction(0)).expect("the game page has more than Play");
+        let other = m.navigation.iter().map(|n| n.id).find(|f| *f != Focus::Play).expect("the game page has more than Play");
         m.set_focus(other);
         m.push_layer(Layer::Chooser, Focus::SheetRow(0));
         key(&mut m, Key::Back);
         assert_eq!((m.view.top(), m.view.focus), (None, other), "the layer closes onto what it covered");
         key(&mut m, Key::Back);
-        assert_eq!((m.view.page, m.view.focus), (Page::Game, Focus::HubAction(0)), "then the anchor");
+        assert_eq!((m.view.page, m.view.focus), (Page::Game, Focus::Play), "then the anchor");
         key(&mut m, Key::Back);
         assert_eq!((m.view.page, m.view.focus), (Page::Home, Focus::Hero(0)), "then the page before");
 
@@ -281,7 +281,7 @@ mod tests {
         }
         m.view.page = Page::Home;
         use Layer::*;
-        for layer in [Chooser, Viewer, Sort, Genre, PlaysOn, Delete, Auth, SignOut, Picture, Achievements, EndConfirm, AddHost, EditText, Quick, QuickSettings] {
+        for layer in [Chooser, Reader, Viewer, Sort, Genre, PlaysOn, Delete, Auth, SignOut, Picture, Achievements, EndConfirm, AddHost, EditText, Quick, QuickSettings] {
             m.view.push(layer, Focus::None);
             assert!(!m.menu_allowed(), "{layer:?}");
             m.view.pop();

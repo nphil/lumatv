@@ -423,8 +423,7 @@ impl Model {
                     }
                     self.view.page = Page::Game;
                     self.view.clear_layers();
-                    self.view.focus = Focus::HubAction(0);
-                    self.view.hub_tab = 0;
+                    self.view.focus = Focus::Play;
                     self.view.idle = None;
                     self.run.held = false;
                     self.view.notice = match outcome {

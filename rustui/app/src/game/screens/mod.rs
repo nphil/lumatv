@@ -547,7 +547,7 @@ fn plan_page(tokens: &Tokens, model: &Model, fonts: &mut ui::Fonts, scroll_posit
         Page::Home => home::home(&mut p),
         Page::Library => library::library(&mut p, view.search),
         Page::Game if view.top() == Some(crate::game::model::Layer::Viewer) => game::media::media(&mut p),
-        Page::Game => game::hub(&mut p),
+        Page::Game => game::page(&mut p),
         Page::Settings => settings::settings(&mut p),
         Page::Launch => launch::launch(&mut p),
         Page::Running => launch::running(&mut p),

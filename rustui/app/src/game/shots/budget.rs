@@ -224,7 +224,7 @@ fn table(reports: &[Report]) -> String {
 
 /// Every walk there is: what each slice registers, then one for every screen.
 fn registry() -> Vec<Walk> {
-    let mut walks = art_walks();
+    let mut walks = super::game::walks();
     walks.extend(super::launch::walks());
     walks.extend(screen_walks());
     walks.extend(super::quick::walks());
@@ -236,25 +236,6 @@ fn registry() -> Vec<Walk> {
 /// A script of keys, each followed by a wait in milliseconds.
 pub(super) fn taps(keys: &[(Key, u32)]) -> Vec<Step> {
     keys.iter().flat_map(|&(key, wait)| [Step::Tap(key), Step::Wait(wait)]).collect()
-}
-
-/// The stage art: a tab opening on the game page dips the art to its copy under the scrim, and leaving it dips back. Each dip puts one
-/// picture on the layer, and the page draws one full-screen layer while it runs.
-fn art_walks() -> Vec<Walk> {
-    let mut base = fixture();
-    base.view.page = Page::Game;
-    base.view.focus = Focus::Tab(0);
-    let mut script = taps(&[(Key::Right, 100)]);
-    script.extend([
-        Step::Expect("focus on the Ways tab", |model, _| model.view.focus == Focus::Tab(1)),
-        Step::Tap(Key::Ok),
-        Step::Settle,
-        Step::Expect("the art to dip to its dimmed copy once", |_, page| page.art_swaps() == 1),
-        Step::Tap(Key::Back),
-        Step::Settle,
-        Step::Expect("the art to dip back to its own picture", |_, page| page.art_swaps() == 2),
-    ]);
-    vec![Walk { name: "art-dip-hub-tab".into(), base, script }]
 }
 
 /// One walk for each screen the shots show: its first frames, a short D-pad sweep and an OK, so that the page's keys, its scroll and

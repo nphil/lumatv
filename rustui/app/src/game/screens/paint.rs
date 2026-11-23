@@ -82,7 +82,6 @@ pub struct Plan {
 }
 #[derive(Clone, Copy)]
 pub enum Fill {
-    Canvas,
     Sheet,
     Glass,
     Tint(f32),
@@ -168,18 +167,6 @@ impl<'a> Paint<'a> {
     pub fn symbol(&mut self, id: u64, symbol: Symbol, frame: Frame, colour: Rgba, z: i32) {
         self.plan.nodes.push(Node { id, frame, props: Props::at(frame.x, frame.y), z, body: Body::Symbol(symbol, colour) });
     }
-    pub fn symbol_button(&mut self, id: u64, focus: Focus, symbol: Symbol, selected: bool, x: f32, y: f32, stage: bool, z: i32) {
-        let from = self.plan.nodes.len();
-        let h = self.tokens.target;
-        let f = Frame::new(x, y, h, h);
-        self.surface(id, f, Fill::Glass, Radius::Pill, stage, self.focused(focus), true, z);
-        let side = (30.0 * self.scale).min(48.0);
-        self.symbol(id + 1, symbol, Frame::new(x + (h - side) / 2.0, y + (h - side) / 2.0, side, side), self.ink(if selected { Role::Accent } else { Role::Ink }, stage), z + 1);
-        if self.focused(focus) {
-            self.zoom(from, f, self.tokens.focus.button_scale);
-        }
-        self.hit(focus, f);
-    }
     /// Scrolls the page to keep the focus in view. What scrolls with it (the nodes `scrollable` names that no group of the page holds)
     /// sits in one group of its own, so the whole page moves on one retargetable track instead of each node on a timed curve of its
     /// own.
@@ -195,7 +182,7 @@ impl<'a> Paint<'a> {
             (Page::Library, _) => id >= 1000,
             _ => false,
         };
-        let fixed = |id: &Focus| matches!(id, Focus::Nav(_) | Focus::Rail(_) | Focus::HubTop(_));
+        let fixed = |id: &Focus| matches!(id, Focus::Nav(_) | Focus::Rail(_));
         let shift = focus.map_or(0.0, |focus| {
             let caption = if matches!(self.model.view.focus, Focus::Home(_, _) | Focus::Grid(_)) {
                 self.line(TypeRole::Body) + self.line(TypeRole::Caption) + 40.0
@@ -267,7 +254,6 @@ impl<'a> Paint<'a> {
     }
     pub fn colour(&self, fill: Fill, stage: bool) -> Rgba {
         match fill {
-            Fill::Canvas => self.ink(Role::Canvas, stage),
             Fill::Sheet => self.straight(Role::Sheet, stage).premultiply(0.96),
             Fill::Glass => self.ink(Role::GlassRaised, stage),
             Fill::Primary => self.primary(stage).0,
@@ -291,7 +277,7 @@ impl<'a> Paint<'a> {
             corner_radius: self.tokens.radius(radius).min(frame.h / 2.0),
             tint: self.colour(if matches!(fill, Fill::Glass) && !cached { Fill::Tint(0.06) } else { fill }, stage),
             edge: self.ink(if focused { Role::EdgeRaised } else { Role::Edge }, stage),
-            edge_width: if matches!(fill, Fill::Canvas | Fill::Tint(_) | Fill::Veil(_)) && !focused { 0.0 } else { f.edge_width },
+            edge_width: if matches!(fill, Fill::Tint(_) | Fill::Veil(_)) && !focused { 0.0 } else { f.edge_width },
             highlight: if focused {
                 f.highlight_raised
             } else if cached {
@@ -516,26 +502,6 @@ impl<'a> Paint<'a> {
         let spec = art::Spec { width: frame.w.round() as u32, height: frame.h.round() as u32, radius: radius.round() as u32, logo, stage };
         self.plan.nodes.push(Node { id, frame, props: Props::at(frame.x, frame.y), z, body: Body::Image(art::Key { path, spec }) });
     }
-    pub fn status(&mut self, id: u64, label: &str, role: Role, x: f32, y: f32, stage: bool, z: i32) -> f32 {
-        let h = 44.0f32.max(self.line(TypeRole::Caption) + 8.0);
-        let side = 26.0 * self.scale;
-        let w = self.width(label, TypeRole::Caption) + side + 34.0;
-        let f = Frame::new(x, y, w, h);
-        self.surface(id, f, Fill::Tint(0.09), Radius::Pill, stage, false, false, z);
-        self.words(
-            id + 1,
-            f,
-            vec![self.word(label, TypeRole::Caption, self.ink(Role::Ink, stage), side + 22.0, (h - self.line(TypeRole::Caption)) / 2.0, w - side - 34.0)],
-            vec![Mark {
-                form: Form::Icon(Icon::Tick, side as u32),
-                colour: self.ink(role, stage),
-                x: 12.0,
-                y: (h - side) / 2.0,
-            }],
-            z + 1,
-        );
-        w
-    }
     /// How wide a hint reads: its key's mark, a gap, then `label`.
     pub fn hint_width(&mut self, label: &str) -> f32 {
         self.width(label, TypeRole::Label) + 37.0 * self.scale + 10.0
@@ -691,7 +657,7 @@ mod tests {
             let mut p = Paint::new(&tokens, &m, &mut fonts);
             p.button(10, Focus::Hero(0), "Play", None, 0.0, 0.0, true, false, 12);
             p.button(20, Focus::Hero(1), "Details", None, 300.0, 0.0, false, false, 12);
-            p.icon_button(30, Focus::HubTop(0), Icon::Back, 600.0, 0.0, false, 12);
+            p.icon_button(30, Focus::Where, Icon::Back, 600.0, 0.0, false, 12);
             let scales = |range: std::ops::Range<u64>| p.plan.nodes.iter().filter(|n| range.contains(&n.id)).map(|n| n.props.scale).collect::<Vec<_>>();
             assert_eq!(scales(10..20), [tokens.focus.button_scale; 2], "reduced motion {reduce_motion}");
             assert_eq!(scales(20..40), [1.0; 4]);

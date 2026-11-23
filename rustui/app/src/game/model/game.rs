@@ -1,10 +1,10 @@
-//! The game's page: its actions, sections and ways to play, the chooser, and what the page knows beyond its artwork (the sections
-//! it offers, only those with something to show, the owner's own achievements from an engine that can read them, and the quiet
-//! look-ahead that fetches a game's page data while its tile rests in focus).
+//! The game's page: Play, where to play it, and four cards that each open their section over the artwork; the reader of a post over
+//! a section; the chooser of ways to play; and what the page knows beyond its artwork (the owner's own achievements from an engine
+//! that can read them, and the quiet look-ahead that fetches a game's page data while its tile rests in focus).
 pub mod media;
 
-use super::facts::{Ask, Reader, Section, steam_app};
-use super::nav::Slice;
+use super::facts::{Ask, Fact, Reader, Reason, Section, TopicId, steam_app, why};
+use super::nav::{Hints, Slice};
 use super::settings::Place;
 use super::*;
 use lumagame_core::launch::{self, Candidate, Resolution};
@@ -14,26 +14,61 @@ use lumagame_core::ids::ProviderGameId;
 /// How long a tile must stay focused before its page data is fetched ahead of the owner opening it.
 pub(super) const REST_MS: u64 = 700;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HubTab {
-    Overview,
-    Ways,
-    Achievements,
-    News,
-    Media,
-    Details,
-}
-impl HubTab {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Overview => "Overview",
-            Self::Ways => "Ways to play",
-            Self::Achievements => "Achievements",
-            Self::News => "News",
-            Self::Media => "Media",
-            Self::Details => "Details",
-        }
+/// The page's cards and the sections they open, in order.
+pub const SECTIONS: [Section; 4] = [Section::Activity, Section::Community, Section::Media, Section::About];
+/// A section's name on its card and its tab.
+pub fn section_name(section: Section) -> &'static str {
+    match section {
+        Section::Activity => "Activity",
+        Section::Community => "Community",
+        Section::Media => "Media",
+        Section::About => "About",
     }
+}
+pub fn section_index(section: Section) -> usize {
+    SECTIONS.iter().position(|s| *s == section).unwrap_or(0)
+}
+
+/// A reader line holds about this many characters at 100 % text, the measure long text reads best at; larger text holds fewer.
+const READER_CHARS: f32 = 60.0;
+/// At 100 % text: the room the reader's body and head share, its head (crumb, title, byline, foot) and one body line, in pixels. All
+/// three grow with the text, so a page holds 13 lines at 100 % and 4 at 200 %.
+const READER_ROOM: f32 = 760.0;
+const READER_HEAD: f32 = 224.0;
+const READER_LINE: f32 = 39.0;
+
+/// What the game page keeps between keys: the row each section last had in focus, in [`SECTIONS`] order, and what the reader shows.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Glance {
+    pub rows: [usize; 4],
+    pub reading: Option<Reading>,
+}
+/// What the reader shows.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Reading {
+    News(usize),
+    Review(usize),
+    Thread(TopicId),
+    Guide(usize),
+    About,
+}
+/// A row of a section that OK acts on.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Entry {
+    /// The engine that reads the owner's achievements is not signed in.
+    SignIn { engine: EngineId, expired: bool },
+    News(usize),
+    Review(usize),
+    Thread(usize),
+    Guide(usize),
+    About,
+}
+/// The reader's text, its body in pages of lines.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReaderText {
+    pub title: String,
+    pub byline: String,
+    pub pages: Vec<Vec<String>>,
 }
 
 impl GameDetails {
@@ -77,6 +112,30 @@ pub fn play_time(seconds: u64) -> String {
         (h, m) => format!("{h} h {m} min"),
     }
 }
+/// `text` in lines of at most `width` characters, broken between words; a blank line between paragraphs stays.
+fn wrap(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut lines: Vec<String> = Vec::new();
+    for paragraph in text.split('\n') {
+        let mut line = String::new();
+        for word in paragraph.split_whitespace() {
+            if !line.is_empty() && line.chars().count() + 1 + word.chars().count() > width {
+                lines.push(std::mem::take(&mut line));
+            }
+            if !line.is_empty() {
+                line.push(' ');
+            }
+            line.push_str(word);
+        }
+        if !line.is_empty() || lines.last().is_some_and(|l| !l.is_empty()) {
+            lines.push(line);
+        }
+    }
+    while lines.last().is_some_and(String::is_empty) {
+        lines.pop();
+    }
+    lines
+}
 pub struct Rules;
 impl Slice for Rules {
     fn rows(m: &Model, layer: Option<Layer>) -> Vec<Vec<Focus>> {
@@ -85,45 +144,30 @@ impl Slice for Rules {
     fn activate(m: &mut Model, f: Focus, out: &mut Vec<Command>) {
         m.game_activate(f, out);
     }
-    fn adjust(_m: &mut Model, _f: Focus, _forward: bool, _out: &mut Vec<Command>) -> bool {
-        false
+    /// Left and Right over a section switch sections.
+    fn adjust(m: &mut Model, _f: Focus, forward: bool, _out: &mut Vec<Command>) -> bool {
+        m.switch_section(forward)
     }
     fn anchor(_m: &Model) -> Option<Focus> {
-        Some(Focus::HubAction(0))
+        Some(Focus::Play)
+    }
+    fn step(m: &mut Model, forward: bool, _out: &mut Vec<Command>) -> bool {
+        m.switch_section(forward)
     }
     fn subject(m: &Model) -> Option<GameId> {
         m.view.selected
     }
+    fn hints(m: &Model) -> Hints {
+        Hints(match m.view.top() {
+            Some(Layer::Section(_)) => vec![(Key::Ok, "Open"), (Key::Next, "Section"), (Key::Back, "Close")],
+            Some(Layer::Reader) => vec![(Key::Down, "Next page"), (Key::Back, "Close")],
+            Some(Layer::Chooser) => vec![(Key::Ok, "Play"), (Key::Back, "Close")],
+            _ => vec![(Key::Down, "More"), (Key::Menu, "Menu")],
+        })
+    }
 }
 
 impl Model {
-    /// The sections the open game's page offers, in order. A section with nothing to show is not offered.
-    pub fn hub_tabs(&self) -> Vec<HubTab> {
-        let mut tabs = vec![HubTab::Overview, HubTab::Ways];
-        let Some(id) = self.view.selected else { return tabs };
-        let details = self.details.get(&id);
-        if details.is_some_and(|d| d.hub.achievements.total > 0) || self.owned.get(&id).is_some_and(|u| !u.is_empty()) {
-            tabs.push(HubTab::Achievements);
-        }
-        if details.is_some_and(|d| !d.hub.news.is_empty()) {
-            tabs.push(HubTab::News);
-        }
-        if details.is_some_and(|d| !d.media.is_empty()) {
-            tabs.push(HubTab::Media);
-        }
-        if details.is_some_and(|d| {
-            let h = &d.hub;
-            !(h.developers.is_empty() && h.publishers.is_empty() && h.release.is_none() && h.categories.is_empty() && h.facts.is_empty() && h.deck.is_none() && h.credits.is_empty())
-        }) {
-            tabs.push(HubTab::Details);
-        }
-        tabs
-    }
-
-    pub fn hub_tab(&self) -> HubTab {
-        self.hub_tabs().get(self.view.hub_tab).copied().unwrap_or(HubTab::Overview)
-    }
-
     /// What the owner played of the game in the last two weeks, in seconds, where a service says so.
     pub fn recent_play(&self, id: GameId) -> Option<u64> {
         lumagame_core::activity::recent_play(self.game(id)?)
@@ -181,109 +225,241 @@ impl Model {
         }
     }
     fn game_grid(&self, layer: Option<Layer>) -> Vec<Vec<Focus>> {
-        let mut rows: Vec<Vec<Focus>> = Vec::new();
         match layer {
             Some(Layer::Chooser) => {
-                if let Some(g) = self.selected_game() {
-                    rows.extend((0..g.sources.len()).map(|i| vec![Focus::SheetRow(i)]));
-                }
+                let ways = self.selected_game().map_or(0, |g| g.sources.len());
+                let mut rows: Vec<Vec<Focus>> = (0..ways).map(|i| vec![Focus::SheetRow(i)]).collect();
                 rows.push(vec![Focus::Remember]);
-                rows.push(vec![Focus::SheetAction(0)]);
+                rows
             }
-            Some(_) => {}
+            Some(Layer::Section(section)) => self.section_rows(section).into_iter().map(|f| vec![f]).collect(),
+            Some(Layer::Reader) => (0..self.reader_text().map_or(0, |r| r.pages.len())).map(|i| vec![Focus::ReaderPage(i)]).collect(),
+            Some(_) => Vec::new(),
             None => {
-                rows.push((0..3).map(Focus::HubTop).collect());
-                if self.view.hub_tab == 0 {
-                    if self.prefs.text_percent > 100 { rows.extend([vec![Focus::HubAction(0)], vec![Focus::HubAction(1)]]); } else { rows.push(vec![Focus::HubAction(0), Focus::HubAction(1)]); }
-                }
-                rows.push((0..self.hub_tabs().len()).map(Focus::Tab).collect());
-                let items = self.view.selected.and_then(|id| self.details.get(&id)).map_or(0, |d| match self.hub_tab() {
-                    HubTab::Achievements => d.hub.achievements.shown.len(),
-                    HubTab::News => d.hub.news.len(),
-                    _ => 0,
-                });
-                rows.extend((0..items).map(|i| vec![Focus::Item(i)]));
-                if self.hub_tab() == HubTab::Ways {
-                    rows.extend((0..=self.selected_game().map_or(0, |g| g.sources.len())).map(|i| vec![Focus::Way(i)]));
-                }
-                if self.hub_tab() == HubTab::Media {
-                    if let Some(details) = self.view.selected.and_then(|id| self.details.get(&id)) {
-                        for video in [true, false] {
-                            let row = details
-                                .media
-                                .iter()
-                                .enumerate()
-                                .filter(|(_, m)| m.video.is_some() == video)
-                                .map(|(i, _)| Focus::Media(i))
-                                .collect::<Vec<_>>();
-                            if !row.is_empty() {
-                                rows.push(row);
-                            }
-                        }
-                    }
-                }
+                let mut rows = vec![vec![Focus::Play, Focus::Where]];
+                // Larger text lays the cards out two by two.
+                let per_row = if self.prefs.text_percent > 100 { 2 } else { SECTIONS.len() };
+                rows.extend((0..SECTIONS.len()).collect::<Vec<_>>().chunks(per_row).map(|row| row.iter().map(|&i| Focus::Card(i)).collect()));
+                rows
             }
         }
-        rows
     }
     fn game_activate(&mut self, f: Focus, out: &mut Vec<Command>) {
         match f {
-            Focus::HubTop(0) => self.go_back(out),
-            Focus::HubTop(1) => {
-                if let Some(id) = self.view.selected {
-                    let f = &mut self.state.profile_mut().user.favourites;
-                    if !f.remove(&id) {
-                        f.insert(id);
-                    }
-                    self.rebuild_rows();
-                    out.push(Command::SaveState);
-                }
-            }
-            Focus::HubTop(_) => self.open_chooser(),
-            Focus::HubAction(0) => {
+            Focus::Play => {
                 if let Some(id) = self.view.selected {
                     self.play(id, out);
                 }
             }
-            Focus::HubAction(_) => self.open_chooser(),
-            Focus::Tab(tab) => {
-                self.view.hub_tab = tab;
-            }
-            Focus::Item(i) => {
-                let url = self.view.selected.and_then(|id| self.details.get(&id)).filter(|_| self.hub_tab() == HubTab::News).and_then(|d| d.hub.news.get(i)).map(|n| n.url.clone());
-                if let Some(url) = url {
-                    out.push(Command::PlayMedia { url });
+            Focus::Where => self.open_chooser(),
+            Focus::Card(i) => {
+                if let Some(&section) = SECTIONS.get(i) {
+                    self.open_section(section);
                 }
             }
-            Focus::Way(i) => {
-                if let Some(game) = self.selected_game() {
-                    if let Some(s) = game.sources.get(i) {
-                        self.view.chooser_selected = Some(s.key());
-                        self.view.hub_tab = 0;
-                        self.view.focus = Focus::HubAction(0);
-                    } else {
-                        self.open_settings(Place::Accounts);
-                    }
-                }
-            }
+            Focus::Entry(i) => self.open_entry(i, out),
             Focus::Media(i) => self.open_media(i, out),
-            Focus::SheetRow(i) if self.view.top() == Some(Layer::Chooser) => {
-                if let Some(s) = self.selected_game().and_then(|g| g.sources.get(i)) {
-                    self.view.chooser_selected = Some(s.key());
-                    self.view.focus = Focus::SheetAction(0);
-                }
-            }
+            Focus::SheetRow(i) if self.view.top() == Some(Layer::Chooser) => self.choose(i, out),
             Focus::Remember => self.view.remember = !self.view.remember,
-            Focus::SheetAction(_) if self.view.top() == Some(Layer::Chooser) => {
-                if let (Some(game), Some(source)) = (self.view.selected, self.view.chooser_selected.clone()) {
-                    if self.readiness(&source).can_attempt() {
-                        self.start(game, source, self.view.remember, out);
-                    } else {
-                        self.view.notice = Some("This target is unavailable. Choose another way to play.".into());
+            _ => {}
+        }
+    }
+
+    /// The rows of a section that OK acts on. The sign-in row leads Activity while the engine that reads the owner's achievements is
+    /// signed out; without such an engine there is none.
+    pub fn section_entries(&self, id: GameId, section: Section) -> Vec<Entry> {
+        fn count<T>(fact: &Fact<&[T]>) -> usize {
+            if let Fact::Present(items) = fact { items.len() } else { 0 }
+        }
+        let facts = self.facts(id);
+        let mut entries = Vec::new();
+        match section {
+            Section::Activity => {
+                if let Fact::SignIn { expired } = facts.activity.achievements {
+                    if let Some(engine) = self.sign_in_engine() {
+                        entries.push(Entry::SignIn { engine: engine.clone(), expired });
                     }
                 }
+                entries.extend((0..count(&facts.activity.news)).map(Entry::News));
             }
-            _ => {}
+            Section::Community => {
+                let reviews = if let Fact::Present(r) = facts.community.reviews { r.top.len() } else { 0 };
+                entries.extend((0..reviews).map(Entry::Review));
+                entries.extend((0..count(&facts.community.discussions)).map(Entry::Thread));
+                entries.extend((0..count(&facts.community.guides)).map(Entry::Guide));
+            }
+            // The Media slice fills this section; its rows are the pictures (`Focus::Media`).
+            Section::Media => {}
+            Section::About => {
+                if matches!(facts.about.description, Fact::Present(_)) {
+                    entries.push(Entry::About);
+                }
+            }
+        }
+        entries
+    }
+    /// The enabled engine that would read the owner's achievements once signed in.
+    fn sign_in_engine(&self) -> Option<&EngineId> {
+        self.integrations
+            .iter()
+            .find(|e| {
+                self.enabled(&e.manifest.id)
+                    && e.descriptor.as_ref().is_some_and(|d| d.capabilities.has(Feature::Achievements))
+                    && !e.targets.iter().any(|t| t.link == ipc::Link::Linked)
+            })
+            .map(|e| &e.manifest.id)
+    }
+    fn section_rows(&self, section: Section) -> Vec<Focus> {
+        let Some(id) = self.view.selected else { return Vec::new() };
+        if section == Section::Media {
+            return (0..self.details.get(&id).map_or(0, |d| d.media.len())).map(Focus::Media).collect();
+        }
+        (0..self.section_entries(id, section).len()).map(Focus::Entry).collect()
+    }
+    /// Where focus lands in a section: the row it last rested on, else the last row there is.
+    fn section_focus(&self, section: Section) -> Focus {
+        let rows = self.section_rows(section);
+        rows.get(self.view.glance.rows[section_index(section)]).or(rows.last()).copied().unwrap_or(Focus::None)
+    }
+    fn open_section(&mut self, section: Section) {
+        let focus = self.section_focus(section);
+        self.push_layer(Layer::Section(section), focus);
+    }
+    /// Over a section, the next or previous section takes its place, at the row it last had in focus. Back still returns to the card
+    /// the layer was opened from.
+    fn switch_section(&mut self, forward: bool) -> bool {
+        let Some(Layer::Section(section)) = self.view.top() else { return false };
+        let at = section_index(section);
+        let next = if forward { at + 1 } else { at.wrapping_sub(1) };
+        let Some(&next) = SECTIONS.get(next) else { return true };
+        if let Some(row) = self.section_rows(section).iter().position(|f| *f == self.view.focus) {
+            self.view.glance.rows[at] = row;
+        }
+        if let Some(top) = self.view.layers.last_mut() {
+            *top = Layer::Section(next);
+        }
+        self.view.focus = self.section_focus(next);
+        true
+    }
+    fn open_entry(&mut self, i: usize, out: &mut Vec<Command>) {
+        let (Some(id), Some(Layer::Section(section))) = (self.view.selected, self.view.top()) else { return };
+        let Some(entry) = self.section_entries(id, section).into_iter().nth(i) else { return };
+        let reading = match entry {
+            Entry::SignIn { engine, .. } => return self.begin_auth(engine, out),
+            Entry::News(i) => Reading::News(i),
+            Entry::Review(i) => Reading::Review(i),
+            Entry::Guide(i) => Reading::Guide(i),
+            Entry::About => Reading::About,
+            Entry::Thread(i) => {
+                let topic = match self.facts(id).community.discussions {
+                    Fact::Present(topics) => topics.get(i).map(TopicId::of),
+                    _ => None,
+                };
+                let Some(topic) = topic else { return };
+                self.open_thread(id, topic.clone(), out);
+                Reading::Thread(topic)
+            }
+        };
+        self.view.glance.reading = Some(reading);
+        self.push_layer(Layer::Reader, Focus::ReaderPage(0));
+    }
+    /// What the reader shows, its body broken into lines of about sixty characters at 100 % text and into pages that fit the layer.
+    pub fn reader_text(&self) -> Option<ReaderText> {
+        let id = self.view.selected?;
+        let facts = self.facts(id);
+        let (title, byline, body) = match self.view.glance.reading.as_ref()? {
+            Reading::News(i) => {
+                let Fact::Present(news) = facts.activity.news else { return None };
+                let n = news.get(*i)?;
+                let when = self.ago(n.at);
+                (n.title.clone(), n.author.as_ref().map_or(when.clone(), |a| format!("{a}, {when}")), n.text.clone())
+            }
+            Reading::Review(i) => {
+                let Fact::Present(reviews) = facts.community.reviews else { return None };
+                let r = reviews.top.get(*i)?;
+                let verdict = if r.recommended { "Recommended" } else { "Not recommended" };
+                (verdict.into(), format!("{} on record, {} found it helpful", play_time(r.playtime_s), r.helpful), r.text.clone())
+            }
+            Reading::Guide(i) => {
+                let Fact::Present(guides) = facts.community.guides else { return None };
+                let g = guides.get(*i)?;
+                (g.title.clone(), g.author.clone(), g.summary.clone())
+            }
+            Reading::Thread(topic) => {
+                let named = match facts.community.discussions {
+                    Fact::Present(topics) => topics.iter().find(|t| TopicId::of(t) == *topic).map(|t| t.title.clone()),
+                    _ => None,
+                };
+                match self.thread(id, topic) {
+                    Fact::Present(thread) => {
+                        let posts: Vec<String> = thread.posts.iter().map(|p| format!("{}: {}", p.author, p.text)).collect();
+                        (thread.title.clone(), format!("{} replies", thread.replies), posts.join("\n\n"))
+                    }
+                    Fact::Loading => (named.unwrap_or_default(), String::new(), "Loading".into()),
+                    Fact::Absent(reason) => (named.unwrap_or_default(), String::new(), why(reason).into()),
+                    Fact::SignIn { .. } => (named.unwrap_or_default(), String::new(), why(Reason::Other).into()),
+                }
+            }
+            Reading::About => {
+                let Fact::Present(description) = facts.about.description else { return None };
+                let developer = if let Fact::Present(d) = facts.about.developer { d.to_owned() } else { String::new() };
+                (self.game(id).map(|g| g.title.clone()).unwrap_or_default(), developer, description.to_owned())
+            }
+        };
+        let scale = f32::from(self.prefs.text_percent) / 100.0;
+        let lines = wrap(&body, (READER_CHARS / scale) as usize);
+        let per_page = (((READER_ROOM - READER_HEAD * scale) / (READER_LINE * scale)) as usize).max(2);
+        let mut pages: Vec<Vec<String>> = lines.chunks(per_page).map(<[String]>::to_vec).collect();
+        if pages.is_empty() {
+            pages.push(Vec::new());
+        }
+        Some(ReaderText { title, byline, pages })
+    }
+    /// How long ago a dated post was, by the day.
+    pub fn ago(&self, at: u64) -> String {
+        match self.unix_s.saturating_sub(at) / 86_400 {
+            0 => "Today".into(),
+            1 => "Yesterday".into(),
+            days => format!("{days} days ago"),
+        }
+    }
+    /// The pictures the page and its open section show: the latest achievements' icons and the first store screenshots on the cards,
+    /// and the Media section's pictures while it is open.
+    pub(super) fn glance_art(&self, id: GameId) -> Vec<String> {
+        let facts = self.facts(id);
+        let mut urls = Vec::new();
+        if let Fact::Present(a) = &facts.activity.achievements {
+            urls.extend(a.latest.iter().take(3).filter_map(|a| a.icon.map(str::to_owned)));
+        }
+        if let Fact::Present(shots) = facts.media.store_screenshots {
+            urls.extend(shots.iter().take(4).map(|s| s.thumb.clone()));
+        }
+        if self.view.top() == Some(Layer::Section(Section::Media)) {
+            if let Some(details) = self.details.get(&id) {
+                urls.extend(details.media.iter().map(|m| m.image.clone()).filter(|url| !url.is_empty()));
+            }
+        }
+        urls
+    }
+    /// A way to play from the chooser: one that needs a sign-in or a pairing starts it; one that can start plays, and Remember pins
+    /// it to the game (or, off, forgets a pinned way).
+    fn choose(&mut self, i: usize, out: &mut Vec<Command>) {
+        let (Some(game), Some(source)) = (self.view.selected, self.selected_game().and_then(|g| g.sources.get(i)).map(|s| s.key())) else { return };
+        match self.readiness(&source) {
+            Readiness::SignIn => self.begin_auth(source.engine.clone(), out),
+            ready if ready.can_attempt() => {
+                let remember = self.view.remember;
+                let pinned = &mut self.state.profile_mut().user.pinned;
+                if remember {
+                    pinned.insert(game, source.clone());
+                } else {
+                    pinned.remove(&game);
+                }
+                out.push(Command::SaveState);
+                self.view.chooser_selected = Some(source.clone());
+                self.start(game, source, false, out);
+            }
+            _ => self.view.notice = Some("This way to play is unavailable. Choose another.".into()),
         }
     }
     pub fn candidates(&self, game: GameId) -> Vec<Candidate> {
@@ -317,13 +493,16 @@ impl Model {
             _ => SaveCompat::Unknown,
         }
     }
-    /// Opens the game's page. `_section` is where the page opens; until the page has sections it always opens at the top.
-    pub fn open_game(&mut self, id: GameId, _section: Option<Section>) {
+    /// Opens the game's page, with `section` open over it when given.
+    pub fn open_game(&mut self, id: GameId, section: Option<Section>) {
         self.view.selected = Some(id);
         self.view.chooser_selected = None;
-        self.view.hub_tab = 0;
+        self.view.glance = Glance::default();
         self.view.notice = None;
-        self.show_page(Page::Game, Focus::HubAction(0));
+        self.show_page(Page::Game, Focus::Play);
+        if let Some(section) = section {
+            self.open_section(section);
+        }
     }
     fn open_chooser(&mut self) {
         if let Some(id) = self.view.selected {
@@ -359,34 +538,96 @@ impl Model {
 mod tests {
     use super::*;
     use crate::game::model::tests::*;
-    #[test]
-    fn a_game_page_offers_only_the_sections_that_have_data() {
-        use lumagame_meta::hub::{Achievements, Hub, News};
-        let (mut m, _) = refreshing_steam();
-        let game = id_of(&m, "Beta");
-        m.view.selected = Some(game);
-        m.view.page = Page::Game;
-        assert_eq!(m.hub_tabs(), [HubTab::Overview, HubTab::Ways], "nothing fetched: no empty sections");
-        m.step(Input::Details { game, details: Box::new(GameDetails::from_hub(Hub { credits: vec!["x".into()], ..Hub::default() })) });
-        assert_eq!(m.hub_tabs(), [HubTab::Overview, HubTab::Ways, HubTab::Details]);
-        let hub = Hub {
-            achievements: Achievements { total: 5, ..Achievements::default() },
-            news: vec![News { title: "t".into(), author: String::new(), date: 1, url: "https://x".into(), summary: String::new() }],
-            screenshots: vec!["https://x/a.jpg".into()],
-            credits: vec!["x".into()],
-            developers: vec!["d".into()],
-            ..Hub::default()
-        };
-        m.step(Input::Details { game, details: Box::new(GameDetails::from_hub(hub)) });
-        assert_eq!(m.hub_tabs(), [HubTab::Overview, HubTab::Ways, HubTab::Achievements, HubTab::News, HubTab::Media, HubTab::Details]);
-        m.view.hub_tab = 3;
-        m.view.focus = Focus::Item(0);
+    use lumagame_core::{activity::Activity, community::{Community, NewsItem, Section as Part}, engine::AuthMethod, ids::ProviderGameId};
+
+    /// GeForce NOW lists Hades II (Steam app 1145350) and Steam, on with achievements and the community, has said two long news posts.
+    /// Steam is signed in when `signed_in`.
+    fn hades(signed_in: bool) -> (Model, GameId) {
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gfn", "GeForce NOW", EngineKind::Cloud), manifest("steam", "Steam", EngineKind::Account)]);
+        describe(&mut m, "gfn", vec![AuthMethod::DeviceCode], &[]);
+        describe(&mut m, "steam", vec![AuthMethod::Qr], &[Feature::Achievements, Feature::Community]);
+        engine_says(&mut m, "gfn", ipc::Event::Targets { targets: vec![linked("main")] });
+        if signed_in {
+            engine_says(&mut m, "steam", ipc::Event::Targets { targets: vec![linked("1")] });
+        }
+        let entries = vec![entry("1", "Hades II", ipc::Role::Game, &["steam:1145350"], Activity::default())];
+        engine_says(&mut m, "gfn", ipc::Event::Library { target: TargetId::new("main").unwrap(), entries, next: None });
+        let news = (0..2).map(|i| NewsItem { title: format!("Patch {i}"), text: "word ".repeat(300), author: None, source: None, at: 0, url: None }).collect();
+        let community = Community { news: Part::list(news), ..Community::default() };
+        engine_says(&mut m, "steam", ipc::Event::Community { game: ProviderGameId::new("1145350").unwrap(), community });
+        let id = id_of(&m, "Hades II");
+        m.open_game(id, None);
         m.rebuild_navigation();
-        assert!(key(&mut m, Key::Ok).iter().any(|c| matches!(c, Command::PlayMedia { url } if url == "https://x")), "OK on a news row opens it");
+        (m, id)
+    }
+    #[test]
+    fn ok_on_a_card_opens_its_section_and_back_returns_to_the_card_then_play_then_leaves() {
+        let (mut m, _) = hades(true);
+        m.set_focus(Focus::Card(1));
+        key(&mut m, Key::Ok);
+        assert_eq!(m.view.top(), Some(Layer::Section(Section::Community)));
+        key(&mut m, Key::Back);
+        assert_eq!((m.view.top(), m.view.focus), (None, Focus::Card(1)));
+        key(&mut m, Key::Back);
+        assert_eq!((m.view.page, m.view.focus), (Page::Game, Focus::Play));
+        key(&mut m, Key::Back);
+        assert_ne!(m.view.page, Page::Game);
+    }
+    #[test]
+    fn each_section_keeps_its_own_focus_across_switches() {
+        let (mut m, id) = hades(true);
+        let hub = Hub { screenshots: (0..3).map(|i| format!("https://x/{i}.jpg")).collect(), description: "A god's daughter.".into(), ..Hub::default() };
+        m.step(Input::Details { game: id, details: Box::new(GameDetails::from_hub(hub)) });
+        m.set_focus(Focus::Card(2));
+        key(&mut m, Key::Ok);
+        key(&mut m, Key::Down);
+        key(&mut m, Key::Down);
+        assert_eq!(m.view.focus, Focus::Media(2));
+        key(&mut m, Key::Next);
+        assert_eq!((m.view.top(), m.view.focus), (Some(Layer::Section(Section::About)), Focus::Entry(0)), "the bumper steps to About");
+        key(&mut m, Key::Left);
+        assert_eq!((m.view.top(), m.view.focus), (Some(Layer::Section(Section::Media)), Focus::Media(2)), "Left comes back to the same picture");
+    }
+    #[test]
+    fn a_news_post_opens_the_reader_and_down_turns_its_page_and_back_closes_only_the_reader() {
+        let (mut m, _) = hades(true);
+        m.set_focus(Focus::Card(0));
+        key(&mut m, Key::Ok);
+        assert_eq!(m.view.focus, Focus::Entry(0));
+        key(&mut m, Key::Ok);
+        let text = m.reader_text().unwrap();
+        assert_eq!((m.view.top(), text.title.as_str()), (Some(Layer::Reader), "Patch 0"));
+        assert!(text.pages.len() > 1 && text.pages[0].iter().all(|l| l.chars().count() <= 60));
+        key(&mut m, Key::Down);
+        assert_eq!(m.view.focus, Focus::ReaderPage(1));
+        key(&mut m, Key::Back);
+        assert_eq!((m.view.top(), m.view.focus), (Some(Layer::Section(Section::Activity)), Focus::Entry(0)));
+    }
+    #[test]
+    fn signed_out_steam_leads_activity_with_a_sign_in_row_and_none_shows_with_steam_off() {
+        let (mut m, id) = hades(false);
+        assert_eq!(m.section_entries(id, Section::Activity)[0], Entry::SignIn { engine: EngineId::new("steam").unwrap(), expired: false });
+        m.set_focus(Focus::Card(0));
+        key(&mut m, Key::Ok);
+        key(&mut m, Key::Ok);
+        assert_eq!(m.view.top(), Some(Layer::Auth), "OK begins the sign-in");
+        m.state.engines.get_mut(&EngineId::new("steam").unwrap()).unwrap().enabled = false;
+        assert!(!m.section_entries(id, Section::Activity).iter().any(|e| matches!(e, Entry::SignIn { .. })));
+    }
+    #[test]
+    fn remember_in_the_chooser_pins_the_way_chosen() {
+        let (mut m, id) = hades(true);
+        m.set_focus(Focus::Where);
+        key(&mut m, Key::Ok);
+        assert_eq!(m.view.top(), Some(Layer::Chooser));
+        m.set_focus(Focus::Remember);
+        key(&mut m, Key::Ok);
+        m.set_focus(Focus::SheetRow(0));
+        key(&mut m, Key::Ok);
+        assert_eq!(m.state.profile().user.pinned.get(&id).map(|k| k.engine.as_str()), Some("gfn"));
     }
     #[test]
     fn the_owners_achievements_are_asked_for_once_per_visit_and_kept() {
-        use lumagame_core::ids::ProviderGameId;
         let (mut m, account) = refreshing_steam();
         describe(&mut m, "steam", vec![lumagame_core::engine::AuthMethod::Qr], &[Feature::Achievements]);
         let game = id_of(&m, "Beta");
@@ -397,14 +638,11 @@ mod tests {
         assert!(sent(&m.step(Input::Notice("y".into()))).is_empty(), "not again on every redraw");
         engine_says(&mut m, "steam", ipc::Event::Achievements { target: account, game: ProviderGameId::new("0").unwrap(), unlocked: vec![ipc::Unlocked { name: "ACH_A".into(), at: None }] });
         assert_eq!(m.unlocked(game).map(<[_]>::len), Some(1));
-        assert_eq!(m.hub_tabs(), [HubTab::Overview, HubTab::Ways, HubTab::Achievements]);
         let back = m.step(Input::Foreground(true));
         assert_eq!(sent(&back).iter().filter(|r| matches!(r, Request::Achievements { .. })).count(), 1, "asked again after the app comes back");
     }
     #[test]
     fn the_owners_achievements_in_a_game_steam_lists_only_as_a_record_are_asked_by_its_app_id() {
-        use lumagame_core::activity::Activity;
-        use lumagame_core::ids::ProviderGameId;
         let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gfn", "GeForce NOW", EngineKind::Cloud), manifest("steam", "Steam", EngineKind::Account)]);
         describe(&mut m, "gfn", vec![lumagame_core::engine::AuthMethod::DeviceCode], &[]);
         describe(&mut m, "steam", vec![lumagame_core::engine::AuthMethod::Qr], &[Feature::Achievements]);

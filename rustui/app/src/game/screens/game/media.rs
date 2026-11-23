@@ -11,5 +11,5 @@ pub fn media(p: &mut Paint<'_>) {
         }
         p.text(101, &item.title, Frame::new(p.x + 88.0, p.y + 12.0, 1500.0, p.line(Type::Label)), Type::Label, Role::Ink, false, 12);
     }
-    p.icon_button(110, Focus::HubTop(0), Icon::Back, p.x, p.y, false, 12);
+    p.icon_button(110, Focus::Media(0), Icon::Back, p.x, p.y, false, 12);
 }

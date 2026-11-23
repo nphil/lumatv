@@ -8,6 +8,7 @@ pub enum Symbol {
     Library,
     Heart,
     More,
+    Controller,
     /// The marking printed on one face button of a pad that is not Xbox-styled, in a 24-unit box the size of the button. `ring` adds the
     /// button's rim, for a button that must not vanish into a dark sheet.
     Face { kind: PadKind, face: Face, ring: bool },

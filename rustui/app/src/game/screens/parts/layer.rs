@@ -1,13 +1,12 @@
 //! The layer drawn over the page: picks the open layer's painter, and the reader layer a section page is (`section`).
 //!
-//! Node ids of `section`: 8840 the scrim, 8842 the sheet, 8850 and up each tab's wash, 8860 and up
-//! each tab's name.
+//! Node ids of `section`: 8842 the sheet, 8850 and up each tab's wash, 8860 and up each tab's name.
 use crate::game::screens::paint::{Fill, H, Paint, W};
 use crate::game::model::Layer;
 use crate::game::screens::parts::{SHEET_Z, dialog::*, keyboard::*, motion::Enter};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{geometry::Frame, lucent::palette::PaletteRole as Role};
-use crate::game::screens::{accounts::{auth, sign_out}, quick::quick, game::chooser, library::refine, settings::delete};
+use crate::game::screens::{accounts::{auth, sign_out}, quick::quick, library::refine, settings::delete};
 
 pub fn sheet(p: &mut Paint<'_>) {
     let Some(sheet) = p.model.view.top().filter(|layer| layer.is_sheet()) else {
@@ -18,15 +17,14 @@ pub fn sheet(p: &mut Paint<'_>) {
         curtain(p);
     }
     match sheet {
-        Layer::Chooser => chooser(p),
         Layer::Sort | Layer::Genre | Layer::PlaysOn => refine(p, sheet),
         Layer::SignOut => sign_out(p),
         Layer::Auth => auth(p),
         Layer::AddHost | Layer::EditText => edit_text(p),
         Layer::Delete => delete(p),
         Layer::Quick | Layer::QuickSettings => quick(p),
-        // Drawn by their page in place of its own content.
-        Layer::Viewer | Layer::Picture | Layer::Achievements | Layer::EndConfirm => {}
+        // Drawn by their page in place of, or over, its own content.
+        Layer::Chooser | Layer::Section(_) | Layer::Reader | Layer::Viewer | Layer::Picture | Layer::Achievements | Layer::EndConfirm => {}
     }
 }
 
@@ -49,14 +47,11 @@ const FOOT_CLEAR: f32 = 18.0;
 
 /// Opens the reader layer on the right: a tab row with a name for each of `sections` (`current` in the selected wash) and, under it,
 /// the slot for the section's content. The shell comes up as one; the content fades in on the spot, which is why the caller should give
-/// each section's nodes ids of their own. Sets `p.art` off and `p.anchor` to the foot, for the hints. Returns the content slot.
+/// each section's nodes ids of their own. It draws no scrim: the page beneath dims itself (the pre-dimmed art). Sets `p.art` off and
+/// `p.anchor` to the foot, for the hints. Returns the content slot.
 pub fn section(p: &mut Paint<'_>, sections: &[&str], current: usize) -> Frame {
     p.art = false;
     let sheet = Frame::new(W - p.x - READER_W, p.y, READER_W, H - 2.0 * p.y);
-
-    p.arrives(Frame::new(0.0, 0.0, W, H), Enter::FADE);
-    veil(p, 8840, Frame::new(0.0, 0.0, W, H), false);
-
     p.arrives(sheet, Enter::slide(0.0, RISE));
     p.surface(8842, sheet, Fill::Sheet, Radius::Sheet, false, false, false, SHEET_Z);
     let tabs_y = sheet.y + PAD_TOP;

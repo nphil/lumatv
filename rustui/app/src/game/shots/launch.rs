@@ -19,7 +19,7 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
     launched.view.selected = Some(id(&launched, "Cyberpunk 2077"));
     launched.view.page = Page::Game;
     launched.view.chooser_selected = launched.selected_game().unwrap().sources.iter().find(|s| s.engine.as_str() == "gfn").map(|s| s.key());
-    launched.view.focus = Focus::HubAction(0);
+    launched.view.focus = Focus::Play;
     activate(&mut launched);
     let session = launched.session().unwrap().id;
     add("launch-start-connecting", launched.clone());
@@ -46,7 +46,7 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
     wake.view.selected = Some(id(&wake, "Ori and the Will of the Wisps"));
     wake.view.page = Page::Game;
     wake.view.chooser_selected = wake.selected_game().unwrap().sources.iter().find(|s| s.engine.as_str() == "gamestream").map(|s| s.key());
-    wake.view.focus = Focus::HubAction(0);
+    wake.view.focus = Focus::Play;
     activate(&mut wake);
     add("launch-start-wake", wake.clone());
     wake.prefs.light = true;
@@ -150,7 +150,7 @@ pub(super) fn walks() -> Vec<super::budget::Walk> {
     feature(&mut start, "gfn", Feature::Queue);
     start.view.page = Page::Game;
     start.view.selected = Some(id(&start, "Cyberpunk 2077"));
-    start.view.focus = Focus::HubAction(0);
+    start.view.focus = Focus::Play;
     activate(&mut start);
     let session = start.session().unwrap().id;
     event(&mut start, "gfn", ipc::Event::Session { session, state: SessionState::Queue { position: Some(15), eta_s: Some(120) } });
@@ -189,7 +189,7 @@ fn closing_waits_for_session_end_and_records_the_final_seconds() {
     let before = m.state().profile().history.total(game).seconds;
     m.view.page = Page::Game;
     m.view.selected = Some(game);
-    m.view.focus = Focus::HubAction(0);
+    m.view.focus = Focus::Play;
     activate(&mut m);
     let session = m.session().unwrap().id;
     event(&mut m, "gfn", ipc::Event::Session { session, state: SessionState::Starting });
@@ -207,7 +207,7 @@ fn closing_waits_for_session_end_and_records_the_final_seconds() {
 fn all_stats_controls_share_one_setting_and_off_stops_frame_capture() {
     use crate::game::stats::{Mode,Overlay};
     let mut m=fixture();
-    m.view.page=Page::Game;m.view.selected=Some(id(&m,"Cyberpunk 2077"));m.view.focus=Focus::HubAction(0);
+    m.view.page=Page::Game;m.view.selected=Some(id(&m,"Cyberpunk 2077"));m.view.focus=Focus::Play;
     activate(&mut m);
     let session=m.session().unwrap().id;
     event(&mut m,"gfn",ipc::Event::Session {session,state:SessionState::Running {stream:None}});
@@ -235,7 +235,7 @@ fn all_stats_controls_share_one_setting_and_off_stops_frame_capture() {
 fn compact_stats_reach_the_screen_in_a_running_game_at_both_text_sizes() {
     use crate::game::stats::{Mode,Overlay};
     let mut m=fixture();
-    m.view.page=Page::Game;m.view.selected=Some(id(&m,"Cyberpunk 2077"));m.view.focus=Focus::HubAction(0);
+    m.view.page=Page::Game;m.view.selected=Some(id(&m,"Cyberpunk 2077"));m.view.focus=Focus::Play;
     activate(&mut m);
     let session=m.session().unwrap().id;
     event(&mut m,"gfn",ipc::Event::Session {session,state:SessionState::Running {stream:None}});
@@ -254,7 +254,7 @@ fn compact_stats_reach_the_screen_in_a_running_game_at_both_text_sizes() {
 fn the_stats_hud_dims_and_steps_inside_the_safe_area_in_a_running_game() {
     use crate::game::stats::{DIM_AFTER_MS,DIM_TO,Mode,Overlay,SHIFT_EVERY_MS};
     let mut m=fixture();
-    m.view.page=Page::Game;m.view.selected=Some(id(&m,"Cyberpunk 2077"));m.view.focus=Focus::HubAction(0);
+    m.view.page=Page::Game;m.view.selected=Some(id(&m,"Cyberpunk 2077"));m.view.focus=Focus::Play;
     activate(&mut m);
     let session=m.session().unwrap().id;
     event(&mut m,"gfn",ipc::Event::Session {session,state:SessionState::Running {stream:None}});
@@ -345,7 +345,7 @@ fn an_idle_end_returns_to_the_hub_with_a_calm_notice_and_the_game_launches_again
     assert_eq!(m.view.notice.as_deref(),Some("GeForce NOW ended the session after inactivity."));
     assert!(!m.session_active() && m.idle_left().is_none() && m.view.idle.is_none());
     assert!(crate::game::screens::planned(&m).iter().all(|(id,_)| !(90..92).contains(id)),"no prompt left behind");
-    m.view.focus=Focus::HubAction(0);
+    m.view.focus=Focus::Play;
     let commands={m.step(Input::Key {key:Key::Ok,down:true});m.step(Input::Key {key:Key::Ok,down:false})};
     assert!(commands.iter().any(|c| matches!(c,Command::Send {request:ipc::Request::Launch {..},..})),"{commands:?}");
     assert!(m.session_active());
@@ -355,7 +355,7 @@ fn an_idle_end_returns_to_the_hub_with_a_calm_notice_and_the_game_launches_again
 fn controller_sampling_follows_the_visible_hud_not_menu_statistics() {
     use crate::game::stats::{Mode,Overlay};
     let mut m=fixture();
-    m.view.page=Page::Game;m.view.selected=Some(id(&m,"Cyberpunk 2077"));m.view.focus=Focus::HubAction(0);
+    m.view.page=Page::Game;m.view.selected=Some(id(&m,"Cyberpunk 2077"));m.view.focus=Focus::Play;
     activate(&mut m);
     let session=m.session().unwrap().id;
     event(&mut m,"gfn",ipc::Event::Session {session,state:SessionState::Running {stream:None}});

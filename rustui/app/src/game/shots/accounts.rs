@@ -64,8 +64,7 @@ pub(super) fn steam_screens(base: &Model) -> Vec<(String, Model)> {
                 Some(Page::Game) => {
                     m.view.page = Page::Game;
                     m.view.selected = Some(id(&m, title));
-                    m.view.hub_tab = 0;
-                    m.view.focus = Focus::HubAction(0);
+                    m.view.focus = Focus::Play;
                 }
                 Some(page) => {
                     m.view.page = page;

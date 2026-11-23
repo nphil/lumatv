@@ -32,7 +32,7 @@ pub(super) fn text200(base: &Model, add: &mut impl FnMut(&str, Model)) {
         let mut m = base.clone();
         m.prefs.text_percent = 200;
         m.view.page = page;
-        m.view.focus = if page == Page::Game { Focus::HubAction(0) } else { Focus::Home(0, 1) };
+        m.view.focus = if page == Page::Game { Focus::Play } else { Focus::Home(0, 1) };
         add(name, m);
     }
 }
