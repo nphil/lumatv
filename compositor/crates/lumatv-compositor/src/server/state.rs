@@ -1124,11 +1124,12 @@ impl State {
     }
 
     /// The system UI app's socket is readable (`Output::ui_fd`): its requests are taken in now, so that a commit does not wait
-    /// for the tick. Whether a frame should be drawn at once: the UI wants one and the output shows a still frame, as for a
-    /// window's commit ([`State::wants_frame_now`]); otherwise the tick draws it.
+    /// for the tick. Whether a frame should be drawn at once: the UI wants one and the output says so (`Output::draws_on_ui_commit`:
+    /// the screen is still, as for a window's commit ([`State::wants_frame_now`]), or the commit makes a screen with a flip in
+    /// flight); otherwise the tick draws it.
     pub fn ui_wake(&mut self) -> bool {
         match self.output.ui_needs_frame() {
-            Ok(wants) => wants && self.output.draws_on_damage(Instant::now()),
+            Ok(wants) => wants && self.output.draws_on_ui_commit(Instant::now()),
             Err(e) => {
                 log::error!("system UI: {e}");
                 false

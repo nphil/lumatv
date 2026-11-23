@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A screen the UI makes (a commit of 64 operations or more) is drawn when its commit arrives, outside a run of frames, even with a flip in flight: it is drawn into the free page and goes out when that flip lands. It waited for the idle tick before, and the Apps grid's first frame, 10 ms to GPU done, missed the refresh after the feedback frame's flip in most of the frames the 120 Hz gate dropped (about 3 a run on 2026-11-22). `ctl arrival on|off` switches it without a restart and `ctl status` shows it as `ui.arrival`. Not yet frame-gated on the TV.
+
 The input picker lists, under the HDMI tile of an AV receiver, the receiver's own video inputs by the names it gives them, with the one it is playing marked; OK on one launches the port and switches the receiver to it. A device that HDMI-CEC names after an input shows its power there, and Settings has a switch per receiver input to hide it. This needs the Denon receiver plugin; with it off the HDMI-CEC devices behind the receiver are only named.
 
 Auto brightness learns OLED pixel brightness separately for each profile. Repeated manual corrections at similar room light and local times distinguish morning from evening, games from movies, and playback from browsing. Learning adjusts the SDR backlight, not the picture’s black level; HDR and Dolby Vision remain untouched. Within one sitting the last choice replaces earlier ones, so passing above the limit on the way to a lower level raises nothing; a changed habit takes over after three or four days.

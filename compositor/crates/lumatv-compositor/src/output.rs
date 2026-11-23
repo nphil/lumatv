@@ -275,6 +275,12 @@ pub trait Output {
         false
     }
 
+    /// Switches whether a screen the UI makes is drawn when its commit arrives with a flip in flight, not at the tick (`ctl arrival`,
+    /// `Output::draws_on_ui_commit`): false where the output does not decide that.
+    fn set_draw_on_arrival(&mut self, _on: bool) -> bool {
+        false
+    }
+
     /// The system UI app's socket, for the main loop to poll: readable means requests wait (`State::ui_wake`). `None`
     /// without a UI.
     fn ui_fd(&self) -> Option<RawFd> {
@@ -426,6 +432,12 @@ pub trait Output {
     /// host tests and the X2 runs count on.
     fn draws_on_damage(&self, _now: Instant) -> bool {
         false
+    }
+
+    /// [`Output::draws_on_damage`] for a commit the UI has just sent (`ui_needs_frame` took it in): an output may start a screen the UI
+    /// makes with a flip in flight as well (KMS, `ctl arrival`). The default is `draws_on_damage`.
+    fn draws_on_ui_commit(&self, now: Instant) -> bool {
+        self.draws_on_damage(now)
     }
 
     /// Runs the output at `hz` (`refresh`, 60 or 120): KMS writes the OSD's vblank divider and keys its pacer to the period; an

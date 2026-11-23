@@ -247,6 +247,8 @@ pub struct Kms {
     /// Whether the last tick drew a frame: the run of frames the pacer keeps in step is on while ticks keep
     /// drawing; the first tick that finds nothing to draw ends it and the fixed tick takes over.
     in_run: bool,
+    /// A screen the UI makes is drawn when its commit arrives with a flip in flight, not at the tick ([`draws_at_once`]); `ctl arrival`.
+    draw_on_arrival: bool,
     /// The last `warming` answer: a frame is held while a driver buffer warms with no page to stand in from, and the
     /// tick polls for the warm's end instead of waiting for the next fixed tick (up to a refresh on the eighth and
     /// ninth gates: a client's first frame reached the panel a refresh late for it).
@@ -337,6 +339,17 @@ const FLIP_OVERDUE_NS: u64 = 250_000_000;
 /// its rings had more than one frame drawn.
 fn after_waiting_frame(waiting: bool, committed_ns: u64) -> Option<u64> {
     waiting.then_some(committed_ns + FLIP_OVERDUE_NS)
+}
+
+/// Whether a commit that has just arrived is drawn at once rather than at the tick: no frame waits behind the flip in flight (`waiting`:
+/// the ring's third page is that frame's) and no run of frames is on (`flowing`: the pacer's latch times those), and either no flip is
+/// in flight or the commit is `ahead` of it. A flip in flight holds a frame back from the panel, not from being drawn: the frame is
+/// drawn into the free page, waits in `queued` and goes out when that flip lands, for the refresh after it. The tick starts it at the
+/// idle grid's latch or once the flip has landed, and a screen that takes 10 ms to GPU done misses that refresh: the Apps grid's first
+/// frame (298 ops, 46 layers) came 2.9 ms after a feedback frame was committed, started 3.5 ms later and took 10.2 ms to GPU done
+/// (120 Hz gate, 2026-11-22).
+fn draws_at_once(flip_in_flight: bool, waiting: bool, flowing: bool, ahead: bool) -> bool {
+    !waiting && !flowing && (!flip_in_flight || ahead)
 }
 
 /// How long before the refresh a flip skipped the GPU had finished its frame (the in-fence's signal), when it had: the kernel's commit, a
@@ -667,6 +680,7 @@ impl Kms {
             events,
             snapshot_presented: None,
             in_run: false,
+            draw_on_arrival: true,
             held: false,
             latch: std::cell::Cell::new((0, 0)),
             last_draw_ns: 0,
@@ -782,6 +796,11 @@ impl Kms {
     /// Whether frames are following one another closely enough for the pacer's timeline to be worth keeping.
     fn flowing(&self, now_ns: u64) -> bool {
         self.in_run && self.timing.pacer.phase_ns().is_some() && self.timing.pacer.flowing(now_ns)
+    }
+
+    /// [`draws_at_once`] for the output as it is now.
+    fn draws_now(&self, ahead: bool) -> bool {
+        draws_at_once(self.pending_flip, self.queued.is_some() || self.last_assignment.is_some(), self.flowing(self.now_ns()), ahead)
     }
 
     /// Whether `fourcc`/`modifier` is in the primary plane's `IN_FORMATS`.
@@ -1465,7 +1484,15 @@ impl Output for Kms {
     /// A commit onto a still screen is drawn at once: nothing is in flight to wait for and no run to keep in
     /// step with, so the tick would only delay it by up to a refresh.
     fn draws_on_damage(&self, _now: Instant) -> bool {
-        !self.pending_flip && self.queued.is_none() && self.last_assignment.is_none() && !self.flowing(self.now_ns())
+        self.draws_now(false)
+    }
+
+    /// As `draws_on_damage`, and a screen the UI makes (a large commit) with a flip in flight too: it is drawn into the free page and
+    /// goes out when that flip lands ([`draws_at_once`]). Not a small commit: one that changes nothing is skipped while the screen shows
+    /// the page composed last (`frames`) and, drawn with a flip in flight, would be flipped (57 of the 315 such commits in the gate
+    /// rings were followed by no drawn frame).
+    fn draws_on_ui_commit(&self, _now: Instant) -> bool {
+        self.draws_now(self.draw_on_arrival && self.gl.ui_large_commit_due())
     }
 
     /// The divider first, so a kernel that refuses the write leaves the pacer where it was; then the pacer keyed to the nominal
@@ -1533,11 +1560,18 @@ impl Output for Kms {
     }
 
     fn ui_report(&self) -> Option<serde_json::Value> {
-        self.gl.ui_report_with(Some(&self.flip_causes))
+        let mut report = self.gl.ui_report_with(Some(&self.flip_causes))?;
+        report["arrival"] = serde_json::json!(self.draw_on_arrival);
+        Some(report)
     }
 
     fn ui_set_step_merging(&mut self, on: bool) -> bool {
         self.gl.ui_set_step_merging(on)
+    }
+
+    fn set_draw_on_arrival(&mut self, on: bool) -> bool {
+        self.draw_on_arrival = on;
+        true
     }
 
     fn ui_set_exclusion(&mut self, area: Option<crate::Rect>) {
@@ -1992,6 +2026,23 @@ mod tests {
         let committed = 5_000_000_000;
         assert_eq!(after_waiting_frame(true, committed), Some(committed + FLIP_OVERDUE_NS));
         assert_eq!(after_waiting_frame(false, committed), None, "nothing waits: the pacer's latch decides");
+    }
+
+    #[test]
+    fn a_screen_the_ui_makes_is_drawn_at_once_with_a_flip_in_flight_and_a_free_page() {
+        assert!(draws_at_once(false, false, false, false), "a still screen: drawn at once, as before");
+        assert!(!draws_at_once(true, false, false, false), "a commit that is not ahead waits for the tick while a flip is in flight");
+        assert!(draws_at_once(true, false, false, true), "the screen made is drawn into the free page and goes out when the flip lands");
+    }
+
+    #[test]
+    fn a_commit_ahead_of_the_flip_is_not_drawn_over_a_waiting_frame_or_a_run_of_frames() {
+        for flip in [false, true] {
+            for ahead in [false, true] {
+                assert!(!draws_at_once(flip, true, false, ahead), "a frame waits behind the flip: it has the third page");
+                assert!(!draws_at_once(flip, false, true, ahead), "the pacer's latch times a run of frames");
+            }
+        }
     }
 
     #[test]
