@@ -27,7 +27,7 @@ import urllib.request
 
 import paramiko
 
-TV = ('192.168.1.242', 'root', 'alpine')
+TV = (os.environ.get('TV', '192.168.1.242'), 'root', 'alpine')
 HA = 'http://192.168.1.146'
 LOCAL = '/tmp/perf'
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -42,9 +42,13 @@ class Set:
         self.sm_pid = int(self.sh('pidof surface-manager')[1].strip())
 
     def connect(self):
+        # Key first, as tools/tv-ssh does: the set refuses the dev-mode password once a key is authorised.
         c = paramiko.SSHClient()
         c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        c.connect(TV[0], username=TV[1], password=TV[2], timeout=20, look_for_keys=False, allow_agent=False)
+        try:
+            c.connect(TV[0], username=TV[1], timeout=20, look_for_keys=True, allow_agent=True)
+        except paramiko.AuthenticationException:
+            c.connect(TV[0], username=TV[1], password=TV[2], timeout=20, look_for_keys=False, allow_agent=False)
         c.get_transport().set_keepalive(15)
         self.cli = c
         self.mk = None
