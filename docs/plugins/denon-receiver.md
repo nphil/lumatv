@@ -36,6 +36,9 @@ launches the port's app when it is not in front, then posts `/v1/receiver/set` `
 the switch need the plugin on, the receiver's reading in date and the input setting writable; otherwise the devices are only named. Code:
 `rustui/ui/src/host/inputs.rs` (`source_for`, `children`), `rustui/ui/src/panels/picker.rs`, `picker_surface.rs`.
 
+Layout: a device is a row under its tile, set from the left like a tile's state line, its name wrapped to two lines at most; all rows
+share one height. A column that would take the sheet off the top of the screen (large text) carries on in the free tile columns to its right.
+
 ## Receiver settings
 
 Settings › Sound › Receiver shows the receiver's own settings while the plugin is on and the page is open. Code:

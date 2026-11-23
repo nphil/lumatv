@@ -56,6 +56,8 @@ const MARK: f32 = 26.0;
 /// Ids of the devices behind a receiver start here, above the tiles'; a tile has room for this many.
 const CHILD_BASE: u32 = 0x100;
 const CHILDREN_MAX: u32 = 16;
+/// The least room the sheet leaves above itself when the devices behind a receiver make it tall.
+const SHEET_TOP_MIN: f32 = 16.0;
 
 /// What the pointer can land on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -247,24 +249,40 @@ fn layout(kit: &mut Kit, v: &View, shots: &[Option<&Shot>]) -> Layout {
     // One row: every tile is as tall as the tallest (a port whose name wraps, as "HDMI 2 · eARC" does at large text), its words kept to the
     // foot, so the focus plates and the washes of neighbours line up. A picture's tiles are as tall as they need; the mock's sheet has the room
     // of its taller tile.
-    // The devices behind a receiver stand in a column under their tile, a row each; the sheet grows by the longest column.
-    let kid_h = label_line + 2.0 * s2;
-    let column = |t: &Tile| t.children.len().min(CHILDREN_MAX as usize) as f32;
-    let kids_h = v.tiles.iter().map(column).fold(0.0f32, f32::max);
-    let kids_room = if kids_h > 0.0 { s3 + kids_h * kid_h + (kids_h - 1.0) * s1 } else { 0.0 };
+    // The devices behind a receiver stand in a column under their tile, a row each, their names wrapped like a tile's and set from the left like
+    // its state line. A column that would take the sheet off the top of the screen carries on in the columns to its right that no other tile's
+    // devices use; the sheet grows by the longest column. One row height for all, as one button size per screen.
+    let dot = s2;
+    let text_x = s5 + dot + s2;
+    let names: Vec<Vec<Vec<String>>> = v.tiles.iter().map(|t| t.children.iter().take(CHILDREN_MAX as usize).map(|c| wrap::lines(kit, label_style, &c.name, tile_w - text_x - s3, 2)).collect()).collect();
+    let name_lines = names.iter().flatten().map(Vec::len).max().unwrap_or(1).max(1);
+    let kid_h = name_lines as f32 * label_line + 2.0 * s2;
+    let pitch = kid_h + s1;
     let base_h = if v.pictures { row_y + tallest + s7 } else { SHEET_MIN_H.max(row_y + tallest + s6) };
+    let per_col = (((1080.0 - 64.0 - SHEET_TOP_MIN - base_h - s3 + s1) / pitch).floor().max(1.0)) as usize;
+    let per_tile: Vec<usize> = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| {
+            if n.is_empty() {
+                return 0;
+            }
+            let room = (i + 1..names.len()).find(|j| !names[*j].is_empty()).unwrap_or(names.len()) - i;
+            n.len().div_ceil(n.len().div_ceil(per_col).min(room))
+        })
+        .collect();
+    let kids_h = per_tile.iter().copied().max().unwrap_or(0) as f32;
+    let kids_room = if kids_h > 0.0 { s3 + kids_h * pitch - s1 } else { 0.0 };
     let sheet_h = base_h + kids_room;
     let sheet = Frame::new(SHEET_X, 1080.0 - 64.0 - sheet_h, SHEET_W, sheet_h);
     let mut kids = Vec::new();
     for (i, t) in tiles.iter_mut().enumerate() {
         t.frame = Frame::new(sheet.x + s7 + i as f32 * (tile_w + s4), sheet.y + row_y, tile_w, tallest);
-        let dot = s2;
-        let rows = v.tiles[i].children.iter().take(CHILDREN_MAX as usize).enumerate().map(|(k, c)| {
-            let frame = Frame::new(t.frame.x, t.frame.y + tallest + s3 + k as f32 * (kid_h + s1), tile_w, kid_h);
-            // the name is centred in the row, the mark at its left edge: the box leaves the mark's room on both sides
-            let edge = s4 + dot + s2;
-            let name = wrap::lines(kit, label_style, &c.name, tile_w - 2.0 * edge, 1);
-            ChildLay { frame, dot, dot_at: (s4, ((kid_h - dot) / 2.0).round()), name, name_at: (edge, s2, tile_w - 2.0 * edge) }
+        let rows = names[i].iter().enumerate().map(|(k, name)| {
+            let (col, row) = (k / per_tile[i], k % per_tile[i]);
+            let frame = Frame::new(sheet.x + s7 + (i + col) as f32 * (tile_w + s4), t.frame.y + tallest + s3 + row as f32 * pitch, tile_w, kid_h);
+            let words_y = ((kid_h - name.len() as f32 * label_line) / 2.0).round();
+            ChildLay { frame, dot, dot_at: (s5, ((kid_h - dot) / 2.0).round()), name: name.clone(), name_at: (text_x, words_y, tile_w - text_x - s3) }
         });
         kids.push(rows.collect());
     }
@@ -483,7 +501,7 @@ impl PickerSurface {
                     };
                     let base = plate::shape(&kit.ui, f, z + 2, Self::fill(kit, child.active));
                     let dot = plate::shape(&kit.ui, Frame::new(f.x + cl.dot_at.0, f.y + cl.dot_at.1, cl.dot, cl.dot), z + 4, plate::solid(if child.active { positive } else { ink3 }, cl.dot / 2.0));
-                    let lines: Vec<WordLine> = cl.name.iter().map(|s| WordLine::new(s, TypeRole::Label, if child.can_switch || child.active { ink } else { ink2 }).aligned(Align::Centre)).collect();
+                    let lines: Vec<WordLine> = cl.name.iter().map(|s| WordLine::new(s, TypeRole::Label, if child.can_switch || child.active { ink } else { ink2 })).collect();
                     let name = Words::new(kit, f.x + cl.name_at.0, f.y + cl.name_at.1, cl.name_at.2, z + 4, &lines)?;
                     parts.push(ChildParts { plate: plate_parts, _base: base, _dot: dot, _name: name, lay: cl.clone(), child: child.clone() });
                 }
@@ -668,7 +686,10 @@ impl PickerSurface {
         for (i, kids) in b.kids.iter().enumerate() {
             for (c, k) in kids.iter().enumerate() {
                 let paint = if k.child.active { selected_wash(kit) } else { hover_wash(kit) };
-                let ground = lint.panel_on(&format!("tile {i} device {c}"), k.lay.frame, paint, false, sheet);
+                // a row is read as a mark and then words set from the left: the words' ground starts at the words, a pad before them
+                let f = k.lay.frame;
+                let from = k.lay.name_at.0 - crate::kit::lint::PAD_X;
+                let ground = lint.panel_on(&format!("tile {i} device {c}"), Frame::new(f.x + from, f.y, f.w - from, f.h), paint, false, sheet);
                 k._name.feed_lint(kit, lint, &format!("tile {i} device {c} name"), Some(ground), (0.0, 0.0));
             }
         }
@@ -1206,5 +1227,23 @@ mod tests {
         assert!(kids.iter().all(|k| !k["active"].as_bool().unwrap() && !k["switch"].as_bool().unwrap()));
         u.key(K::Down);
         assert_eq!(u.s.geometry(&u.engine)["child_focus"], Value::Null, "nothing to reach");
+    }
+
+    #[test]
+    fn at_large_text_the_devices_wrap_in_their_row_and_a_tall_column_carries_on_to_the_right_inside_the_screen() {
+        let mut u = Up::new(Mode::Dark, 2.0, 4);
+        behind_the_receiver(&mut u, "on");
+        let mut list = devices(4);
+        let names = ["Apple TV", "PlayStation 5", "Set top"];
+        list[1]["subList"] = Value::Array(names.iter().enumerate().map(|(i, n)| json!({"osdName": n, "cecpDevType": 4, "depth": 2, "physicalAddress": 8000 + i})).collect());
+        u.env.inputs.parse(&json!({"devices": list}));
+        u.apply();
+        let g = u.s.geometry(&u.engine);
+        let kids = g["children"][2].as_array().expect("devices");
+        let at = |k: &Value, f: &str| k["frame"][f].as_f64().unwrap();
+        assert!(kids.iter().all(|k| at(k, "h") == at(&kids[0], "h")), "one row height");
+        assert!(at(&kids[0], "x") < at(&kids[1], "x") && at(&kids[1], "x") < at(&kids[2], "x"), "no room for a column: it went on in the next tiles' places");
+        assert!(g["sheet"]["y"].as_f64().unwrap() >= 0.0, "the sheet is on the screen");
+        assert!(u.lint().is_empty(), "{:?}", u.lint());
     }
 }
