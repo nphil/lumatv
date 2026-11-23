@@ -1,6 +1,5 @@
-//! The focus treatment every control shares (Lucent's Focus state): the fill steps up to the focus wash with a rim lit from above
-//! (the raised lip) and one soft shadow and, with movement allowed, the control lifts and grows a little. There is no
-//! underline or outline ring. Colours and scales are the theme's (`focus.*`, `states.focus_wash`).
+//! The focus treatment every control shares (Lucent's Focus state): the fill steps up to the focus wash with a soft sheen and one
+//! soft shadow and, with movement allowed, the control lifts and grows a little. There is no rim, underline or outline ring. Colours and scales are the theme's (`focus.*`, `states.focus_wash`).
 use crate::game::screens::paint::{Fill, Paint};
 use lumatv_tokens::Radius;
 use ui::{geometry::Frame, lucent::palette::Mode};
@@ -8,7 +7,7 @@ use ui::{geometry::Frame, lucent::palette::Mode};
 /// What is focused; each kind grows by its own scale.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    /// A cover or a tile: the art is the control, so it takes the rim and the shadow without a wash.
+    /// A cover or a tile: the art is the control, so it takes the shadow without a wash.
     Tile,
     /// The game Home features, a wide capsule of its own art: it grows more than a cover ([`HERO_SCALE`]).
     Hero,
@@ -34,7 +33,7 @@ fn scale(p: &Paint<'_>, kind: Kind) -> f32 {
     }
 }
 
-/// Lights the control that drew nodes `from..` into `frame` when it is `focused`: the wash, with its lit rim and shadow, is added under
+/// Lights the control that drew nodes `from..` into `frame` when it is `focused`: the wash, with its sheen and shadow, is added under
 /// id `id`, and with movement allowed everything the control drew grows by the kind's scale and lifts. A control that is not focused is
 /// left as drawn. Call it once the control's own nodes are in the plan; the wash goes above them. With reduced motion the wash is all
 /// there is.
@@ -50,7 +49,7 @@ pub fn treat(p: &mut Paint<'_>, from: usize, id: u64, frame: Frame, kind: Kind, 
         Kind::Button => Radius::Pill,
     };
     let wash = if matches!(kind, Kind::Tile | Kind::Hero) { 0.0 } else { p.tokens.states.focus_wash[usize::from(p.mode == Mode::Light)] };
-    // The wash carries the raised lip and the shadow: the control's own surface was drawn at rest. Over a tile's art it is clear.
+    // The wash carries the sheen and the shadow: the control's own surface was drawn at rest. Over a tile's art it is clear.
     let stage = p.art && matches!(kind, Kind::Tile | Kind::Hero);
     p.surface(id, frame, Fill::Tint(wash), radius, stage, true, false, z);
     if !p.reduced() {

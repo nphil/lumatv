@@ -311,17 +311,17 @@ impl<'a> Paint<'a> {
     }
     pub fn surface(&mut self, id: u64, frame: Frame, fill: Fill, radius: Radius, stage: bool, focused: bool, cached: bool, z: i32) {
         let f = MATERIALS.field_tokens(self.mode_at(stage));
-        // A focused surface is LumaTV Home's lit glass (`kit::pane::glass_of`): the edge softens to `glassFocusEdge`, the lip stays at
-        // its rest strength and a washed surface takes the sheen, at half strength so that the wash and the sheen together are no
-        // brighter than the old 9 % wash alone (panel care). A clear surface (a cover) takes the edge and the shadow only. There is no
-        // hard lit line along the top.
+        // A focused surface is raised glass and nothing drawn around it (Lucent's taste rule 1: focus is never a line): the wash, a
+        // sheen at half strength so that wash and sheen together are no brighter than the old 9 % wash alone (panel care), and the one
+        // raised shadow. A clear surface (a cover) takes the shadow only. A glass that has an edge at rest keeps that edge, no brighter
+        // when lit; a wash has none.
         let washed = !matches!(fill, Fill::Tint(a) if a <= 0.0);
         let glass = Glass {
             corner_radius: self.tokens.radius(radius).min(frame.h / 2.0),
             tint: self.colour(if matches!(fill, Fill::Glass) && !cached { Fill::Tint(0.06) } else { fill }, stage),
-            edge: if focused { self.tokens.extra(self.mode_at(stage)).glass_focus_edge } else { self.ink(Role::Edge, stage) },
-            edge_width: if focused || !matches!(fill, Fill::Tint(_) | Fill::Veil(_)) { f.edge_width } else { 0.0 },
-            highlight: if focused || cached { f.highlight_rest } else { Rgba(0, 0, 0, 0) },
+            edge: self.ink(Role::Edge, stage),
+            edge_width: if matches!(fill, Fill::Tint(_) | Fill::Veil(_)) { 0.0 } else { f.edge_width },
+            highlight: if cached { f.highlight_rest } else { Rgba(0, 0, 0, 0) },
             sheen: (focused && washed).then_some(compositor_protocol::Sheen { peak: f.sheen.peak * 0.5, floor: f.sheen.floor * 0.5, ..f.sheen }),
             shadows: if focused {
                 [f.shadow_raised[0], None]
