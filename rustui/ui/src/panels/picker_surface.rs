@@ -98,6 +98,7 @@ struct ChildLay {
     dot_at: (f32, f32),
     name: Vec<String>,
     name_at: (f32, f32, f32),
+    role: TypeRole,
 }
 
 /// One tile laid out: its frame on the screen and where its parts are inside it.
@@ -254,9 +255,15 @@ fn layout(kit: &mut Kit, v: &View, shots: &[Option<&Shot>]) -> Layout {
     // devices use; the sheet grows by the longest column. One row height for all, as one button size per screen.
     let dot = s2;
     let text_x = s5 + dot + s2;
-    let names: Vec<Vec<Vec<String>>> = v.tiles.iter().map(|t| t.children.iter().take(CHILDREN_MAX as usize).map(|c| wrap::lines(kit, label_style, &c.line(), tile_w - text_x - s3, 2)).collect()).collect();
+    // A row's words are the label's size unless a single word of any row is wider than its line ("MAGNAVOX" at large text): then all
+    // rows take the caption's, the size of the tile's state line, rather than break a word across lines.
+    let row_w = tile_w - text_x - s3;
+    let word_too_wide =
+        v.tiles.iter().flat_map(|t| t.children.iter().take(CHILDREN_MAX as usize)).any(|c| c.line().split_whitespace().any(|w| width_of(kit, label_style, w) > row_w));
+    let (row_role, row_style, row_line) = if word_too_wide { (TypeRole::Caption, caption_style, caption_line) } else { (TypeRole::Label, label_style, label_line) };
+    let names: Vec<Vec<Vec<String>>> = v.tiles.iter().map(|t| t.children.iter().take(CHILDREN_MAX as usize).map(|c| wrap::lines(kit, row_style, &c.line(), row_w, 2)).collect()).collect();
     let name_lines = names.iter().flatten().map(Vec::len).max().unwrap_or(1).max(1);
-    let kid_h = name_lines as f32 * label_line + 2.0 * s2;
+    let kid_h = name_lines as f32 * row_line + 2.0 * s2;
     let pitch = kid_h + s1;
     let base_h = if v.pictures { row_y + tallest + s7 } else { SHEET_MIN_H.max(row_y + tallest + s6) };
     let per_col = (((1080.0 - 64.0 - SHEET_TOP_MIN - base_h - s3 + s1) / pitch).floor().max(1.0)) as usize;
@@ -285,8 +292,8 @@ fn layout(kit: &mut Kit, v: &View, shots: &[Option<&Shot>]) -> Layout {
         let rows = names[i].iter().enumerate().map(|(k, name)| {
             let (col, row) = (k / per_tile[i], k % per_tile[i]);
             let frame = Frame::new(sheet.x + s7 + (first_col[i] + col) as f32 * (tile_w + s4), t.frame.y + tallest + s3 + row as f32 * pitch, tile_w, kid_h);
-            let words_y = ((kid_h - name.len() as f32 * label_line) / 2.0).round();
-            ChildLay { frame, dot, dot_at: (s5, ((kid_h - dot) / 2.0).round()), name: name.clone(), name_at: (text_x, words_y, tile_w - text_x - s3) }
+            let words_y = ((kid_h - name.len() as f32 * row_line) / 2.0).round();
+            ChildLay { frame, dot, dot_at: (s5, ((kid_h - dot) / 2.0).round()), name: name.clone(), name_at: (text_x, words_y, row_w), role: row_role }
         });
         kids.push(rows.collect());
     }
@@ -505,7 +512,7 @@ impl PickerSurface {
                     };
                     let base = plate::shape(&kit.ui, f, z + 2, Self::fill(kit, child.active));
                     let dot = plate::shape(&kit.ui, Frame::new(f.x + cl.dot_at.0, f.y + cl.dot_at.1, cl.dot, cl.dot), z + 4, plate::solid(if child.active { positive } else { ink3 }, cl.dot / 2.0));
-                    let lines: Vec<WordLine> = cl.name.iter().map(|s| WordLine::new(s, TypeRole::Label, if child.can_switch || child.active { ink } else { ink2 })).collect();
+                    let lines: Vec<WordLine> = cl.name.iter().map(|s| WordLine::new(s, cl.role, if child.can_switch || child.active { ink } else { ink2 })).collect();
                     let name = Words::new(kit, f.x + cl.name_at.0, f.y + cl.name_at.1, cl.name_at.2, z + 4, &lines)?;
                     parts.push(ChildParts { plate: plate_parts, _base: base, _dot: dot, _name: name, lay: cl.clone(), child: child.clone() });
                 }
