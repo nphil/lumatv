@@ -41,7 +41,9 @@
     root.onYouTubeIframeAPIReady = function () {
       var yt = new root.YT.Player('player', {
         width: '100%', height: '100%', videoId: id,
-        playerVars: { autoplay: 1, playsinline: 1, controls: 0, disablekb: 1, rel: 0, iv_load_policy: 3, fs: 0, origin: root.location.origin },
+        // cc_load_policy 0 and the captions module unloaded: YouTube turns captions on for an autoplay it takes as muted, and they
+        // drew the speech as text over the full-screen video. The receiver sets the level, so the player plays unmuted at full volume.
+        playerVars: { autoplay: 1, playsinline: 1, controls: 0, disablekb: 1, rel: 0, iv_load_policy: 3, cc_load_policy: 0, fs: 0, origin: root.location.origin },
         events: {
           onReady: function () {
             player = {
@@ -49,9 +51,14 @@
               play: function () { yt.playVideo(); }, pause: function () { yt.pauseVideo(); },
               seek: function (by) { yt.seekTo(Math.max(0, yt.getCurrentTime() + by), true); }
             };
+            yt.unMute(); yt.setVolume(100);
             yt.playVideo();
           },
-          onStateChange: function (e) { var s = ytState(e.data); if (s) tell(s); },
+          // The captions module loads with the video, after onReady: unloaded again each time playback starts.
+          onStateChange: function (e) {
+            if (e.data === 1) { yt.unloadModule('captions'); yt.unloadModule('cc'); }
+            var s = ytState(e.data); if (s) tell(s);
+          },
           onError: function (e) { if (refused(e.data)) tell('refused'); }
         }
       });
