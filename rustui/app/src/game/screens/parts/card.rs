@@ -61,14 +61,6 @@ pub fn glance(p: &mut Paint<'_>, card: &Card<'_>, frame: Frame, focused: bool) {
     // What is read in ink-2 at rest reads in ink once lit: the wash lowers the contrast of the quieter colour.
     let quiet = if focused { Role::Ink } else { Role::Ink2 };
     let side = 24.0 * p.scale;
-    let foot_h = if !card.thumbs.is_empty() {
-        THUMB
-    } else if card.caption.is_some() || card.source.is_some() {
-        p.line(Type::Caption).max(side)
-    } else {
-        0.0
-    };
-    let foot_y = frame.y + frame.h - PAD_Y - foot_h;
 
     let mut y = frame.y + PAD_Y;
     let label = p.fit(card.label, Type::Caption, w, 1);
@@ -79,7 +71,20 @@ pub fn glance(p: &mut Paint<'_>, card: &Card<'_>, frame: Frame, focused: bool) {
     };
     y += gap;
     y += put(p, id + 2, headline, Frame::new(x, y, w, 0.0), role, bold, Role::Ink);
-    if let Some(done) = card.progress {
+    // Large text leaves a short card little room under its headline: the thumbnails, then the track, then the detail give way
+    // rather than overlap it.
+    let bottom = frame.y + frame.h - PAD_Y;
+    let thumbs = if y <= bottom - THUMB - FOOT_GAP { card.thumbs } else { &[] };
+    let foot_h = if !thumbs.is_empty() {
+        THUMB
+    } else if card.caption.is_some() || card.source.is_some() {
+        p.line(Type::Caption).max(side)
+    } else {
+        0.0
+    };
+    let foot_y = bottom - foot_h;
+    let floor = foot_y - if foot_h > 0.0 { FOOT_GAP } else { 0.0 };
+    if let Some(done) = card.progress.filter(|_| y + 18.0 + TRACK_H <= floor) {
         y += 18.0;
         let track = Frame::new(x, y, w, TRACK_H);
         p.surface(id + 4, track, Fill::Track, Radius::Pill, false, false, false, Z + 1);
@@ -87,21 +92,20 @@ pub fn glance(p: &mut Paint<'_>, card: &Card<'_>, frame: Frame, focused: bool) {
         p.solid(id + 5, Frame::new(x, y, (w * done.clamp(0.0, 1.0)).max(TRACK_H), TRACK_H), ink, TRACK_H / 2.0, Z + 2);
         y += TRACK_H;
     }
-    if let Some(detail) = card.detail {
+    if let Some(detail) = card.detail.filter(|_| floor - (y + 8.0) >= p.block(Type::Label, 1)) {
         y += 8.0;
-        let room = foot_y - if foot_h > 0.0 { FOOT_GAP } else { 0.0 } - y;
-        let lines = p.fit(detail, Type::Label, w, p.rows(Type::Label, room).min(3));
+        let lines = p.fit(detail, Type::Label, w, p.rows(Type::Label, floor - y).min(3));
         put(p, id + 3, lines, Frame::new(x, y, w, 0.0), Type::Label, false, quiet);
     }
 
     let mut left = x;
-    for (i, path) in card.thumbs.iter().take(THUMBS).enumerate() {
+    for (i, path) in thumbs.iter().take(THUMBS).enumerate() {
         let radius = p.tokens.radius(Radius::Control);
         p.image(id + 8 + i as u64, path.clone(), Frame::new(left, foot_y, THUMB, THUMB), radius, false, None, Z + 1);
         left += THUMB + THUMB_GAP;
     }
     if let Some(caption) = card.caption {
-        let at = if card.thumbs.is_empty() { x } else { left + 4.0 };
+        let at = if thumbs.is_empty() { x } else { left + 4.0 };
         let line = p.fit(caption, Type::Caption, (x + w - at).max(0.0), 1);
         put(p, id + 6, line, Frame::new(at, foot_y + (foot_h - p.line(Type::Caption)) / 2.0, x + w - at, 0.0), Type::Caption, false, quiet);
     }
@@ -188,6 +192,18 @@ mod tests {
             let source = frame_of(p, 7007);
             assert!((source.x + source.w - (FRAME.x + FRAME.w - PAD_X)).abs() < 0.01, "the source ends at the right padding");
             assert!(detail.y + detail.h <= first.y, "the detail stays clear of the foot");
+        });
+    }
+
+    #[test]
+    fn a_short_card_lets_thumbnails_track_and_detail_go_before_they_overlap() {
+        let thumbs = [PathBuf::from("a.png")];
+        painted(|_| {}, |p| {
+            glance(p, &card(&thumbs), Frame { h: 200.0, ..FRAME }, false);
+            let has = |id: u64| p.plan.nodes.iter().any(|n| n.id == id);
+            assert!(!has(7008) && !has(7004) && !has(7003), "thumbnail, track and detail give way");
+            let (headline, source) = (frame_of(p, 7002), frame_of(p, 7007));
+            assert!(headline.y + headline.h <= source.y, "the headline stays clear of the foot");
         });
     }
 
