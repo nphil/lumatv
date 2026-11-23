@@ -72,6 +72,7 @@ impl Capture {
 pub struct Follow {
     pub app: String,
     pub code: String,
+    pub session: String,
     pub asked_at: u64,
     pub front_at: Option<u64>,
     pub sets: u8,
@@ -134,7 +135,8 @@ impl Env {
 
     /// The receiver is to be set to `code` once `app` is in front (the picker launched it).
     pub fn follow_switch(&mut self, app: String, code: String, now: u64) {
-        self.follow = Some(Follow { app, code, asked_at: now, front_at: None, sets: 0, last_set: None });
+        let session = self.denon_switch().map(|s| s.session).unwrap_or_default();
+        self.follow = Some(Follow { app, code, session, asked_at: now, front_at: None, sets: 0, last_set: None });
     }
 
     /// What the pending receiver switch asks for now: a set when the port is in front and the receiver is not on the chosen input.
@@ -152,17 +154,26 @@ impl Env {
         if !front {
             return Vec::new();
         }
-        // the picker has closed, so its gate is off: the helper's own word on the reading stands in for the gate's clock
-        let switch = self.gate.rc().filter(|r| ["reachable", "fresh"].iter().all(|k| r.get(*k).and_then(Value::as_bool) == Some(true)));
-        let Some(switch) = switch.filter(|_| self.denon_on()).and_then(Switch::from_doc).filter(|s| s.writable) else { return Vec::new() };
+        // The picker has closed, so its gate is off and nobody asks for the receiver's settings: they go stale and not writable while the
+        // telnet link keeps the top-level `input` live. The set uses the session taken when OK was pressed (or a newer one).
+        let rx = self.gate.rc().filter(|r| ["reachable", "fresh"].iter().all(|k| r.get(*k).and_then(Value::as_bool) == Some(true)));
+        let Some(rx) = rx.filter(|_| self.denon_on()) else { return Vec::new() };
+        let current = rx.get("input").and_then(Value::as_str).map(str::to_string);
+        let newer = rx.get("settingsSession").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
         let f = self.follow.as_mut().expect("checked above");
+        if let Some(s) = newer {
+            f.session = s;
+        }
+        if f.session.is_empty() {
+            return Vec::new();
+        }
         f.front_at.get_or_insert(now);
-        if switch.current.as_deref() == Some(f.code.as_str()) || f.last_set.is_some_and(|at| now.saturating_sub(at) < FOLLOW_GAP_MS) {
+        if current.as_deref() == Some(f.code.as_str()) || f.last_set.is_some_and(|at| now.saturating_sub(at) < FOLLOW_GAP_MS) {
             return Vec::new();
         }
         f.sets += 1;
         f.last_set = Some(now);
-        vec![Effect::Post { path: "/v1/receiver/set".into(), body: serde_json::json!({"setting": "input", "value": f.code, "session": switch.session}) }]
+        vec![Effect::Post { path: "/v1/receiver/set".into(), body: serde_json::json!({"setting": "input", "value": f.code, "session": f.session}) }]
     }
 
     /// What goes out at the start: the network's subscription (the panel shows it from its first frame).
@@ -384,9 +395,11 @@ mod tests {
     #[test]
     fn a_device_chosen_with_its_port_away_is_set_once_the_port_is_in_front_and_again_when_cec_moves_the_receiver() {
         let at = 1_000_000u64;
+        // as on the set: with nobody asking, the settings' input goes stale ("TV", not writable); only the top-level input is live
         let rx = |t: u64, input: &str| {
+            let live = t == at;
             json!({"enabled": true, "fresh": true, "reachable": true, "updatedAt": t, "settingsSession": "s1", "input": input,
-                   "settings": {"input": {"support": "supported", "writable": true, "value": input, "options": [{"value": "MPLAY", "label": "Apple TV"}, {"value": "BD", "label": "MAGNAVOX 4K BD"}]}}})
+                   "settings": {"input": {"support": "supported", "writable": live, "value": "TV", "options": [{"value": "MPLAY", "label": "Apple TV"}, {"value": "BD", "label": "MAGNAVOX 4K BD"}]}}})
         };
         let posts = |fx: &[Effect]| fx.iter().filter(|f| matches!(f, Effect::Post { path, body } if path == "/v1/receiver/set" && body["value"] == "BD")).count();
         let mut e = Env::new(json!({}));
