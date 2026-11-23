@@ -261,7 +261,8 @@ impl<'a> Paint<'a> {
         // The stats HUD sits wholly above y = 150 (Compact is about 60 px tall at y = 54): it is not page content, so the cull below
         // that drops what scrolled behind the page's top edge must not take it.
         self.plan.nodes.retain(|n| {
-            if grouped.contains(&n.id) || n.id < 100 || HUD.contains(&n.id) || (view.page == Page::Game && n.id >= 1000) {
+            // Sheets and drawers (z from SHEET_Z) stand over the page from the top of the screen and are never culled with it.
+            if grouped.contains(&n.id) || n.id < 100 || HUD.contains(&n.id) || n.z >= super::parts::SHEET_Z || (view.page == Page::Game && n.id >= 1000) {
                 true
             } else if page_group && scrollable(n.id) {
                 in_travel(n)
