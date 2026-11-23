@@ -3,8 +3,8 @@
 //!
 //! `GAME_BUDGET=all` runs every walk; a comma list runs the walks whose name contains one of its entries:
 //! `GAME_BUDGET=home cargo test -p lumatv-rustui --lib budget_walks -- --nocapture`. The peaks of each are printed as a markdown table.
-//! A walk fails on a frame that draws more than [`LAYERS`] layers, captures a backdrop after the page's first frames, or draws two
-//! full-screen layers (the canvas excluded).
+//! A walk fails on a frame that draws more than [`LAYERS`] layers, captures a backdrop after the page's first frames, draws two
+//! full-screen layers (the canvas excluded) or puts more than one stage-size picture on the art layer.
 //!
 //! A slice puts its walks in its own `shots/<slice>.rs` as `pub(super) fn walks() -> Vec<Walk>` and adds them to [`registry`]. Every
 //! screen the shots show also gets a walk of its own ([`screen_walks`]), which names no page and so follows the screens as they change.
@@ -28,6 +28,10 @@ pub(super) enum Step {
     Tap(Key),
     /// Frames pass with no input for this many milliseconds.
     Wait(u32),
+    /// Frames pass until the page's art and text have settled: a dip has run its course.
+    Settle,
+    /// The page must be in this state now, or the walk is broken.
+    Expect(&'static str, fn(&Model, &GameUi) -> bool),
 }
 
 /// A key script played from `base`.
@@ -37,14 +41,12 @@ pub(super) struct Walk {
     pub(super) script: Vec<Step>,
 }
 
-/// The largest each number of the renderer's frame cost got in one phase of a walk.
+/// The largest each number of the renderer's frame cost got in one phase of a walk. The harness draws whole frames (no direct scanout), so
+/// the drawn and damaged areas are always the full panel and are left out.
 #[derive(Clone, Copy, Default)]
 struct Peaks {
     layers: u32,
     full_screen: usize,
-    region_px: u64,
-    damage_px: u64,
-    rects: u16,
     draw_calls: u32,
     uploaded_bytes: u32,
 }
@@ -52,9 +54,6 @@ impl Peaks {
     fn see(&mut self, cost: &FrameCost, full_screen: usize) {
         self.layers = self.layers.max(cost.layers);
         self.full_screen = self.full_screen.max(full_screen);
-        self.region_px = self.region_px.max(cost.region_px);
-        self.damage_px = self.damage_px.max(cost.damage_px);
-        self.rects = self.rects.max(cost.rects);
         self.draw_calls = self.draw_calls.max(cost.draw_calls);
         self.uploaded_bytes = self.uploaded_bytes.max(cost.uploaded_bytes);
     }
@@ -103,6 +102,7 @@ impl Run<'_> {
         self.report.frames += 1;
         let peaks = if entry { &mut self.report.first } else { &mut self.report.keys };
         peaks.see(&cost, full_screen);
+        let uploads = self.shots.page.take_stage_uploads();
         let mut broken = Vec::new();
         if cost.layers > LAYERS {
             broken.push(format!("{} layers, the ceiling is {LAYERS}", cost.layers));
@@ -114,16 +114,36 @@ impl Run<'_> {
         if full_screen > 1 {
             broken.push(format!("{full_screen} full-screen layers"));
         }
+        if uploads > 1 {
+            broken.push(format!("{uploads} stage pictures put on the art layer"));
+        }
         for what in broken {
-            self.report.broken_frames += 1;
-            if self.report.broken.len() < NAMED {
-                self.report.broken.push(format!("frame {frame} on {:?}: {what}", self.model.view.page));
-            }
+            self.flag(frame, what);
         }
         if busy {
             std::thread::sleep(Duration::from_millis(2));
         }
         Ok(())
+    }
+    /// Counts a broken frame, and names the first few.
+    fn flag(&mut self, frame: u32, what: String) {
+        self.report.broken_frames += 1;
+        if self.report.broken.len() < NAMED {
+            self.report.broken.push(format!("frame {frame} on {:?}: {what}", self.model.view.page));
+        }
+    }
+    /// Frames until the page's art and text have settled; the walk is broken if they never do.
+    fn settle(&mut self) -> io::Result<()> {
+        let end = Instant::now() + SETTLE;
+        loop {
+            self.frame()?;
+            if !self.shots.page.art_busy() {
+                return Ok(());
+            }
+            if Instant::now() > end {
+                return Err(io::Error::other(format!("{}: the page did not settle", self.report.name)));
+            }
+        }
     }
     /// Frames for `ms` milliseconds of the panel's time.
     fn wait(&mut self, ms: u32) -> io::Result<()> {
@@ -152,14 +172,7 @@ fn run(shots: &mut Shots, walk: &Walk) -> io::Result<Report> {
             broken_frames: 0,
         },
     };
-    let end = Instant::now() + SETTLE;
-    run.frame()?;
-    while run.entering {
-        if Instant::now() > end {
-            return Err(io::Error::other(format!("{}: the page did not settle", walk.name)));
-        }
-        run.frame()?;
-    }
+    run.settle()?;
     for _ in 0..REST_FRAMES {
         run.frame()?;
     }
@@ -171,29 +184,32 @@ fn run(shots: &mut Shots, walk: &Walk) -> io::Result<Report> {
                 run.frame()?;
             }
             Step::Wait(ms) => run.wait(*ms)?,
+            Step::Settle => run.settle()?,
+            Step::Expect(what, holds) => {
+                if !holds(&run.model, &run.shots.page) {
+                    let frame = run.report.frames;
+                    run.flag(frame, format!("expected {what}"));
+                }
+            }
         }
     }
     Ok(run.report)
 }
 
 fn table(reports: &[Report]) -> String {
-    let mpx = |px: u64| px as f64 / 1e6;
     let mb = |bytes: u32| f64::from(bytes) / 1e6;
     let mut out = String::from(
-        "| walk | frames | layers | full-screen | drawn Mpx | damaged Mpx | rects | draw calls | first-frames upload MB | key-frames upload MB | captures | broken |\n\
-         |---|---|---|---|---|---|---|---|---|---|---|---|\n",
+        "| walk | frames | layers | full-screen | draw calls | first-frames upload MB | key-frames upload MB | captures | broken |\n\
+         |---|---|---|---|---|---|---|---|---|\n",
     );
     for r in reports {
         let (a, b) = (r.first, r.keys);
         out += &format!(
-            "| `{}` | {} | {} | {} | {:.1} | {:.1} | {} | {} | {:.1} | {:.1} | {} | {} |\n",
+            "| `{}` | {} | {} | {} | {} | {:.1} | {:.1} | {} | {} |\n",
             r.name,
             r.frames,
             a.layers.max(b.layers),
             a.full_screen.max(b.full_screen),
-            mpx(a.region_px.max(b.region_px)),
-            mpx(a.damage_px.max(b.damage_px)),
-            a.rects.max(b.rects),
             a.draw_calls.max(b.draw_calls),
             mb(a.uploaded_bytes),
             mb(b.uploaded_bytes),
@@ -206,15 +222,40 @@ fn table(reports: &[Report]) -> String {
 
 /// Every walk there is: what each slice registers, then one for every screen.
 fn registry() -> Vec<Walk> {
-    screen_walks()
+    let mut walks = art_walks();
+    walks.extend(screen_walks());
+    walks
+}
+
+/// A script of keys, each followed by a wait in milliseconds.
+pub(super) fn taps(keys: &[(Key, u32)]) -> Vec<Step> {
+    keys.iter().flat_map(|&(key, wait)| [Step::Tap(key), Step::Wait(wait)]).collect()
+}
+
+/// The stage art: a tab opening on the game page dips the art to its copy under the scrim, and leaving it dips back. Each dip puts one
+/// picture on the layer, and the page draws one full-screen layer while it runs.
+fn art_walks() -> Vec<Walk> {
+    let mut base = fixture();
+    base.view.page = Page::Hub;
+    base.view.focus = Focus::Tab(0);
+    let mut script = taps(&[(Key::Right, 100)]);
+    script.extend([
+        Step::Expect("focus on the Ways tab", |model, _| model.view.focus == Focus::Tab(1)),
+        Step::Tap(Key::Ok),
+        Step::Settle,
+        Step::Expect("the art to dip to its dimmed copy once", |_, page| page.art_swaps() == 1),
+        Step::Tap(Key::Back),
+        Step::Settle,
+        Step::Expect("the art to dip back to its own picture", |_, page| page.art_swaps() == 2),
+    ]);
+    vec![Walk { name: "art-dip-hub-tab".into(), base, script }]
 }
 
 /// One walk for each screen the shots show: its first frames, a short D-pad sweep and an OK, so that the page's keys, its scroll and
 /// whatever OK opens all pass through the budget. Theme, button-glyph and brightness variants draw the same layers and are left out.
 fn screen_walks() -> Vec<Walk> {
-    let sweep = [Key::Down, Key::Down, Key::Right, Key::Right, Key::Up, Key::Left, Key::Ok]
+    let sweep = taps(&[(Key::Down, 100), (Key::Down, 100), (Key::Right, 100), (Key::Right, 100), (Key::Up, 100), (Key::Left, 100), (Key::Ok, 100)])
         .into_iter()
-        .flat_map(|key| [Step::Tap(key), Step::Wait(100)])
         .chain([Step::Wait(300)])
         .collect::<Vec<_>>();
     screens()
