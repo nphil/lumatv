@@ -874,11 +874,12 @@ fn the_basic_screen_closes_itself_after_forty_five_seconds_of_nobody_pressing_an
         let t0 = Instant::now();
         assert!(s.switcher_open(None, t0));
         s.switcher_frame(t0 + MS(800));
-        assert_eq!(s.switcher_report()["mode"], "fallback");
-        s.switcher_frame(t0 + MS(44_000));
-        assert!(backdrop_in_plan(s), "still there at 44 s");
-        s.switcher_frame(t0 + MS(46_000));
-        s.switcher_frame(t0 + MS(46_500));
+        s.switcher_frame(t0 + MS(6000));
+        assert_eq!(s.switcher_report()["mode"], "fallback", "after the shell's one restart");
+        s.switcher_frame(t0 + MS(49_000));
+        assert!(backdrop_in_plan(s), "still there 43 s after it took over");
+        s.switcher_frame(t0 + MS(51_500));
+        s.switcher_frame(t0 + MS(52_000));
         assert!(!s.switcher_active() && !backdrop_in_plan(s), "gone: a screen nobody is at does not stay lit");
     });
 }
@@ -890,9 +891,10 @@ fn the_basic_screen_takes_ok_itself_and_launches_the_app_it_is_on() {
         let t0 = Instant::now();
         assert!(s.switcher_open(None, t0));
         s.switcher_frame(t0 + MS(800));
-        assert_eq!(s.switcher_report()["mode"], "fallback");
-        s.key_event_at(SeatId(0), KEY_OK, true, false, t0 + MS(900));
-        s.key_event_at(SeatId(0), KEY_OK, false, false, t0 + MS(950));
+        s.switcher_frame(t0 + MS(6000));
+        assert_eq!(s.switcher_report()["mode"], "fallback", "after the shell's one restart");
+        s.key_event_at(SeatId(0), KEY_OK, true, false, t0 + MS(6100));
+        s.key_event_at(SeatId(0), KEY_OK, false, false, t0 + MS(6150));
         let launched = calls(s, LAUNCH);
         assert_eq!(launched.len(), 1, "{launched:?}");
         assert_eq!(launched[0]["id"], "plex", "the first card, the newest app");
