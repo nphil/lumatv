@@ -97,6 +97,35 @@ pub struct Privacy {
     paths: Paths,
     platform: Arc<dyn Platform>,
     state: Mutex<State>,
+    declutter: Arc<DeclutterCache>,
+}
+/// `declutter.sh status` takes 4.4 to 4.8 s on the TV (measured 2026-11-23; the menu's four luna reads and file reads take about
+/// 0.15 s together), so the menu serves the last reading of it and refreshes it in the background once it is this old.
+const DECLUTTER_FRESH: Duration = Duration::from_secs(10);
+struct Reading {
+    value: Option<(Result<Value, String>, Instant)>,
+    refreshing: bool,
+}
+struct DeclutterCache {
+    reading: Mutex<Reading>,
+    fresh: Duration,
+}
+impl DeclutterCache {
+    fn new(fresh: Duration) -> Self {
+        Self {
+            reading: Mutex::new(Reading {
+                value: None,
+                refreshing: false,
+            }),
+            fresh,
+        }
+    }
+    fn store(&self, value: Result<Value, String>) {
+        *self.reading.lock() = Reading {
+            value: Some((value, Instant::now())),
+            refreshing: false,
+        };
+    }
 }
 const GROUPS: &[(&str, &str, &str)] = &[
     (
@@ -130,7 +159,13 @@ impl Privacy {
                 prime: None,
                 error: None,
             }),
+            declutter: Arc::new(DeclutterCache::new(DECLUTTER_FRESH)),
         }
+    }
+    /// How old a reading of the declutter tool may be before [`Privacy::menu`] refreshes it (a test shortens it).
+    pub fn declutter_fresh_for(mut self, fresh: Duration) -> Self {
+        self.declutter = Arc::new(DeclutterCache::new(fresh));
+        self
     }
     fn consent_data(&self) -> Result<(Value, Value, consent::Groups), String> {
         let response = self.platform.luna(
@@ -148,8 +183,52 @@ impl Privacy {
         let mapping = read_json(&self.paths.system("/var/palm/license/eulaInfoNetwork.json"))?;
         Ok((flags, docs, consent::groups(&mapping)))
     }
+    /// The menu as the helper serves it, from the last reading of the declutter tool (see [`DECLUTTER_FRESH`]): it answers at once, and
+    /// while the reading is old a refresh runs in the background and the menu says `"stale": true`, so a page shows what was last
+    /// known and asks again. Only the very first reading, before anything is cached, waits for the tool.
+    pub fn menu(&self, can_admin: bool) -> Value {
+        let (dc, stale) = self.declutter_reading();
+        let mut menu = self.build(can_admin, dc);
+        menu["stale"] = json!(stale);
+        menu
+    }
+    fn declutter_reading(&self) -> (Result<Value, String>, bool) {
+        let cache = &self.declutter;
+        let mut reading = cache.reading.lock();
+        let Some((value, at)) = reading.value.clone() else {
+            drop(reading);
+            let first = self.platform.declutter(&["status"]);
+            cache.store(first.clone());
+            return (first, false);
+        };
+        let old = at.elapsed() >= cache.fresh;
+        if old && !reading.refreshing {
+            reading.refreshing = true;
+            let (platform, cache) = (self.platform.clone(), self.declutter.clone());
+            let spawned = std::thread::Builder::new()
+                .name("privacy-status".into())
+                .spawn(move || cache.store(platform.declutter(&["status"])));
+            if spawned.is_err() {
+                reading.refreshing = false;
+            }
+        }
+        (value, old || reading.refreshing)
+    }
+    /// Reads the declutter tool now and keeps the reading (the helper does this once after boot, so the first page open finds one).
+    pub fn refresh_declutter(&self) {
+        self.declutter.store(self.platform.declutter(&["status"]));
+    }
+    /// A group change made the cached reading wrong: read again, so the answer that follows the change already agrees with it.
+    fn refresh_declutter_if_read(&self) {
+        if self.declutter.reading.lock().value.is_some() {
+            self.refresh_declutter();
+        }
+    }
+    /// The menu from a fresh reading of everything, waiting for the tool.
     pub fn status(&self, can_admin: bool) -> Value {
-        let dc = self.platform.declutter(&["status"]);
+        self.build(can_admin, self.platform.declutter(&["status"]))
+    }
+    fn build(&self, can_admin: bool, dc: Result<Value, String>) -> Value {
         let early = dc.as_ref().ok().and_then(|v| v.get("early"));
         let mut rows = Vec::new();
         for (id, label, detail) in GROUPS {
@@ -323,6 +402,7 @@ impl Privacy {
                     return Err("the group changed but boot persistence failed".into());
                 }
             }
+            self.refresh_declutter_if_read();
         } else {
             match key {
                 "hosts" => self.set_hosts(on)?,

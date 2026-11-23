@@ -13,6 +13,9 @@ use crate::settings::page::{Page, Read};
 use crate::settings::row::{Arg, Op, Row};
 use serde_json::{Value, json};
 
+/// How soon the page reads the menu again while the helper's reading of the declutter tool is still being refreshed.
+const STALE_REREAD_MS: u64 = 2000;
+
 /// The switches that block something (what the rail counts).
 const BLOCKERS: [&str; 6] = ["ads", "settings", "uploaders", "push", "hosts", "amazoff"];
 
@@ -442,6 +445,11 @@ fn answered(c: &Ctx, name: &str, doc: &Value) -> Vec<Op> {
             Op::Later { key: pending_key(id), ms: 1500, then: vec![Op::Set(pending_key(id), Value::Null)] },
         ];
     }
+    // The helper answers from its last reading of the slow declutter tool and refreshes it in the background (about 4.5 s on the TV):
+    // the rows above are shown at once, and the page asks again until the helper says the reading is fresh.
+    if name == "privacy" && doc.pointer("/privacy/stale").and_then(Value::as_bool) == Some(true) {
+        return vec![Op::RefreshIn(STALE_REREAD_MS)];
+    }
     Vec::new()
 }
 
@@ -694,6 +702,20 @@ mod tests {
         assert_eq!(toasts(&ops), vec!["LG asked not to sell this TV's data"]);
         assert!(!(dns.act.as_ref().unwrap())(Arg::Toggle(false)).iter().any(|o| matches!(o, Op::Ask(_))));
         assert_eq!(by("general.lmt").label, "Limit ad tracking");
+    }
+
+    #[test]
+    fn a_stale_menu_shows_its_rows_at_once_and_is_read_again_until_it_is_fresh() {
+        let mut doc = menu_doc();
+        doc["privacy"]["stale"] = json!(true);
+        let mut w = world();
+        w.docs.set("privacy", doc.clone());
+        let c = w.ctx();
+        assert!(!rows(&c).iter().any(|r| r.label == "Not available"), "the cached rows are shown, not a placeholder");
+        assert!(rows(&c).iter().any(|r| r.id == "privacy:ads" && r.on), "the last known switches are there while the helper refreshes");
+        assert!(matches!(answered(&c, "privacy", &doc).as_slice(), [Op::RefreshIn(STALE_REREAD_MS)]));
+        doc["privacy"]["stale"] = json!(false);
+        assert!(answered(&c, "privacy", &doc).is_empty(), "a fresh menu is not read again");
     }
 
     #[test]

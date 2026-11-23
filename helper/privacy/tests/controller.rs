@@ -4,8 +4,11 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 #[derive(Default)]
 struct Fake {
+    /// When set, the next `declutter` call waits for it (the tool takes 4.5 s on the TV).
+    hold: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
     calls: Mutex<Vec<Value>>,
     settings: Mutex<Value>,
     fail: Mutex<bool>,
@@ -26,6 +29,10 @@ impl Platform for Fake {
     }
     fn declutter(&self, args: &[&str]) -> Result<Value, String> {
         self.calls.lock().push(json!({"declutter":args}));
+        let hold = self.hold.lock().take();
+        if let Some(release) = hold {
+            let _ = release.recv();
+        }
         if *self.fail.lock() {
             return Err("declutter failed".into());
         }
@@ -551,4 +558,51 @@ fn the_push_row_lists_the_iot_client_that_ls_hubd_launched_although_its_unit_is_
     );
     assert_eq!(push["blocked"], false);
     assert!(push["reason"].as_str().unwrap().contains(iot));
+}
+fn ads_on(menu: &Value) -> Value {
+    menu["items"][0]["on"].clone()
+}
+fn declutter_reads(p: &Fake) -> usize {
+    p.calls
+        .lock()
+        .iter()
+        .filter(|c| c["declutter"] == json!(["status"]))
+        .count()
+}
+#[test]
+fn menu_answers_from_the_last_reading_while_the_slow_tool_refreshes_in_the_background() {
+    let (_d, _paths, p, privacy) = rig();
+    let privacy = Arc::new(privacy.declutter_fresh_for(Duration::ZERO));
+    let first = privacy.menu(true);
+    assert_eq!((ads_on(&first), first["stale"].clone()), (json!(false), json!(false)));
+    // the tool now blocks and would report ads on
+    let (release, held) = std::sync::mpsc::channel();
+    *p.hold.lock() = Some(held);
+    p.dc.lock()["groups"]["ads"]["on"] = json!(true);
+    let (tx, rx) = std::sync::mpsc::channel();
+    let asking = privacy.clone();
+    std::thread::spawn(move || tx.send(asking.menu(true)).unwrap());
+    let cached = rx.recv_timeout(Duration::from_secs(5)).expect("the menu waited for the tool");
+    assert_eq!((ads_on(&cached), cached["stale"].clone()), (json!(false), json!(true)));
+    assert_eq!(cached["items"].as_array().unwrap().len(), first["items"].as_array().unwrap().len());
+    release.send(()).unwrap();
+    let mut spins = 0;
+    while ads_on(&privacy.menu(true)) != json!(true) {
+        spins += 1;
+        assert!(spins < 5_000_000, "the background reading never landed");
+        std::thread::yield_now();
+    }
+}
+#[test]
+fn a_fresh_reading_is_reused_and_a_group_change_updates_it() {
+    let (_d, _paths, p, privacy) = rig();
+    assert_eq!(ads_on(&privacy.menu(true)), json!(false));
+    p.dc.lock()["groups"]["ads"]["on"] = json!(true);
+    let again = privacy.menu(true);
+    assert_eq!((ads_on(&again), again["stale"].clone()), (json!(false), json!(false)));
+    assert_eq!(declutter_reads(&p), 1);
+    let token = privacy.prepare("ads", true).unwrap()["confirmation"].as_str().unwrap().to_owned();
+    privacy.apply("ads", true, &token).unwrap();
+    let after = privacy.menu(true);
+    assert_eq!((ads_on(&after), after["stale"].clone()), (json!(true), json!(false)));
 }

@@ -30,6 +30,8 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
         "apply the preview after owner confirmation: {id, enabled, confirmation}",
     ),
 ];
+/// Ticks of the maintain loop (5 s each) before the declutter reading is taken: 30 s after the helper starts.
+const PRIME_AFTER_TICKS: u32 = 6;
 pub fn new(ctx: &Ctx) -> Arc<Privacy> {
     let app = ctx
         .config
@@ -55,8 +57,15 @@ pub fn spawn(ctx: &Ctx, privacy: Arc<Privacy>) -> std::io::Result<JoinHandle<()>
         .name("privacy".into())
         .spawn(move || {
             privacy.resume();
+            // The first reading of the declutter tool takes about 4.5 s of shell, so it waits until the boot has settled; a page opened
+            // before it makes that reading itself.
+            let mut ticks = 0u32;
             while !stop.sleep(Duration::from_secs(5)) {
                 privacy.maintain();
+                ticks += 1;
+                if ticks == PRIME_AFTER_TICKS {
+                    privacy.refresh_declutter();
+                }
             }
             privacy.stop();
         })
@@ -70,7 +79,7 @@ struct Change {
 }
 pub fn handle(privacy: &Privacy, request: &Request, rest: &[&str], can_admin: bool) -> Response {
     match (request.method.as_str(), rest) {
-        ("GET", [] | ["menu"]) => ok(json!({"privacy":privacy.status(can_admin)})),
+        ("GET", [] | ["menu"]) => ok(json!({"privacy":privacy.menu(can_admin)})),
         ("POST", [action @ ("prepare" | "apply")]) => {
             if !can_admin {
                 return error_response(

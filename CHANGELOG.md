@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Settings' first page, Privacy, shows its rows at once instead of after about 4.6 s: the helper's privacy menu spent 4.4 to 4.8 s of that in `declutter.sh status` (the menu's other reads take about 0.15 s), so it now serves the last reading of the tool, refreshes it in the background when it is more than 10 s old and after a group switch, takes the first reading 30 s after the helper starts, and says `"stale": true` while a refresh runs, on which the page reads again every 2 s. Not yet verified on the TV.
+
 Holding the remote's Input key for a second opens LumaTV's own input picker instead of launching LG's Home Hub (`com.webos.app.homeconnect`); when the picker cannot be shown, nothing opens, and a hold whose press already showed the picker does not show it a second time.
 
 A screen the UI makes (a commit of 64 operations or more) is drawn when its commit arrives, outside a run of frames, even with a flip in flight: it is drawn into the free page and goes out when that flip lands. It waited for the idle tick before, and the Apps grid's first frame, 10 ms to GPU done, missed the refresh after the feedback frame's flip in most of the frames the 120 Hz gate dropped (about 3 a run on 2026-11-22). `ctl arrival on|off` switches it without a restart and `ctl status` shows it as `ui.arrival`. Not yet frame-gated on the TV.
