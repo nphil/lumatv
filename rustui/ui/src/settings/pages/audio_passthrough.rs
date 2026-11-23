@@ -1,4 +1,4 @@
-//! Audio passthrough: the approval switch and the read-only status the helper reports, through the same plugin rows as every other
+//! Dolby TrueHD & Atmos passthrough: the approval switch and the read-only status the helper reports, through the same plugin rows as every other
 //! trusted-helper plugin, so colours, glass, radii and type come from the theme's tokens. No animation and no long-dwell element.
 use super::plugin_rows::{Plugin, fact, field_rows, fields, text};
 use crate::panels::hub;
@@ -13,7 +13,7 @@ const SWITCH: &str = "audio-passthrough.switch";
 const ICON: &str = "audio-lines";
 
 pub fn page() -> Page {
-    Page::new(ID, "Audio passthrough", ICON).parent("sound").back("Sound")
+    Page::new(ID, "Dolby TrueHD & Atmos passthrough", ICON).parent("sound").back("Sound")
         .reads(|_| vec![Read::owner(ID)]).rows(rows).summary(summary).answered(answered)
 }
 fn entry<'a>(c: &'a Ctx) -> Option<&'a Value> { hub::plugin_of(c.helper("plugins")?, ID) }
@@ -39,9 +39,9 @@ fn answered(_: &Ctx, name: &str, value: &Value) -> Vec<Op> {
     }
 }
 fn rows(c: &Ctx) -> Vec<Row> {
-    let Some(e) = entry(c) else { return vec![Row::empty("Not available", "The helper does not have Audio passthrough, or is not answering.", ICON, 0)] };
+    let Some(e) = entry(c) else { return vec![Row::empty("Not available", "The helper does not have Dolby TrueHD & Atmos passthrough, or is not answering.", ICON, 0)] };
     let (consent, code) = (text(e, "consent").to_owned(), text(e, "approve").to_owned());
-    let mut rows = vec![Row::toggle("use").icon(ICON).label("Audio passthrough").help(&consent).on(on(c))
+    let mut rows = vec![Row::toggle("use").icon(ICON).label("Dolby TrueHD & Atmos passthrough").help(&consent).on(on(c))
         .detail(hub::failure(e).unwrap_or_default()).admin().act(move |a| match a {
             Arg::Toggle(true) => ask(ICON, "Pass TrueHD to the receiver?", &consent, "Turn on", "Cancel", false, vec![switch(true, &code)]),
             Arg::Toggle(false) => vec![switch(false, "")],

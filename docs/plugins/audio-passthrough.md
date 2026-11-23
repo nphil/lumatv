@@ -1,6 +1,6 @@
-# Audio passthrough
+# Dolby TrueHD & Atmos passthrough
 
-Audio passthrough sends Dolby TrueHD, Atmos included, from an app that decodes for itself (Marquee) to a receiver over eARC, without LG's mixer touching it. It is off by default at Settings › Sound › Audio passthrough and works only on the TV software it was tested on (LG C4, release `Rockhopper release 10.2.1-5202 (ponytail-paparoa)`, kernel `5.4.268-329.ptl4tv.2`).
+Dolby TrueHD & Atmos passthrough sends Dolby TrueHD, Atmos included, from an app that decodes for itself (Marquee) to a receiver over eARC, without LG's mixer touching it. It is off by default at Settings › Sound › Dolby TrueHD & Atmos passthrough and works only on the TV software it was tested on (LG C4, release `Rockhopper release 10.2.1-5202 (ponytail-paparoa)`, kernel `5.4.268-329.ptl4tv.2`).
 
 The route is the reusable `audiopass` crate, which has no LumaTV dependencies. The helper module `audio_passthrough` is the plugin around it: the switch and the page, LG's sound-output subscription, the monitor that carries a session through connecting, and the three calls a player makes. Everything that changes the TV's audio runs in the trusted helper and only while the plugin is on. The one exception is putting back what an earlier run changed (its journal), which also runs while the plugin is off. The page adds no animation and no long-dwell element.
 

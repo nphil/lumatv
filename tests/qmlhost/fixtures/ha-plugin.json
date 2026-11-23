@@ -492,7 +492,7 @@
           "consent": "Lets an app that decodes Dolby TrueHD itself (Marquee) pass it unchanged to the receiver over eARC. While the app plays, the helper changes the TV's audio route: it stops LG mixing system sounds into the stream and connects the TV's HDMI audio output. It puts everything back when playback stops, the app exits, the TV goes to standby, this is switched off or the helper stops. Works only on the TV software it was tested on (LG C4, 33.22.52); anything else is refused with the reason. Needs the receiver on eARC. Never edits LG's files.",
           "firstParty": true,
           "id": "audio-passthrough",
-          "name": "Audio passthrough",
+          "name": "Dolby TrueHD & Atmos passthrough",
           "registered": false,
           "state": "off",
           "version": "1"

@@ -263,7 +263,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
         Row::link("audio-passthrough")
             .tab(0)
             .icon("audio-lines")
-            .label("Audio passthrough")
+            .label("Dolby TrueHD & Atmos passthrough")
             .help("Dolby TrueHD from an app to the receiver, unchanged.")
             .value(if super::audio_passthrough::off(c) { "Off" } else { "" })
             .does(go("audio-passthrough")),

@@ -58,7 +58,7 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
 pub const OPT_IN: OptIn = OptIn {
     spec: Spec {
         id: ID,
-        name: "Audio passthrough",
+        name: "Dolby TrueHD & Atmos passthrough",
         version: "1",
         permissions: &["settings"],
     },
