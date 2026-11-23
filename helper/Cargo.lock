@@ -741,6 +741,7 @@ dependencies = [
  "lumatv-placement",
  "lumatv-privacy",
  "lumatv-saver",
+ "lumavoice",
  "map",
  "mdns",
  "multilink",
@@ -756,6 +757,11 @@ dependencies = [
  "settings-schema",
  "sha2",
  "tempfile",
+ "voice-host",
+ "voice-intent",
+ "voice-satellite",
+ "voice-service",
+ "wake-word",
 ]
 
 [[package]]
@@ -1535,8 +1541,60 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
+name = "voice-arb"
+version = "0.1.0"
+
+[[package]]
+name = "voice-core"
+version = "0.1.0"
+
+[[package]]
 name = "voice-dsp"
 version = "0.1.0"
+
+[[package]]
+name = "voice-host"
+version = "0.1.0"
+dependencies = [
+ "esphome-api",
+ "fetch",
+ "libc",
+ "parking_lot",
+ "voice-arb",
+ "voice-intent",
+ "voice-net",
+ "voice-satellite",
+ "voice-service",
+ "voice-wire",
+]
+
+[[package]]
+name = "voice-intent"
+version = "0.1.0"
+
+[[package]]
+name = "voice-net"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "voice-satellite"
+version = "0.1.0"
+dependencies = [
+ "esphome-api",
+ "libc",
+ "voice-core",
+]
+
+[[package]]
+name = "voice-service"
+version = "0.1.0"
+dependencies = [
+ "esphome-api",
+ "voice-satellite",
+]
 
 [[package]]
 name = "voice-wire"

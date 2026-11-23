@@ -42,6 +42,7 @@ pub const FIRST_PARTY_IDS: &[&str] = &[
     "gaming",
     "multi-link",
     "audio-passthrough",
+    "voice-assistant",
 ];
 
 /// What a first-party plugin is, in the words of a manifest.

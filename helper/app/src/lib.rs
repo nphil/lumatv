@@ -125,6 +125,7 @@ pub mod tidy;
 pub mod tuner;
 pub mod tvsensors;
 pub mod voice;
+pub mod voice_assistant;
 pub mod wxcache;
 pub mod wxmap;
 pub mod wxpic;

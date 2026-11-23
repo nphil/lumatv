@@ -30,6 +30,12 @@ plugin-home-assistant = { path = "../../LumaShow/wt/lumatv/plugins/home-assistan
 voice-wire = { path = "../../LumaShow/wt/lumatv/crates/voice-wire" }
 voice-dsp = { path = "../../LumaShow/wt/lumatv/crates/voice-dsp" }
 wake-word = { path = "../../LumaShow/wt/lumatv/crates/wake-word" }
+# The voice host (the one loop that joins the engine's socket, Home Assistant's satellite link and the turn machine) and what it is built from:
+# the Voice assistant plugin runs them as they are.
+voice-host = { path = "../../LumaShow/wt/lumatv/crates/voice-host" }
+voice-satellite = { path = "../../LumaShow/wt/lumatv/crates/voice-satellite" }
+voice-service = { path = "../../LumaShow/wt/lumatv/crates/voice-service" }
+voice-intent = { path = "../../LumaShow/wt/lumatv/crates/voice-intent" }
 
 libc = "0.2"
 log = "0.4"
@@ -59,6 +65,8 @@ lumatuner = { path = "tuner" }
 lumaguide = { path = "../lumaguide" }
 # The phone remote: pairing, the Noise session and pointer datagrams; the engine the helper's Phone remote plugin runs.
 lumaremote = { path = "remote" }
+# The far-field microphone as a voice satellite's ears and mouth: capture, the wake word, a turn on the voice socket, a reply player.
+lumavoice = { path = "voice" }
 
 [profile.release]
 opt-level = "s"

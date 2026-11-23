@@ -234,6 +234,10 @@ impl Service {
             "audio-passthrough",
             crate::audio_passthrough::spawn(&ctx, plugins.shared().clone())?,
         ));
+        threads.push((
+            "voice-assistant",
+            crate::voice_assistant::spawn(&ctx, plugins.shared().clone())?,
+        ));
         // The Denon receiver plugin's switch: the receiver's page, and with it the receiver client, only while it is on.
         let receiver_plugin = {
             let tx = receiver_tx.clone();

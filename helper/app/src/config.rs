@@ -128,6 +128,9 @@ pub struct Config {
     pub ambient: AmbientConfig,
     /// Voice search (`voice.rs`): where the microphone's audio comes from. Which Home Assistant it goes to is the saved link, not here.
     pub voice: VoiceConfig,
+    /// The Voice assistant plugin (`voice_assistant.rs`): the TV's microphone as a Home Assistant voice satellite. Whether it runs is the owner's
+    /// switch in Settings; these are only how.
+    pub voice_assistant: VoiceAssistantConfig,
     /// Pictures decoded for the shell (`images.rs`): which folders it may ask for, and the decoder that does the work.
     pub images: ImagesConfig,
     /// Cameras and their event pop-ups through Scrypted's LumaShow bridge (`scrypted/`). Off until the Cameras plugin is switched on in
@@ -185,6 +188,7 @@ impl Default for Config {
             device: DeviceConfig::default(),
             ambient: AmbientConfig::default(),
             voice: VoiceConfig::default(),
+            voice_assistant: VoiceAssistantConfig::default(),
             images: ImagesConfig::default(),
             cameras: CamerasConfig::default(),
             onhome: OnHomeConfig::default(),
@@ -806,9 +810,11 @@ fn default_ddp_port() -> u16 {
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct VoiceConfig {
     /// The program that writes the microphone to its standard output as raw 16 kHz, 16-bit, mono, little-endian PCM, with its
-    /// arguments. It runs only while the mic key is held. The default is the TV's own far-field microphone through ALSA (card 1
-    /// `LGSIC`, device 0 "WoV PDM Mic", which offers S24_LE only; `plughw` converts); LG's voice services stay stopped. Empty: no
-    /// microphone, and voice search stays unavailable.
+    /// arguments. It runs only while the mic key is held, and only while the Voice assistant plugin is off (switched on, the plugin owns
+    /// the microphone and voice search takes the audio from it). The default is the TV's own far-field microphone through ALSA (card 1
+    /// `LGSIC`, device 0 "WoV PDM Mic", which offers S24_LE only; `plughw` converts, and must be told the chip's fixed 256-frame period and
+    /// 2048-frame buffer, or it asks for a buffer the chip refuses); LG's voice services stay stopped. Empty: no microphone, and voice
+    /// search stays unavailable.
     pub capture: Vec<String>,
     /// The longest one request listens, whatever the key does: a missed key release must not leave the microphone open.
     pub max_seconds: u64,
@@ -816,8 +822,8 @@ pub struct VoiceConfig {
     pub tail_ms: u64,
 }
 
-/// The TV's built-in microphone, read by `arecord` as 16 kHz mono S16_LE (Nitin, 2026-10-25).
-pub const DEFAULT_CAPTURE: [&str; 12] = [
+/// The TV's built-in microphone, read by `arecord` as 16 kHz mono S16_LE (Nitin, 2026-10-25; period and buffer measured on the TV, 2026-11-23).
+pub const DEFAULT_CAPTURE: [&str; 14] = [
     "arecord",
     "-q",
     "-D",
@@ -830,6 +836,8 @@ pub const DEFAULT_CAPTURE: [&str; 12] = [
     "16000",
     "-c",
     "1",
+    "--period-size=256",
+    "--buffer-size=2048",
 ];
 
 impl Default for VoiceConfig {
@@ -838,6 +846,27 @@ impl Default for VoiceConfig {
             capture: DEFAULT_CAPTURE.iter().map(|a| (*a).to_owned()).collect(),
             max_seconds: 20,
             tail_ms: 250,
+        }
+    }
+}
+
+/// How the Voice assistant plugin runs. Whether it does is the owner's switch in Settings (off by default); nothing opens the microphone or a
+/// port while it is off.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct VoiceAssistantConfig {
+    /// The TCP port Home Assistant dials the TV's voice satellite on (6053 is the Bluetooth proxy's and 6054 On Home's; 0 takes a free one, for tests).
+    pub port: u16,
+    /// Whether `POST /v1/voice-assistant/selftest` answers: it feeds a recorded wake phrase to the assistant in place of the microphone, so
+    /// that a check needs no one to speak and nothing to sound. Off unless this says so.
+    pub selftest: bool,
+}
+
+impl Default for VoiceAssistantConfig {
+    fn default() -> Self {
+        Self {
+            port: 6055,
+            selftest: false,
         }
     }
 }
@@ -1227,7 +1256,7 @@ mod tests {
         let config = Config::parse("{}").unwrap();
         assert_eq!(
             config.voice.capture.join(" "),
-            "arecord -q -D plughw:1,0 -t raw -f S16_LE -r 16000 -c 1"
+            "arecord -q -D plughw:1,0 -t raw -f S16_LE -r 16000 -c 1 --period-size=256 --buffer-size=2048"
         );
         // Emptying it is how the owner takes the microphone away.
         assert!(
