@@ -421,5 +421,6 @@ after        G1b, cleanup, host passes, IPK, G2 (TV)
 
 1. **Videos play inside LumaGame**, embedded, for both store trailers and Community Hub videos; Back returns to the page. The playback route (native HLS for trailers, YouTube's official embedded player for community videos) is being researched; the Media slice builds on its result. Extracting YouTube streams directly is out: it breaks YouTube's terms.
 2. **Mature game pages** is a switch in Settings (Accounts and PCs › Steam pane), off by default. On, community requests send `mature: true`; off, age-gated parts show "Age-restricted on Steam". Owned by the Settings and Accounts slice; F3 reads it when building the request.
+3. **All moving media plays on its own display layer** (hardware video plane or a separate compositor surface), never decoded into UI textures: trailers, YouTube videos, animated GIF/WebP/WebM capsules and any looping clip. The UI draws stills and frames around the hole, so its 120 Hz budget does not carry video. Where no separate layer is available for a kind, it shows a still with a play mark instead.
 
 Everything else follows OPTIONS.md.
