@@ -61,14 +61,19 @@ pub fn shell(p: &mut Paint<'_>, spec: &RailSpec<'_>) -> Frame {
     p.surface(101, rail, Fill::Sheet, Radius::Sheet, false, false, false, Z);
     p.surface(102, pane, Fill::Sheet, Radius::Sheet, false, false, false, Z);
 
-    // A place's state line sits under its name, so at 200% text the pair outgrows the row token.
-    let height = p.tokens.row.max(p.line(Type::Body) + 2.0 + p.line(Type::Caption) + 24.0);
+    // A place's state line sits under its name, so at 200% text the pair outgrows the row token; where the places would then
+    // run past the rail, they show their names alone.
+    let count = spec.places.len().min(PLACES);
+    let paired = p.tokens.row.max(p.line(Type::Body) + 2.0 + p.line(Type::Caption) + 24.0);
+    let states = count as f32 * (paired + 4.0) - 4.0 <= rail.h - 2.0 * PAD;
+    let height = if states { paired } else { p.tokens.row.max(p.line(Type::Body) + 24.0) };
     let pitch = height + 4.0;
     for (i, place) in spec.places.iter().take(PLACES).enumerate() {
         let id = 110 + i as u64 * PLACE_STRIDE;
         let frame = Frame::new(rail.x + PAD, rail.y + PAD + i as f32 * pitch, rail.w - 2.0 * PAD, height);
         let focused = p.focused(Focus::Rail(i));
-        row::body(p, id, frame, &Line { lead: Leading::Glyph(place.icon), name: place.name, sub: place.state }, Trail::NONE, focused);
+        let sub = place.state.filter(|_| states);
+        row::body(p, id, frame, &Line { lead: Leading::Glyph(place.icon), name: place.name, sub }, Trail::NONE, focused);
         if i == spec.current {
             let at = p.plan.nodes.len();
             p.surface(id + 12, frame, Fill::Tint(p.tokens.states.selected_wash), Radius::Row, false, false, false, Z + 1);
@@ -160,6 +165,18 @@ mod tests {
             let hits: Vec<_> = p.plan.hits.iter().map(|(focus, _)| *focus).collect();
             assert_eq!(hits, [Focus::Rail(0), Focus::Rail(1), Focus::Rail(2)]);
             assert!(p.plan.nodes.iter().all(|n| n.id < 200));
+        });
+    }
+
+    #[test]
+    fn five_places_stay_inside_the_rail_at_200_percent_text() {
+        let hints = Hints(vec![]);
+        painted(|m| m.prefs.text_percent = 200, |p| {
+            let five = [places(), places()].concat()[..5].to_vec();
+            let spec = RailSpec { title: "Settings", places: &five, current: 0, crumb: None, heading: "Accounts", chip: None, hints: &hints };
+            shell(p, &spec);
+            let rail = frame_of(p, 101);
+            assert!(p.plan.hits.iter().all(|(_, f)| f.y + f.h <= rail.y + rail.h), "a place runs past the rail");
         });
     }
 
