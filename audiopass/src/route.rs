@@ -567,11 +567,8 @@ impl Route {
             .ok_or_else(|| format!("process {pid} is not running"))?;
         let held = self
             .host
-            .fd_targets(pid)
-            .map_err(|e| format!("cannot read process {pid}'s descriptors: {e}"))?
-            .iter()
-            .filter(|target| target.as_str() == AREN)
-            .count();
+            .fds_on(pid, AREN)
+            .map_err(|e| format!("cannot read process {pid}'s descriptors: {e}"))?;
         if held != 1 {
             return Err(format!(
                 "process {pid} holds {held} {AREN} descriptors, not exactly one"
@@ -1083,8 +1080,8 @@ impl Route {
 
     /// Whether the player no longer holds LG's renderer: it exited or closed it, so nothing more is written into the stream.
     fn renderer_closed(&self, pid: u32) -> bool {
-        match self.host.fd_targets(pid) {
-            Ok(fds) => !fds.iter().any(|target| target == AREN),
+        match self.host.fds_on(pid, AREN) {
+            Ok(held) => held == 0,
             Err(_) => true,
         }
     }

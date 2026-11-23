@@ -360,11 +360,11 @@ impl Host for FakeHost {
         self.with(|sim| sim.hashes.get(path).cloned().ok_or_else(not_found))
     }
 
-    fn fd_targets(&self, pid: u32) -> io::Result<Vec<String>> {
+    fn fds_on(&self, pid: u32, node: &str) -> io::Result<usize> {
         self.with(|sim| {
             sim.procs
                 .get(&pid)
-                .map(|(_, fds)| fds.clone())
+                .map(|(_, fds)| fds.iter().filter(|target| *target == node).count())
                 .ok_or_else(not_found)
         })
     }

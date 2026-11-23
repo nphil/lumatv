@@ -80,8 +80,9 @@ pub trait Host: Send + Sync {
     fn save(&self, path: &str, text: &str) -> io::Result<()>;
     fn remove(&self, path: &str) -> io::Result<()>;
     fn sha256(&self, path: &str) -> io::Result<String>;
-    /// Where a process's open descriptors point.
-    fn fd_targets(&self, pid: u32) -> io::Result<Vec<String>>;
+    /// How many of a process's open descriptors are the character device `node`, matched by device number: a player in a
+    /// webOS app jail (a chroot) opens `/dev/lg/aren0`, but its descriptor reads `/var/palm/jail/<app>/dev/lg/aren0` from here.
+    fn fds_on(&self, pid: u32, node: &str) -> io::Result<usize>;
     /// A process's start time (field 22 of its `stat`), `None` when it is not running.
     fn start_time(&self, pid: u32) -> Option<u64>;
     /// Sets `Sndout EARC Outputtype`, the one control LG's route is changed through.
@@ -339,14 +340,23 @@ impl Host for System {
         }
     }
 
-    fn fd_targets(&self, pid: u32) -> io::Result<Vec<String>> {
-        let mut out = Vec::new();
-        for entry in fs::read_dir(format!("/proc/{pid}/fd"))? {
-            if let Ok(target) = fs::read_link(entry?.path()) {
-                out.push(target.to_string_lossy().into_owned());
-            }
+    fn fds_on(&self, pid: u32, node: &str) -> io::Result<usize> {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+        let device = fs::metadata(node)?;
+        if !device.file_type().is_char_device() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{node} is not a character device"),
+            ));
         }
-        Ok(out)
+        let mut held = 0;
+        for entry in fs::read_dir(format!("/proc/{pid}/fd"))? {
+            // `stat` follows the descriptor to its file without opening it, whatever path the process opened it by.
+            let same = fs::metadata(entry?.path())
+                .is_ok_and(|fd| fd.file_type().is_char_device() && fd.rdev() == device.rdev());
+            held += usize::from(same);
+        }
+        Ok(held)
     }
 
     fn start_time(&self, pid: u32) -> Option<u64> {
@@ -461,18 +471,33 @@ mod tests {
     }
 
     #[test]
-    fn own_process_start_time_and_descriptors_read_back() {
+    fn own_process_start_time_reads_back() {
+        let system = System::default();
+        assert!(system.start_time(std::process::id()).is_some_and(|t| t > 0));
+        assert!(system.start_time(u32::MAX).is_none());
+    }
+
+    #[test]
+    fn a_descriptor_counts_by_device_whatever_path_names_it() {
+        // A jailed player's descriptor and the helper's node name one device by different paths; a link under another name
+        // stands in for the jail here.
+        let dir = std::env::temp_dir().join(format!("audiopass-fds-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let node = dir.join("aren0");
+        let _ = fs::remove_file(&node);
+        std::os::unix::fs::symlink("/dev/zero", &node).unwrap();
+        let node = node.to_str().unwrap();
         let system = System::default();
         let pid = std::process::id();
-        assert!(system.start_time(pid).is_some_and(|t| t > 0));
-        assert!(system.start_time(u32::MAX).is_none());
+        let before = system.fds_on(pid, node).unwrap();
+        let held = File::open("/dev/zero").unwrap();
+        assert_eq!(system.fds_on(pid, node).unwrap(), before + 1);
+        drop(held);
         assert!(
-            system
-                .fd_targets(pid)
-                .unwrap()
-                .iter()
-                .any(|t| t.starts_with('/') || t.contains(':'))
+            system.fds_on(pid, dir.to_str().unwrap()).is_err(),
+            "only a device node names a renderer"
         );
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
