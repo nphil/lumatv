@@ -42,9 +42,9 @@ struct vtcap {
 };
 
 /* Opens the tap at the given point (vt_abi.h), asks for width x height (width a multiple of 16) and
- * nbuf buffers (1..6; LG uses 5), divides the display rate by divide (1 = every frame, 2 = every other),
- * maps the buffers, reads and checks their physical addresses and queues them. Streaming starts only
- * with vtcap_start, so a probe can stop here. */
+ * nbuf buffers (1..6; LG asks for 1 and the driver makes 5), divides the display rate by divide
+ * (1 = every frame, 2 = every other), maps the buffers, reads and checks their physical addresses and
+ * queues them. Streaming starts only with vtcap_start, so a probe can stop here. */
 int vtcap_open(struct vtcap *c, const struct sysops *sys, enum v4l2_ext_capture_location location, uint32_t width,
                uint32_t height, uint32_t nbuf, uint32_t divide, char *err, size_t errlen);
 

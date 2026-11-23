@@ -14,6 +14,7 @@
 #include "../vtcap.h"
 #include "../watchdog.h"
 
+#include <linux/videodev2.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -156,6 +157,57 @@ static void test_venc_gate(void)
     CHECK(!memcmp(m.kadpmagic1, "SIC\0\0", 5) && !memcmp(m.kadpmagic2, "KADP\0", 5) && !memcmp(m.kadpmagic3, "VENC\0", 5), "magic bytes");
 }
 
+/* The tap's setup calls as the session sent them. LG's library (VtDriver::preprocessVtCapture) issues the format, the plane
+ * property, a read-back of it, REQBUFS, the plane info and, last, the frame-rate divider; spy_narrow makes the driver
+ * keep less width than asked. */
+static char spy_order[128];
+static int spy_narrow;
+
+static int spy_ioctl(int fd, unsigned long req, void *arg)
+{
+    const char *what = NULL;
+    struct v4l2_ext_control *ctl = NULL;
+    if (req == VIDIOC_S_EXT_CTRLS || req == VIDIOC_G_EXT_CTRLS) {
+        ctl = ((struct v4l2_ext_controls *)arg)->controls;
+        if (ctl->id == V4L2_CID_EXT_CAPTURE_PLANE_PROP)
+            what = req == VIDIOC_S_EXT_CTRLS ? "prop" : "prop-back";
+        else if (ctl->id == V4L2_CID_EXT_CAPTURE_PLANE_INFO)
+            what = "info";
+    } else if (req == VIDIOC_S_FMT) {
+        what = "fmt";
+    } else if (req == VIDIOC_REQBUFS) {
+        what = "reqbufs";
+    } else if (req == VIDIOC_S_CTRL) {
+        what = "divide";
+    }
+    if (what) {
+        size_t n = strlen(spy_order);
+        snprintf(spy_order + n, sizeof(spy_order) - n, "%s%s", n ? " " : "", what);
+    }
+    int r = sysops_real.ioctl(fd, req, arg);
+    if (spy_narrow && r == 0 && ctl && req == VIDIOC_G_EXT_CTRLS && ctl->id == V4L2_CID_EXT_CAPTURE_PLANE_PROP)
+        ((struct v4l2_ext_capture_plane_prop *)ctl->ptr)->plane.w -= 16;
+    return r;
+}
+
+static void test_vtcap_order(void)
+{
+    char err[256] = "";
+    struct vtcap c;
+    struct sysops spy = sysops_real;
+    spy.ioctl = spy_ioctl;
+    CHECK(vtcap_open(&c, &spy, V4L2_EXT_CAPTURE_BLENDED_OUTPUT, 960, 544, 4, 2, err, sizeof(err)) == 0, "open: %s", err);
+    CHECK(!strcmp(spy_order, "fmt prop prop-back reqbufs info divide"), "setup order: %s", spy_order);
+    vtcap_close(&c);
+    spy_order[0] = 0;
+    spy_narrow = 1;
+    CHECK(vtcap_open(&c, &spy, V4L2_EXT_CAPTURE_DISPLAY_OUTPUT, 960, 540, 4, 1, err, sizeof(err)) < 0 && strstr(err, "kept") &&
+              !strstr(spy_order, "info"),
+          "a read-back that differs from the request ends the setup before the buffers: %s (%s)", err, spy_order);
+    spy_narrow = 0;
+    CHECK(fake_open_fds() == 0, "fds left open: %d", fake_open_fds());
+}
+
 static void test_vtcap(void)
 {
     char err[256] = "";
@@ -236,6 +288,7 @@ int main(void)
     test_synth();
     test_venc_sequence();
     test_venc_gate();
+    test_vtcap_order();
     test_vtcap();
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);

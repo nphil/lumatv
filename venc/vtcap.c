@@ -112,7 +112,19 @@ int vtcap_open(struct vtcap *c, const struct sysops *sys, enum v4l2_ext_capture_
     if (c->fd < 0)
         return sys_fail(err, errlen, "open " VT_DEV);
 
-    /* 1. where to tap and how big (LG's library: setCapturePlanePropertes, then setFMT with the same size) */
+    /* 1. where to tap and how big, in the order LG's library issues it (lib32-screen-capture-webos 1.0.0-56,
+     * VtDriver::preprocessVtCapture, read from the set's own copy): the format with the size and nothing else (the
+     * driver takes only the size and always makes two-plane NV12 buffers, v4l2_vt.c:1277), the plane property and a
+     * read-back of it; the frame-rate divider comes last, just before STREAMON */
+    struct v4l2_format fmt;
+    memset(&fmt, 0, sizeof(fmt));
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    fmt.fmt.pix_mp.width = width;
+    fmt.fmt.pix_mp.height = height;
+    if (vt_ioctl(sys, c->fd, VIDIOC_S_FMT, &fmt, "VIDIOC_S_FMT", WD_TAP_CTRL_MS) < 0) {
+        sys_fail(err, errlen, "VIDIOC_S_FMT");
+        goto fail;
+    }
     struct v4l2_ext_capture_plane_prop prop = {
         .l = location, .plane = { .x = 0, .y = 0, .w = (uint16_t)width, .h = (uint16_t)height }, .buf_count = (int32_t)nbuf,
     };
@@ -120,25 +132,20 @@ int vtcap_open(struct vtcap *c, const struct sysops *sys, enum v4l2_ext_capture_
         sys_fail(err, errlen, "S_EXT_CTRLS PLANE_PROP (the tap point/size; EOPNOTSUPP = this point is not offered)");
         goto fail;
     }
-    struct v4l2_format fmt;
-    memset(&fmt, 0, sizeof(fmt));
-    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-    fmt.fmt.pix_mp.width = width;
-    fmt.fmt.pix_mp.height = height;
-    fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12;
-    fmt.fmt.pix_mp.num_planes = 2;
-    if (vt_ioctl(sys, c->fd, VIDIOC_S_FMT, &fmt, "VIDIOC_S_FMT", WD_TAP_CTRL_MS) < 0) {
-        sys_fail(err, errlen, "VIDIOC_S_FMT");
+    /* the read-back also refreshes the driver's copy of the firmware's answer (v4l2_vt.c:2193); LG ends its setup when
+     * the driver kept something else than was asked */
+    struct v4l2_ext_capture_plane_prop kept;
+    memset(&kept, 0, sizeof(kept));
+    if (ext_ctrl(sys, c->fd, VIDIOC_G_EXT_CTRLS, V4L2_CID_EXT_CAPTURE_PLANE_PROP, &kept, sizeof(kept), "G_EXT_CTRLS PLANE_PROP") < 0) {
+        sys_fail(err, errlen, "G_EXT_CTRLS PLANE_PROP");
         goto fail;
     }
-    if (divide > 1) {
-        /* a plain control, as LG's setCaptureFrameRate issues it (VIDIOC_S_CTRL); the driver ignores it
-         * silently when more than one process has the device open */
-        struct v4l2_control ctl = { .id = V4L2_CID_EXT_CAPTURE_DIVIDE_FRAMERATE, .value = (int32_t)divide };
-        if (vt_ioctl(sys, c->fd, VIDIOC_S_CTRL, &ctl, "S_CTRL DIVIDE_FRAMERATE", WD_TAP_CTRL_MS) < 0) {
-            sys_fail(err, errlen, "S_CTRL DIVIDE_FRAMERATE");
-            goto fail;
-        }
+    if (kept.l != prop.l || kept.plane.x != prop.plane.x || kept.plane.y != prop.plane.y || kept.plane.w != prop.plane.w ||
+        kept.plane.h != prop.plane.h || kept.buf_count != prop.buf_count) {
+        errno = EPROTO;
+        snprintf(err, errlen, "the driver kept point %d, %ux%u, %d buffers instead of point %d, %ux%u, %d buffers", (int)kept.l, kept.plane.w,
+                 kept.plane.h, kept.buf_count, (int)prop.l, prop.plane.w, prop.plane.h, prop.buf_count);
+        goto fail;
     }
 
     /* 2. buffers: REQBUFS, then the plane info (LG's library reads it after REQBUFS), QUERYBUF + mmap of
@@ -228,6 +235,15 @@ int vtcap_open(struct vtcap *c, const struct sysops *sys, enum v4l2_ext_capture_
         }
         if (vtcap_requeue(c, (int)i, err, errlen) < 0)
             goto fail;
+    }
+    if (divide > 1) {
+        /* a plain control, as LG's setCaptureFrameRate issues it (VIDIOC_S_CTRL); the driver ignores it silently when
+         * more than one process has the device open */
+        struct v4l2_control ctl = { .id = V4L2_CID_EXT_CAPTURE_DIVIDE_FRAMERATE, .value = (int32_t)divide };
+        if (vt_ioctl(sys, c->fd, VIDIOC_S_CTRL, &ctl, "S_CTRL DIVIDE_FRAMERATE", WD_TAP_CTRL_MS) < 0) {
+            sys_fail(err, errlen, "S_CTRL DIVIDE_FRAMERATE");
+            goto fail;
+        }
     }
     return 0;
 fail:
