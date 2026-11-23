@@ -279,8 +279,9 @@ Manrope at three weights only: Regular 400, Medium 500, SemiBold 600.
 - **Scrims** dim the screen behind a sheet to 74 % canvas when it stays as context and 97 % when it
   must not compete (the end-session confirm).
 - **Focus** is the same everywhere (Lucent's Focus state): the element lifts 4 px and grows to 1.03,
-  its fill steps up to the focus wash (9 % ink) with a lit rim (`edgeRaised`) and one soft shadow,
-  eased on the focus clock. Covers and tiles take the rim and shadow without the wash; rows grow
+  its fill steps up to the focus wash (the theme's, 5 % dark) with a soft half-strength sheen, a
+  soft 1 px edge (`glassFocusEdge`) and one soft shadow, as on LumaTV Home's tiles; no bright line
+  along the top. Covers and tiles take the edge and shadow without the wash; rows grow
   in place without lifting. Focus never draws an underline, an outline or a white pill.
 - **Motion**: focus 150 ms, panel enter 180 ms, exit 120 ms, art dissolve 200 ms once focus
   settles. Scrolling (page, rows, grids) is the theme's critically damped spring (`scrollMs`, 260 ms); a

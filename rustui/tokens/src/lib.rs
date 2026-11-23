@@ -332,7 +332,7 @@ impl Tokens {
         let states = States {
             focus_wash: [f(wash.and_then(|w| w.first()), 0.05), f(wash.and_then(|w| w.get(1)), 0.06)],
             hover_wash: f(st.get("hoverWash"), 0.04),
-            selected_wash: f(st.get("selectedWash"), 0.10),
+            selected_wash: f(st.get("selectedWash"), 0.04),
             disabled_opacity: f(st.get("disabledOpacity"), 0.76),
         };
         let mo = block("motion");

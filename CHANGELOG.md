@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+LumaGame's focus is LumaTV Home's raised glass: no bright line along the top, the wash is the theme's own (5 %, not 9 %) with a soft half-strength sheen, a 1 px soft edge and the one shadow; the control still lifts and grows a little. The theme's selected wash is back at 4 %.
+
 Dolby TrueHD & Atmos passthrough keeps the route a player polls current while the helper waits on LG: during a session a reader thread reads the kernel and a sampler thread publishes the sample every 50 ms, apart from the monitor and its calls to LG, so a player's answer stays about 100 ms old instead of reaching 628 ms (the TV's run 6). A reading more than 200 ms old no longer says the stream bypasses LG's mixer.
 
 The theme's selected wash (the current place in a pill, the open tab) is 10 % instead of 4 %, as in the mock; the owner approved the stronger light for every Luma app. It is the accent over the raised glass, not a new bright element.

@@ -221,7 +221,6 @@ pub fn game_tokens(family: &str, mode: Mode, host: &crate::Tokens) -> Option<cra
         "row": 80,
         "focus": { "tileScale": 1.03, "cardScale": 1.03, "rowScale": 1.0, "buttonScale": 1.03,
                    "pressScale": 0.97, "cardLift": 4 },
-        "states": { "focusWash": [0.09, 0.09] },
         "motion": { "focusMs": 150, "cardMs": 150, "layerMs": 180, "exitMs": 120, "artDissolveMs": 200 }
     }));
     let selected = if family == MATCH_LUMATV { None } else { Some(game_find(family)?) };
@@ -504,7 +503,7 @@ mod tests {
             assert_eq!(matched.focus.button_scale, 1.03);
             assert_eq!(matched.focus.row_scale, 1.0);
             assert_eq!(matched.focus.card_lift, 4.0);
-            assert_eq!(matched.states.focus_wash, [0.09, 0.09]);
+            assert_eq!(matched.states.focus_wash, host.states.focus_wash);
             assert_eq!(matched.motion.focus_ms, 150);
             assert_eq!(matched.motion.layer_ms, 180);
             assert!(matched.motion.reduced);
