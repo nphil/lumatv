@@ -1,0 +1,17 @@
+[package]
+name = "lumavoice"
+description = "A far-field microphone as a voice satellite's ears and mouth: ALSA capture to 16 kHz mono, the microWakeWord detector, a turn on the voice socket, and a reply player. The engine, with no host in it"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+libc.workspace = true
+voice-dsp.workspace = true
+voice-wire.workspace = true
+wake-word.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
