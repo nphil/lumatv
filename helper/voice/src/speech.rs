@@ -71,7 +71,10 @@ impl Aplay {
     }
 
     fn spawn(&self, rate: u32) -> Result<Child, String> {
-        let (program, args) = self.argv.split_first().ok_or("there is no player configured")?;
+        let (program, args) = self
+            .argv
+            .split_first()
+            .ok_or("there is no player configured")?;
         Command::new(program)
             .args(args)
             .arg("-r")
@@ -157,7 +160,9 @@ impl Speaker for Aplay {
         }
         for pair in bytes.chunks_exact_mut(2) {
             let v = i16::from_le_bytes([pair[0], pair[1]]);
-            let scaled = (f32::from(v) * reply.gain).round().clamp(-32_768.0, 32_767.0) as i16;
+            let scaled = (f32::from(v) * reply.gain)
+                .round()
+                .clamp(-32_768.0, 32_767.0) as i16;
             pair.copy_from_slice(&scaled.to_le_bytes());
         }
         if let Some(tx) = reply.tx.as_ref() {
@@ -241,14 +246,20 @@ mod tests {
         let file = dir.path().join("out.pcm");
         let mut p = player(&file);
         p.begin(24_000, 50).unwrap();
-        let samples: Vec<u8> = [16_000i16, -16_000, 1_000].iter().flat_map(|s| s.to_le_bytes()).collect();
+        let samples: Vec<u8> = [16_000i16, -16_000, 1_000]
+            .iter()
+            .flat_map(|s| s.to_le_bytes())
+            .collect();
         // an odd cut in the middle of a sample must not shift the rest
         p.push(&samples[..3]);
         p.push(&samples[3..]);
         p.finish();
         assert_eq!(wait_end(&mut p), SpeechEnd::Played);
         let out = std::fs::read(&file).unwrap();
-        let got: Vec<i16> = out.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
+        let got: Vec<i16> = out
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+            .collect();
         assert_eq!(got, vec![4_000, -4_000, 250], "50 % is a quarter");
         assert_eq!(p.poll(), Poll::Idle);
     }

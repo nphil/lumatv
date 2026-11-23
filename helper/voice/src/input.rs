@@ -117,7 +117,11 @@ impl Program {
         let mut text = [0u8; 400];
         let n = self.err.read(&mut text).unwrap_or(0);
         let text = String::from_utf8_lossy(&text[..n]);
-        let line = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+        let line = text
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("")
+            .trim();
         let status = self
             .child
             .try_wait()

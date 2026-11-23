@@ -3,8 +3,8 @@
 //! `models/NOTICE.md` has their provenance.
 
 use crate::engine::Word;
-use wake_word::detector::Manifest;
 use wake_word::Model;
+use wake_word::detector::Manifest;
 
 /// A word the engine can listen for.
 #[derive(Clone, Copy, Debug)]
@@ -71,7 +71,8 @@ impl Sensitivity {
 pub fn load(id: &str, cutoff: f32) -> Result<Word, String> {
     let info = find(id).ok_or_else(|| format!("there is no wake word {id}"))?;
     let model = Model::parse(info.model.to_vec()).map_err(|e| format!("the model {id}: {e}"))?;
-    let mut manifest = Manifest::parse(info.manifest).map_err(|e| format!("the manifest {id}: {e}"))?;
+    let mut manifest =
+        Manifest::parse(info.manifest).map_err(|e| format!("the manifest {id}: {e}"))?;
     manifest.probability_cutoff = cutoff;
     Ok(Word {
         id: id.to_owned(),

@@ -25,7 +25,11 @@ fn silence(seconds: f32) -> Vec<i16> {
 }
 
 fn engine(word: &str, cfg: EngineConfig) -> Engine {
-    Engine::new(cfg, vec![models::load(word, Sensitivity::Normal.cutoff()).unwrap()]).unwrap()
+    Engine::new(
+        cfg,
+        vec![models::load(word, Sensitivity::Normal.cutoff()).unwrap()],
+    )
+    .unwrap()
 }
 
 fn feed(engine: &mut Engine, samples: &[i16], deaf: bool) -> Vec<Out> {
@@ -50,7 +54,9 @@ fn until_wake(engine: &mut Engine, samples: &[i16]) -> (Vec<Out>, usize) {
 }
 
 fn wakes(out: &[Out]) -> Vec<&Out> {
-    out.iter().filter(|o| matches!(o, Out::Wake { .. })).collect()
+    out.iter()
+        .filter(|o| matches!(o, Out::Wake { .. }))
+        .collect()
 }
 
 fn audio_len(out: &[Out]) -> usize {
@@ -64,16 +70,31 @@ fn audio_len(out: &[Out]) -> usize {
 
 #[test]
 fn each_word_wakes_the_engine_once_on_its_own_recording() {
-    for (word, bytes) in [("okay_nabu", OKAY_NABU), ("hey_jarvis", HEY_JARVIS), ("okay_nabu", OKAY_NABU_TIME)] {
+    for (word, bytes) in [
+        ("okay_nabu", OKAY_NABU),
+        ("hey_jarvis", HEY_JARVIS),
+        ("okay_nabu", OKAY_NABU_TIME),
+    ] {
         let mut e = engine(word, EngineConfig::default());
         let out = feed(&mut e, &clip(bytes), false);
         let heard = wakes(&out);
         assert_eq!(heard.len(), 1, "{word}: {out:?}");
-        let Out::Wake { word: said, score, level } = heard[0] else { unreachable!() };
+        let Out::Wake {
+            word: said,
+            score,
+            level,
+        } = heard[0]
+        else {
+            unreachable!()
+        };
         assert_eq!(said, word);
         assert!(*score >= 0.97, "{word} woke at {score}");
         assert!(*level < 0.0, "a level is dBFS: {level}");
-        assert_eq!(audio_len(&out), 0, "nothing goes up before the client takes the turn");
+        assert_eq!(
+            audio_len(&out),
+            0,
+            "nothing goes up before the client takes the turn"
+        );
         assert!(e.in_turn());
     }
 }
@@ -108,7 +129,11 @@ fn a_turn_goes_up_after_accept_with_the_preroll_in_front_and_the_live_audio_afte
     assert_eq!(audio_len(&out), 0);
     e.accept(&mut out);
     let preroll = audio_len(&out) - after.len();
-    assert_eq!(preroll, given.min(16_000), "the second before the wake, or all there was");
+    assert_eq!(
+        preroll,
+        given.min(16_000),
+        "the second before the wake, or all there was"
+    );
     for o in &out {
         if let Out::Audio(a) = o {
             assert!(a.len() <= 1_280, "a message fits the frame: {}", a.len());
@@ -150,7 +175,11 @@ fn a_turn_is_cut_at_its_limit() {
     e.accept(&mut out);
     let out = feed(&mut e, &silence(3.0), false);
     assert_eq!(out.last(), Some(&Out::Ended(EndReason::Limit)));
-    assert_eq!(audio_len(&out), 32_000, "the turn is two seconds from the wake");
+    assert_eq!(
+        audio_len(&out),
+        32_000,
+        "the turn is two seconds from the wake"
+    );
     assert!(!e.in_turn());
 }
 
@@ -158,7 +187,10 @@ fn a_turn_is_cut_at_its_limit() {
 fn audio_that_is_not_for_the_wake_word_is_not_listened_to() {
     let mut e = engine("okay_nabu", EngineConfig::default());
     let samples = clip(OKAY_NABU);
-    assert!(feed(&mut e, &samples, true).is_empty(), "another reader has the microphone");
+    assert!(
+        feed(&mut e, &samples, true).is_empty(),
+        "another reader has the microphone"
+    );
     assert!(!e.in_turn());
     // The model started clean: the word heard whole afterwards wakes it.
     assert_eq!(wakes(&feed(&mut e, &samples, false)).len(), 1);
@@ -170,8 +202,15 @@ fn an_open_turn_is_not_cut_by_the_word_being_said_in_it() {
     let mut out = Vec::new();
     e.open();
     out.extend(feed(&mut e, &clip(OKAY_NABU), false));
-    assert!(wakes(&out).is_empty(), "the word said inside a turn is the person talking: {out:?}");
-    assert_eq!(audio_len(&out), clip(OKAY_NABU).len(), "no preroll in an opened turn, all of it live");
+    assert!(
+        wakes(&out).is_empty(),
+        "the word said inside a turn is the person talking: {out:?}"
+    );
+    assert_eq!(
+        audio_len(&out),
+        clip(OKAY_NABU).len(),
+        "no preroll in an opened turn, all of it live"
+    );
 }
 
 #[test]
