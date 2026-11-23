@@ -206,10 +206,13 @@ impl<'a> Paint<'a> {
         use crate::game::model::{Layer, Page};
         let model: &Model = self.model;
         let view = &model.view;
-        let focus = if view.top().is_some_and(Layer::is_sheet) { None } else { self.plan.hits.iter().find(|(id, _)| *id == view.focus).map(|(_, f)| *f) };
+        // A layer the Game page draws over its cards keeps them where they were: its own focus does not scroll them.
+        let over = view.page == Page::Game && matches!(view.top(), Some(Layer::Section(_) | Layer::Reader | Layer::Chooser));
+        let focus = if over || view.top().is_some_and(Layer::is_sheet) { None } else { self.plan.hits.iter().find(|(id, _)| *id == view.focus).map(|(_, f)| *f) };
         let scrollable = |id: u64| match (view.page, view.pane) {
             (Page::Game, _) if view.top() == Some(Layer::Viewer) => false,
-            (Page::Game, _) => id >= 100,
+            // Only the cards scroll: the layers the Game page draws over them (ids from 1000) stand from the top of the screen.
+            (Page::Game, _) => (100..1000).contains(&id),
             (Page::Settings, _) => false,
             (Page::Library, _) => id >= 1000,
             _ => false,
@@ -258,7 +261,7 @@ impl<'a> Paint<'a> {
         // The stats HUD sits wholly above y = 150 (Compact is about 60 px tall at y = 54): it is not page content, so the cull below
         // that drops what scrolled behind the page's top edge must not take it.
         self.plan.nodes.retain(|n| {
-            if grouped.contains(&n.id) || n.id < 100 || HUD.contains(&n.id) {
+            if grouped.contains(&n.id) || n.id < 100 || HUD.contains(&n.id) || (view.page == Page::Game && n.id >= 1000) {
                 true
             } else if page_group && scrollable(n.id) {
                 in_travel(n)

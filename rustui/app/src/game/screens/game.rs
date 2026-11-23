@@ -475,8 +475,10 @@ fn way_word(m: &Model, key: &lumagame_core::ids::SourceKey) -> (&'static str, Ro
 /// The ways to play in a drawer on the right, and Remember under them.
 fn chooser(p: &mut Paint<'_>, id: GameId) {
     let m = p.model;
-    let slot = drawer::open(p, Side::Right, drawer::WIDTH, "Where to play");
-    let rh = row_height(p);
+    // Large text gets a wider drawer and one-line rows, so the ways, the switch and the hints still fit under the title.
+    let large = p.scale > 1.0;
+    let slot = drawer::open(p, Side::Right, if large { drawer::WIDTH * 1.4 } else { drawer::WIDTH }, "Where to play");
+    let rh = if large { (p.line(Type::Body) + 28.0).max(p.tokens.target) } else { row_height(p) };
     let mut y = slot.y;
     for (i, source) in m.game(id).map_or(&[][..], |g| g.sources.as_slice()).iter().enumerate() {
         let key = source.key();
@@ -487,14 +489,14 @@ fn chooser(p: &mut Paint<'_>, id: GameId) {
             Some(EngineKind::Account) => Icon::Person,
             _ => Icon::Package,
         };
-        let target = m.target(&key).map(|t| t.name.as_str());
+        let target = if large { None } else { m.target(&key).map(|t| t.name.as_str()) };
         let frame = Frame::new(slot.x, y, slot.w, rh);
         let focused = p.focused(Focus::SheetRow(i));
         row::value(p, 8100 + i as u64 * 20, frame, &Line { lead: Leading::Glyph(glyph), name: m.engine_name(&key.engine), sub: target }, word, Some((Icon::Circle, role)), focused);
         p.hit(Focus::SheetRow(i), frame);
         y += rh + ROW_GAP;
     }
-    let frame = Frame::new(slot.x, y + ROW_GAP, slot.w, rh);
+    let frame = Frame::new(slot.x, y + ROW_GAP, slot.w, (p.line(Type::Body) + 28.0).max(p.tokens.target));
     let focused = p.focused(Focus::Remember);
     row::switch(p, 8700, frame, &Line { lead: Leading::None, name: "Remember for this game", sub: None }, m.view.remember, focused);
     p.hit(Focus::Remember, frame);
@@ -514,6 +516,25 @@ mod tests {
             .iter()
             .flat_map(|n| if let Body::Text { words, .. } = &n.body { words.iter().map(|w| w.text.clone()).collect() } else { Vec::new() })
             .collect()
+    }
+
+    #[test]
+    fn the_chooser_keeps_its_title_and_switch_clear_of_the_hints_at_any_text_size() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gfn", "GeForce NOW", EngineKind::Cloud)]);
+        describe(&mut m, "gfn", vec![], &[Feature::EndGame]);
+        engine_says(&mut m, "gfn", lumagame_core::ipc::Event::Targets { targets: vec![linked("main")] });
+        let entries = vec![entry("1", "Quake", lumagame_core::ipc::Role::Game, &[], Default::default())];
+        engine_says(&mut m, "gfn", lumagame_core::ipc::Event::Library { target: lumagame_core::ids::TargetId::new("main").unwrap(), entries, next: None });
+        m.open_game(id_of(&m, "Quake"), None);
+        m.view.push(Layer::Chooser, m.view.focus);
+        for percent in [100, 200] {
+            m.prefs.text_percent = percent;
+            let plan = plan_in(&m, ui::lucent::palette::Mode::Dark);
+            assert!(words(&m).iter().any(|w| w == "Where to play"), "{percent} %");
+            let switch = plan.hits.iter().find(|(f, _)| *f == Focus::Remember).unwrap().1;
+            let hints = plan.nodes.iter().filter(|n| (hints::ID..hints::ID + 100).contains(&n.id)).map(|n| n.frame.y).fold(f32::MAX, f32::min);
+            assert!(switch.y + switch.h <= hints, "{percent} %: the switch stays above the hints");
+        }
     }
 
     #[test]
