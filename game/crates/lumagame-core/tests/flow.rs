@@ -21,7 +21,7 @@ struct Scripted {
 
 impl Scripted {
     fn new(target: &str, name: &str, library: &str) -> Scripted {
-        let target = Target { id: TargetId::new(target).unwrap(), name: name.into(), detail: None, link: Link::Linked, reach: Reach::Online };
+        let target = Target { id: TargetId::new(target).unwrap(), name: name.into(), detail: None, avatar: None, link: Link::Linked, reach: Reach::Online };
         Scripted { target, library: serde_json::from_str(library).unwrap(), lines_in: Vec::new(), lines_out: VecDeque::new() }
     }
 

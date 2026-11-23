@@ -846,6 +846,14 @@ impl Model {
     pub fn art_path(&self, url: &str) -> Option<PathBuf> {
         self.art.get(url).cloned()
     }
+    /// Where the signed-in account's profile picture is kept (an engine's cache path), for the top bar's avatar.
+    pub fn avatar_url(&self) -> Option<String> {
+        let linked = self.integrations.iter().filter(|e| e.manifest.kind == EngineKind::Account).flat_map(|e| &e.targets);
+        linked.filter(|t| t.link == ipc::Link::Linked).find_map(|t| t.avatar.clone())
+    }
+    pub fn avatar_path(&self) -> Option<PathBuf> {
+        self.avatar_url().and_then(|url| self.art_path(&url))
+    }
     pub fn step(&mut self, input: Input) -> Vec<Command> {
         let mut out = Vec::new();
         let mut changed = true;
@@ -1685,6 +1693,7 @@ impl Model {
     }
     fn request_visible_art(&mut self, out: &mut Vec<Command>) {
         let mut wanted = Vec::new();
+        wanted.extend(self.avatar_url());
         let hero = if matches!(self.view.page, Page::Home | Page::Library) { self.view.featured } else { self.view.selected };
         if let Some(id) = hero {
             for kind in [ArtKind::Hero, ArtKind::Logo] {

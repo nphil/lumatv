@@ -129,7 +129,10 @@ impl FakeHttp {
     fn reply(&self, post: bool, url: &str, headers: &[(&str, &str)], body: &str, limit: usize) -> Result<Resp, HttpError> {
         let mut fake = self.0.borrow_mut();
         fake.sent.push(Sent { post, url: url.to_owned(), headers: headers.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(), body: body.to_owned() });
-        let (_, replies) = fake.routes.iter_mut().find(|(needle, _)| url.contains(needle.as_str())).unwrap_or_else(|| panic!("no scripted reply for {url}"));
+        // The profile page is best effort, so a test that does not script it sees Steam unreachable.
+        let Some((_, replies)) = fake.routes.iter_mut().find(|(needle, _)| url.contains(needle.as_str())) else {
+            return if url.contains("/profiles/") { Err(HttpError::Unreachable) } else { panic!("no scripted reply for {url}") };
+        };
         let reply = if replies.len() > 1 { replies.pop_front() } else { replies.front().cloned() };
         match reply.expect("a script holds a reply") {
             Ok(resp) if resp.body.len() > limit => Err(HttpError::TooLarge),

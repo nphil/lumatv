@@ -499,7 +499,7 @@ impl Adapter {
         let Ok(id) = id else { self.core_gone("The GeForce NOW account identity is invalid"); return; };
         self.scope = scope;
         self.target = Some(Target { id:id.clone(),name:r["session"]["user"]["displayName"].as_str().unwrap_or("GeForce NOW").into(),
-            detail:r["session"]["user"]["membershipTier"].as_str().map(str::to_owned),link:Link::Linked,reach:Reach::Online });
+            detail:r["session"]["user"]["membershipTier"].as_str().map(str::to_owned),avatar:None,link:Link::Linked,reach:Reach::Online });
         self.targets(seq);
         if completed {
             if let Some(a) = self.auth.take() { self.emit(Some(a.seq),Event::Auth { state:AuthState::Done { target:id } }); }

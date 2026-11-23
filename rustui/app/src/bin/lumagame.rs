@@ -483,6 +483,10 @@ fn inside(root: &Path, path: &Path) -> Option<PathBuf> {
 }
 
 fn local_art(model: &Model, data: &Path, url: &str) -> Option<PathBuf> {
+    // An account's profile picture is a file the account's engine keeps in its own cache directory.
+    for engine in model.integrations.iter().filter(|e| e.targets.iter().any(|t| t.avatar.as_deref() == Some(url))) {
+        if let Some(path) = inside(&data.join("cache").join(engine.manifest.id.as_str()), Path::new(url)) { return Some(path); }
+    }
     for source in model.games().iter().flat_map(|game| &game.sources) {
         let art = &source.entry.art;
         if ![&art.cover, &art.hero, &art.logo, &art.icon].iter().any(|entry| entry.as_deref() == Some(url)) { continue; }

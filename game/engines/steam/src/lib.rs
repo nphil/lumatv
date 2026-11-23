@@ -15,6 +15,7 @@
 
 mod achievements;
 mod auth;
+mod avatar;
 mod community;
 #[cfg(test)]
 mod fake;
@@ -94,6 +95,10 @@ pub struct Adapter<H, C> {
     pub(crate) community: community::State,
     /// The owner asked for a refresh: the next start of a library round goes to Steam whatever the wait.
     pub(crate) refresh_wanted: bool,
+    /// The kept profile picture in the cache directory, when there is one.
+    pub(crate) avatar: Option<PathBuf>,
+    /// The picture has been looked up since the engine started.
+    pub(crate) avatar_checked: bool,
     /// The events of the call in progress.
     out: Vec<FromEngine>,
     /// The account's state changed on its own, and the app is told once the reply that caused it is out.
@@ -115,6 +120,8 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             store: None,
             community: community::State::default(),
             refresh_wanted: false,
+            avatar: None,
+            avatar_checked: false,
             out: Vec::new(),
             targets_changed: false,
         }
@@ -165,6 +172,7 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         }
         (self.data, self.cache) = (data, cache);
         self.account = Account::load(&self.data, self.clock.unix_s());
+        self.avatar = self.account.as_ref().and_then(|_| avatar::saved(&self.cache));
         self.note(if self.account.is_some() { "ready, signed in" } else { "ready, signed out" });
         self.phase = Phase::Ready;
         self.answer(seq, Event::Ready { descriptor: descriptor(), schema: schema() });
@@ -206,6 +214,7 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         self.account = None;
         self.snapshot = None;
         self.store = None;
+        self.forget_avatar();
         self.answer(seq, Event::Targets { targets: Vec::new() });
     }
 
@@ -217,6 +226,7 @@ impl<H: Http, C: Clock> Adapter<H, C> {
                 id: account.target_id(),
                 name: account.name(),
                 detail: None,
+                avatar: self.avatar.as_ref().map(|path| path.to_string_lossy().into_owned()),
                 link: if account.expired { Link::Expired } else { Link::Linked },
                 reach: Reach::Online,
             })
@@ -392,7 +402,7 @@ mod tests {
     #[test]
     fn targets_list_the_account_with_its_state() {
         let mut rig = Rig::signed_in();
-        let expected = Target { id: target_id(), name: "Rig".into(), detail: None, link: Link::Linked, reach: Reach::Online };
+        let expected = Target { id: target_id(), name: "Rig".into(), detail: None, avatar: None, link: Link::Linked, reach: Reach::Online };
         assert_eq!(rig.send(Request::Targets), [FromEngine::answer(2, Event::Targets { targets: vec![expected] })]);
 
         let mut rig = Rig::new();

@@ -18,6 +18,7 @@ impl Shots {
     /// A harness whose panel refreshes `refresh_hz` times a second: the shots draw at 60, the budget walks at the 120 Hz the TV is driven at.
     pub(super) fn at(refresh_hz: f32) -> io::Result<Self> {
         crate::rig::software_gl();
+        write_avatar()?;
         let shm = tempfile::tempdir()?;
         let gles = Gles::software_pbuffer(c"libEGL.so.1", 1920, 1080)?;
         let (mut engine, end) = Engine::new(
@@ -391,7 +392,8 @@ pub(super) fn with_hades_community(mut model: Model) -> Model {
     }
     describe(&mut model, "steam", vec![AuthMethod::Qr], &[Feature::Achievements, Feature::Community]);
     let target = TargetId::new(ACCOUNT).unwrap();
-    event(&mut model, "steam", ipc::Event::Targets { targets: vec![ipc::Target { name: "Nitin".into(), ..linked(ACCOUNT) }] });
+    event(&mut model, "steam", ipc::Event::Targets { targets: vec![ipc::Target { name: "Nitin".into(), avatar: Some(AVATAR_URL.into()), ..linked(ACCOUNT) }] });
+    model.art.insert(AVATAR_URL.into(), avatar_file());
     // Steam lists the game as a record only: its recent hours, beside this TV's own history of it.
     let record = entry(APP, "Hades II", Role::Record, &["steam:1145350"], Activity { recent_s: Some(4 * 3600), ..Activity::default() });
     event(&mut model, "steam", ipc::Event::Library { target: target.clone(), entries: vec![record], next: None });
@@ -501,6 +503,24 @@ pub(super) fn png(path: &Path, w: u32, h: u32, bytes: &[u8]) -> io::Result<()> {
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     encoder.write_header().and_then(|mut w| w.write_image_data(bytes)).map_err(io::Error::other)
+}
+
+const AVATAR_URL: &str = "fixture://avatar";
+fn avatar_file() -> PathBuf {
+    std::env::var_os("CODY_SCRATCH").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("lumagame-fixture-avatar.png")
+}
+/// The Steam profile picture of the shots: an abstract gradient with a ring, nobody's photo, 64 px like Steam's medium picture.
+fn write_avatar() -> io::Result<()> {
+    let mut rgba = Vec::with_capacity(64 * 64 * 4);
+    for y in 0..64 {
+        for x in 0..64 {
+            let t = (x + y) as f32 / 126.0;
+            let ring = ((x as f32 - 31.5).hypot(y as f32 - 31.5) - 17.0).abs() < 3.0;
+            let (r, g, b) = if ring { (205.0, 215.0, 225.0) } else { (40.0 + 120.0 * t, 150.0 - 80.0 * t, 175.0 + 40.0 * t) };
+            rgba.extend([r as u8, g as u8, b as u8, 255]);
+        }
+    }
+    png(&avatar_file(), 64, 64, &rgba)
 }
 /// A cloud game running in `fixture()`, past its first tick.
 pub(super) fn playing() -> (Model, lumagame_core::ids::SessionId) {

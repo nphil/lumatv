@@ -147,7 +147,7 @@ pub(crate) fn entry(id: &str, title: &str, role: ipc::Role, external: &[&str], a
     }
 }
 pub(crate) fn linked(id: &str) -> Target {
-    Target { id: TargetId::new(id).unwrap(), name: id.into(), detail: None, link: ipc::Link::Linked, reach: ipc::Reach::Online }
+    Target { id: TargetId::new(id).unwrap(), name: id.into(), detail: None, avatar: None, link: ipc::Link::Linked, reach: ipc::Reach::Online }
 }
 pub(crate) fn engine_says(m: &mut Model, engine: &str, event: ipc::Event) -> Vec<Command> {
     m.step(Input::Engine { engine: EngineId::new(engine).unwrap(), message: Box::new(FromEngine { re: None, event }) })

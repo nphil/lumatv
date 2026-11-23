@@ -177,7 +177,7 @@ mod tests {
                 activity: Default::default(),
             },
         };
-        let target = |link, reach| Target { id: "pc1".to_owned().try_into().unwrap(), name: "Gaming PC".into(), detail: None, link, reach };
+        let target = |link, reach| Target { id: "pc1".to_owned().try_into().unwrap(), name: "Gaming PC".into(), detail: None, avatar: None, link, reach };
         let of = |entry, link, reach| Candidate::of(&source(entry), Some(&target(link, reach))).readiness;
 
         assert_eq!(of(Ready, Link::Linked, Reach::Online), Ready);

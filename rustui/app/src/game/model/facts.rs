@@ -886,7 +886,7 @@ mod tests {
 
     #[test]
     fn what_an_integration_needs_reads_as_one_line() {
-        let pc = |link, reach| Target { id: TargetId::new("pc").unwrap(), name: "Desk PC".into(), detail: None, link, reach };
+        let pc = |link, reach| Target { id: TargetId::new("pc").unwrap(), name: "Desk PC".into(), detail: None, avatar: None, link, reach };
         type Row<'a> = (&'a str, EngineKind, Vec<Target>, Option<ErrorCode>, Option<&'a str>);
         let rows: Vec<Row> = vec![
             ("GeForce NOW", EngineKind::Cloud, vec![linked("main")], None, None),

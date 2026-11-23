@@ -89,7 +89,7 @@ impl Native {
     fn tell_library(&mut self, seq: u64) { self.answer(seq, Event::Library { target: target(), entries: self.library(), next: None }); }
 
     fn targets(&self) -> Event {
-        Event::Targets { targets: vec![Target { id: target(), name: "This TV".into(), detail: None,
+        Event::Targets { targets: vec![Target { id: target(), name: "This TV".into(), detail: None, avatar: None,
             link: Link::Linked, reach: if self.available { Reach::Online } else { Reach::Offline } }] }
     }
 

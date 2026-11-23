@@ -460,11 +460,13 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         // A saved library belongs to the account it came from.
         if self.account.as_ref().is_none_or(|old| old.steamid != account.steamid) {
             self.snapshot = None;
+            self.forget_avatar();
             if let Err(error) = files::remove(&self.cache, crate::library::CACHE_FILE) {
                 self.note(&format!("sign-in: the earlier account's library could not be deleted ({:?})", error.kind()));
             }
         }
-        account.persona = self.persona(&account.steamid);
+        let page = self.profile_page(&account.steamid);
+        account.persona = page.as_deref().and_then(persona_name);
         if account.persona.is_some()
             && let Err(error) = account.save(&self.data)
         {
@@ -472,16 +474,12 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         }
         let target = account.target_id();
         self.account = Some(account);
+        if let Some(page) = page {
+            self.keep_avatar(&page);
+        }
         self.answer(seq, Event::Auth { state: AuthState::Done { target } });
         self.targets_changed();
         self.note("sign-in: approved");
-    }
-
-    /// The account's profile name from its public community page. Best effort: any trouble is no name.
-    fn persona(&mut self, steamid: &str) -> Option<String> {
-        let url = format!("{}/profiles/{steamid}/?xml=1", http::COMMUNITY);
-        let resp = self.http.get(&url, http::PERSONA_BODY).ok().filter(|resp| resp.status == 200)?;
-        persona_name(&resp.body)
     }
 
     fn fail_auth(&mut self, seq: u64, reason: AuthFail, message: &str) {
@@ -608,7 +606,7 @@ mod tests {
     }
 
     fn persona_target(name: &str) -> Target {
-        Target { id: id(), name: name.to_owned(), detail: None, link: Link::Linked, reach: Reach::Online }
+        Target { id: id(), name: name.to_owned(), detail: None, avatar: None, link: Link::Linked, reach: Reach::Online }
     }
 
     #[test]

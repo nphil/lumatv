@@ -672,7 +672,7 @@ mod tests {
     fn an_unchecked_game_on_a_linked_online_target_is_available() {
         use lumagame_core::ids::TargetId;
         use lumagame_core::ipc::{Link, Reach, Readiness, Target};
-        let target = |link, reach| Target { id: TargetId::new("main").unwrap(), name: "n".into(), detail: None, link, reach };
+        let target = |link, reach| Target { id: TargetId::new("main").unwrap(), name: "n".into(), detail: None, avatar: None, link, reach };
         let online = target(Link::Linked, Reach::Online);
         assert_eq!(status_of(Readiness::Unknown, Some(&online), true).0, "Available");
         assert_eq!(status_of(Readiness::Install, Some(&online), true).0, "Install", "a checked answer wins");

@@ -28,6 +28,7 @@ impl Host {
         Target {
             id: self.id(), name: self.known.name.clone(),
             detail: Some(punktfunk_core::discovery::join_host_port(&self.known.addr, self.known.port)),
+            avatar: None,
             link: if self.known.paired { Link::Linked } else { Link::Found },
             reach: match self.online {
                 Some(true) => Reach::Online,

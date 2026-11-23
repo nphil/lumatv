@@ -1,5 +1,5 @@
-//! The top bar: Home, Library and Search in a pill on the left, the profile avatar alone on the right, and under them the note of a
-//! running library refresh. Settings, accounts and Refresh live in the quick menu, which the avatar opens.
+//! The top bar: Home, Library and Search in a pill on the left, the Steam profile picture with the word Menu on the right, and under
+//! them the note of a running library refresh. Settings, accounts and Refresh live in the quick menu, which the avatar opens.
 //!
 //! Node ids: 10 the pill, 11-13 each item's label, 14 Library's mark, 15-17 the current item's wash, 20-25 the focus treatment of each
 //! item, 30-37 the avatar, 45-48 the shoulder marks.
@@ -25,8 +25,15 @@ pub enum Here {
     Elsewhere,
 }
 
-/// The pill that holds the avatar is its 64 px item and the pill's padding.
-const AVATAR_W: f32 = 76.0;
+/// The avatar's disc.
+fn disc_side(p: &Paint<'_>) -> f32 {
+    (30.0 * p.scale + 14.0).min(60.0)
+}
+/// The pill that holds the avatar and the word Menu beside it: the pill's padding, the disc, a gap, the word and its end padding. The
+/// word is what tells that the avatar opens the quick menu.
+fn avatar_width(p: &mut Paint<'_>) -> f32 {
+    12.0 + disc_side(p) + 14.0 + p.width("Menu", Type::Label) + 24.0
+}
 /// The room between a shoulder mark and the pill it belongs to.
 const BUMP_GAP: f32 = 14.0;
 
@@ -104,26 +111,34 @@ pub fn bar(p: &mut Paint<'_>, here: Here, attention: bool) -> f32 {
     end
 }
 
+/// The avatar: the signed-in Steam account's picture in a disc, or a person in a neutral disc when there is none (signed out, offline or
+/// not fetched yet), with the word Menu beside it.
 fn avatar(p: &mut Paint<'_>, current: bool, attention: bool, fill: Fill, cached: bool, h: f32) {
-    let pill = Frame::new(W - p.x - AVATAR_W, p.y, AVATAR_W, h);
+    let w = avatar_width(p);
+    let pill = Frame::new(W - p.x - w, p.y, w, h);
     p.surface(30, pill, fill, Radius::Pill, false, false, cached, 60);
-    let item = Frame::new(pill.x + 6.0, p.y + 6.0, AVATAR_W - 12.0, h - 12.0);
+    let item = Frame::new(pill.x + 6.0, p.y + 6.0, w - 12.0, h - 12.0);
     let from = p.plan.nodes.len();
     if current {
         p.surface(33, item, Fill::Tint(p.tokens.states.selected_wash), Radius::Pill, false, false, false, 61);
     }
-    let d = (30.0 * p.scale + 14.0).min(60.0);
-    let (disc, ink) = p.primary(false);
-    p.solid(31, Frame::new(item.x + (item.w - d) / 2.0, item.y + (item.h - d) / 2.0, d, d), disc, d / 2.0, 61);
-    let initial = p.model.state().profile().name.chars().next().unwrap_or('N').to_string();
-    let mut word = p.word(initial, Type::Caption, ink, (item.w - d) / 2.0, (item.h - p.line(Type::Caption)) / 2.0, d);
-    word.ty = p.bold(Type::Caption);
-    word.align = Align::Centre;
-    p.words(32, item, vec![word], vec![], 62);
+    let d = disc_side(p);
+    let disc = Frame::new(item.x + 6.0, item.y + (item.h - d) / 2.0, d, d);
+    let mut marks = Vec::new();
+    match p.model.avatar_path() {
+        Some(path) => p.image(31, path, disc, d / 2.0, false, None, 62),
+        None => {
+            p.surface(31, disc, Fill::Tint(p.tokens.states.selected_wash), Radius::Pill, false, false, false, 61);
+            let side = d * 0.64;
+            marks.push(p.mark(Icon::Person, side, 6.0 + (d - side) / 2.0, (item.h - side) / 2.0, Role::Ink2, false));
+        }
+    }
+    let label = p.word("Menu", Type::Label, p.ink(Role::Ink2, false), 6.0 + d + 14.0, (item.h - p.line(Type::Label)) / 2.0, item.w - d - 20.0);
+    p.words(32, item, vec![label], marks, 62);
     focus::treat(p, from, 34, item, Kind::Button, p.focused(Focus::Nav(3)));
     if attention {
-        // 14 px, 6 px in from the item's top-right corner, on a ring of the canvas that keeps it apart from the disc.
-        let dot = Frame::new(item.x + item.w - 6.0 - 14.0, item.y + 6.0, 14.0, 14.0);
+        // 14 px on the disc's top-right corner, on a ring of the canvas that keeps it apart from the disc.
+        let dot = Frame::new(disc.x + d - 10.0, item.y + 6.0, 14.0, 14.0);
         let ring = Frame::new(dot.x - 3.0, dot.y - 3.0, 20.0, 20.0);
         p.solid(36, ring, p.ink(Role::Canvas, false), 10.0, 70);
         p.solid(37, dot, p.ink(Role::Warning, false), 7.0, 71);
@@ -143,7 +158,7 @@ pub fn refresh_note(p: &mut Paint<'_>, id: u64, left: f32, y: f32) {
         RefreshLine::Done { text, problem: true } => (text, Icon::Alert, Role::Warning),
     };
     let x = left + 24.0;
-    let avatar = W - p.x - AVATAR_W - 24.0;
+    let avatar = W - p.x - avatar_width(p) - 24.0;
     let side = 26.0 * p.scale;
     let text_w = (avatar - x - side - 52.0).max(200.0);
     let lines = p.fit(&text, Type::Caption, text_w, 3);

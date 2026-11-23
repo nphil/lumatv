@@ -183,6 +183,10 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             if forced || self.snapshot.as_ref().is_none_or(|snapshot| snapshot.stale(now)) {
                 refusal = self.refresh_library(&steamid).err();
             }
+            // The profile picture is looked up once after the engine starts, and again when the owner refreshes.
+            if forced || !std::mem::replace(&mut self.avatar_checked, true) {
+                self.refresh_avatar();
+            }
         }
         let paged = self.snapshot.as_ref().map(|snapshot| page(&snapshot.entries, cursor));
         match (paged, cursor) {
@@ -350,7 +354,8 @@ mod tests {
                 "IAuthenticationService/GenerateAccessTokenForApp/v1/",
                 "IPlayerService/GetOwnedGames/v1/",
                 "IStoreService/GetTagList/v1/",
-                "IStoreBrowseService/GetItems/v1/"
+                "IStoreBrowseService/GetItems/v1/",
+                "profiles/76561198000000001/"
             ]
         );
         let owned = &rig.http.to("GetOwnedGames")[0];

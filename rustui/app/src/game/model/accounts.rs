@@ -497,7 +497,7 @@ mod tests {
     fn repeated_targets_leave_the_running_library_traversal_alone() {
         let mut m = Model::new(State::default(), Listing::default(), vec![]);
         let engine = EngineId::new("gfn").unwrap();
-        let target = ipc::Target { id: TargetId::new("main").unwrap(), name: "nphil".into(), detail: None, link: ipc::Link::Linked, reach: ipc::Reach::Online };
+        let target = ipc::Target { id: TargetId::new("main").unwrap(), name: "nphil".into(), detail: None, avatar: None, link: ipc::Link::Linked, reach: ipc::Reach::Online };
         let deliver = |m: &mut Model, event| {
             m.step(Input::Engine { engine: engine.clone(), message: Box::new(FromEngine { re: None, event }) })
                 .into_iter().filter(|c| matches!(c, Command::Send { request: Request::Library { .. }, .. })).count()
@@ -517,7 +517,7 @@ mod tests {
         let pc = EngineId::new("pc").unwrap();
         let other = EngineId::new("other").unwrap();
         let target = |id: &str| Target {
-            id: TargetId::new(id).unwrap(), name: id.into(), detail: None, link: ipc::Link::Linked, reach: ipc::Reach::Online,
+            id: TargetId::new(id).unwrap(), name: id.into(), detail: None, avatar: None, link: ipc::Link::Linked, reach: ipc::Reach::Online,
         };
         let targets = vec![target("main"), target("second")];
         let entry = ipc::LibraryEntry {

@@ -300,6 +300,9 @@ pub struct Target {
     /// A second line: the plan, the address.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// The account's profile picture: the absolute path of an image the engine keeps in its cache directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
     pub link: Link,
     pub reach: Reach,
 }
@@ -869,7 +872,7 @@ mod tests {
         let events = [
             Event::Ready { descriptor, schema: SettingsSchema::default() },
             Event::Targets {
-                targets: vec![Target { id: target(), name: "Gaming PC".into(), detail: Some("192.168.1.20".into()), link: Link::Linked, reach: Reach::Asleep }],
+                targets: vec![Target { id: target(), name: "Gaming PC".into(), detail: Some("192.168.1.20".into()), avatar: None, link: Link::Linked, reach: Reach::Asleep }],
             },
             auth(AuthState::ShowPin { pin: "4821".into() }),
             auth(AuthState::EnterPin { digits: 4 }),
