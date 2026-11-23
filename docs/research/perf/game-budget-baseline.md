@@ -31,3 +31,4 @@ Read with care:
 - The first-frame upload of about 8.3 MB is one 1920 by 1080 stage picture; peaks after it are covers.
 - The harness draws whole frames, so drawn and damaged areas are always the full panel and are not tabled.
 - The light, bright and pad variants of a screen draw the same layers and are not walked; the `-text200` screens are.
+- The run predates the harness rebuilding each walk's focus graph: on screens the shots set up after the fixture, the D-pad keys moved nothing, so those rows hold the first frames and the OK on the starting focus. Their numbers are a floor; a new `GAME_BUDGET=all` run replaces them.
