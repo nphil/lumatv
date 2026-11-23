@@ -77,7 +77,7 @@ impl PadSink for Pads {
                 let Some(s) = state.slots.get_mut(usize::from(slot)) else {return};
                 if app {
                     s.menu.feed(&next,|key| {
-                        let key = match key {MenuKey::Up=>PadKey::Up,MenuKey::Down=>PadKey::Down,MenuKey::Left=>PadKey::Left,MenuKey::Right=>PadKey::Right,MenuKey::Ok=>PadKey::Ok,MenuKey::Back=>PadKey::Back,MenuKey::Menu=>PadKey::Menu,MenuKey::Alt=>PadKey::Alt};
+                        let key = match key {MenuKey::Up=>PadKey::Up,MenuKey::Down=>PadKey::Down,MenuKey::Left=>PadKey::Left,MenuKey::Right=>PadKey::Right,MenuKey::Ok=>PadKey::Ok,MenuKey::Back=>PadKey::Back,MenuKey::Menu=>PadKey::Menu,MenuKey::Alt=>PadKey::Alt,MenuKey::PageLeft=>PadKey::PageLeft,MenuKey::PageRight=>PadKey::PageRight};
                         for down in [true,false] { let _ = self.out.send(Notice::Emit(FromEngine::told(Event::Key {key,down}))); }
                     });
                 } else {

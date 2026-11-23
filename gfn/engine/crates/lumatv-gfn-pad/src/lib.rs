@@ -102,7 +102,8 @@ pub enum PadEvent {
     /// A changed report; `bitmap` says which slots are connected (bit i) and that they are XInput style (bit i + 8). `press` names the
     /// press in the latency tap when a button went down in this report; the sink gives it back to [`latency::Tap::link`].
     Report { slot: u8, state: PadState, press: Option<u64> },
-    /// The PS/Xbox button: a local action, never sent to the game.
+    /// The PS/Xbox button, or Start held alone for [`PadConfig::chord_hold`] (released when Start is): a local action, never sent to
+    /// the game as a button of its own.
     Guide { slot: u8, pressed: bool },
     /// Select and Start held together for a second: the app's own way out of a stream.
     ExitChord { slot: u8 },
@@ -186,6 +187,7 @@ pub struct PadConfig {
     pub curve: Curve,
     /// Hand every report to [`PadSink::raw`]: a controller test wants them, a stream does not.
     pub raw: bool,
+    /// How long Select and Start together are held before [`PadEvent::ExitChord`], and Start alone before [`PadEvent::Guide`].
     pub chord_hold: Duration,
     /// The helper's loopback address for the readers' real-time boost; `None` asks for nothing.
     pub boost: Option<SocketAddr>,
@@ -891,6 +893,69 @@ fn recompute_bitmap(inner: &Inner) -> u16 {
     b
 }
 
+/// What a button held for the hold time has to say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Held {
+    /// Select and Start together.
+    Chord,
+    /// Start alone: the Guide's press, and its release when Start comes up.
+    Guide(bool),
+}
+
+/// The two long holds on Start. A Start that ever had Select beside it belongs to the chord until it is released, so the chord wins
+/// and never also opens the menu.
+#[derive(Debug, Default)]
+struct Holds {
+    chord: Option<Instant>,
+    chord_sent: bool,
+    start: Option<Instant>,
+    start_sent: bool,
+    chorded: bool,
+}
+
+impl Holds {
+    /// Moves on to the buttons held at `now`; the hold that has just been reached, if any.
+    fn step(&mut self, buttons: u16, now: Instant, hold: Duration) -> Option<Held> {
+        let start = buttons & button::START != 0;
+        let chord = start && buttons & button::BACK != 0;
+        let mut held = None;
+        if !start {
+            if std::mem::take(&mut self.start_sent) {
+                held = Some(Held::Guide(false));
+            }
+            self.start = None;
+            self.chorded = false;
+        } else if chord {
+            self.chorded = true;
+            self.start = None;
+        } else if !self.chorded && self.start.is_none() {
+            self.start = Some(now);
+        }
+        if chord {
+            self.chord.get_or_insert(now);
+        } else {
+            self.chord = None;
+            self.chord_sent = false;
+        }
+        if self.chord.is_some_and(|since| !self.chord_sent && now.duration_since(since) >= hold) {
+            self.chord_sent = true;
+            held = Some(Held::Chord);
+        }
+        if self.start.is_some_and(|since| !self.start_sent && now.duration_since(since) >= hold) {
+            self.start_sent = true;
+            held = Some(Held::Guide(true));
+        }
+        held
+    }
+
+    /// When the next hold comes due, so a reader with nothing else to wait for still wakes for it.
+    fn due(&self, hold: Duration) -> Option<Instant> {
+        let chord = self.chord.filter(|_| !self.chord_sent);
+        let start = self.start.filter(|_| !self.start_sent);
+        chord.into_iter().chain(start).map(|since| since + hold).min()
+    }
+}
+
 fn reader_loop(inner: &Arc<Inner>, slot_index: u8, slot: &Arc<Slot>) {
     // SAFETY: gettid takes nothing and cannot fail.
     slot.tid.store(unsafe { libc::syscall(libc::SYS_gettid) } as i32, Ordering::Release);
@@ -905,10 +970,33 @@ fn reader_loop(inner: &Arc<Inner>, slot_index: u8, slot: &Arc<Slot>) {
     }
     let mut last = raw.state();
     let mut guide = false;
-    let mut chord_since: Option<Instant> = None;
-    let mut chord_sent = false;
+    let mut holds = Holds::default();
+    let hold = inner.config.chord_hold;
+    let announce = |held: Held| {
+        let event = match held {
+            Held::Chord => PadEvent::ExitChord { slot: slot_index },
+            Held::Guide(pressed) => PadEvent::Guide { slot: slot_index, pressed },
+        };
+        inner.sink.pad_event(inner.bitmap.load(Ordering::Acquire), event);
+    };
     let mut buf = [0u8; EVENT_SIZE * 64];
     loop {
+        // A hold falls due while the pad sits still, so the wait for its next report ends when the hold does.
+        if let Some(at) = holds.due(hold) {
+            let mut pfd = libc::pollfd { fd: slot.fd, events: libc::POLLIN, revents: 0 };
+            let ms = i32::try_from(at.saturating_duration_since(Instant::now()).as_millis() + 1).unwrap_or(i32::MAX);
+            // SAFETY: one valid pollfd, and the count says so.
+            let rc = unsafe { libc::poll(&mut pfd, 1, ms) };
+            if rc == 0 {
+                if let Some(held) = holds.step(last.buttons, Instant::now(), hold) {
+                    announce(held);
+                }
+                continue;
+            }
+            if rc < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+        }
         let n = unsafe { libc::read(slot.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
         if n <= 0 {
             let e = io::Error::last_os_error();
@@ -946,19 +1034,8 @@ fn reader_loop(inner: &Arc<Inner>, slot_index: u8, slot: &Arc<Slot>) {
                         guide = g;
                         inner.sink.pad_event(bitmap, PadEvent::Guide { slot: slot_index, pressed: g });
                     }
-                    let chord = state.buttons & (button::BACK | button::START) == (button::BACK | button::START);
-                    match (chord, chord_since) {
-                        (true, None) => chord_since = Some(Instant::now()),
-                        (true, Some(since)) => {
-                            if !chord_sent && since.elapsed() >= inner.config.chord_hold {
-                                chord_sent = true;
-                                inner.sink.pad_event(bitmap, PadEvent::ExitChord { slot: slot_index });
-                            }
-                        }
-                        (false, _) => {
-                            chord_since = None;
-                            chord_sent = false;
-                        }
+                    if let Some(held) = holds.step(state.buttons, Instant::now(), hold) {
+                        announce(held);
                     }
                 }
                 _ => {}
@@ -1372,6 +1449,53 @@ mod tests {
         menu.set_grab(true);
         assert!(holds(&menu), "stop lets go of the grab before closing");
         menu.stop();
+    }
+
+    #[test]
+    fn start_held_alone_is_one_guide_and_the_chord_still_wins() {
+        let hold = Duration::from_secs(1);
+        let t0 = Instant::now();
+        let at = |ms| t0 + Duration::from_millis(ms);
+        let mut long = Holds::default();
+        assert_eq!(long.step(button::START, at(0), hold), None);
+        assert_eq!(long.due(hold), Some(at(1000)));
+        assert_eq!(long.step(button::START, at(999), hold), None);
+        assert_eq!(long.step(button::START, at(1000), hold), Some(Held::Guide(true)));
+        assert_eq!(long.step(button::START, at(5000), hold), None, "one press, however long it is held");
+        assert_eq!(long.due(hold), None);
+        assert_eq!(long.step(0, at(5100), hold), Some(Held::Guide(false)));
+        assert_eq!(long.step(button::START, at(6000), hold), None);
+        assert_eq!(long.step(0, at(6900), hold), None, "a shorter press says nothing, and owes no release");
+        // Select joins Start: only the chord, and Start stays the chord's after Select lets go.
+        assert_eq!(long.step(button::START, at(7000), hold), None);
+        assert_eq!(long.step(button::START | button::BACK, at(7500), hold), None);
+        assert_eq!(long.due(hold), Some(at(8500)));
+        assert_eq!(long.step(button::START | button::BACK, at(8500), hold), Some(Held::Chord));
+        assert_eq!(long.step(button::START, at(8600), hold), None);
+        assert_eq!(long.step(button::START, at(12_000), hold), None, "the chord's Start never opens the menu");
+        assert_eq!(long.step(0, at(12_100), hold), None);
+        // Select first, then Start: the same chord.
+        assert_eq!(long.step(button::BACK, at(13_000), hold), None);
+        assert_eq!(long.step(button::BACK | button::START, at(13_100), hold), None);
+        assert_eq!(long.step(button::BACK | button::START, at(14_100), hold), Some(Held::Chord));
+    }
+
+    #[test]
+    fn a_hold_is_announced_while_the_pad_sits_still() {
+        let pad = FakePad::new("hold");
+        let cfg = PadConfig { chord_hold: Duration::from_millis(30), ..pad.config() };
+        let sink = collect(&cfg);
+        let rt = PadRuntime::start(cfg.clone(), sink.clone());
+        wait_for("the pad", || rt.bitmap() == 0x0101);
+        let guides = || sink.events.lock().unwrap().iter().filter_map(|e| if let PadEvent::Guide { pressed, .. } = e { Some(*pressed) } else { None }).collect::<Vec<_>>();
+        pad.report(&[(EV_KEY, BTN_START, 1)], latency::mono_ns());
+        wait_for("the Guide", || guides() == [true]);
+        pad.report(&[(EV_KEY, BTN_START, 0)], latency::mono_ns());
+        wait_for("its release", || guides() == [true, false]);
+        pad.report(&[(EV_KEY, BTN_SELECT, 1), (EV_KEY, BTN_START, 1)], latency::mono_ns());
+        wait_for("the chord", || sink.events.lock().unwrap().contains(&PadEvent::ExitChord { slot: 0 }));
+        assert_eq!(guides(), [true, false]);
+        rt.stop();
     }
 
     /// `{"pid":n,"tid":n}` without a JSON dependency: the pad crate has none.

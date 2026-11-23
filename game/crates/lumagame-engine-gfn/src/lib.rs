@@ -305,7 +305,7 @@ impl Adapter {
                 let mut keys = Vec::new();
                 l.menus.entry(v["slot"].as_u64().unwrap_or(0)).or_default().feed(&state,|k| keys.push(k));
                 for key in keys {
-                    let key = match key {MenuKey::Up=>PadKey::Up,MenuKey::Down=>PadKey::Down,MenuKey::Left=>PadKey::Left,MenuKey::Right=>PadKey::Right,MenuKey::Ok=>PadKey::Ok,MenuKey::Back=>PadKey::Back,MenuKey::Menu=>PadKey::Menu,MenuKey::Alt=>PadKey::Alt};
+                    let key = match key {MenuKey::Up=>PadKey::Up,MenuKey::Down=>PadKey::Down,MenuKey::Left=>PadKey::Left,MenuKey::Right=>PadKey::Right,MenuKey::Ok=>PadKey::Ok,MenuKey::Back=>PadKey::Back,MenuKey::Menu=>PadKey::Menu,MenuKey::Alt=>PadKey::Alt,MenuKey::PageLeft=>PadKey::PageLeft,MenuKey::PageRight=>PadKey::PageRight};
                     for down in [true,false] { self.emit(None,Event::Key { key,down }); }
                 }
             }
