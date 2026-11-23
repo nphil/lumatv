@@ -283,9 +283,10 @@ pub(crate) fn input_app(id: &str) -> bool {
     ["com.webos.app.hdmi", "com.webos.app.livetv", "com.webos.app.dp", "com.webos.app.usbc", "com.webos.app.externalinput", "youtube.leanback"].iter().any(|p| id.starts_with(p))
 }
 
-/// LumaTV's own apps are not the owner's to switch between (Home, the helper, the card app), as LG's recents leave Home out.
+/// LumaTV's own apps are not the owner's to switch between (Home, the helper, the card app), as LG's recents leave Home out. Its other apps
+/// (`org.nphil.lumagame`, `org.nphil.lumabrowser`) are the owner's and are listed.
 fn own_app(id: &str) -> bool {
-    id == HOME_APP || id.starts_with("org.nphil.luma")
+    id == HOME_APP || id.starts_with("org.nphil.lumatv")
 }
 
 // ---- the state ----
@@ -1016,5 +1017,6 @@ mod tests {
         assert!(input_app("com.webos.app.hdmi2") && input_app("com.webos.app.livetv") && !input_app("netflix") && !input_app("plex"));
         assert!(input_app("youtube.leanback.v4"), "YouTube's card shows its icon and name: its picture is on the video plane");
         assert!(own_app("com.webos.app.home") && own_app("org.nphil.lumatv.helper") && !own_app("com.webos.app.discovery"));
+        assert!(!own_app("org.nphil.lumagame") && !own_app("org.nphil.lumabrowser"), "LumaGame and LumaBrowser are listed, quit and given a picture");
     }
 }
