@@ -9,6 +9,8 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+Helper `f98d7788` -> `3ede3107` (main 8e40c05e, tuner stream diagnostics) at 16:40 EST, then helper `83bc5e2d3613e124eda1cbe9675be2ee17c19e164be97ab7830c69667a7eeac1` and lumatv-ui `24ae712632d7cc84b90809ab71d618926e5ebf37d5ee5af879e83aa6f097f2e6` (replacing `7635037b`; main 074750a6: tuner glyphs, glass-pill task manager numbers) at 16:48 EST, under the TV lock. UI by live swap, compositor untouched (`3ba09192`); audio-passthrough and voice-assistant still enabled.
+
 ## Task manager System sheet, rescue and gate regression checked on the set, 2026-11-23 (main a63e7924)
 
 Run under the TV lock on the installed set (compositor `3ba09192`, UI `7635037b`, lumatv-sm `e6de36b8`, tools/lumatv `6f982df3`, helper `f98d7788`; nothing installed or changed). Screenshots and gate JSON: `/data/home/tmp/taskmgr-checks/`.
