@@ -95,7 +95,7 @@ impl Model {
             }
             Focus::EngineField(i) => self.change_engine_field(i, true, out),
             Focus::Keyboard(i) => self.keyboard(i, out),
-            Focus::SheetAction(i) if self.view.sheet == Some(Layer::Auth) => self.auth_action(i, out),
+            Focus::SheetAction(i) if self.view.top() == Some(Layer::Auth) => self.auth_action(i, out),
             _ => {}
         }
     }
@@ -126,7 +126,7 @@ impl Model {
                 }
                 2 => {
                     self.view.address.clear();
-                    self.open_sheet(Layer::AddHost, Focus::Keyboard(0));
+                    self.push_layer(Layer::AddHost, Focus::Keyboard(0));
                 }
                 3 => self.sign_out(id, out),
                 4 => self.refresh_libraries(Some(id), out),
@@ -163,7 +163,7 @@ impl Model {
         saved.settings.insert(key, value);
         Self::send(out, &id, Request::Settings { values: saved.settings.clone() });
         out.push(Command::SaveState);
-        self.close_sheet();
+        self.pop_layer();
     }
     pub fn auth_remaining(&self) -> Option<u64> {
         self.view.auth.as_ref()?.expires_ms.map(|end| end.saturating_sub(self.now_ms).div_ceil(1000))
@@ -199,7 +199,7 @@ impl Model {
         if let FieldKind::Text { .. } = field.kind {
             self.view.address = if let Some(Value::Text(value)) = current { value } else { String::new() };
             self.view.edit_field = Some(index);
-            self.open_sheet(Layer::EditText, Focus::Keyboard(0));
+            self.push_layer(Layer::EditText, Focus::Keyboard(0));
             return;
         }
         let next = match (&field.kind, current) {
@@ -223,7 +223,7 @@ impl Model {
     pub(super) fn begin_link(&mut self, engine: EngineId, target: Option<TargetId>, out: &mut Vec<Command>) {
         let method = self.integration(&engine).and_then(|e| e.descriptor.as_ref()).and_then(|d| d.capabilities.auth.first()).copied();
         self.view.auth = Some(LinkFlow::new(engine.clone(), target.clone(), self.now_ms));
-        self.open_sheet(Layer::Auth, Focus::SheetAction(0));
+        self.push_layer(Layer::Auth, Focus::SheetAction(0));
         if !self.enabled(&engine) {
             self.state.engines.entry(engine.clone()).or_default().enabled = true;
             out.push(Command::Enable { engine, on: true });
@@ -232,7 +232,7 @@ impl Model {
             Self::send(out, &engine, Request::Auth { target, method });
         } else {
             self.view.notice = Some("This integration does not need a sign-in.".into());
-            self.close_sheet();
+            self.pop_layer();
         }
     }
     pub(super) fn auth_action(&mut self, action: usize, out: &mut Vec<Command>) {
@@ -243,11 +243,11 @@ impl Model {
             let engine = a.engine.clone();
             Self::send(out, &engine, Request::AuthCancel);
             self.view.auth = None;
-            self.close_sheet();
+            self.pop_layer();
             if action == 1 {
                 self.view.selected_engine = Some(engine);
                 self.view.address.clear();
-                self.open_sheet(Layer::AddHost, Focus::Keyboard(0));
+                self.push_layer(Layer::AddHost, Focus::Keyboard(0));
             } else {
                 Self::send(out, &engine, Request::Targets);
                 self.begin_link(engine, None, out);
@@ -275,7 +275,7 @@ mod tests {
         let mut m = Model::new(State::default(), Listing::default(), vec![]);
         let engine = EngineId::new("gfn").unwrap();
         let done = ipc::Event::Auth { state: AuthState::Done { target: TargetId::new("main").unwrap() } };
-        let commands = m.step(Input::Engine { engine, message: FromEngine { re: None, event: done } });
+        let commands = m.step(Input::Engine { engine, message: Box::new(FromEngine { re: None, event: done }) });
         let sent: Vec<_> = commands.iter().filter_map(|c| if let Command::Send { request, .. } = c { Some(request) } else { None }).collect();
         assert!(matches!(sent.as_slice(), [Request::Targets]));
     }
@@ -298,7 +298,7 @@ mod tests {
         let engine = EngineId::new("gfn").unwrap();
         let target = ipc::Target { id: TargetId::new("main").unwrap(), name: "nphil".into(), detail: None, link: ipc::Link::Linked, reach: ipc::Reach::Online };
         let deliver = |m: &mut Model, event| {
-            m.step(Input::Engine { engine: engine.clone(), message: FromEngine { re: None, event } })
+            m.step(Input::Engine { engine: engine.clone(), message: Box::new(FromEngine { re: None, event }) })
                 .into_iter().filter(|c| matches!(c, Command::Send { request: Request::Library { .. }, .. })).count()
         };
         assert_eq!(deliver(&mut m, ipc::Event::Targets { targets: vec![target.clone()] }), 1);
@@ -324,7 +324,7 @@ mod tests {
             external: vec![], store: None, store_account: None, art: ipc::Art::default(), readiness: Readiness::Ready, resumable: false, activity: Default::default(),
         };
         let deliver = |m: &mut Model, engine: &EngineId, event| {
-            m.step(Input::Engine { engine: engine.clone(), message: FromEngine { re: None, event } })
+            m.step(Input::Engine { engine: engine.clone(), message: Box::new(FromEngine { re: None, event }) })
         };
         deliver(&mut m, &pc, ipc::Event::Targets { targets: targets.clone() });
         deliver(&mut m, &pc, ipc::Event::Library { target: targets[0].id.clone(), entries: vec![entry.clone()], next: None });
@@ -349,7 +349,7 @@ mod tests {
         m.open_game(game, None);
         m.rebuild_navigation();
         assert!(!sent(&key(&mut m, Key::Ok)).iter().any(|r| matches!(r, Request::Launch { .. })));
-        assert_eq!(m.view.sheet, Some(Layer::Chooser));
+        assert_eq!(m.view.top(), Some(Layer::Chooser));
         key(&mut m, Key::Ok);
         assert!(!sent(&key(&mut m, Key::Ok)).iter().any(|r| matches!(r, Request::Launch { .. })));
 
@@ -362,7 +362,7 @@ mod tests {
         m.open_game(game, None);
         m.rebuild_navigation();
         assert!(!sent(&key(&mut m, Key::Ok)).iter().any(|r| matches!(r, Request::Launch { .. })));
-        assert_eq!(m.view.sheet, Some(Layer::Chooser));
+        assert_eq!(m.view.top(), Some(Layer::Chooser));
         key(&mut m, Key::Ok);
         assert!(!sent(&key(&mut m, Key::Ok)).iter().any(|r| matches!(r, Request::Launch { .. })));
 
@@ -402,19 +402,19 @@ mod tests {
         let descriptor = m.integrations[0].descriptor.clone().unwrap();
         let other = EngineId::new("other").unwrap();
         let other_descriptor = m.integration(&other).unwrap().descriptor.clone().unwrap();
-        m.step(Input::Engine { engine: other, message: FromEngine { re: None,
-            event: ipc::Event::Ready { descriptor: other_descriptor, schema: schema(&["unrelated"]) } } });
+        m.step(Input::Engine { engine: other, message: Box::new(FromEngine { re: None,
+            event: ipc::Event::Ready { descriptor: other_descriptor, schema: schema(&["unrelated"]) } }) });
         assert_eq!(m.view.focus, Focus::EngineField(1), "a background integration cannot move focus");
         m.step(Input::Key { key: Key::Ok, down: true });
-        m.step(Input::Engine { engine: id.clone(), message: FromEngine { re: None,
-            event: ipc::Event::Ready { descriptor: descriptor.clone(), schema: schema(&["proof", "first", "third"]) } } });
+        m.step(Input::Engine { engine: id.clone(), message: Box::new(FromEngine { re: None,
+            event: ipc::Event::Ready { descriptor: descriptor.clone(), schema: schema(&["proof", "first", "third"]) } }) });
         assert_eq!(m.view.focus, Focus::EngineField(0));
         m.step(Input::Key { key: Key::Ok, down: false });
         assert_eq!(m.state.engines[&id].settings.get("proof"), Some(&Value::Bool(false)), "a held press is cancelled across a reorder");
         key(&mut m, Key::Ok);
         assert_eq!(m.state.engines[&id].settings.get("proof"), Some(&Value::Bool(true)));
-        m.step(Input::Engine { engine: id.clone(), message: FromEngine { re: None,
-            event: ipc::Event::Ready { descriptor, schema: schema(&["first", "third"]) } } });
+        m.step(Input::Engine { engine: id.clone(), message: Box::new(FromEngine { re: None,
+            event: ipc::Event::Ready { descriptor, schema: schema(&["first", "third"]) } }) });
         assert_eq!(m.view.focus, Focus::Nav(3), "a missing or off-page app must not focus another app or switch");
         assert!(!m.state.engines[&id].settings.contains_key("first"));
     }
@@ -437,7 +437,7 @@ mod tests {
                     }
                 }
                 let Some(message) = engine.poll() else { break };
-                commands.extend(model.step(Input::Engine { engine: native::id(), message }));
+                commands.extend(model.step(Input::Engine { engine: native::id(), message: Box::new(message) }));
             }
         }
 
@@ -562,12 +562,12 @@ mod tests {
         m.view.focus = Focus::SheetAction(1);
         let manual = key(&mut m, Key::Ok);
         assert!(matches!(sent(&manual).as_slice(), [Request::AuthCancel]));
-        assert_eq!((m.view.sheet, m.view.focus), (Some(Layer::AddHost), Focus::Keyboard(0)));
+        assert_eq!((m.view.top(), m.view.focus), (Some(Layer::AddHost), Focus::Keyboard(0)));
         assert_eq!(m.view.selected_engine, Some(id.clone()));
 
         let cancelled = AuthState::Failed { reason: ipc::AuthFail::Cancelled, message: "Link cancelled.".into() };
-        m.step(Input::Engine { engine: id, message: FromEngine { re: None, event: ipc::Event::Auth { state: cancelled } } });
-        assert_eq!(m.view.sheet, Some(Layer::AddHost), "the answer to the cancel leaves the address entry open");
+        m.step(Input::Engine { engine: id, message: Box::new(FromEngine { re: None, event: ipc::Event::Auth { state: cancelled } }) });
+        assert_eq!(m.view.top(), Some(Layer::AddHost), "the answer to the cancel leaves the address entry open");
     }
 
 }

@@ -238,7 +238,7 @@ pub(super) fn taps(keys: &[(Key, u32)]) -> Vec<Step> {
 /// picture on the layer, and the page draws one full-screen layer while it runs.
 fn art_walks() -> Vec<Walk> {
     let mut base = fixture();
-    base.view.page = Page::Hub;
+    base.view.page = Page::Game;
     base.view.focus = Focus::Tab(0);
     let mut script = taps(&[(Key::Right, 100)]);
     script.extend([

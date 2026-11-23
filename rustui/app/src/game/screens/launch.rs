@@ -185,6 +185,83 @@ fn window(p: &mut Paint<'_>, rect: Rect, feather: Edges) -> Props {
     node.props = node.props.clip_feathered(rect, feather);
     node.props
 }
+pub fn end_session(p: &mut Paint<'_>) {
+    let (title, body, confirm) = p.model.end_copy();
+    let f = panel(p, 1080.0, if p.scale > 1.0 { 700.0 } else { 400.0 });
+    let x = f.x + 40.0;
+    p.text(8010, title, Frame::new(x, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0), Type::Title, Role::Ink, false, 32);
+    p.wrapped(8020, &body, Frame::new(x, f.y + 78.0 + p.line(Type::Title), f.w - 80.0, 0.0), Type::Body, Role::Ink2, false, 32);
+    let y = f.y + f.h - 104.0;
+    let w = p.button(8030, Focus::SheetAction(0), "Keep playing", Some(Icon::Play), x, y, true, false, 34);
+    p.button(8040, Focus::SheetAction(1), confirm, Some(Icon::Stop), x + w + 16.0, y, false, false, 34);
+}
+pub fn overlay(p: &mut Paint<'_>) {
+    let Some(session) = p.model.session() else {
+        return;
+    };
+    art(p, session.game, 1080.0, 0.0, 1080.0, true);
+    let button_h = p.tokens.target.max(p.line(Type::Label) + 24.0);
+    let actions_y = H - 118.0 - button_h * if p.scale >= 2.0 { 2.0 } else { 1.0 } - if p.scale >= 2.0 { 16.0 } else { 0.0 };
+    let mut stats = Vec::new();
+    let s = &p.model.view.stats;
+    if let Some(v) = s.rtt_ms {
+        stats.push(format!("{v:.0} ms network"));
+    }
+    if let Some(v) = s.loss_pct {
+        stats.push(format!("{v:.1}% packet loss"));
+    }
+    if let Some(v) = s.bitrate_kbps {
+        stats.push(format!("{:.0} Mb/s", v as f32 / 1000.0));
+    }
+    if let Some(v) = s.host_ms {
+        stats.push(format!("{v:.1} ms host"));
+    }
+    if let Some(v) = s.client_ms {
+        stats.push(format!("{v:.1} ms client"));
+    }
+    let stats_text = stats.join("  ·  ");
+    let stats_h = if stats.is_empty() { 0.0 } else { ui::components::wrap(p.fonts, &stats_text, p.ty(Type::Label), W - p.x * 2.0).len() as f32 * p.line(Type::Label) + 10.0 };
+    let mut session_line = vec![p.model.engine_name(&session.source.engine).to_string()];
+    if let Some(stream) = &p.model.view.stream {
+        session_line.push(format!(
+            "{}p · {} fps · {} · {}",
+            stream.height,
+            stream.fps,
+            stream.codec.as_str().to_uppercase(),
+            if stream.hdr { "HDR" } else { "SDR" }
+        ));
+    }
+    let elapsed = p.model.elapsed();
+    session_line.push(format!("{}:{:02} elapsed", elapsed / 60, elapsed % 60));
+    let line = session_line.join("  ·  ");
+    let line_h = ui::components::wrap(p.fonts, &line, p.ty(Type::Label), W - p.x * 2.0).len() as f32 * p.line(Type::Label);
+    let logo_y = actions_y - 40.0 - stats_h - line_h - 30.0 - 240.0;
+    logo(p, 100, session.game, Frame::new(p.x, logo_y, 640.0, 240.0));
+    p.wrapped(101, &line, Frame::new(p.x, logo_y + 270.0, W - p.x * 2.0, line_h), Type::Label, Role::Ink, true, 10);
+    if !stats.is_empty() {
+        p.wrapped(102, &stats_text, Frame::new(p.x, logo_y + 270.0 + line_h + 10.0, W - p.x * 2.0, stats_h), Type::Label, Role::Ink2, true, 10);
+    }
+    if let Some(reason) = p.model.view.stream.as_ref().and_then(|s| s.sdr_reason.as_deref()) {
+        p.text(103, reason, Frame::new(p.x, logo_y - 60.0, W - p.x * 2.0, p.line(Type::Caption)), Type::Caption, Role::Warning, true, 10);
+    }
+    let mut x = p.x;
+    let stats_label = format!("Stats · {}", p.model.prefs.stats.mode.name());
+    let mut y = actions_y;
+    let stats = p.lead(Key::Menu, Icon::Gauge);
+    // X opens it from any item, so on a pad the button wears X's marking in the pad's own style.
+    let steam = p.lead(Key::Alt, Icon::Apps);
+    for (i, action) in p.model.overlay_actions().enumerate() {
+        let (label, lead) = match action {
+            OverlayAction::Resume => ("Resume", Icon::Play.into()),
+            OverlayAction::Settings => ("Stream settings", Icon::Sliders.into()),
+            OverlayAction::Stats => (stats_label.as_str(), stats),
+            OverlayAction::SteamOverlay => ("Steam overlay", steam),
+            OverlayAction::EndSession => ("End session", Icon::Stop.into()),
+        };
+        if p.scale >= 2.0 && i == 2 { x = p.x; y += button_h + 16.0; }
+        x += p.button_lead(110 + i as u64 * 5, Focus::Overlay(i), label, Some(lead), x, y, i == 0, true, 12) + 16.0;
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -320,82 +397,5 @@ mod tests {
         assert_eq!([0, 59, 60, 185, 7200].map(wait), ["less than a minute", "less than a minute", "about 1 min", "about 3 min", "about 120 min"]);
         assert_eq!(status(&Phase::Queue { position: Some(12), eta_s: Some(185) }), ("You're 12th in line".into(), Some("about 3 min".into())));
         assert_eq!(status(&Phase::Starting).0, "Getting your game ready");
-    }
-}
-pub fn end_session(p: &mut Paint<'_>) {
-    let (title, body, confirm) = p.model.end_copy();
-    let f = panel(p, 1080.0, if p.scale > 1.0 { 700.0 } else { 400.0 });
-    let x = f.x + 40.0;
-    p.text(8010, title, Frame::new(x, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0), Type::Title, Role::Ink, false, 32);
-    p.wrapped(8020, &body, Frame::new(x, f.y + 78.0 + p.line(Type::Title), f.w - 80.0, 0.0), Type::Body, Role::Ink2, false, 32);
-    let y = f.y + f.h - 104.0;
-    let w = p.button(8030, Focus::SheetAction(0), "Keep playing", Some(Icon::Play), x, y, true, false, 34);
-    p.button(8040, Focus::SheetAction(1), confirm, Some(Icon::Stop), x + w + 16.0, y, false, false, 34);
-}
-pub fn overlay(p: &mut Paint<'_>) {
-    let Some(session) = p.model.session() else {
-        return;
-    };
-    art(p, session.game, 1080.0, 0.0, 1080.0, true);
-    let button_h = p.tokens.target.max(p.line(Type::Label) + 24.0);
-    let actions_y = H - 118.0 - button_h * if p.scale >= 2.0 { 2.0 } else { 1.0 } - if p.scale >= 2.0 { 16.0 } else { 0.0 };
-    let mut stats = Vec::new();
-    let s = &p.model.view.stats;
-    if let Some(v) = s.rtt_ms {
-        stats.push(format!("{v:.0} ms network"));
-    }
-    if let Some(v) = s.loss_pct {
-        stats.push(format!("{v:.1}% packet loss"));
-    }
-    if let Some(v) = s.bitrate_kbps {
-        stats.push(format!("{:.0} Mb/s", v as f32 / 1000.0));
-    }
-    if let Some(v) = s.host_ms {
-        stats.push(format!("{v:.1} ms host"));
-    }
-    if let Some(v) = s.client_ms {
-        stats.push(format!("{v:.1} ms client"));
-    }
-    let stats_text = stats.join("  ·  ");
-    let stats_h = if stats.is_empty() { 0.0 } else { ui::components::wrap(p.fonts, &stats_text, p.ty(Type::Label), W - p.x * 2.0).len() as f32 * p.line(Type::Label) + 10.0 };
-    let mut session_line = vec![p.model.engine_name(&session.source.engine).to_string()];
-    if let Some(stream) = &p.model.view.stream {
-        session_line.push(format!(
-            "{}p · {} fps · {} · {}",
-            stream.height,
-            stream.fps,
-            stream.codec.as_str().to_uppercase(),
-            if stream.hdr { "HDR" } else { "SDR" }
-        ));
-    }
-    let elapsed = p.model.elapsed();
-    session_line.push(format!("{}:{:02} elapsed", elapsed / 60, elapsed % 60));
-    let line = session_line.join("  ·  ");
-    let line_h = ui::components::wrap(p.fonts, &line, p.ty(Type::Label), W - p.x * 2.0).len() as f32 * p.line(Type::Label);
-    let logo_y = actions_y - 40.0 - stats_h - line_h - 30.0 - 240.0;
-    logo(p, 100, session.game, Frame::new(p.x, logo_y, 640.0, 240.0));
-    p.wrapped(101, &line, Frame::new(p.x, logo_y + 270.0, W - p.x * 2.0, line_h), Type::Label, Role::Ink, true, 10);
-    if !stats.is_empty() {
-        p.wrapped(102, &stats_text, Frame::new(p.x, logo_y + 270.0 + line_h + 10.0, W - p.x * 2.0, stats_h), Type::Label, Role::Ink2, true, 10);
-    }
-    if let Some(reason) = p.model.view.stream.as_ref().and_then(|s| s.sdr_reason.as_deref()) {
-        p.text(103, reason, Frame::new(p.x, logo_y - 60.0, W - p.x * 2.0, p.line(Type::Caption)), Type::Caption, Role::Warning, true, 10);
-    }
-    let mut x = p.x;
-    let stats_label = format!("Stats · {}", p.model.prefs.stats.mode.name());
-    let mut y = actions_y;
-    let stats = p.lead(Key::Menu, Icon::Gauge);
-    // X opens it from any item, so on a pad the button wears X's marking in the pad's own style.
-    let steam = p.lead(Key::Alt, Icon::Apps);
-    for (i, action) in p.model.overlay_actions().enumerate() {
-        let (label, lead) = match action {
-            OverlayAction::Resume => ("Resume", Icon::Play.into()),
-            OverlayAction::Settings => ("Stream settings", Icon::Sliders.into()),
-            OverlayAction::Stats => (stats_label.as_str(), stats),
-            OverlayAction::SteamOverlay => ("Steam overlay", steam),
-            OverlayAction::EndSession => ("End session", Icon::Stop.into()),
-        };
-        if p.scale >= 2.0 && i == 2 { x = p.x; y += button_h + 16.0; }
-        x += p.button_lead(110 + i as u64 * 5, Focus::Overlay(i), label, Some(lead), x, y, i == 0, true, 12) + 16.0;
     }
 }

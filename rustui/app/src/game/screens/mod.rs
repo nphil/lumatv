@@ -591,27 +591,29 @@ fn plan_page(tokens: &Tokens, model: &Model, fonts: &mut ui::Fonts, scroll_posit
         p.finish();
         return p.plan;
     }
-    if model.view.page != Page::Running { parts::stage::canvas(&mut p, model.view.page == Page::Launch); }
-    match model.view.page {
+    let view = &model.view;
+    if view.page != Page::Running || model.stream_menu() { parts::stage::canvas(&mut p, view.page == Page::Launch); }
+    match view.page {
         Page::Home => home::home(&mut p),
-        Page::Library => library::library(&mut p, false),
-        Page::Search => library::library(&mut p, true),
-        Page::Hub => game::hub(&mut p),
-        Page::Settings => settings::settings(&mut p),
+        Page::Library => library::library(&mut p, view.search),
+        Page::Game if view.top() == Some(crate::game::model::Layer::Viewer) => game::media::media(&mut p),
+        Page::Game => game::hub(&mut p),
+        Page::Settings => match view.pane {
+            None => settings::settings(&mut p),
+            Some(crate::game::model::settings::Pane::Lab) => lab::lab(&mut p),
+            Some(crate::game::model::settings::Pane::GameSir) => settings::gamesir(&mut p),
+            Some(crate::game::model::settings::Pane::Leadjoy) => settings::leadjoy(&mut p),
+        },
         Page::Accounts => accounts::integration(&mut p),
         Page::Launch => launch::launch(&mut p),
-        Page::Overlay => launch::overlay(&mut p),
-        Page::Media => game::media::media(&mut p),
-        Page::Lab => lab::lab(&mut p),
-        Page::GameSir => settings::gamesir(&mut p),
-        Page::Leadjoy => settings::leadjoy(&mut p),
+        Page::Running if model.stream_menu() => launch::overlay(&mut p),
         Page::Running => stats::show(&mut p),
     }
     p.finish();
     idle::show(&mut p);
     p.fit_focus();
     let sheet_start = p.plan.nodes.len();
-    if model.view.sheet.is_some() {
+    if view.top().is_some_and(crate::game::model::Layer::is_sheet) {
         p.plan.hits.clear();
     }
     parts::layer::sheet(&mut p);

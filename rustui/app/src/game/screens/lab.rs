@@ -538,7 +538,7 @@ fn ms_edge(us: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::{helper::gamesir_fixture, model::{Model, Page}};
+    use crate::game::{helper::gamesir_fixture, model::{Model, Page, settings::Pane}};
     use lumagame_core::{catalog::Listing, state::State};
     use lumatv_tokens::Tokens;
     use ui::lucent::palette::Mode;
@@ -562,7 +562,7 @@ mod tests {
             m.prefs.text_percent = percent;
             for mode in [Mode::Dark, Mode::Light] {
                 let tokens = lumatv_tokens::themes::game_tokens("rose-pine", mode, &host).unwrap();
-                m.view.page = Page::Lab;
+                (m.view.page, m.view.pane) = (Page::Settings, Some(Pane::Lab));
                 m.lab.capture = None;
                 for focus in [Focus::Lab(5), Focus::Lab(6), Focus::Lab(7), Focus::Setting(0), Focus::Setting(1), Focus::Setting(2)] {
                     m.view.focus = focus;
@@ -582,11 +582,11 @@ mod tests {
                 }
                 m.lab.capture = None;
                 for state in std::iter::once(None).chain(leadjoy.iter().map(Some)) {
-                    m.view.page = if state.is_some() { Page::Leadjoy } else { Page::GameSir };
+                    m.view.pane = Some(if state.is_some() { Pane::Leadjoy } else { Pane::GameSir });
                     if let Some(state) = state { m.leadjoy.state = state.clone(); }
                     m.rebuild_navigation();
                     let rows: Vec<Focus> = m.navigation.iter().map(|n| n.id).filter(|id| matches!(id, Focus::Setting(_))).collect();
-                    assert!(rows.len() > 3, "{:?} lists its settings", m.view.page);
+                    assert!(rows.len() > 3, "{:?} lists its settings", m.view.pane);
                     let last = rows[rows.len() - 1];
                     for focus in rows {
                         m.view.focus = focus;

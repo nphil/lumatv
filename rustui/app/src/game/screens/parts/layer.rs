@@ -10,7 +10,7 @@ use ui::{geometry::Frame, lucent::palette::PaletteRole as Role};
 use crate::game::screens::{accounts::auth, game::chooser, launch::end_session, library::list, settings::{delete, themes}};
 
 pub fn sheet(p: &mut Paint<'_>) {
-    let Some(sheet) = p.model.view.sheet else {
+    let Some(sheet) = p.model.view.top().filter(|layer| layer.is_sheet()) else {
         return;
     };
     curtain(p);
@@ -27,6 +27,8 @@ pub fn sheet(p: &mut Paint<'_>) {
         Layer::EndSession => end_session(p),
         Layer::AddHost | Layer::EditText => edit_text(p),
         Layer::Delete => delete(p),
+        // Drawn by their page in place of its own content.
+        Layer::Viewer | Layer::StreamMenu => {}
     }
 }
 

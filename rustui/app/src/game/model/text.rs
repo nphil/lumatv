@@ -26,29 +26,29 @@ impl Model {
     fn text_activate(&mut self, f: Focus, out: &mut Vec<Command>) {
         match f {
             Focus::Keyboard(i) => self.keyboard(i, out),
-            Focus::SheetAction(_) if self.view.sheet == Some(Layer::EditText) => self.save_text(out),
-            Focus::SheetAction(_) if self.view.sheet == Some(Layer::AddHost) && !self.view.address.is_empty() => {
+            Focus::SheetAction(_) if self.view.top() == Some(Layer::EditText) => self.save_text(out),
+            Focus::SheetAction(_) if self.view.top() == Some(Layer::AddHost) && !self.view.address.is_empty() => {
                 if let Some(id) = &self.view.selected_engine {
                     Self::send(out, id, Request::AddTarget { address: self.view.address.clone() });
                 }
-                self.close_sheet();
+                self.pop_layer();
             }
             _ => {}
         }
     }
     /// Saves the open text field to whichever slice owns it.
     fn save_text(&mut self, out: &mut Vec<Command>) {
-        if self.view.page == Page::Settings && self.view.place == Place::Diagnostics {
-            self.save_diagnostics_text(out);
-        } else if self.view.page == Page::Leadjoy {
+        if self.view.pane == Some(settings::Pane::Leadjoy) {
             self.save_leadjoy_text(out);
+        } else if self.view.page == Page::Settings && self.view.place == Place::Diagnostics {
+            self.save_diagnostics_text(out);
         } else {
             self.save_engine_text(out);
         }
     }
     pub(super) fn keyboard(&mut self, i: usize, out: &mut Vec<Command>) {
-        let numeric = self.view.sheet == Some(Layer::Auth);
-        let diagnostic = self.view.page == Page::Settings && self.view.place == Place::Diagnostics && self.view.sheet == Some(Layer::EditText);
+        let numeric = self.view.top() == Some(Layer::Auth);
+        let diagnostic = self.view.page == Page::Settings && self.view.place == Place::Diagnostics && self.view.top() == Some(Layer::EditText);
         let chars = if numeric {
             "1234567890"
         } else {
@@ -72,12 +72,12 @@ impl Model {
                     _ => None,
                 })
                 .unwrap_or(12)
-        } else if self.view.sheet.is_some() {
+        } else if !self.view.layers.is_empty() {
             255
         } else {
             128
         };
-        let text = match self.view.sheet {
+        let text = match self.view.top() {
             Some(Layer::Auth) => self.view.auth.as_mut().map(|a| &mut a.pin),
             Some(Layer::AddHost | Layer::EditText) => Some(&mut self.view.address),
             _ => Some(&mut self.view.query),
@@ -95,18 +95,18 @@ impl Model {
                 }
             } else if numeric {
                 self.auth_action(0, out);
-            } else if self.view.sheet == Some(Layer::EditText) {
+            } else if self.view.top() == Some(Layer::EditText) {
                 self.save_text(out);
-            } else if self.view.sheet == Some(Layer::AddHost) {
+            } else if self.view.top() == Some(Layer::AddHost) {
                 if let Some(id) = &self.view.selected_engine {
                     Self::send(out, id, Request::AddTarget { address: self.view.address.clone() });
                 }
-                self.close_sheet();
+                self.pop_layer();
             } else {
                 self.view.focus = Focus::Grid(0);
             }
         }
-        if self.view.sheet.is_none() {
+        if self.view.layers.is_empty() {
             self.rebuild_filter();
         }
     }

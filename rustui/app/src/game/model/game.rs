@@ -88,6 +88,9 @@ impl Slice for Rules {
     fn adjust(_m: &mut Model, _f: Focus, _forward: bool, _out: &mut Vec<Command>) -> bool {
         false
     }
+    fn anchor(_m: &Model) -> Option<Focus> {
+        Some(Focus::HubAction(0))
+    }
     fn subject(m: &Model) -> Option<GameId> {
         m.view.selected
     }
@@ -264,14 +267,14 @@ impl Model {
                 }
             }
             Focus::Media(i) => self.open_media(i, out),
-            Focus::SheetRow(i) if self.view.sheet == Some(Layer::Chooser) => {
+            Focus::SheetRow(i) if self.view.top() == Some(Layer::Chooser) => {
                 if let Some(s) = self.selected_game().and_then(|g| g.sources.get(i)) {
                     self.view.chooser_selected = Some(s.key());
                     self.view.focus = Focus::SheetAction(0);
                 }
             }
             Focus::Remember => self.view.remember = !self.view.remember,
-            Focus::SheetAction(_) if self.view.sheet == Some(Layer::Chooser) => {
+            Focus::SheetAction(_) if self.view.top() == Some(Layer::Chooser) => {
                 if let (Some(game), Some(source)) = (self.view.selected, self.view.chooser_selected.clone()) {
                     if self.readiness(&source).can_attempt() {
                         self.start(game, source, self.view.remember, out);
@@ -320,7 +323,7 @@ impl Model {
         self.view.chooser_selected = None;
         self.view.hub_tab = 0;
         self.view.notice = None;
-        self.show_page(Page::Hub, Focus::HubAction(0));
+        self.show_page(Page::Game, Focus::HubAction(0));
     }
     fn open_chooser(&mut self) {
         if let Some(id) = self.view.selected {
@@ -328,7 +331,7 @@ impl Model {
             self.view.chooser_selected = desired.clone();
             let i = self.game(id).and_then(|g| g.sources.iter().position(|s| Some(s.key()) == desired)).unwrap_or(0);
             self.view.remember = self.state.profile().user.pinned.contains_key(&id);
-            self.open_sheet(Layer::Chooser, Focus::SheetRow(i));
+            self.push_layer(Layer::Chooser, Focus::SheetRow(i));
         }
     }
     /// Plays `game` the way it was chosen or remembered, else asks which way.
@@ -362,7 +365,7 @@ mod tests {
         let (mut m, _) = refreshing_steam();
         let game = id_of(&m, "Beta");
         m.view.selected = Some(game);
-        m.view.page = Page::Hub;
+        m.view.page = Page::Game;
         assert_eq!(m.hub_tabs(), [HubTab::Overview, HubTab::Ways], "nothing fetched: no empty sections");
         m.step(Input::Details { game, details: Box::new(GameDetails::from_hub(Hub { credits: vec!["x".into()], ..Hub::default() })) });
         assert_eq!(m.hub_tabs(), [HubTab::Overview, HubTab::Ways, HubTab::Details]);
@@ -388,7 +391,7 @@ mod tests {
         describe(&mut m, "steam", vec![lumagame_core::engine::AuthMethod::Qr], &[Feature::Achievements]);
         let game = id_of(&m, "Beta");
         m.view.selected = Some(game);
-        m.view.page = Page::Hub;
+        m.view.page = Page::Game;
         let asked = m.step(Input::Notice("x".into()));
         assert!(matches!(sent(&asked)[..], [Request::Achievements { .. }]));
         assert!(sent(&m.step(Input::Notice("y".into()))).is_empty(), "not again on every redraw");
@@ -412,7 +415,7 @@ mod tests {
         engine_says(&mut m, "gfn", ipc::Event::Library { target: TargetId::new("main").unwrap(), entries: vec![hades], next: None });
         let game = id_of(&m, "Hades II");
         m.view.selected = Some(game);
-        m.view.page = Page::Hub;
+        m.view.page = Page::Game;
         let asked = m.step(Input::Notice("x".into()));
         assert!(matches!(sent(&asked)[..], [Request::Achievements { target, game }] if *target == account && game.as_str() == "1145350"));
         let unlocked = vec![ipc::Unlocked { name: "ACH_A".into(), at: None }];

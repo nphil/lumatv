@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use super::helper::{ControllerChange, GameSir, GameSirState, Leadjoy, LeadjoyState, LeadjoyView};
 use super::stats::{Mode as StatsMode, Overlay, Telemetry};
 use super::diagnostics::{Config as DiagnosticsConfig, Level as DiagnosticsLevel, Status as DiagnosticsStatus};
-use super::input::{Labels, PadKind, Source, Sources};
+use super::input::{Labels, PadKind, Repeat, Source, Sources};
 use super::uplink::{self, Uplink};
 pub mod accounts;
 pub mod facts;
@@ -39,9 +39,15 @@ use game::{HubTab, media::Media};
 use home::{HomeItem, HomeRow};
 use launch::{Cause, IdleWarning, QueueWatch};
 use library::{Filter, Sort};
-use nav::{Neighbours, Owner};
+use nav::{Device, Hints, Neighbours, Owner, Region};
 use settings::{Lab, PadMode, Trip};
 pub use refresh::Line as RefreshLine;
+/// A first Back at Home's anchor waits this long for a second that leaves the app.
+const LEAVE_MS: u64 = 1500;
+/// The hint bar dims after this long without a key.
+const HINTS_DIM_MS: u64 = 5000;
+/// The in-stream strip leaves after this long without a key.
+const STRIP_MS: u64 = 5000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
@@ -55,6 +61,10 @@ pub enum Key {
     /// The pad's X button: the menus' second action, which the remote has no key for.
     Alt,
     Guide,
+    /// The pad's left and right bumpers: the previous and next peer (a section, a library view, a top-bar place). The remote reaches
+    /// the same with Left and Right on the strip.
+    Prev,
+    Next,
 }
 impl Key {
     pub fn from_code(code: u32) -> Option<Self> {
@@ -80,7 +90,9 @@ impl Key {
             ipc::PadKey::Back => Self::Back,
             ipc::PadKey::Menu => Self::Menu,
             ipc::PadKey::Alt => Self::Alt,
-            _ => return None,
+            ipc::PadKey::PageLeft => Self::Prev,
+            ipc::PadKey::PageRight => Self::Next,
+            ipc::PadKey::Other => return None,
         })
     }
 }
@@ -100,7 +112,7 @@ pub enum Input {
     Controllers([Option<String>; MAX_PADS]),
     Engine {
         engine: EngineId,
-        message: FromEngine,
+        message: Box<FromEngine>,
     },
     EngineGone(EngineId),
     Foreground(bool),
@@ -335,30 +347,25 @@ pub enum Page {
     // home
     #[default]
     Home,
-    // library
+    // library: the search is this page with `View::search` on
     Library,
-    Search,
     // game
-    Hub,
-    // game/media
-    Media,
-    // settings
+    Game,
+    // settings: the controller pages are `View::pane`
     Settings,
-    Lab,
-    GameSir,
-    Leadjoy,
     // accounts
     Accounts,
-    // launch
+    // launch: the in-stream menu is a layer over `Running`
     Launch,
     Running,
-    Overlay,
 }
-/// What opens over the page. F1 turns `View::sheet` into a stack of these.
+/// What opens over the page, on top of the layers beneath it (`View::layers`). The top layer takes the keys until it closes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layer {
     // game
     Chooser,
+    /// The full-screen picture viewer over the game page.
+    Viewer,
     // library
     Sort,
     Genre,
@@ -369,10 +376,19 @@ pub enum Layer {
     // accounts
     Auth,
     // launch
+    /// The in-stream menu, over the stream.
+    StreamMenu,
     EndSession,
     // text
     AddHost,
     EditText,
+}
+impl Layer {
+    /// Whether the layer is a sheet drawn over its page, which then takes no pointer hits. The viewer and the in-stream menu are
+    /// screens that their page draws itself.
+    pub fn is_sheet(self) -> bool {
+        !matches!(self, Self::Viewer | Self::StreamMenu)
+    }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Focus {
@@ -434,8 +450,17 @@ impl Integration {
 #[derive(Clone, Debug)]
 pub struct View {
     pub page: Page,
-    pub sheet: Option<Layer>,
+    /// What is open over the page, the first layer at the bottom. The top layer takes the keys.
+    pub layers: Vec<Layer>,
+    /// The focus each layer covers, which closing it returns.
+    beneath: Vec<Focus>,
+    /// The controller screen of Settings that is open, if any.
+    pub pane: Option<settings::Pane>,
+    /// The library is searching: the keyboard and the query take the top of the page.
+    pub search: bool,
     pub focus: Focus,
+    /// Where focus last rested in each region of the page.
+    pub memory: nav::Memory,
     pub place: settings::Place,
     pub hub_tab: usize,
     pub selected: Option<GameId>,
@@ -462,8 +487,12 @@ impl Default for View {
     fn default() -> Self {
         Self {
             page: Page::Home,
-            sheet: None,
+            layers: Vec::new(),
+            beneath: Vec::new(),
+            pane: None,
+            search: false,
             focus: Focus::Hero(0),
+            memory: nav::Memory::default(),
             place: settings::Place::Appearance,
             hub_tab: 0,
             selected: None,
@@ -487,6 +516,52 @@ impl Default for View {
             idle: None,
         }
     }
+}
+impl View {
+    /// The layer on top, which takes the keys.
+    pub fn top(&self) -> Option<Layer> {
+        self.layers.last().copied()
+    }
+    /// Opens `layer` over what is open and puts focus on `focus`; closing the layer returns the focus it covered.
+    pub fn push(&mut self, layer: Layer, focus: Focus) {
+        self.layers.push(layer);
+        self.beneath.push(self.focus);
+        self.focus = focus;
+    }
+    /// Closes the top layer and gives focus back to what it covered.
+    pub fn pop(&mut self) {
+        if self.layers.pop().is_some() {
+            self.focus = self.beneath.pop().unwrap_or_default();
+        }
+    }
+    /// Closes every layer; focus goes back to what the first one covered.
+    pub fn clear_layers(&mut self) {
+        if let Some(base) = self.beneath.first() {
+            self.focus = *base;
+        }
+        self.layers.clear();
+        self.beneath.clear();
+    }
+    /// Where the view is, whole: the page with everything open on it.
+    fn way(&self) -> Way {
+        Way { page: self.page, pane: self.pane, search: self.search, focus: self.focus, layers: self.layers.clone(), beneath: self.beneath.clone() }
+    }
+    fn restore(&mut self, way: Way) {
+        (self.page, self.pane, self.search, self.focus) = (way.page, way.pane, way.search, way.focus);
+        self.layers = way.layers;
+        self.beneath = way.beneath;
+        self.memory.forget();
+    }
+}
+/// A place the way back returns to.
+#[derive(Clone, Debug)]
+struct Way {
+    page: Page,
+    pane: Option<settings::Pane>,
+    search: bool,
+    focus: Focus,
+    layers: Vec<Layer>,
+    beneath: Vec<Focus>,
 }
 #[derive(Clone, Debug)]
 pub struct Model {
@@ -519,8 +594,18 @@ pub struct Model {
     revision: u64,
     next_session: u64,
     pressed: Option<(Key, Focus)>,
-    back: Vec<(Page, Focus)>,
-    sheet_return: Focus,
+    back: Vec<Way>,
+    /// Whose glyphs the hint bar shows: the remote's or a pad's.
+    pub device: nav::Device,
+    /// No key for `HINTS_DIM_MS`: the hint bar dims.
+    pub hints_dim: bool,
+    last_key_ms: u64,
+    /// Until when a first Back at Home's anchor waits for a second that leaves the app; 0 when none waits.
+    leave_until: u64,
+    /// The in-stream strip, up for `STRIP_MS` after each key.
+    strip: nav::AutoHide,
+    /// The direction a pad holds, which repeats.
+    repeat: Option<Repeat>,
     closing: bool,
     ended_by: Option<Cause>,
     requested_art: BTreeSet<String>,
@@ -580,7 +665,12 @@ impl Model {
             next_session: 1,
             pressed: None,
             back: Vec::new(),
-            sheet_return: Focus::None,
+            device: nav::Device::default(),
+            hints_dim: false,
+            last_key_ms: 0,
+            leave_until: 0,
+            strip: nav::AutoHide::new(STRIP_MS),
+            repeat: None,
             closing: false,
             ended_by: None,
             requested_art: BTreeSet::new(),
@@ -652,7 +742,7 @@ impl Model {
         self.foreground && !self.session_active()
     }
     pub fn wants_frames(&self) -> bool {
-        self.foreground && (self.view.page != Page::Running || self.hud_visible() || self.idle_left().is_some())
+        self.foreground && (self.view.page != Page::Running || !self.view.layers.is_empty() || self.hud_visible() || self.idle_left().is_some())
     }
     pub fn game(&self, id: GameId) -> Option<&Game> {
         self.games.iter().find(|g| g.id == id)
@@ -746,22 +836,23 @@ impl Model {
         match input {
             Input::Key { key, down } => {
                 let switched = down && self.sources.used(Source::Remote);
-                changed = self.key(key, down, &mut out) | switched;
+                changed = self.key(key, down, &mut out) | switched | self.touched();
             }
             Input::PadKey { slot, key, down } => {
                 let switched = down && self.sources.used_pad(usize::from(slot));
-                changed = self.key(key, down, &mut out) | switched;
+                self.hold(key, down);
+                changed = self.key(key, down, &mut out) | switched | self.touched();
             }
             Input::Controllers(names) => changed = self.sources.connected(&names),
             Input::Click { focus, down } => {
                 if self.navigation.iter().any(|n| n.id == focus) {
                     let switched = down && self.sources.used(Source::Remote);
-                    self.view.focus = focus;
-                    changed = self.key(Key::Ok, down, &mut out) | switched;
+                    self.set_focus(focus);
+                    changed = self.key(Key::Ok, down, &mut out) | switched | self.touched();
                 }
             }
             Input::Engine { engine, message } => {
-                changed = self.view.page != Page::Running || !matches!(message.event, ipc::Event::Stats { .. });
+                changed = self.view.page != Page::Running || !self.view.layers.is_empty() || !matches!(message.event, ipc::Event::Stats { .. });
                 self.engine_event(engine, message.event, &mut out);
             }
             Input::EngineGone(id) => {
@@ -787,6 +878,7 @@ impl Model {
                 self.pressed = None;
                 self.stats_request(&mut out);
                 if !on {
+                    self.repeat = None;
                     self.lab.capture = None;
                     self.lab.flash = None;
                     self.session_input(session::Input::Background, &mut out);
@@ -802,11 +894,13 @@ impl Model {
             }
             Input::Overlay => self.open_overlay(&mut out),
             Input::Tick { now_ms, unix_s } => {
+                let before = self.now_ms;
                 let second = self.now_ms / 1000 != now_ms / 1000;
                 self.now_ms = now_ms;
                 self.unix_s = unix_s;
                 self.session_input(session::Input::Tick, &mut out);
-                changed = second && (self.view.page == Page::Overlay || self.view.idle.is_some() || self.view.auth.as_ref().is_some_and(|a| a.expires_ms.is_some()));
+                changed = second && (self.stream_menu() || self.view.idle.is_some() || self.view.auth.as_ref().is_some_and(|a| a.expires_ms.is_some()));
+                changed |= self.tick_navigation(before, &mut out);
                 changed |= self.refresh_tick(second);
                 self.look_ahead(&mut out);
                 self.facts_ahead(&mut out);
@@ -842,7 +936,7 @@ impl Model {
                 self.rebuild_rows();
                 self.rebuild_filter();
             }
-            Input::Text(text) => match self.view.sheet {
+            Input::Text(text) => match self.view.top() {
                 Some(Layer::Auth) => {
                     if let Some(a) = &mut self.view.auth {
                         let max = match a.state {
@@ -890,7 +984,7 @@ impl Model {
                     Ok(state) => { self.gamesir.state = state; self.gamesir.error = None; }
                     Err(error) => {
                         self.gamesir.error = Some(error);
-                        if self.view.page == Page::GameSir && self.view.sheet.is_none() { self.view.focus = Focus::Setting(0); }
+                        if self.view.pane == Some(settings::Pane::GameSir) && self.view.layers.is_empty() { self.view.focus = Focus::Setting(0); }
                     }
                 }
             }
@@ -899,7 +993,7 @@ impl Model {
                 match result {
                     Ok(state) => {
                         if let LeadjoyState::Ready(profile) = &state {
-                            if self.view.page == Page::Leadjoy && self.view.sheet.is_none() {
+                            if self.view.pane == Some(settings::Pane::Leadjoy) && self.view.layers.is_empty() {
                                 if let (Focus::Setting(row @ 1..), LeadjoyState::Ready(previous)) = (self.view.focus, &self.leadjoy.state) {
                                     let key = previous.schema.fields().nth(row - 1).map(|field| field.key.as_str());
                                     let candidates = || profile.schema.fields().enumerate().filter(|(_, field)| !matches!(field.kind, FieldKind::Note));
@@ -914,19 +1008,26 @@ impl Model {
                     }
                     Err(error) => {
                         self.leadjoy.error = Some(error);
-                        if self.view.page == Page::Leadjoy && self.view.sheet.is_none() { self.view.focus = Focus::Setting(0); }
+                        if self.view.pane == Some(settings::Pane::Leadjoy) && self.view.layers.is_empty() { self.view.focus = Focus::Setting(0); }
                     }
                 }
             }
         }
-        // Running and the in-stream menu exist only while the stream runs: Running draws nothing over the video plane, so either page
-        // outliving its session is a black screen that no key, and no relaunch, leaves.
-        if matches!(self.view.page, Page::Running | Page::Overlay) && !self.session.as_ref().is_some_and(|s| *s.phase() == Phase::Running) {
-            self.view.sheet = None;
+        // Running exists only while the stream runs: it draws nothing over the video plane, so a Running page outliving its session is
+        // a black screen that no key, and no relaunch, leaves.
+        if self.view.page == Page::Running && !self.session.as_ref().is_some_and(|s| *s.phase() == Phase::Running) {
+            self.view.clear_layers();
             self.view.hub_tab = 0;
-            (self.view.page, self.view.focus) = if self.view.selected.is_some() { (Page::Hub, Focus::HubAction(0)) } else { (Page::Home, Focus::Nav(0)) };
+            if self.view.selected.is_some() {
+                self.view.page = Page::Game;
+                self.view.focus = Focus::HubAction(0);
+                self.view.memory.forget();
+            } else {
+                self.switch_tab(0, Focus::Nav(0));
+            }
             changed = true;
         }
+        self.device = if self.sources.glyphs() == Source::Controller { Device::Pad } else { Device::Remote };
         if changed || !out.is_empty() {
             self.revision = self.revision.wrapping_add(1);
             self.rebuild_navigation();
@@ -961,39 +1062,207 @@ impl Model {
         }
         self.genre_games = by_genre;
     }
+    /// Opens a page, remembering the one it leaves for the way back. Whatever was open over the page closes.
     fn show_page(&mut self, page: Page, focus: Focus) {
-        if page != self.view.page {
-            self.back.push((self.view.page, self.view.focus));
+        self.show(page, None, false, focus);
+    }
+    /// Opens one of the controller screens of Settings.
+    fn show_pane(&mut self, pane: settings::Pane, focus: Focus) {
+        self.show(Page::Settings, Some(pane), false, focus);
+    }
+    fn show(&mut self, page: Page, pane: Option<settings::Pane>, search: bool, focus: Focus) {
+        if (page, pane, search) != (self.view.page, self.view.pane, self.view.search) {
+            self.back.push(self.view.way());
             // A notice belongs to the page that raised it.
             self.view.notice = None;
         }
-        self.view.page = page;
-        self.view.sheet = None;
+        (self.view.page, self.view.pane, self.view.search) = (page, pane, search);
+        self.view.clear_layers();
         self.view.focus = focus;
+        self.view.memory.forget();
         self.pressed = None;
+    }
+    /// Opens a place of the top bar with nothing behind it and nothing over it.
+    fn switch_tab(&mut self, tab: usize, focus: Focus) {
+        self.back.clear();
+        self.view.clear_layers();
+        self.view.focus = focus;
+        (self.view.page, self.view.pane, self.view.search) = match tab {
+            1 => (Page::Library, None, false),
+            2 => (Page::Library, None, true),
+            3 => (Page::Settings, None, false),
+            _ => (Page::Home, None, false),
+        };
+        self.view.memory.forget();
+        self.rebuild_filter();
+    }
+    /// The place of the top bar the page belongs to.
+    pub fn tab(&self) -> usize {
+        match (self.view.page, self.view.search) {
+            (Page::Library, false) => 1,
+            (Page::Library, true) => 2,
+            (Page::Settings | Page::Accounts, _) => 3,
+            _ => 0,
+        }
     }
     /// Whether `id`'s error is about what the screen shows. Elsewhere it stays on the integration's own card (`error`), so a background
     /// failure (This TV's app listing at start-up) does not turn up on an unrelated page such as the controller lab.
     fn engine_in_view(&self, id: &EngineId) -> bool {
-        match (self.view.sheet, self.view.page) {
+        match (self.view.top(), self.view.page) {
             (Some(_), _) => self.view.auth.as_ref().map(|a| &a.engine).or(self.view.selected_engine.as_ref()) == Some(id),
-            (None, Page::Hub) => self.view.selected.and_then(|g| self.play_target(g)).is_some_and(|k| k.engine == *id),
+            (None, Page::Game) => self.view.selected.and_then(|g| self.play_target(g)).is_some_and(|k| k.engine == *id),
             _ => false,
         }
     }
-    pub fn top_layer(&self) -> Option<&Layer> {
-        self.view.sheet.as_ref()
+    /// Opens `layer` over what is open; closing it returns the focus it covered.
+    fn push_layer(&mut self, layer: Layer, focus: Focus) {
+        self.view.push(layer, focus);
+        self.pressed = None;
     }
-    fn open_sheet(&mut self, sheet: Layer, focus: Focus) {
-        self.sheet_return = self.view.focus;
-        self.view.sheet = Some(sheet);
+    fn pop_layer(&mut self) {
+        self.view.pop();
+        self.pressed = None;
+    }
+    /// The in-stream menu is open over the stream.
+    pub fn stream_menu(&self) -> bool {
+        self.view.page == Page::Running && self.view.layers.first() == Some(&Layer::StreamMenu)
+    }
+    /// Puts focus on `focus` and brings along what follows it: the Home shelf in view, the first grid row on screen, the place Settings
+    /// shows, and the game page's sections folding up behind Play. Where focus was is kept for the way back into its region.
+    fn set_focus(&mut self, focus: Focus) {
+        let layered = !self.view.layers.is_empty();
+        if self.view.focus != Focus::None {
+            self.view.memory.keep(self.view.focus.region(layered), self.view.focus);
+        }
         self.view.focus = focus;
-        self.pressed = None;
+        match focus {
+            Focus::Home(row, _) => self.view.home_row = row,
+            Focus::Hero(_) => self.view.home_row = 0,
+            Focus::Grid(i) => self.view.first_grid_row = i / self.prefs.covers.columns(),
+            Focus::Rail(i) => self.view.place = settings::Place::ALL[i],
+            Focus::HubAction(_) => self.view.hub_tab = 0,
+            _ => {}
+        }
     }
-    fn close_sheet(&mut self) {
-        self.view.sheet = None;
-        self.view.focus = self.sheet_return;
-        self.pressed = None;
+    /// Where a move to `next` lands. Into another region it resumes where focus last rested there while that is still on offer, else the
+    /// first focus the slice gives the region.
+    fn arrive(&self, next: Focus) -> Focus {
+        let layered = !self.view.layers.is_empty();
+        let region = next.region(layered);
+        if region == self.view.focus.region(layered) {
+            return next;
+        }
+        self.view
+            .memory
+            .recall(region)
+            .or_else(|| Owner::of(self).default_focus(self, region))
+            .filter(|focus| self.navigation.iter().any(|n| n.id == *focus))
+            .unwrap_or(next)
+    }
+    /// The bumpers: the screen's own peers (its sections or views) when it has any, else the top bar's places Home, Library and Search.
+    /// Nothing wraps.
+    fn step_peers(&mut self, forward: bool, out: &mut Vec<Command>) -> bool {
+        if Owner::of(self).step(self, forward, out) {
+            return true;
+        }
+        if !self.view.layers.is_empty() || !matches!(self.view.page, Page::Home | Page::Library) {
+            return false;
+        }
+        let next = match (self.tab(), forward) {
+            (0 | 1, true) => self.tab() + 1,
+            (1 | 2, false) => self.tab() - 1,
+            _ => return false,
+        };
+        let on_bar = self.view.focus.region(false) == Region::Top;
+        self.switch_tab(next, Focus::Nav(next));
+        if !on_bar {
+            self.rebuild_navigation();
+            if let Some(focus) = Owner::of(self).default_focus(self, Region::Page) {
+                self.set_focus(focus);
+            }
+        }
+        true
+    }
+    /// Starts the repeat of a direction a pad holds, and ends it with that direction's release. The remote repeats in hardware.
+    fn hold(&mut self, key: Key, down: bool) {
+        if !matches!(key, Key::Up | Key::Down | Key::Left | Key::Right) {
+            return;
+        }
+        if down {
+            self.repeat = Some(Repeat::start(key, self.now_ms));
+        } else if self.repeat.is_some_and(|held| held.key() == key) {
+            self.repeat = None;
+        }
+    }
+    /// A key or a click: the hint bar comes back at full strength. True when it had dimmed.
+    fn touched(&mut self) -> bool {
+        self.last_key_ms = self.now_ms;
+        std::mem::take(&mut self.hints_dim)
+    }
+    /// What navigation keeps on the model's clock between `before_ms` and now: a held direction's next move, the hint bar dimming, the
+    /// leave prompt running out and the strip going. True when the screen changes.
+    fn tick_navigation(&mut self, before_ms: u64, out: &mut Vec<Command>) -> bool {
+        let now = self.now_ms;
+        let mut changed = false;
+        if let Some(key) = self.repeat.as_mut().and_then(|held| held.due(now)) {
+            // A bare stream has the pad in the game's hands, and the lab reads it raw.
+            if self.foreground && self.pad_mode() == PadMode::Menu && !(self.view.page == Page::Running && self.view.layers.is_empty()) {
+                changed |= self.key(key, true, out);
+            } else {
+                self.repeat = None;
+            }
+        }
+        let dim = now.saturating_sub(self.last_key_ms) >= HINTS_DIM_MS;
+        changed |= std::mem::replace(&mut self.hints_dim, dim) != dim;
+        if self.leave_until != 0 && now >= self.leave_until {
+            self.leave_until = 0;
+            changed = true;
+        }
+        changed | (self.strip.visible(before_ms) && !self.strip.visible(now))
+    }
+    /// Whether the Menu key opens the quick menu here: on every page, and over no layer that is a dialog, the viewer or the keyboard.
+    /// The Launch screens and a stream have their own menu. (No layer is a section of the game page yet.)
+    pub fn menu_allowed(&self) -> bool {
+        match self.view.top() {
+            Some(
+                Layer::Chooser
+                | Layer::Viewer
+                | Layer::Sort
+                | Layer::Genre
+                | Layer::Theme
+                | Layer::Delete
+                | Layer::Auth
+                | Layer::StreamMenu
+                | Layer::EndSession
+                | Layer::AddHost
+                | Layer::EditText,
+            ) => false,
+            None => !matches!(self.view.page, Page::Launch | Page::Running),
+        }
+    }
+    /// What the hint bar shows: the screen's own hints, or the one line of a first Back that waits for its second.
+    pub fn hints(&self) -> Hints {
+        if self.leave_armed() {
+            return Hints(vec![(Key::Back, "Back again to leave")]);
+        }
+        Owner::of(self).hints(self)
+    }
+    /// A first Back at Home's anchor has asked for a second to leave, and the second has not come yet.
+    pub fn leave_armed(&self) -> bool {
+        self.now_ms < self.leave_until
+    }
+    /// The in-stream strip is up: it shows when the stream starts and with each key, and leaves after five quiet seconds.
+    pub fn strip_visible(&self) -> bool {
+        self.view.page == Page::Running && self.view.layers.is_empty() && self.strip.visible(self.now_ms)
+    }
+    /// Milliseconds until the model next needs a pass of the loop for its own sake: a held direction's next move, the hint bar dimming,
+    /// the leave prompt running out, the strip going.
+    pub fn wake_in(&self, now_ms: u64) -> Option<u64> {
+        let held = self.repeat.map(|held| held.wake_in(now_ms));
+        let dim = (!self.hints_dim).then(|| (self.last_key_ms + HINTS_DIM_MS).saturating_sub(now_ms));
+        let leave = (self.leave_until > now_ms).then(|| self.leave_until - now_ms);
+        let strip = self.strip.left(now_ms).filter(|_| self.view.page == Page::Running && self.view.layers.is_empty());
+        [held, dim, leave, strip].into_iter().flatten().min()
     }
     fn key(&mut self, key: Key, down: bool, out: &mut Vec<Command>) -> bool {
         if !self.foreground {
@@ -1011,16 +1280,26 @@ impl Model {
             }
             return false;
         }
-        if self.view.page == Page::Running {
-            // While a game runs, the pad is read by the engine; the remote never reaches the game, so its Back is the
-            // only way to the overlay (and to ending the session) without a controller.
-            if matches!(key, Key::Guide | Key::Back) && !down {
+        if self.view.page == Page::Running && self.view.layers.is_empty() {
+            // While a game runs, the pad is read by the engine; the remote never reaches the game, so its Back is the only way to the
+            // strip (and to ending the session) without a controller. Any other key only brings the strip back.
+            if matches!(key, Key::Guide | Key::Back) {
+                if down {
+                    return false;
+                }
                 self.open_overlay(out);
                 return true;
             }
-            return false;
+            return down && self.strip.swallow(self.now_ms);
         }
         if down {
+            if key != Key::Back {
+                self.leave_until = 0;
+            }
+            if matches!(key, Key::Prev | Key::Next) {
+                self.pressed = None;
+                return self.step_peers(key == Key::Next, out);
+            }
             if matches!(key, Key::Up | Key::Down | Key::Left | Key::Right) {
                 self.pressed = None;
                 return self.move_focus(key, out);
@@ -1041,11 +1320,11 @@ impl Model {
             Key::Ok => self.activate(out),
             Key::Back => self.go_back(out),
             Key::Guide => self.open_overlay(out),
-            Key::Menu if matches!(self.view.page, Page::Library | Page::Search) => {
-                self.open_sheet(Layer::Sort, Focus::SheetRow(Sort::ALL.iter().position(|s| *s == self.view.sort).unwrap_or(0)))
+            Key::Menu if self.view.page == Page::Library && self.view.layers.is_empty() => {
+                self.push_layer(Layer::Sort, Focus::SheetRow(Sort::ALL.iter().position(|s| *s == self.view.sort).unwrap_or(0)))
             }
-            Key::Menu if self.view.page == Page::Overlay && self.view.sheet.is_none() => self.set_stats(self.prefs.stats.mode.next(), out),
-            Key::Alt if self.view.page == Page::Overlay && self.view.sheet.is_none() && self.steam_overlay() => self.open_steam_overlay(out),
+            Key::Menu if self.view.top() == Some(Layer::StreamMenu) => self.set_stats(self.prefs.stats.mode.next(), out),
+            Key::Alt if self.view.top() == Some(Layer::StreamMenu) && self.steam_overlay() => self.open_steam_overlay(out),
             _ => {}
         }
         true
@@ -1082,37 +1361,15 @@ impl Model {
             _ => None,
         };
         if let Some(focus) = next {
-            self.view.focus = focus;
-            match focus {
-                Focus::Home(row, _) => self.view.home_row = row,
-                Focus::Grid(i) => {
-                    let row = i / self.prefs.covers.columns();
-                    if row != self.view.first_grid_row {
-                        self.view.first_grid_row = row;
-                    }
-                }
-                Focus::Rail(i) => self.view.place = settings::Place::ALL[i],
-                Focus::Hero(_) => self.view.home_row = 0,
-                _ => {}
-            }
+            let focus = self.arrive(focus);
+            self.set_focus(focus);
             return true;
         }
         false
     }
     fn activate(&mut self, out: &mut Vec<Command>) {
         match self.view.focus {
-            Focus::Nav(i) => {
-                self.back.clear();
-                self.view.sheet = None;
-                self.view.focus = Focus::Nav(i);
-                self.view.page = match i {
-                    1 => Page::Library,
-                    2 => Page::Search,
-                    3 => Page::Settings,
-                    _ => Page::Home,
-                };
-                self.rebuild_filter();
-            }
+            Focus::Nav(i) => self.switch_tab(i, Focus::Nav(i)),
             Focus::None => {}
             f => Owner::of(self).activate(self, f, out),
         }
@@ -1129,7 +1386,7 @@ impl Model {
     fn stats_request(&self, out: &mut Vec<Command>) {
         if let Some(s) = self.session.as_ref().filter(|s| *s.phase() == Phase::Running) {
             let pad_timing = self.hud_visible() || self.diagnostics.active();
-            Self::send(out, &s.source.engine, Request::Stats { session: s.id, on: self.foreground && (pad_timing || self.view.page == Page::Overlay), pad_timing });
+            Self::send(out, &s.source.engine, Request::Stats { session: s.id, on: self.foreground && (pad_timing || self.stream_menu()), pad_timing });
         }
     }
     /// Copies the values every engine shares (the stream's shape and the stick settings) into each enabled engine's settings where
@@ -1182,10 +1439,42 @@ impl Model {
             }
         }
     }
+    /// Back, a rung at a time: the top layer closes; focus returns to the page's anchor; the page before it opens; and at Home's anchor
+    /// the first Back only asks for a second, which leaves.
     fn go_back(&mut self, out: &mut Vec<Command>) {
-        if self.view.sheet.is_some() {
-            if self.view.sheet == Some(Layer::EditText) && self.view.page == Page::Settings && self.view.place == settings::Place::Diagnostics { self.view.address.clear(); }
-            if self.view.sheet == Some(Layer::Auth) {
+        if let Some(layer) = self.view.top() {
+            self.close_layer(layer, out);
+            return;
+        }
+        match self.view.page {
+            Page::Launch => return self.session_input(session::Input::Cancel, out),
+            Page::Running => return,
+            _ => {}
+        }
+        // Settings opened from the in-stream menu returns to it from any row.
+        let from_stream = self.back.last().is_some_and(|way| way.page == Page::Running);
+        if !from_stream {
+            if let Some(anchor) = Owner::of(self).anchor(self).filter(|anchor| *anchor != self.view.focus) {
+                self.set_focus(anchor);
+                return;
+            }
+        }
+        if let Some(way) = self.back.pop() {
+            self.view.restore(way);
+            self.rebuild_filter();
+        } else if self.view.page != Page::Home {
+            self.switch_tab(0, Focus::Nav(0));
+        } else if self.leave_armed() {
+            out.push(Command::Exit);
+        } else {
+            self.leave_until = self.now_ms + LEAVE_MS;
+        }
+    }
+    /// Closes the top layer the way that layer needs: a sign-in under way is called off, the stream resumes.
+    fn close_layer(&mut self, layer: Layer, out: &mut Vec<Command>) {
+        match layer {
+            Layer::EditText if self.view.page == Page::Settings && self.view.place == settings::Place::Diagnostics => self.view.address.clear(),
+            Layer::Auth => {
                 if let Some(a) = self.view.auth.take() {
                     Self::send(out, &a.engine, Request::AuthCancel);
                 }
@@ -1193,43 +1482,10 @@ impl Model {
                     self.session_input(session::Input::Cancel, out);
                 }
             }
-            self.close_sheet();
-            return;
+            Layer::StreamMenu => return self.resume(out),
+            _ => {}
         }
-        match self.view.page {
-            Page::Launch => self.session_input(session::Input::Cancel, out),
-            Page::Running => {}
-            Page::Overlay => self.resume(out),
-            // Settings opened from the in-stream menu returns to it from any row.
-            Page::Settings if matches!(self.back.last(), Some((Page::Overlay, _))) => {
-                self.back.pop();
-                self.view.page = Page::Overlay;
-                self.view.focus = Focus::Overlay(1);
-            }
-            Page::Settings if matches!(self.view.focus, Focus::Setting(_) | Focus::Integration(_) | Focus::Theme(_)) => {
-                self.view.focus = Focus::Rail(self.view.place.index());
-            }
-            Page::Hub if self.view.hub_tab != 0 => {
-                self.view.hub_tab = 0;
-                self.view.focus = Focus::Tab(0);
-            }
-            Page::Home if self.view.home_row > 0 => {
-                self.view.home_row = 0;
-                self.view.focus = Focus::Home(0, 0);
-            }
-            _ => {
-                if let Some((page, focus)) = self.back.pop() {
-                    self.view.page = page;
-                    self.view.focus = focus;
-                    self.rebuild_filter();
-                } else if self.view.page != Page::Home {
-                    self.view.page = Page::Home;
-                    self.view.focus = Focus::Nav(0);
-                } else {
-                    out.push(Command::Exit);
-                }
-            }
-        }
+        self.pop_layer();
     }
     fn engine_event(&mut self, id: EngineId, event: ipc::Event, out: &mut Vec<Command>) {
         match event {
@@ -1322,7 +1578,7 @@ impl Model {
                         return;
                     }
                     self.view.auth = Some(LinkFlow::new(id.clone(), None, self.now_ms));
-                    self.open_sheet(Layer::Auth, Focus::SheetAction(0));
+                    self.push_layer(Layer::Auth, Focus::SheetAction(0));
                 }
                 if matches!(state, AuthState::Done { .. }) {
                     if let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == id && e.manifest.kind == EngineKind::Account)
@@ -1334,7 +1590,7 @@ impl Model {
                     // engine rejected the shared first cursor as repeated.
                     Self::send(out, &id, Request::Targets);
                     self.view.auth = None;
-                    self.close_sheet();
+                    self.pop_layer();
                 } else if let Some(a) = &mut self.view.auth {
                     a.expires_ms = match state {
                         AuthState::DeviceCode { expires_s, .. } | AuthState::Qr { expires_s, .. } => Some(self.now_ms + u64::from(expires_s) * 1000),
@@ -1379,6 +1635,8 @@ impl Model {
                     self.sources.used(Source::Controller);
                 }
                 if let Some(key) = Key::from_pad(key) {
+                    self.hold(key, down);
+                    self.touched();
                     self.key(key, down, out);
                 }
             }
@@ -1418,7 +1676,7 @@ impl Model {
     }
     fn request_visible_art(&mut self, out: &mut Vec<Command>) {
         let mut wanted = Vec::new();
-        let hero = if matches!(self.view.page, Page::Home | Page::Library | Page::Search) { self.view.featured } else { self.view.selected };
+        let hero = if matches!(self.view.page, Page::Home | Page::Library) { self.view.featured } else { self.view.selected };
         if let Some(id) = hero {
             for kind in [ArtKind::Hero, ArtKind::Logo] {
                 if let Some(url) = self.art_url(id, kind) {
@@ -1426,15 +1684,13 @@ impl Model {
                 }
             }
         }
-        if matches!(self.view.page, Page::Hub | Page::Media) {
+        if self.view.page == Page::Game {
             if let Some(id) = self.view.selected {
                 if !self.details.contains_key(&id) && self.requested_details.insert(id) {
                     out.push(Command::FetchDetails { game: id });
                 }
-                if self.view.page == Page::Hub {
-                    self.request_owned(id, out);
-                }
-                let media_open = self.view.page == Page::Media || self.hub_tab() == HubTab::Media;
+                self.request_owned(id, out);
+                let media_open = self.view.top() == Some(Layer::Viewer) || self.hub_tab() == HubTab::Media;
                 let icons_open = self.hub_tab() == HubTab::Achievements;
                 if let Some(details) = self.details.get(&id) {
                     if media_open {
@@ -1472,7 +1728,7 @@ impl Model {
                 }
                 ids
             }
-            Page::Library | Page::Search => {
+            Page::Library => {
                 self.filtered.iter().skip(self.view.first_grid_row.saturating_sub(1) * self.prefs.covers.columns()).take(self.prefs.covers.columns() * 4).copied().collect()
             }
             _ => Vec::new(),
@@ -1491,12 +1747,11 @@ impl Model {
     /// Explicit four-way links are rebuilt only when the destination changes. Endpoints have no neighbour: nothing wraps.
     pub fn rebuild_navigation(&mut self) {
         let mut rows: Vec<Vec<Focus>> = Vec::new();
-        if let Some(layer) = self.view.sheet {
+        if let Some(layer) = self.view.top() {
             rows = Owner::of_layer(layer).rows(self, Some(layer));
         } else {
-            match self.view.page {
-                Page::Home | Page::Library | Page::Search | Page::Settings | Page::Accounts | Page::Lab | Page::GameSir | Page::Leadjoy => rows.push((0..4).map(Focus::Nav).collect()),
-                _ => {}
+            if self.view.pane.is_none() && matches!(self.view.page, Page::Home | Page::Library | Page::Settings | Page::Accounts) {
+                rows.push((0..4).map(Focus::Nav).collect());
             }
             rows.extend(Owner::of_page(self.view.page).rows(self, None));
         }
@@ -1514,7 +1769,7 @@ impl Model {
                 });
             }
         }
-        if self.view.page == Page::Settings && self.view.sheet.is_none() {
+        if self.view.page == Page::Settings && self.view.pane.is_none() && self.view.layers.is_empty() {
             self.settings_links();
         }
         if !self.navigation.iter().any(|n| n.id == self.view.focus) {
@@ -1536,7 +1791,7 @@ mod core_tests {
         m.step(Input::Key { key: Key::Ok, down: false });
         assert_eq!(m.view.page, Page::Home);
         key(&mut m, Key::Ok);
-        assert_eq!(m.view.page, Page::Search);
+        assert_eq!((m.view.page, m.view.search), (Page::Library, true));
     }
     #[test]
     fn navigation_has_no_wrap_and_repeated_presses_take_the_newest_destination() {

@@ -124,7 +124,7 @@ fn screens() -> Vec<(String, Model)> {
         .map(|(name, m)| {
             let mut m = m.clone();
             m.prefs.text_percent = 200;
-            if m.view.page == Page::Settings && m.view.sheet.is_none() {
+            if m.view.page == Page::Settings && m.view.layers.is_empty() {
                 m.view.focus = Focus::Setting(if m.view.place == Place::Appearance { 5 } else { 0 });
             }
             m.rebuild_navigation();

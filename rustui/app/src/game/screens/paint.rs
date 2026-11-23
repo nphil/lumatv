@@ -191,12 +191,15 @@ impl<'a> Paint<'a> {
     /// sits in one group of its own, so the whole page moves on one retargetable track instead of each node on a timed curve of its
     /// own.
     pub fn fit_focus(&mut self) {
-        use crate::game::model::Page;
-        let focus = if self.model.view.sheet.is_some() { None } else { self.plan.hits.iter().find(|(id, _)| *id == self.model.view.focus).map(|(_, f)| *f) };
-        let scrollable = |id: u64| match self.model.view.page {
-            Page::Home | Page::Hub | Page::Accounts | Page::Lab | Page::GameSir | Page::Leadjoy => id >= 100,
-            Page::Settings => id >= 200,
-            Page::Library | Page::Search => id >= 1000,
+        use crate::game::model::{Layer, Page};
+        let model: &Model = self.model;
+        let view = &model.view;
+        let focus = if view.top().is_some_and(Layer::is_sheet) { None } else { self.plan.hits.iter().find(|(id, _)| *id == view.focus).map(|(_, f)| *f) };
+        let scrollable = |id: u64| match (view.page, view.pane) {
+            (Page::Game, _) if view.top() == Some(Layer::Viewer) => false,
+            (Page::Settings, None) => id >= 200,
+            (Page::Home | Page::Game | Page::Accounts | Page::Settings, _) => id >= 100,
+            (Page::Library, _) => id >= 1000,
             _ => false,
         };
         let fixed = |id: &Focus| matches!(id, Focus::Nav(_) | Focus::Rail(_) | Focus::HubTop(_));

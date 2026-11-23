@@ -32,13 +32,13 @@ pub(super) fn editing(base: &Model, add: &mut impl FnMut(&str, Model)) {
     let mut m = base.clone();
     m.view.page = Page::Accounts;
     m.view.selected_engine = Some(EngineId::new("gamestream").unwrap());
-    m.view.sheet = Some(Layer::AddHost);
+    m.view.push(Layer::AddHost, m.view.focus);
     m.view.focus = Focus::Keyboard(0);
     add("41-add-pc", m);
     let mut m = base.clone();
     m.view.page = Page::Accounts;
     m.view.selected_engine = Some(EngineId::new("native").unwrap());
-    m.view.sheet = Some(Layer::EditText);
+    m.view.push(Layer::EditText, m.view.focus);
     m.view.focus = Focus::Keyboard(0);
     m.view.address = "/media/games/quake".into();
     add("42-edit-path", m);
@@ -53,14 +53,14 @@ pub(super) fn steam_screens(base: &Model) -> Vec<(String, Model)> {
         ("61-steam-qr", SteamShot::Qr, None, ""),
         ("62-steam-signed-in", SteamShot::SignedIn, None, ""),
         ("63-steam-home", SteamShot::SignedIn, Some(Page::Home), ""),
-        ("64-steam-hub", SteamShot::SignedIn, Some(Page::Hub), "Baldur's Gate 3"),
+        ("64-steam-hub", SteamShot::SignedIn, Some(Page::Game), "Baldur's Gate 3"),
         ("65-steam-home-favourites", SteamShot::SignedIn, Some(Page::Home), "Favourites"),
     ] {
         for (suffix, light, text) in [("", false, 100), ("-light", true, 100), ("-200", false, 200), ("-200-light", true, 200)] {
             let mut m = with_steam(base.clone(), shot);
             match page {
-                Some(Page::Hub) => {
-                    m.view.page = Page::Hub;
+                Some(Page::Game) => {
+                    m.view.page = Page::Game;
                     m.view.selected = Some(id(&m, title));
                     m.view.hub_tab = 0;
                     m.view.focus = Focus::HubAction(0);
@@ -97,18 +97,18 @@ fn native_text_fields_activate_on_release_and_validate_before_saving() {
     m.view.focus = Focus::EngineField(0);
     m.rebuild_navigation();
     m.step(Input::Key { key: Key::Right, down: true });
-    assert_eq!(m.view.sheet, None);
+    assert_eq!(m.view.top(), None);
     m.step(Input::Key { key: Key::Ok, down: true });
-    assert_eq!(m.view.sheet, None);
+    assert_eq!(m.view.top(), None);
     m.step(Input::Key { key: Key::Ok, down: false });
-    assert_eq!(m.view.sheet, Some(Layer::EditText));
+    assert_eq!(m.view.top(), Some(Layer::EditText));
     m.step(Input::Text("abcd".into()));
     m.view.focus = Focus::SheetAction(0);
     activate(&mut m);
-    assert_eq!(m.view.sheet, Some(Layer::EditText));
+    assert_eq!(m.view.top(), Some(Layer::EditText));
     assert_eq!(m.view.notice.as_deref(), Some("Use at most 3 characters."));
     m.view.address = "abc".into();
     activate(&mut m);
-    assert_eq!(m.view.sheet, None);
+    assert_eq!(m.view.top(), None);
     assert_eq!(m.view.focus, Focus::EngineField(0));
 }

@@ -6,7 +6,7 @@ use crate::game::screens::{
     paint::{Fill, H, Paint, W},
     parts::motion::Enter,
 };
-use crate::game::{helper::LeadjoyState, model::{Focus, Layer, Page, settings::Place}};
+use crate::game::{helper::LeadjoyState, model::{Focus, Layer, Page, settings::{Pane, Place}}};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{components::Icon, geometry::Frame, lucent::palette::PaletteRole as Role};
 use crate::game::screens::parts::dialog::*;
@@ -29,7 +29,7 @@ pub struct TextEntry<'a> {
 
 /// Whether the keys of the Diagnostics page's fields are wanted: they add `_`.
 fn diagnostic(p: &Paint<'_>) -> bool {
-    p.model.view.page == Page::Settings && p.model.view.place == Place::Diagnostics && p.model.view.sheet == Some(Layer::EditText)
+    p.model.view.page == Page::Settings && p.model.view.place == Place::Diagnostics && p.model.view.top() == Some(Layer::EditText)
 }
 
 pub fn keyboard(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage: bool) {
@@ -73,12 +73,12 @@ fn keys(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage
 }
 pub fn edit_text(p: &mut Paint<'_>) {
     let model = p.model;
-    let editing = model.view.sheet == Some(Layer::EditText);
+    let editing = model.view.top() == Some(Layer::EditText);
     let diagnostics = editing && model.view.page == Page::Settings && model.view.place == Place::Diagnostics;
     let secret = diagnostics && model.view.edit_field == Some(4);
     let title = if diagnostics {
         match model.view.edit_field { Some(2) => "Server URL", Some(3) => "Topic", Some(4) => "Write token", _ => "Edit setting" }
-    } else if editing && model.view.page == Page::Leadjoy {
+    } else if editing && model.view.pane == Some(Pane::Leadjoy) {
         match &model.leadjoy.state {
             LeadjoyState::Ready(profile) => model.view.edit_field.and_then(|i| profile.schema.fields().nth(i)).map_or("Edit setting", |field| field.label.as_str()),
             _ => "Edit setting",

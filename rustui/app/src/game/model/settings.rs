@@ -2,6 +2,14 @@
 use super::nav::Slice;
 use super::*;
 
+/// A controller screen reached from Settings; `View::pane` holds the one that is open. The content slices turn these into sections of
+/// Settings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pane {
+    Lab,
+    GameSir,
+    Leadjoy,
+}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Place {
     #[default]
@@ -98,6 +106,9 @@ impl Slice for Rules {
     fn adjust(m: &mut Model, f: Focus, forward: bool, out: &mut Vec<Command>) -> bool {
         m.settings_adjust(f, forward, out)
     }
+    fn anchor(m: &Model) -> Option<Focus> {
+        m.view.pane.is_none().then(|| Focus::Rail(m.view.place.index()))
+    }
 }
 impl Model {
     /// Shows Settings at `place`, focused on its first control.
@@ -107,17 +118,17 @@ impl Model {
     }
     fn settings_grid(&self, layer: Option<Layer>) -> Vec<Vec<Focus>> {
         let mut rows: Vec<Vec<Focus>> = Vec::new();
-        match (layer, self.view.page) {
-            (Some(Layer::Theme), _) => {
+        match (layer, self.view.page, self.view.pane) {
+            (Some(Layer::Theme), ..) => {
                 let count = lumatv_tokens::themes::game_options().len();
                 let cols = if self.prefs.text_percent > 100 { 3 } else { 4 };
                 for i in (0..count).step_by(cols) {
                     rows.push((i..(i + cols).min(count)).map(Focus::Theme).collect());
                 }
             }
-            (Some(Layer::Delete), _) => rows.push(vec![Focus::SheetAction(0), Focus::SheetAction(1)]),
-            (Some(_), _) => {}
-            (None, Page::Settings) => {
+            (Some(Layer::Delete), ..) => rows.push(vec![Focus::SheetAction(0), Focus::SheetAction(1)]),
+            (Some(_), ..) => {}
+            (None, Page::Settings, None) => {
                 if self.view.place == Place::Appearance {
                     rows.push((1..=if self.prefs.text_percent > 100 { 2 } else { 4 }).map(Focus::Theme).collect());
                 }
@@ -140,7 +151,7 @@ impl Model {
                     rows.push(row);
                 }
             }
-            (None, Page::Lab) => {
+            (None, Page::Settings, Some(Pane::Lab)) => {
                 if !self.session_active() {
                     if self.prefs.text_percent > 100 { rows.extend([vec![Focus::Lab(0), Focus::Lab(1)], vec![Focus::Lab(2), Focus::Lab(3)]]); } else { rows.push((0..4).map(Focus::Lab).collect()); }
                     if self.lab.pad().is_some() {
@@ -154,18 +165,18 @@ impl Model {
                 }
                 rows.extend((0..3).map(|i| vec![Focus::Setting(i)]));
             }
-            (None, Page::GameSir) => {
+            (None, Page::Settings, Some(Pane::GameSir)) => {
                 let count = if matches!(self.gamesir.state, GameSirState::Ready(_)) { 8 } else { 1 };
                 rows.extend((0..count).map(|i| vec![Focus::Setting(i)]));
             }
-            (None, Page::Leadjoy) => {
+            (None, Page::Settings, Some(Pane::Leadjoy)) => {
                 rows.push(vec![Focus::Setting(0)]);
                 if let LeadjoyState::Ready(profile) = &self.leadjoy.state {
                     rows.extend(profile.schema.fields().enumerate().filter(|(_, field)| !matches!(field.kind, FieldKind::Note))
                         .map(|(i, _)| vec![Focus::Setting(i + 1)]));
                 }
             }
-            (None, _) => {}
+            (None, ..) => {}
         }
         rows
     }
@@ -216,10 +227,10 @@ impl Model {
                 self.view.focus = if self.view.place == Place::Integrations { Focus::Integration(0) } else { Focus::Setting(0) };
             }
             Focus::Setting(i) => {
-                if matches!(self.view.page, Page::Lab | Page::GameSir | Page::Leadjoy) {
+                if self.view.pane.is_some() {
                     self.adjust(true, out);
                 } else if self.view.place == Place::Appearance && i == 0 {
-                    self.open_sheet(Layer::Theme, Focus::Theme(0));
+                    self.push_layer(Layer::Theme, Focus::Theme(0));
                 } else if self.view.place == Place::Controllers {
                     if i == 0 {
                         self.lab = Lab::default();
@@ -230,17 +241,17 @@ impl Model {
                         } else {
                             Focus::Setting(0)
                         };
-                        self.show_page(Page::Lab, focus);
+                        self.show_pane(Pane::Lab, focus);
                     } else if i == 1 {
                         out.push(Command::OpenControllerSettings);
                     } else if i == 2 {
-                        self.show_page(Page::GameSir, Focus::Setting(0));
+                        self.show_pane(Pane::GameSir, Focus::Setting(0));
                         self.read_gamesir(out);
                     } else if i == 4 {
                         self.prefs.button_labels = Labels::ALL[(self.prefs.button_labels.index() + 1) % Labels::ALL.len()];
                         self.save_prefs(out);
                     } else {
-                        self.show_page(Page::Leadjoy, Focus::Setting(0));
+                        self.show_pane(Pane::Leadjoy, Focus::Setting(0));
                         self.read_leadjoy(out);
                     }
                 } else if self.view.place == Place::Diagnostics {
@@ -250,7 +261,7 @@ impl Model {
                         2..=4 => {
                             self.view.edit_field = Some(i);
                             self.view.address = match i { 2 => self.diagnostics.server.clone(), 3 => self.diagnostics.topic.clone(), _ => String::new() };
-                            self.open_sheet(Layer::EditText, Focus::Keyboard(0));
+                            self.push_layer(Layer::EditText, Focus::Keyboard(0));
                         }
                         5 => { self.diagnostics.token.clear(); out.push(Command::Diagnostics(self.diagnostics.clone())); }
                         6 => out.push(Command::DiagnosticTest),
@@ -267,14 +278,14 @@ impl Model {
                 let families = lumatv_tokens::themes::game_catalog();
                 self.prefs.family = if i == 0 { "match-lumatv".into() } else { families.get(i - 1).map_or("rose-pine", |f| f.id).into() };
                 self.save_prefs(out);
-                if self.view.sheet.is_some() {
-                    self.close_sheet();
+                if !self.view.layers.is_empty() {
+                    self.pop_layer();
                 }
             }
             Focus::Integration(i) => self.open_integration(i),
-            Focus::SheetAction(i) if self.view.sheet == Some(Layer::Delete) => {
+            Focus::SheetAction(i) if self.view.top() == Some(Layer::Delete) => {
                 if i == 1 { self.delete_leadjoy(out); }
-                self.close_sheet();
+                self.pop_layer();
             }
             _ => {}
         }
@@ -283,12 +294,12 @@ impl Model {
         let Focus::Setting(row) = f else {
             return false;
         };
-        if self.view.page == Page::GameSir {
+        if self.view.pane == Some(Pane::GameSir) {
             return self.adjust_gamesir(row, right, out);
         }
-        if self.view.page == Page::Leadjoy { return self.adjust_leadjoy(row, right, out); }
+        if self.view.pane == Some(Pane::Leadjoy) { return self.adjust_leadjoy(row, right, out); }
         let step = |index: usize, len: usize| if right { (index + 1).min(len - 1) } else { index.saturating_sub(1) };
-        if self.view.page == Page::Lab {
+        if self.view.pane == Some(Pane::Lab) {
             let nudge = |v: u8, max: u8| if right { (v + 1).min(max) } else { v.saturating_sub(1) };
             let curves = [Curve::Linear, Curve::Precise, Curve::Quick];
             match row {
@@ -381,7 +392,7 @@ impl Model {
         self.view.address.clear();
         out.push(Command::Diagnostics(self.diagnostics.clone()));
         self.stats_request(out);
-        self.close_sheet();
+        self.pop_layer();
     }
     /// A Leadjoy profile's name.
     pub(super) fn save_leadjoy_text(&mut self, out: &mut Vec<Command>) {
@@ -395,11 +406,11 @@ impl Model {
         }
         out.push(Command::Leadjoy { view: profile.view.clone(), change: Some(ControllerChange { setting: field.key.clone().into(), value: serde_json::json!(value) }) });
         self.leadjoy.pending = true;
-        self.close_sheet();
+        self.pop_layer();
     }
     /// How the shell should read the pads: the lab's own modes while its page has them and no sheet covers it.
     pub fn pad_mode(&self) -> PadMode {
-        if !self.wants_pads() || self.view.page != Page::Lab || self.view.sheet.is_some() {
+        if !self.wants_pads() || self.view.page != Page::Settings || self.view.pane != Some(Pane::Lab) || !self.view.layers.is_empty() {
             PadMode::Menu
         } else if self.lab.capture.is_some() {
             PadMode::Captured
@@ -422,7 +433,7 @@ impl Model {
     }
     /// The lab's share of the pads. True when its page shows something new.
     pub(super) fn lab_input(&mut self, now_ns: u64, reports: Vec<(u8, RawReport)>, names: [Option<String>; MAX_PADS], frame: u64) -> bool {
-        if self.view.page != Page::Lab {
+        if self.view.page != Page::Settings || self.view.pane != Some(Pane::Lab) {
             return false;
         }
         let lab = &mut self.lab;
@@ -560,7 +571,7 @@ impl Model {
         if field.kind == FieldKind::Action {
             if field.key.starts_with("delete-") {
                 self.view.edit_field = Some(row - 1);
-                self.open_sheet(Layer::Delete, Focus::SheetAction(0));
+                self.push_layer(Layer::Delete, Focus::SheetAction(0));
                 return true;
             }
             let change = ControllerChange { setting: field.key.clone().into(), value: serde_json::Value::Null };
@@ -573,7 +584,7 @@ impl Model {
             let Value::Text(value) = current else { return false };
             self.view.address = value.clone();
             self.view.edit_field = Some(row - 1);
-            self.open_sheet(Layer::EditText, Focus::Keyboard(0));
+            self.push_layer(Layer::EditText, Focus::Keyboard(0));
             return true;
         }
         let next = match (&field.kind, current) {
@@ -703,9 +714,9 @@ mod tests {
         #[test]
         fn controllers_open_the_lab_and_back_returns_to_the_same_row() {
             let mut m = lab();
-            assert_eq!((m.view.page, m.view.focus, m.pad_mode()), (Page::Lab, Focus::Lab(0), PadMode::Lab));
+            assert_eq!((m.view.pane, m.view.focus, m.pad_mode()), (Some(Pane::Lab), Focus::Lab(0), PadMode::Lab));
             key(&mut m, Key::Back);
-            assert_eq!((m.view.page, m.view.place, m.view.focus), (Page::Settings, Place::Controllers, Focus::Setting(0)));
+            assert_eq!((m.view.page, m.view.pane, m.view.place, m.view.focus), (Page::Settings, None, Place::Controllers, Focus::Setting(0)));
             m.view.focus = Focus::Setting(1);
             assert!(key(&mut m, Key::Ok).contains(&Command::OpenControllerSettings));
         }
@@ -723,9 +734,9 @@ mod tests {
             assert_eq!(m.pad_mode(), PadMode::Captured);
             m.step(Input::Key { key: Key::Back, down: false });
             assert_eq!(m.pad_mode(), PadMode::Lab);
-            m.view.sheet = Some(Layer::Theme);
+            m.view.push(Layer::Theme, m.view.focus);
             assert_eq!(m.pad_mode(), PadMode::Menu);
-            m.view.sheet = None;
+            m.view.clear_layers();
             m.step(Input::Foreground(false));
             assert_eq!(m.pad_mode(), PadMode::Menu);
         }
@@ -796,20 +807,20 @@ mod tests {
         fn an_engines_background_error_stays_on_its_card_and_off_the_lab() {
             let mut m = lab();
             let engine = EngineId::new("gfn").unwrap();
-            let error = |m: &mut Model| m.step(Input::Engine { engine: engine.clone(), message: FromEngine { re: Some(1), event: ipc::Event::Error {
-                code: ipc::ErrorCode::Internal, message: "the installed app list exceeds the lifecycle limit".into() } } });
+            let error = |m: &mut Model| m.step(Input::Engine { engine: engine.clone(), message: Box::new(FromEngine { re: Some(1), event: ipc::Event::Error {
+                code: ipc::ErrorCode::Internal, message: "the installed app list exceeds the lifecycle limit".into() } }) });
             error(&mut m);
-            assert_eq!(m.view.page, Page::Lab);
+            assert_eq!(m.view.pane, Some(Pane::Lab));
             assert_eq!(m.view.notice, None);
             assert_eq!(m.integration(&engine).unwrap().error.as_ref().map(|(_, text)| text.as_str()), Some("the installed app list exceeds the lifecycle limit"));
             // Where the engine is what the screen is about, the same error is still shown.
             m.view.notice = Some("No controller is connected.".into());
             m.view.selected_engine = Some(engine.clone());
-            m.view.sheet = Some(Layer::AddHost);
+            m.view.push(Layer::AddHost, m.view.focus);
             error(&mut m);
             assert_eq!(m.view.notice.as_deref(), Some("the installed app list exceeds the lifecycle limit"));
             // A notice does not follow its page to another one.
-            m.view.sheet = None;
+            m.view.clear_layers();
             m.show_page(Page::Settings, Focus::Setting(0));
             assert_eq!(m.view.notice, None);
         }
@@ -830,10 +841,10 @@ mod tests {
             assert!(matches!(sent(&commands).as_slice(), [Request::RoundTrip { session: SessionId(1) }]));
             let engine = EngineId::new("gfn").unwrap();
             let trip = ipc::RoundTrip { network_ms: Some(12.5), ..Default::default() };
-            m.step(Input::Engine { engine: engine.clone(), message: FromEngine { re: None, event: ipc::Event::RoundTrip { session: SessionId(1), trip: trip.clone() } } });
+            m.step(Input::Engine { engine: engine.clone(), message: Box::new(FromEngine { re: None, event: ipc::Event::RoundTrip { session: SessionId(1), trip: trip.clone() } }) });
             assert_eq!(m.lab.trip, Trip::Answer(engine.clone(), trip));
             key(&mut m, Key::Ok);
-            m.step(Input::Engine { engine: engine.clone(), message: FromEngine { re: None, event: ipc::Event::Error { code: ipc::ErrorCode::Unsupported, message: "unknown request".into() } } });
+            m.step(Input::Engine { engine: engine.clone(), message: Box::new(FromEngine { re: None, event: ipc::Event::Error { code: ipc::ErrorCode::Unsupported, message: "unknown request".into() } }) });
             assert_eq!(m.lab.trip, Trip::Unsupported(engine));
             assert_eq!(m.view.notice, None);
             assert_eq!(m.view.focus, Focus::Setting(0));
@@ -846,7 +857,7 @@ mod tests {
             key(&mut m, Key::Back);
             m.view.focus = Focus::Setting(2);
             assert!(key(&mut m, Key::Ok).contains(&Command::GameSir(None)));
-            assert_eq!(m.view.page, Page::GameSir);
+            assert_eq!(m.view.pane, Some(Pane::GameSir));
             assert!(m.gamesir.pending);
             let ready = crate::game::helper::gamesir_fixture();
             m.step(Input::GameSir(Ok(ready.clone())));
@@ -868,7 +879,7 @@ mod tests {
             m.step(Input::GameSir(Ok(GameSirState::Off)));
             assert_eq!(m.gamesir.state, GameSirState::Off);
             key(&mut m, Key::Back);
-            assert_eq!((m.view.page, m.view.focus), (Page::Settings, Focus::Setting(2)));
+            assert_eq!((m.view.page, m.view.pane, m.view.focus), (Page::Settings, None, Focus::Setting(2)));
         }
 
         #[test]
@@ -877,7 +888,7 @@ mod tests {
             key(&mut m, Key::Back);
             m.view.focus = Focus::Setting(3);
             assert!(key(&mut m, Key::Ok).contains(&Command::Leadjoy { view: LeadjoyView::default(), change: None }));
-            assert_eq!(m.view.page, Page::Leadjoy);
+            assert_eq!(m.view.pane, Some(Pane::Leadjoy));
             let ready = crate::game::helper::leadjoy_fixture("general");
             m.step(Input::Leadjoy(Ok(ready.clone())));
             m.view.focus = Focus::Setting(4);
@@ -897,7 +908,7 @@ mod tests {
             m.step(Input::Leadjoy(Ok(LeadjoyState::Off)));
             assert!(!m.leadjoy.pending);
             key(&mut m, Key::Back);
-            assert_eq!((m.view.page, m.view.focus), (Page::Settings, Focus::Setting(3)));
+            assert_eq!((m.view.page, m.view.pane, m.view.focus), (Page::Settings, None, Focus::Setting(3)));
         }
 
         #[test]
@@ -914,12 +925,12 @@ mod tests {
             m.step(Input::Leadjoy(Ok(leadjoy_fixture("profiles"))));
             m.view.focus = Focus::Setting(4);
             assert!(key(&mut m, Key::Ok).is_empty());
-            assert_eq!((m.view.sheet, m.view.address.as_str()), (Some(Layer::EditText), "Default"));
+            assert_eq!((m.view.top(), m.view.address.as_str()), (Some(Layer::EditText), "Default"));
             m.view.address = "Racing".into();
             m.view.focus = Focus::SheetAction(0);
             let rename = ControllerChange { setting: "profile-name".into(), value: serde_json::json!("Racing") };
             assert!(key(&mut m, Key::Ok).contains(&Command::Leadjoy { view: profiles.clone(), change: Some(rename) }));
-            assert_eq!(m.view.sheet, None);
+            assert_eq!(m.view.top(), None);
             m.step(Input::Leadjoy(Ok(leadjoy_fixture("profiles"))));
             m.view.focus = Focus::Setting(5);
             let activate = ControllerChange { setting: "profile-activate".into(), value: serde_json::Value::Null };
@@ -945,21 +956,21 @@ mod tests {
             m.step(Input::Leadjoy(Ok(leadjoy_fixture("macros"))));
             m.view.focus = Focus::Setting(11);
             assert!(key(&mut m, Key::Ok).is_empty());
-            assert_eq!((m.view.sheet, m.view.focus), (Some(Layer::Delete), Focus::SheetAction(0)));
+            assert_eq!((m.view.top(), m.view.focus), (Some(Layer::Delete), Focus::SheetAction(0)));
             assert!(key(&mut m, Key::Ok).is_empty(), "keeping is the default");
-            assert_eq!((m.view.sheet, m.view.focus), (None, Focus::Setting(11)));
+            assert_eq!((m.view.top(), m.view.focus), (None, Focus::Setting(11)));
             key(&mut m, Key::Ok);
             m.view.focus = Focus::SheetAction(1);
             let delete = ControllerChange { setting: "delete-macro".into(), value: serde_json::Value::Null };
             assert!(key(&mut m, Key::Ok).contains(&Command::Leadjoy { view: macros, change: Some(delete) }));
-            assert_eq!((m.view.sheet, m.leadjoy.pending), (None, true));
+            assert_eq!((m.view.top(), m.leadjoy.pending), (None, true));
         }
 
         #[test]
         fn leadjoy_keyboard_wraps_and_keeps_the_selected_field_after_readback() {
             use crate::game::helper::leadjoy_fixture;
             let mut m = lab();
-            m.view.page = Page::Leadjoy;
+            m.view.pane = Some(Pane::Leadjoy);
             let ready = leadjoy_fixture("keyboard");
             m.step(Input::Leadjoy(Ok(ready.clone())));
             let LeadjoyState::Ready(profile) = &ready else { panic!("keyboard fixture must be ready") };
@@ -988,7 +999,7 @@ mod tests {
         fn leadjoy_long_key_pages_are_read_only_selectors_and_notes_are_not_controls() {
             use crate::game::helper::leadjoy_fixture;
             let mut m = lab();
-            m.view.page = Page::Leadjoy;
+            m.view.pane = Some(Pane::Leadjoy);
             let LeadjoyState::Ready(profile) = leadjoy_fixture("motion-long") else { panic!("motion fixture must be ready") };
             let page_row = profile.schema.fields().position(|field| field.key == "view-page").unwrap() + 1;
             let key_row = profile.schema.fields().position(|field| field.key == "trigger-key-47").unwrap() + 1;

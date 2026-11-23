@@ -6,19 +6,19 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
     m.view.page = Page::Library;
     m.view.focus = Focus::Grid(2);
     add("07-library", m.clone());
-    m.view.sheet = Some(Layer::Sort);
+    m.view.push(Layer::Sort, m.view.focus);
     m.view.focus = Focus::SheetRow(0);
     add("07-library-sort", m);
 }
 pub(super) fn search(base: &Model, add: &mut impl FnMut(&str, Model)) {
     let mut m = base.clone();
-    m.view.page = Page::Search;
+    (m.view.page, m.view.search) = (Page::Library, true);
     m.view.query = "Hades".into();
     m.filtered = vec![id(&m, "Hades II")];
     m.view.focus = Focus::Grid(0);
     add("37-search", m);
     let mut m = base.clone();
-    m.view.page = Page::Search;
+    (m.view.page, m.view.search) = (Page::Library, true);
     m.view.focus = Focus::Keyboard(0);
     add("38-search-keyboard", m);
 }
@@ -49,7 +49,7 @@ pub(super) fn refresh_screens(base: &Model) -> Vec<(String, Model)> {
         library.view.focus = Focus::Filter(library.integrations.iter().filter(|e| library.enabled(&e.manifest.id)).count() + 4);
         let hub = |title: &str, tab: usize| {
             let mut m = base.clone();
-            m.view.page = Page::Hub;
+            m.view.page = Page::Game;
             m.view.selected = Some(id(&m, title));
             m.view.hub_tab = tab;
             m.view.focus = if tab == 0 && text == 100 { Focus::HubAction(0) } else if tab == 2 || tab == 3 { Focus::Item(0) } else { Focus::Tab(tab) };

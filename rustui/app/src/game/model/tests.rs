@@ -48,7 +48,7 @@ pub(crate) fn launching(title: &str, art: bool) -> Model {
 /// What the engine says of the launch.
 pub(crate) fn report(m: &mut Model, state: SessionState) {
     let session = m.session().expect("a launch").id;
-    m.step(Input::Engine { engine: EngineId::new("gfn").unwrap(), message: FromEngine { re: None, event: ipc::Event::Session { session, state } } });
+    m.step(Input::Engine { engine: EngineId::new("gfn").unwrap(), message: Box::new(FromEngine { re: None, event: ipc::Event::Session { session, state } }) });
 }
 /// The Steam integration as the screenshots show it.
 #[derive(Clone, Copy)]
@@ -149,7 +149,7 @@ pub(crate) fn linked(id: &str) -> Target {
     Target { id: TargetId::new(id).unwrap(), name: id.into(), detail: None, link: ipc::Link::Linked, reach: ipc::Reach::Online }
 }
 pub(crate) fn engine_says(m: &mut Model, engine: &str, event: ipc::Event) -> Vec<Command> {
-    m.step(Input::Engine { engine: EngineId::new(engine).unwrap(), message: FromEngine { re: None, event } })
+    m.step(Input::Engine { engine: EngineId::new(engine).unwrap(), message: Box::new(FromEngine { re: None, event }) })
 }
 pub(crate) fn id_of(m: &Model, title: &str) -> GameId {
     m.games().iter().find(|g| g.title == title).unwrap().id

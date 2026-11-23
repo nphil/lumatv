@@ -25,12 +25,13 @@ const MAX: usize = 3;
 fn remote(key: Key) -> Icon {
     match key {
         Key::Ok => Icon::Circle,
-        Key::Back | Key::Left => Icon::Back,
+        // Only a pad's bumpers send Prev and Next; a remote steps pages with Left and Right on the top bar.
+        Key::Back | Key::Left | Key::Prev => Icon::Back,
         Key::Menu => Icon::Sliders,
         Key::Alt | Key::Guide => Icon::Apps,
         Key::Up => Icon::ChevronUp,
         Key::Down => Icon::ChevronDown,
-        Key::Right => Icon::ChevronRight,
+        Key::Right | Key::Next => Icon::ChevronRight,
     }
 }
 

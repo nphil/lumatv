@@ -127,7 +127,38 @@ impl Sources {
     }
 }
 
-/// The face buttons the menus use. The bumpers, View and Menu buttons are bound to nothing there.
+/// A direction a pad holds, which repeats: the first move after 300 ms, then one every 100 ms. A call gives at most one move, so a slow
+/// frame takes a single step and not a burst.
+#[derive(Clone, Copy, Debug)]
+pub struct Repeat {
+    key: Key,
+    next_ms: u64,
+}
+impl Repeat {
+    const FIRST_MS: u64 = 300;
+    const EVERY_MS: u64 = 100;
+    pub fn start(key: Key, now_ms: u64) -> Self {
+        Self { key, next_ms: now_ms + Self::FIRST_MS }
+    }
+    pub fn key(&self) -> Key {
+        self.key
+    }
+    /// The key to move with, once its time has come.
+    pub fn due(&mut self, now_ms: u64) -> Option<Key> {
+        if now_ms < self.next_ms {
+            return None;
+        }
+        self.next_ms = now_ms + Self::EVERY_MS;
+        Some(self.key)
+    }
+    /// Milliseconds until the next move is due.
+    pub fn wake_in(&self, now_ms: u64) -> u64 {
+        self.next_ms.saturating_sub(now_ms)
+    }
+}
+
+/// The face buttons the menus use. The View and Menu buttons are bound to nothing there, and the bumpers send [`Key::Prev`] and
+/// [`Key::Next`] without a release.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Face {
     A,
@@ -181,6 +212,8 @@ impl Key {
             MenuKey::Back => Self::Back,
             MenuKey::Menu => Self::Menu,
             MenuKey::Alt => Self::Alt,
+            MenuKey::PageLeft => Self::Prev,
+            MenuKey::PageRight => Self::Next,
         }
     }
 }
@@ -282,8 +315,32 @@ mod tests {
             assert_eq!(sent, [face.key()], "{face:?}");
             assert_eq!(face.key().face(), Some(face));
         }
-        for key in [Key::Up, Key::Down, Key::Left, Key::Right, Key::Guide] {
+        for key in [Key::Up, Key::Down, Key::Left, Key::Right, Key::Guide, Key::Prev, Key::Next] {
             assert_eq!(key.face(), None, "{key:?} has no face button");
         }
+    }
+
+    #[test]
+    fn the_bumpers_are_the_previous_and_next_key_from_either_pad_path() {
+        let mut keys = MenuKeys::default();
+        let mut sent = Vec::new();
+        for buttons in [button::LEFT_SHOULDER, 0, button::RIGHT_SHOULDER] {
+            keys.feed(&PadState { buttons, ..PadState::default() }, |key| sent.push(Key::from_menu(key)));
+        }
+        assert_eq!(sent, [Key::Prev, Key::Next], "the shell's own pad reader");
+        let engine = [lumagame_core::ipc::PadKey::PageLeft, lumagame_core::ipc::PadKey::PageRight].map(Key::from_pad);
+        assert_eq!(engine, [Some(Key::Prev), Some(Key::Next)], "a stream's engine forwarding its menu keys");
+    }
+    #[test]
+    fn a_held_direction_repeats_after_300_ms_then_every_100_with_one_move_per_frame() {
+        let mut held = Repeat::start(Key::Down, 1_000);
+        assert_eq!(held.due(1_299), None);
+        assert_eq!(held.wake_in(1_299), 1);
+        assert_eq!(held.due(1_300), Some(Key::Down));
+        assert_eq!(held.due(1_399), None);
+        // A slow frame gets one move, and the next waits its full interval.
+        assert_eq!(held.due(1_900), Some(Key::Down));
+        assert_eq!(held.due(1_950), None);
+        assert_eq!(held.due(2_000), Some(Key::Down));
     }
 }

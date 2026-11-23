@@ -112,7 +112,7 @@ impl Shots {
     }
 }
 pub(super) fn event(model: &mut Model, engine: &str, event: ipc::Event) {
-    model.step(Input::Engine { engine: EngineId::new(engine).unwrap(), message: FromEngine { re: None, event } });
+    model.step(Input::Engine { engine: EngineId::new(engine).unwrap(), message: Box::new(FromEngine { re: None, event }) });
 }
 pub(super) fn activate(model: &mut Model) {
     model.step(Input::Key { key: Key::Ok, down: true });
@@ -509,7 +509,7 @@ pub(super) fn png(path: &Path, w: u32, h: u32, bytes: &[u8]) -> io::Result<()> {
 /// A cloud game running in `fixture()`, past its first tick.
 pub(super) fn playing() -> (Model, lumagame_core::ids::SessionId) {
     let mut m=fixture();
-    m.view.page=Page::Hub;m.view.selected=Some(id(&m,"Cyberpunk 2077"));m.view.focus=Focus::HubAction(0);
+    m.view.page=Page::Game;m.view.selected=Some(id(&m,"Cyberpunk 2077"));m.view.focus=Focus::HubAction(0);
     activate(&mut m);
     let session=m.session().unwrap().id;
     event(&mut m,"gfn",ipc::Event::Session {session,state:SessionState::Running {stream:None}});

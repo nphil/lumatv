@@ -74,19 +74,19 @@ impl Model {
     fn launch_grid(&self, layer: Option<Layer>) -> Vec<Vec<Focus>> {
         match (layer, self.view.page) {
             (Some(Layer::EndSession), _) => vec![vec![Focus::SheetAction(0), Focus::SheetAction(1)]],
-            (None, Page::Overlay) => vec![(0..self.overlay_actions().count()).map(Focus::Overlay).collect()],
+            (Some(Layer::StreamMenu), _) => vec![(0..self.overlay_actions().count()).map(Focus::Overlay).collect()],
             (None, Page::Launch) if self.can_cancel() => vec![vec![Focus::Cancel]],
             _ => Vec::new(),
         }
     }
     fn launch_activate(&mut self, f: Focus, out: &mut Vec<Command>) {
         match f {
-            Focus::SheetAction(i) if self.view.sheet == Some(Layer::EndSession) => {
+            Focus::SheetAction(i) if self.view.top() == Some(Layer::EndSession) => {
                 if i == 0 {
-                    self.close_sheet();
+                    self.pop_layer();
                     self.resume(out);
                 } else {
-                    self.close_sheet();
+                    self.pop_layer();
                     self.session_input(session::Input::Stop { end_game: self.can_end_game() }, out);
                 }
             }
@@ -97,7 +97,7 @@ impl Model {
                     Some(OverlayAction::Settings) => self.open_settings(Place::Streaming),
                     Some(OverlayAction::Stats) => self.set_stats(self.prefs.stats.mode.next(), out),
                     Some(OverlayAction::SteamOverlay) => self.open_steam_overlay(out),
-                    Some(OverlayAction::EndSession) => self.open_sheet(Layer::EndSession, Focus::SheetAction(0)),
+                    Some(OverlayAction::EndSession) => self.push_layer(Layer::EndSession, Focus::SheetAction(0)),
                     None => {}
                 }
             }
@@ -119,13 +119,13 @@ impl Model {
         crate::game::stats::Asked { fps: stream.map_or(self.prefs.fps, |s| s.fps), cap_mbps: self.stream_bitrate_mbps(), sdr_reason: stream.and_then(|s| s.sdr_reason.clone()) }
     }
     pub fn hud_visible(&self) -> bool {
-        self.foreground && self.view.page == Page::Running && self.streaming() && self.prefs.stats.mode.on()
+        self.foreground && self.view.page == Page::Running && self.view.layers.is_empty() && self.streaming() && self.prefs.stats.mode.on()
     }
     /// The seconds the far side's idle countdown has left, while its warning is up over a stream being watched. Counted from the
     /// model's clock, so the prompt needs no event per second.
     pub fn idle_left(&self) -> Option<u32> {
         let warning = self.view.idle?;
-        (self.foreground && matches!(self.view.page, Page::Running | Page::Overlay) && self.streaming())
+        (self.foreground && self.view.page == Page::Running && self.streaming())
             .then(|| warning.ends_ms.saturating_sub(self.now_ms).div_ceil(1000) as u32)
     }
     pub fn elapsed(&self) -> u32 {
@@ -184,7 +184,7 @@ impl Model {
         self.telemetry = Telemetry::default();
         self.queue = QueueWatch::default();
         self.view.page = Page::Launch;
-        self.view.sheet = None;
+        self.view.clear_layers();
         self.view.focus = Focus::None;
         self.session_effects(effects, out);
     }
@@ -219,14 +219,15 @@ impl Model {
                 session::Effect::Stop { end_game } => {
                     Self::send(out, &s.source.engine, Request::Stop { session: s.id, end_game });
                     self.view.page = Page::Launch;
-                    self.view.sheet = None;
+                    self.view.clear_layers();
                 }
                 session::Effect::LowLatency(on) => out.push(Command::LowLatency(on)),
                 session::Effect::Started { pin } => {
                     self.state.profile_mut().user.started(s.game, &s.source, pin);
                     self.session_start = self.unix_s;
                     self.view.page = Page::Running;
-                    self.view.sheet = None;
+                    self.view.clear_layers();
+                    self.strip.show(self.now_ms);
                     self.view.auth = None;
                     out.push(Command::SaveState);
                     self.stats_request(out);
@@ -245,10 +246,10 @@ impl Model {
                         self.state.record(checkpoint);
                         out.push(Command::SaveState);
                     }
-                    self.view.page = Page::Hub;
+                    self.view.page = Page::Game;
                     // The in-stream menu cannot be gone back to once its stream has ended.
-                    self.back.retain(|(page, _)| *page != Page::Overlay);
-                    self.view.sheet = None;
+                    self.back.retain(|way| way.page != Page::Running);
+                    self.view.clear_layers();
                     self.view.focus = Focus::HubAction(0);
                     self.view.hub_tab = 0;
                     self.view.idle = None;
@@ -272,10 +273,13 @@ impl Model {
     }
     pub(super) fn open_overlay(&mut self, out: &mut Vec<Command>) {
         if let Some(s) = self.session.as_ref().filter(|s| *s.phase() == Phase::Running) {
-            self.view.page = Page::Overlay;
-            self.view.focus = Focus::Overlay(0);
-            self.view.sheet = None;
-            Self::send(out, &s.source.engine, Request::Route { session: s.id, input: ipc::InputRoute::App });
+            let (engine, id) = (s.source.engine.clone(), s.id);
+            self.strip.show(self.now_ms);
+            (self.view.page, self.view.pane, self.view.search) = (Page::Running, None, false);
+            self.view.clear_layers();
+            self.view.focus = Focus::None;
+            self.push_layer(Layer::StreamMenu, Focus::Overlay(0));
+            Self::send(out, &engine, Request::Route { session: id, input: ipc::InputRoute::App });
             self.stats_request(out);
         }
     }
@@ -287,7 +291,7 @@ impl Model {
     pub(super) fn resume(&mut self, out: &mut Vec<Command>) {
         if let Some(s) = &self.session {
             self.view.page = Page::Running;
-            self.view.sheet = None;
+            self.view.clear_layers();
             self.view.focus = Focus::None;
             Self::send(out, &s.source.engine, Request::Route { session: s.id, input: ipc::InputRoute::Game });
             self.stats_request(out);
@@ -383,7 +387,7 @@ mod tests {
         m.step(Input::Overlay);
         m.view.focus = Focus::Overlay(3);
         key(&mut m, Key::Ok);
-        assert_eq!(m.view.sheet, Some(Layer::EndSession));
+        assert_eq!(m.view.top(), Some(Layer::EndSession));
         assert_eq!(m.view.focus, Focus::SheetAction(0));
         key(&mut m, Key::Back);
         assert_eq!(m.view.focus, Focus::Overlay(3));
@@ -417,7 +421,7 @@ mod tests {
         m.step(Input::Overlay);
         describe(&mut m, "gfn", vec![], &[Feature::EndGame, Feature::SteamOverlay]);
         assert!(key(&mut m, Key::Alt).is_empty());
-        assert_eq!(m.view.page, Page::Overlay);
+        assert!(m.stream_menu());
     }
     #[test]
     fn a_stream_page_never_outlives_its_session() {
@@ -427,15 +431,15 @@ mod tests {
         m.view.focus = Focus::Overlay(1);
         key(&mut m, Key::Ok);
         key(&mut m, Key::Back);
-        assert_eq!((m.view.page, m.view.focus), (Page::Overlay, Focus::Overlay(1)), "Settings opened from the in-stream menu returns to it");
+        assert_eq!((m.stream_menu(), m.view.focus), (true, Focus::Overlay(1)), "Settings opened from the in-stream menu returns to it");
         key(&mut m, Key::Ok);
         report(&mut m, SessionState::Ended { reason: ipc::EndReason::Remote });
-        assert_eq!(m.view.page, Page::Hub);
+        assert_eq!(m.view.page, Page::Game);
         key(&mut m, Key::Back);
         assert_eq!(m.view.page, Page::Home, "Back after the stream ended skips its menu");
         m.view.page = Page::Running;
         m.step(Input::Foreground(true));
-        assert_eq!((m.view.page, m.view.focus), (Page::Hub, Focus::HubAction(0)), "a relaunch onto a stream page without a stream shows the game");
+        assert_eq!((m.view.page, m.view.focus), (Page::Game, Focus::HubAction(0)), "a relaunch onto a stream page without a stream shows the game");
         assert!(m.wants_frames(), "and the shell draws it");
     }
     #[test]
@@ -457,9 +461,9 @@ mod tests {
         m.session = Some(Session::start(SessionId(1), GameId(1), "gfn|main|1".parse().unwrap(), Presentation::Feeder, false, 0).0);
         for state in [SessionState::Running { stream: None }, SessionState::Ended { reason: ipc::EndReason::Remote }] {
             let event = ipc::Event::Session { session: SessionId(1), state };
-            m.step(Input::Engine { engine: EngineId::new("gfn").unwrap(), message: FromEngine { re: None, event } });
+            m.step(Input::Engine { engine: EngineId::new("gfn").unwrap(), message: Box::new(FromEngine { re: None, event }) });
         }
-        assert_eq!((m.view.page, m.view.sheet, m.view.notice.as_deref()), (Page::Hub, None, Some("The game ended.")));
+        assert_eq!((m.view.page, m.view.top(), m.view.notice.as_deref()), (Page::Game, None, Some("The game ended.")));
         assert!(!m.session_active(), "nothing is left for the end-stream prompt");
     }
 }

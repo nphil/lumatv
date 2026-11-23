@@ -1,5 +1,5 @@
-//! The navigation contract the slices code against. F0 fixes the types; F1 owns the logic behind them (layer stack, region memory,
-//! the Back ladder, hints).
+//! The navigation contract the slices code against: the one trait a screen implements, the [`Owner`] that dispatches to it, and what
+//! navigation keeps between keys (where focus last rested in each region, which device the hints show, the auto-hide timer).
 use super::{Command, Focus, Key, Layer, Model, Page, accounts, game, home, launch, library, settings, text};
 use lumagame_core::ids::GameId;
 
@@ -13,14 +13,19 @@ pub trait Slice {
     /// The first focus of a region with no memory.
     fn default_focus(m: &Model, region: Region) -> Option<Focus> {
         match region {
-            Region::Top => Some(Focus::Nav(0)),
+            Region::Top => Some(Focus::Nav(m.tab())),
             Region::Page => Self::rows(m, None).into_iter().flatten().next(),
-            Region::Layer => Self::rows(m, m.top_layer().copied()).into_iter().flatten().next(),
+            Region::Layer => Self::rows(m, m.view.top()).into_iter().flatten().next(),
         }
     }
     /// Where Back goes before it leaves the screen.
     fn anchor(_m: &Model) -> Option<Focus> {
         None
+    }
+    /// The bumpers over the screen's own peers: its sections or its library views, `forward` for the next. False when it has none, so
+    /// the top bar's places step instead.
+    fn step(_m: &mut Model, _forward: bool, _out: &mut Vec<Command>) -> bool {
+        false
     }
     /// The highlighted game, for the quick menu.
     fn subject(_m: &Model) -> Option<GameId> {
@@ -37,6 +42,43 @@ pub enum Region {
     Top,
     Page,
     Layer,
+}
+impl Focus {
+    /// The region the focus rests in. Under an open layer (`layered`) only the layer's own rows exist, so every focus is the layer's:
+    /// the same `Keyboard` row is the page's on the search page and the layer's in the text sheets.
+    pub fn region(self, layered: bool) -> Region {
+        match self {
+            Self::Nav(_) => Region::Top,
+            _ if layered => Region::Layer,
+            _ => Region::Page,
+        }
+    }
+}
+/// Where focus last rested in the top bar and in the page, so that going back into one resumes it. A layer needs none: the layer
+/// stack keeps the focus each one covered.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Memory {
+    top: Option<Focus>,
+    page: Option<Focus>,
+}
+impl Memory {
+    pub fn recall(&self, region: Region) -> Option<Focus> {
+        match region {
+            Region::Top => self.top,
+            Region::Page => self.page,
+            Region::Layer => None,
+        }
+    }
+    pub fn keep(&mut self, region: Region, focus: Focus) {
+        match region {
+            Region::Top => self.top = Some(focus),
+            Region::Page => self.page = Some(focus),
+            Region::Layer => {}
+        }
+    }
+    pub fn forget(&mut self) {
+        *self = Self::default();
+    }
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Hints(pub Vec<(Key, &'static str)>);
@@ -69,6 +111,10 @@ impl AutoHide {
         self.show(now_ms);
         hidden
     }
+    /// Milliseconds until it hides, while it is shown.
+    pub fn left(&self, now_ms: u64) -> Option<u64> {
+        self.until.checked_sub(now_ms).filter(|left| *left > 0)
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Neighbours {
@@ -90,66 +136,194 @@ pub enum Owner {
     Launch,
     Text,
 }
+/// Calls the slice behind an [`Owner`].
+macro_rules! slice {
+    ($owner:expr, $call:ident($($arg:expr),*)) => {
+        match $owner {
+            Owner::Home => home::Rules::$call($($arg),*),
+            Owner::Library => library::Rules::$call($($arg),*),
+            Owner::Game => game::Rules::$call($($arg),*),
+            Owner::Media => game::media::Rules::$call($($arg),*),
+            Owner::Settings => settings::Rules::$call($($arg),*),
+            Owner::Accounts => accounts::Rules::$call($($arg),*),
+            Owner::Launch => launch::Rules::$call($($arg),*),
+            Owner::Text => text::Rules::$call($($arg),*),
+        }
+    };
+}
 impl Owner {
     pub fn of_page(page: Page) -> Self {
         match page {
             Page::Home => Self::Home,
-            Page::Library | Page::Search => Self::Library,
-            Page::Hub => Self::Game,
-            Page::Media => Self::Media,
-            Page::Settings | Page::Lab | Page::GameSir | Page::Leadjoy => Self::Settings,
+            Page::Library => Self::Library,
+            Page::Game => Self::Game,
+            Page::Settings => Self::Settings,
             Page::Accounts => Self::Accounts,
-            Page::Launch | Page::Running | Page::Overlay => Self::Launch,
+            Page::Launch | Page::Running => Self::Launch,
         }
     }
     pub fn of_layer(layer: Layer) -> Self {
         match layer {
             Layer::Chooser => Self::Game,
+            Layer::Viewer => Self::Media,
             Layer::Sort | Layer::Genre => Self::Library,
             Layer::Theme | Layer::Delete => Self::Settings,
             Layer::Auth => Self::Accounts,
-            Layer::EndSession => Self::Launch,
+            Layer::StreamMenu | Layer::EndSession => Self::Launch,
             Layer::AddHost | Layer::EditText => Self::Text,
         }
     }
     /// The open layer's slice, else the page's.
     pub fn of(m: &Model) -> Self {
-        m.top_layer().map_or(Self::of_page(m.view.page), |layer| Self::of_layer(*layer))
+        m.view.top().map_or(Self::of_page(m.view.page), Self::of_layer)
     }
     pub fn rows(self, m: &Model, layer: Option<Layer>) -> Vec<Vec<Focus>> {
-        match self {
-            Self::Home => home::Rules::rows(m, layer),
-            Self::Library => library::Rules::rows(m, layer),
-            Self::Game => game::Rules::rows(m, layer),
-            Self::Media => game::media::Rules::rows(m, layer),
-            Self::Settings => settings::Rules::rows(m, layer),
-            Self::Accounts => accounts::Rules::rows(m, layer),
-            Self::Launch => launch::Rules::rows(m, layer),
-            Self::Text => text::Rules::rows(m, layer),
-        }
+        slice!(self, rows(m, layer))
     }
     pub fn activate(self, m: &mut Model, f: Focus, out: &mut Vec<Command>) {
-        match self {
-            Self::Home => home::Rules::activate(m, f, out),
-            Self::Library => library::Rules::activate(m, f, out),
-            Self::Game => game::Rules::activate(m, f, out),
-            Self::Media => game::media::Rules::activate(m, f, out),
-            Self::Settings => settings::Rules::activate(m, f, out),
-            Self::Accounts => accounts::Rules::activate(m, f, out),
-            Self::Launch => launch::Rules::activate(m, f, out),
-            Self::Text => text::Rules::activate(m, f, out),
-        }
+        slice!(self, activate(m, f, out))
     }
     pub fn adjust(self, m: &mut Model, f: Focus, forward: bool, out: &mut Vec<Command>) -> bool {
-        match self {
-            Self::Home => home::Rules::adjust(m, f, forward, out),
-            Self::Library => library::Rules::adjust(m, f, forward, out),
-            Self::Game => game::Rules::adjust(m, f, forward, out),
-            Self::Media => game::media::Rules::adjust(m, f, forward, out),
-            Self::Settings => settings::Rules::adjust(m, f, forward, out),
-            Self::Accounts => accounts::Rules::adjust(m, f, forward, out),
-            Self::Launch => launch::Rules::adjust(m, f, forward, out),
-            Self::Text => text::Rules::adjust(m, f, forward, out),
+        slice!(self, adjust(m, f, forward, out))
+    }
+    pub fn default_focus(self, m: &Model, region: Region) -> Option<Focus> {
+        slice!(self, default_focus(m, region))
+    }
+    pub fn anchor(self, m: &Model) -> Option<Focus> {
+        slice!(self, anchor(m))
+    }
+    pub fn step(self, m: &mut Model, forward: bool, out: &mut Vec<Command>) -> bool {
+        slice!(self, step(m, forward, out))
+    }
+    pub fn subject(self, m: &Model) -> Option<GameId> {
+        slice!(self, subject(m))
+    }
+    pub fn hints(self, m: &Model) -> Hints {
+        slice!(self, hints(m))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::model::tests::{key, launching, report};
+    use crate::game::model::{Input, LEAVE_MS};
+    use lumagame_core::ipc::SessionState;
+
+    /// Home with one game, nothing running.
+    fn home() -> Model {
+        let mut m = launching("Game", false);
+        m.session = None;
+        m.switch_tab(0, Focus::Hero(0));
+        m.rebuild_navigation();
+        m
+    }
+    fn tick(m: &mut Model, now_ms: u64) -> Vec<Command> {
+        m.step(Input::Tick { now_ms, unix_s: 0 })
+    }
+
+    #[test]
+    fn a_key_while_hidden_only_shows_the_strip() {
+        let mut strip = AutoHide::new(5_000);
+        assert!(strip.swallow(0), "hidden: the first key is used up showing it");
+        assert!(strip.visible(4_999) && strip.left(4_999) == Some(1));
+        assert!(!strip.swallow(4_999), "shown: the key goes through");
+        assert!(strip.visible(9_998), "and the quiet time starts again");
+        assert!(!strip.visible(9_999) && strip.left(9_999).is_none(), "five quiet seconds hide it");
+        assert!(strip.swallow(9_999), "hidden again: swallowed again");
+    }
+
+    #[test]
+    fn back_closes_the_layer_then_the_anchor_then_the_page_and_twice_at_home_leaves() {
+        let mut m = home();
+        m.open_game(GameId(1), None);
+        m.rebuild_navigation();
+        let other = m.navigation.iter().map(|n| n.id).find(|f| *f != Focus::HubAction(0)).expect("the game page has more than Play");
+        m.set_focus(other);
+        m.push_layer(Layer::Chooser, Focus::SheetRow(0));
+        key(&mut m, Key::Back);
+        assert_eq!((m.view.top(), m.view.focus), (None, other), "the layer closes onto what it covered");
+        key(&mut m, Key::Back);
+        assert_eq!((m.view.page, m.view.focus), (Page::Game, Focus::HubAction(0)), "then the anchor");
+        key(&mut m, Key::Back);
+        assert_eq!((m.view.page, m.view.focus), (Page::Home, Focus::Hero(0)), "then the page before");
+
+        assert!(key(&mut m, Key::Back).is_empty() && m.leave_armed(), "at Home's anchor the first Back only asks");
+        assert_eq!(m.hints(), Hints(vec![(Key::Back, "Back again to leave")]));
+        tick(&mut m, LEAVE_MS - 1);
+        assert!(key(&mut m, Key::Back).contains(&Command::Exit), "a second Back inside the window leaves");
+
+        let mut m = home();
+        key(&mut m, Key::Back);
+        tick(&mut m, LEAVE_MS);
+        assert!(!m.leave_armed(), "the ask runs out");
+        assert!(!key(&mut m, Key::Back).contains(&Command::Exit), "and the next Back asks again");
+        key(&mut m, Key::Right);
+        assert!(!m.leave_armed(), "any other key calls it off");
+    }
+
+    #[test]
+    fn the_menu_key_is_allowed_on_pages_and_never_over_a_layer_or_a_stream() {
+        let mut m = home();
+        for page in [Page::Home, Page::Library, Page::Game, Page::Settings, Page::Accounts] {
+            m.view.page = page;
+            assert!(m.menu_allowed(), "{page:?}");
         }
+        for page in [Page::Launch, Page::Running] {
+            m.view.page = page;
+            assert!(!m.menu_allowed(), "{page:?}");
+        }
+        m.view.page = Page::Home;
+        use Layer::*;
+        for layer in [Chooser, Viewer, Sort, Genre, Theme, Delete, Auth, StreamMenu, EndSession, AddHost, EditText] {
+            m.view.push(layer, Focus::None);
+            assert!(!m.menu_allowed(), "{layer:?}");
+            m.view.pop();
+        }
+    }
+
+    #[test]
+    fn leaving_a_region_and_coming_back_resumes_where_focus_rested() {
+        let mut m = home();
+        m.set_focus(Focus::Hero(2));
+        key(&mut m, Key::Up);
+        assert_eq!(m.view.focus, Focus::Nav(0), "a region with no memory starts at its default");
+        key(&mut m, Key::Right);
+        key(&mut m, Key::Down);
+        assert_eq!(m.view.focus, Focus::Hero(2), "the page resumes");
+        key(&mut m, Key::Up);
+        assert_eq!(m.view.focus, Focus::Nav(1), "and so does the top bar");
+    }
+
+    #[test]
+    fn the_bumpers_step_home_library_and_search_without_wrapping() {
+        let mut m = home();
+        let place = |m: &Model| (m.view.page, m.view.search);
+        key(&mut m, Key::Prev);
+        assert_eq!(place(&m), (Page::Home, false));
+        let mut seen = Vec::new();
+        for _ in 0..3 {
+            key(&mut m, Key::Next);
+            seen.push(place(&m));
+        }
+        assert_eq!(seen, [(Page::Library, false), (Page::Library, true), (Page::Library, true)]);
+        key(&mut m, Key::Prev);
+        assert_eq!(place(&m), (Page::Library, false));
+        m.switch_tab(3, Focus::Nav(3));
+        key(&mut m, Key::Next);
+        assert_eq!(m.view.page, Page::Settings, "other pages have no peers to step");
+    }
+
+    #[test]
+    fn on_a_bare_stream_a_key_only_brings_the_strip_back_and_back_opens_the_menu() {
+        let mut m = launching("Game", false);
+        report(&mut m, SessionState::Running { stream: None });
+        assert!(m.strip_visible(), "the strip shows as the stream starts");
+        tick(&mut m, 6_000);
+        assert!(!m.strip_visible());
+        key(&mut m, Key::Ok);
+        assert!(m.strip_visible() && !m.stream_menu());
+        key(&mut m, Key::Back);
+        assert!(m.stream_menu());
     }
 }

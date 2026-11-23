@@ -28,11 +28,11 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
     }
 }
 pub(super) fn text200(base: &Model, add: &mut impl FnMut(&str, Model)) {
-    for (name, page) in [("30-home-text200", Page::Home), ("31-hub-text200", Page::Hub)] {
+    for (name, page) in [("30-home-text200", Page::Home), ("31-hub-text200", Page::Game)] {
         let mut m = base.clone();
         m.prefs.text_percent = 200;
         m.view.page = page;
-        m.view.focus = if page == Page::Hub { Focus::HubAction(0) } else { Focus::Home(0, 1) };
+        m.view.focus = if page == Page::Game { Focus::HubAction(0) } else { Focus::Home(0, 1) };
         add(name, m);
     }
 }

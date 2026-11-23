@@ -1,9 +1,9 @@
 //! The feeder launches this 64-bit card window; engine decisions stay in the model and media stays out of this loop.
 use lumagame_core::{catalog::ArtKind, engine::Codec, ids::GameId, ipc::{Display, Request}};
 use lumagame_meta::{Artwork, Cache, CacheLimits, Client, Http, Job, Kind, Loader, Metadata, secrets::Secrets};
-use lumatv_gfn_pad::{MAX_PADS, PadConfig, PadEvent, PadRuntime, PadSink, RawReport, menu::MenuKeys};
+use lumatv_gfn_pad::{MAX_PADS, PadConfig, PadEvent, PadRuntime, PadSink, PadState, RawReport, button, menu::{MenuKeys, STICK}};
 use lumatv_render::{Demand, now_ns, host::{Engine, HostConfig}};
-use lumatv_rustui::{card::{FULLSCREEN, MINIMIZED}, game::{helper::{ControllerClient, ControllerRequest, ControllerReply, Lease}, host::{self, HostEvent, Supervisor}, model::{Command, GameDetails, Input, Key, Media, Model, PadMode}, screens::GameUi, store::{self, Store}}, lifecycle::{Channel, FromApp, ToApp}, window::{self, Event, Spec}};
+use lumatv_rustui::{card::{FULLSCREEN, MINIMIZED}, game::{helper::{ControllerClient, ControllerRequest, ControllerReply, Lease}, host::{self, HostEvent, Supervisor}, model::{Command, GameDetails, Input, Key, Model, game::media::Media, settings::PadMode}, screens::GameUi, store::{self, Store}}, lifecycle::{Channel, FromApp, ToApp}, window::{self, Event, Spec}};
 use lumatv_rustui::game::helper::{OverlayClient, Sample};
 use lumatv_rustui::game::diagnostics::{Diagnostics, Event as DiagnosticEvent, Level};
 use lumatv_rustui::game::input::Face;
@@ -33,10 +33,9 @@ impl TraceState {
 fn page_name(page: lumatv_rustui::game::model::Page) -> &'static str {
     use lumatv_rustui::game::model::Page;
     match page {
-        Page::Home => "home", Page::Library => "library", Page::Search => "search", Page::Hub => "hub",
+        Page::Home => "home", Page::Library => "library", Page::Game => "hub",
         Page::Settings => "settings", Page::Accounts => "integration", Page::Launch => "launch",
-        Page::Running => "running", Page::Overlay => "overlay", Page::Media => "media", Page::Lab => "lab",
-        Page::GameSir => "gamesir", Page::Leadjoy => "leadjoy",
+        Page::Running => "running",
     }
 }
 
@@ -119,14 +118,26 @@ fn main() {
     if let Err(e) = result { eprintln!("lumagame: {e}"); std::process::exit(1); }
 }
 
+/// `held` is the direction the pad has sent and not yet released: the model repeats a direction while it is down.
 #[derive(Default)]
-struct PadKeys { menu: MenuKeys, buttons: u16 }
+struct PadKeys { menu: MenuKeys, buttons: u16, held: Option<Key> }
 #[derive(Default)]
 struct LabBuffer { reports: VecDeque<(u8, RawReport)>, names: [Option<String>; MAX_PADS] }
 struct MenuSink { active: AtomicBool, mode: AtomicU8, connected: AtomicU32, keys: Mutex<[PadKeys; MAX_PADS]>, lab: Mutex<LabBuffer>, send: UnixDatagram }
 struct MenuPads { runtime: PadRuntime, sink: Arc<MenuSink>, receive: UnixDatagram, announced: Mutex<[Option<String>; MAX_PADS]> }
 
-const KEYS: [Key; 8] = [Key::Up, Key::Down, Key::Left, Key::Right, Key::Ok, Key::Back, Key::Guide, Key::Menu];
+const KEYS: [Key; 10] = [Key::Up, Key::Down, Key::Left, Key::Right, Key::Ok, Key::Back, Key::Guide, Key::Menu, Key::Prev, Key::Next];
+
+/// Whether the pad still holds `key`'s direction: its d-pad button, or the left stick pushed past the menu's threshold.
+fn holds(key: Key, state: &PadState) -> bool {
+    match key {
+        Key::Up => state.buttons & button::DPAD_UP != 0 || state.left_y > STICK,
+        Key::Down => state.buttons & button::DPAD_DOWN != 0 || state.left_y < -STICK,
+        Key::Left => state.buttons & button::DPAD_LEFT != 0 || state.left_x < -STICK,
+        Key::Right => state.buttons & button::DPAD_RIGHT != 0 || state.left_x > STICK,
+        _ => false,
+    }
+}
 
 impl MenuSink {
     /// One key datagram: the key's index, whether it went down, and the slot of the pad that pressed it.
@@ -145,7 +156,17 @@ impl PadSink for MenuSink {
                 if let Some(keys) = keys.get_mut(usize::from(slot)) {
                     // Stick movement belongs to the lab; held buttons still track their real release across mode changes.
                     if mode != PadMode::Menu as u8 { state.left_x = 0; state.left_y = 0; state.right_x = 0; state.right_y = 0; }
-                    keys.menu.feed(&state, |key| if navigating { self.send(slot, Key::from_menu(key), true); });
+                    keys.menu.feed(&state, |key| if navigating {
+                        let key = Key::from_menu(key);
+                        if matches!(key, Key::Up | Key::Down | Key::Left | Key::Right) {
+                            if let Some(old) = keys.held.replace(key).filter(|old| *old != key) { self.send(slot, old, false); }
+                        }
+                        self.send(slot, key, true);
+                    });
+                    if let Some(key) = keys.held.filter(|key| !holds(*key, &state)) {
+                        keys.held = None;
+                        if navigating { self.send(slot, key, false); }
+                    }
                     if navigating {
                         // The menus act on release, so every face button that sends a key on press owes one on release.
                         for face in Face::ALL {
@@ -164,7 +185,10 @@ impl PadSink for MenuSink {
             PadEvent::Disconnected { slot } => {
                 self.connected.fetch_and(!(1 << (u32::from(slot) & 31)), Ordering::AcqRel);
                 let _ = self.send.send(&[0]);
-                if let Some(keys) = keys.get_mut(usize::from(slot)) { *keys = PadKeys::default(); }
+                if let Some(keys) = keys.get_mut(usize::from(slot)) {
+                    if let Some(key) = keys.held { self.send(slot, key, false); }
+                    *keys = PadKeys::default();
+                }
                 let mut lab = self.lab.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(known) = lab.names.get_mut(usize::from(slot)) { *known = None; }
                 lab.reports.retain(|(i, _)| *i != slot);
@@ -536,7 +560,7 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
         }
         let mut inputs = vec![Input::Tick { now_ms, unix_s: unix_seconds() }];
         if let Some(change) = uplink_watch.poll(now_ms, uplink::read) { inputs.push(Input::Uplink(change)); }
-        if shell.model.view.place == lumatv_rustui::game::model::Section::Diagnostics && shell.model.view.page == lumatv_rustui::game::model::Page::Settings {
+        if shell.model.view.place == lumatv_rustui::game::model::settings::Place::Diagnostics && shell.model.view.page == lumatv_rustui::game::model::Page::Settings {
             inputs.push(Input::DiagnosticsStatus(shell.diagnostics.status()));
         }
         if END.load(Ordering::Relaxed) && !signalled { inputs.push(Input::Close); signalled = true; }
@@ -656,6 +680,7 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
         let mut wait_ms = shell.host.wait_ms(now_ms).min(shell.lease.wait_ms(now_ms)).min(shell.stats.wait_ms(now_ms));
         if page.art_busy() || shell.art.inflight() > 0 || !shell.art_waiting.is_empty() { wait_ms = wait_ms.min(16); }
         if let Some(ms) = page.wake_ms(now_ms) { wait_ms = wait_ms.min(ms); }
+        if let Some(ms) = shell.model.wake_in(now_ms) { wait_ms = wait_ms.min(ms); }
         if shell.channel.as_ref().is_some_and(Channel::pending) { wait_ms = wait_ms.min(16); }
         if shell.model.pad_mode() != PadMode::Menu || shell.model.gamesir.pending || shell.model.leadjoy.pending { wait_ms = wait_ms.min(50); }
         if visible {
@@ -701,7 +726,6 @@ fn unix_seconds() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_o
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lumatv_gfn_pad::{PadState, button};
 
     #[test]
     fn lifecycle_trace_is_opt_in_and_logs_transitions_not_ticks() {
@@ -710,7 +734,7 @@ mod tests {
         assert!(LifecycleTrace::enabled(None).is_none());
         assert!(LifecycleTrace::enabled(Some(OsStr::new("0"))).is_none());
         let mut trace = LifecycleTrace::enabled(Some(OsStr::new("1"))).unwrap();
-        let state = TraceState { page: Page::Hub, foreground: false, phase: "done", visible: false };
+        let state = TraceState { page: Page::Game, foreground: false, phase: "done", visible: false };
         assert_eq!(trace.observe(state, 0), Some(1));
         assert_eq!(trace.observe(state, 0), None);
         assert_eq!(trace.observe(state, 1), Some(2));
@@ -758,6 +782,29 @@ mod tests {
         sink.pad_event(1, report(0));
         receive.recv(&mut bytes).unwrap();
         assert_eq!(bytes, [menu, 0, 0]);
+    }
+
+    #[test]
+    fn a_held_direction_sends_its_release_when_it_changes_ends_or_the_pad_goes() {
+        let (send, receive) = UnixDatagram::pair().unwrap();
+        receive.set_nonblocking(true).unwrap();
+        let sink = MenuSink { active: AtomicBool::new(true), mode: AtomicU8::new(PadMode::Menu as u8), connected: AtomicU32::new(0), keys: Mutex::new(std::array::from_fn(|_| PadKeys::default())), lab: Mutex::new(LabBuffer::default()), send };
+        let report = |buttons| PadEvent::Report { slot: 1, state: PadState { buttons, ..PadState::default() }, press: None };
+        let drain = || {
+            let mut bytes = [0; 3];
+            std::iter::from_fn(|| receive.recv(&mut bytes).ok().map(|_| bytes)).collect::<Vec<_>>()
+        };
+        let (up, down) = (0, 1);
+        sink.pad_event(1, report(button::DPAD_UP));
+        assert_eq!(drain(), [[up, 1, 1]]);
+        sink.pad_event(1, report(button::DPAD_DOWN));
+        assert_eq!(drain(), [[up, 0, 1], [down, 1, 1]], "the old direction lets go before the new one presses");
+        sink.pad_event(1, report(0));
+        assert_eq!(drain(), [[down, 0, 1]]);
+        sink.pad_event(1, report(button::DPAD_UP));
+        drain();
+        sink.pad_event(1, PadEvent::Disconnected { slot: 1 });
+        assert!(drain().contains(&[up, 0, 1]), "a pad that goes lets go of what it held");
     }
 
     #[test]

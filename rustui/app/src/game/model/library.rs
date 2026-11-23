@@ -78,11 +78,11 @@ impl Model {
                 } else if let Some(id) = engines.get(i - 1) {
                     self.view.filter.engine = Some(id.clone());
                 } else if i == engines.len() + 1 {
-                    self.open_sheet(Layer::Genre, Focus::SheetRow(0));
+                    self.push_layer(Layer::Genre, Focus::SheetRow(0));
                 } else if i == engines.len() + 2 {
                     self.view.filter.favourites = !self.view.filter.favourites;
                 } else if i == engines.len() + 3 {
-                    self.open_sheet(Layer::Sort, Focus::SheetRow(Sort::ALL.iter().position(|s| *s == self.view.sort).unwrap_or(0)));
+                    self.push_layer(Layer::Sort, Focus::SheetRow(Sort::ALL.iter().position(|s| *s == self.view.sort).unwrap_or(0)));
                 } else {
                     self.refresh_libraries(None, out);
                     return;
@@ -92,17 +92,17 @@ impl Model {
             }
             Focus::SearchField => self.view.focus = Focus::Keyboard(0),
             Focus::Keyboard(i) => self.keyboard(i, out),
-            Focus::SheetRow(i) if self.view.sheet == Some(Layer::Sort) => {
+            Focus::SheetRow(i) if self.view.top() == Some(Layer::Sort) => {
                 if let Some(sort) = Sort::ALL.get(i) {
                     self.view.sort = *sort;
                 }
                 self.rebuild_filter();
-                self.close_sheet();
+                self.pop_layer();
             }
-            Focus::SheetRow(i) if self.view.sheet == Some(Layer::Genre) => {
+            Focus::SheetRow(i) if self.view.top() == Some(Layer::Genre) => {
                 self.view.filter.genre = if i == 0 { None } else { self.genres().get(i - 1).cloned() };
                 self.rebuild_filter();
-                self.close_sheet();
+                self.pop_layer();
             }
             _ => {}
         }
@@ -122,7 +122,7 @@ impl Model {
             .iter()
             .filter(|g| {
                 !p.user.hidden.contains(&g.id)
-                    && (self.view.page != Page::Search || g.title.to_lowercase().contains(&query))
+                    && (!self.view.search || g.title.to_lowercase().contains(&query))
                     && f.engine.as_ref().is_none_or(|id| g.sources.iter().any(|s| &s.engine == id))
                     && (!f.favourites || activity::is_favourite(g, &p.user.favourites))
                     && f.collection.is_none_or(|i| p.user.collections.get(i).is_some_and(|c| c.games.contains(&g.id)))

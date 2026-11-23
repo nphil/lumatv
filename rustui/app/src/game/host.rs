@@ -60,7 +60,7 @@ pub struct Config {
 }
 
 pub enum HostEvent {
-    Engine { engine: EngineId, message: FromEngine },
+    Engine { engine: EngineId, message: Box<FromEngine> },
     Gone(EngineId),
     Notice(String),
 }
@@ -185,14 +185,14 @@ impl Supervisor {
                 Some(Running::Process(p)) => {
                     p.pump();
                     while let Some(message) = p.poll() {
-                        if p.stopping.is_none() { self.events.push_back(HostEvent::Engine { engine: id.clone(), message }); }
+                        if p.stopping.is_none() { self.events.push_back(HostEvent::Engine { engine: id.clone(), message: Box::new(message) }); }
                     }
                     if p.stopping.is_some_and(|at| now_ms.saturating_sub(at) >= STOP_GRACE_MS) { p.kill_group(); }
                     ended = p.eof || p.failure.is_some() || !matches!(p.child.try_wait(), Ok(None));
                     unexpected = ended && p.stopping.is_none();
                     if let Some(why) = p.failure.take() { self.events.push_back(HostEvent::Notice(format!("{}: {why}", slot.installed.manifest.name))); }
                 }
-                Some(Running::Native(n)) => while let Some(message) = n.poll() { self.events.push_back(HostEvent::Engine { engine: id.clone(), message }); },
+                Some(Running::Native(n)) => while let Some(message) = n.poll() { self.events.push_back(HostEvent::Engine { engine: id.clone(), message: Box::new(message) }); },
                 None => {}
             }
             if ended {

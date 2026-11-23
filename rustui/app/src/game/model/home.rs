@@ -20,6 +20,9 @@ impl Slice for Rules {
     fn rows(m: &Model, _layer: Option<Layer>) -> Vec<Vec<Focus>> {
         m.home_grid()
     }
+    fn anchor(m: &Model) -> Option<Focus> {
+        m.home_grid().into_iter().flatten().next()
+    }
     fn activate(m: &mut Model, f: Focus, out: &mut Vec<Command>) {
         m.home_activate(f, out);
     }

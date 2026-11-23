@@ -563,7 +563,7 @@ impl Model {
     /// The game whose page data is wanted now: the open page's, or the one in focus once it has rested.
     fn attended(&self) -> Option<GameId> {
         match self.view.page {
-            Page::Hub | Page::Media => self.view.selected,
+            Page::Game => self.view.selected,
             Page::Home | Page::Library => {
                 let id = self.view.featured?;
                 let (rested, since) = self.resting?;

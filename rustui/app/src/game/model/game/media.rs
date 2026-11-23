@@ -1,6 +1,6 @@
 //! A game's trailers and screenshots: the media section of its page and the full-screen viewer.
 use crate::game::model::nav::Slice;
-use crate::game::model::{Command, Focus, Layer, Model, Page};
+use crate::game::model::{Command, Focus, Layer, Model};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Media {
@@ -30,7 +30,7 @@ impl Model {
                 out.push(Command::PlayMedia { url: url.clone() });
             } else {
                 self.view.media = i;
-                self.show_page(Page::Media, Focus::HubTop(0));
+                self.push_layer(Layer::Viewer, Focus::HubTop(0));
             }
         }
     }

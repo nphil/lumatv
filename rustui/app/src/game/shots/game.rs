@@ -6,7 +6,7 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
         [("08-hub", 0, false), ("08-hub-light", 0, true), ("08-hub-ways", 1, false), ("08-hub-media", 2, false), ("08-hub-media-light", 2, true)]
     {
         let mut m = base.clone();
-        m.view.page = Page::Hub;
+        m.view.page = Page::Game;
         m.view.hub_tab = tab;
         m.prefs.light = light;
         m.view.focus = if tab == 1 {
@@ -19,9 +19,9 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
         add(name, m);
     }
     let mut m = base.clone();
-    m.view.page = Page::Hub;
+    m.view.page = Page::Game;
     m.view.selected = Some(id(&m, "Quake"));
-    m.view.sheet = Some(Layer::Chooser);
+    m.view.push(Layer::Chooser, m.view.focus);
     m.view.chooser_selected = m.selected_game().unwrap().sources.first().map(|s| s.key());
     m.view.focus = Focus::SheetRow(1);
     add("09-chooser", m.clone());
@@ -30,7 +30,7 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
 }
 pub(super) fn failed(base: &Model, add: &mut impl FnMut(&str, Model)) {
     let mut m = base.clone();
-    m.view.page = Page::Hub;
+    m.view.page = Page::Game;
     m.view.notice = Some("The connection was interrupted. Check the network, then choose Play to try again.".into());
     add("20-state-failed", m);
 }
@@ -57,7 +57,7 @@ fn large_text_stacks_actions_and_down_follows_the_visible_column() {
     m.prefs.text_percent = 200;
     for (page, first, second) in [
         (Page::Home, Focus::Hero(0), Focus::Hero(1)),
-        (Page::Hub, Focus::HubAction(0), Focus::HubAction(1)),
+        (Page::Game, Focus::HubAction(0), Focus::HubAction(1)),
     ] {
         m.view.page = page;
         m.view.focus = first;

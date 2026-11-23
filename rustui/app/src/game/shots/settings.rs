@@ -48,7 +48,7 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
     let mut secret = base.clone();
     secret.view.page = Page::Settings;
     secret.view.place = Place::Diagnostics;
-    secret.view.sheet = Some(Layer::EditText);
+    secret.view.push(Layer::EditText, secret.view.focus);
     secret.view.edit_field = Some(4);
     secret.view.address = "fixture-token".into();
     secret.view.focus = Focus::Keyboard(0);
@@ -65,14 +65,14 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
     add("55-diagnostics-long-text200-test-focused", long_diagnostics);
     let mut m = base.clone();
     m.view.page = Page::Settings;
-    m.view.sheet = Some(Layer::Theme);
+    m.view.push(Layer::Theme, m.view.focus);
     m.view.focus = Focus::Theme(3);
     add("27-theme-picker", m);
 }
 pub(super) fn families(base: &Model, add: &mut impl FnMut(&str, Model)) {
     for (name, family, light, page) in [
         ("34-home-nord-light", "nord", true, Page::Home),
-        ("35-hub-solarized", "solarized", false, Page::Hub),
+        ("35-hub-solarized", "solarized", false, Page::Game),
         ("36-settings-gruvbox-light", "gruvbox", true, Page::Settings),
     ] {
         let mut m = base.clone();
@@ -120,7 +120,7 @@ pub(super) fn controllers(base: &Model, add: &mut impl FnMut(&str, Model)) {
     ] {
         let mut m = base.clone();
         m.prefs.reduce_motion = true;
-        m.view.page = Page::GameSir;
+        (m.view.page, m.view.pane) = (Page::Settings, Some(crate::game::model::settings::Pane::GameSir));
         m.view.focus = Focus::Setting(0);
         m.step(Input::GameSir(Ok(state)));
         add(name, m.clone());
@@ -140,7 +140,7 @@ pub(super) fn controllers(base: &Model, add: &mut impl FnMut(&str, Model)) {
         ("47-leadjoy-unsupported", LeadjoyState::Unsupported { device: "Other".into(), firmware: "1".into() }), ("47-leadjoy-ready", leadjoy_fixture("general"))] {
         let mut m = base.clone();
         m.prefs.reduce_motion = true;
-        m.view.page = Page::Leadjoy;
+        (m.view.page, m.view.pane) = (Page::Settings, Some(crate::game::model::settings::Pane::Leadjoy));
         m.view.focus = Focus::Setting(0);
         m.step(Input::Leadjoy(Ok(state)));
         add(name, m.clone());
@@ -158,7 +158,7 @@ pub(super) fn controllers(base: &Model, add: &mut impl FnMut(&str, Model)) {
     for (section, row) in [("profiles", 4), ("buttons", 8), ("macros", 7), ("sticks", 16), ("curves", 6), ("directions", 6), ("triggers", 11), ("motion", 23), ("gestures", 6), ("rumble", 9)] {
         let mut m = base.clone();
         m.prefs.reduce_motion = true;
-        m.view.page = Page::Leadjoy;
+        (m.view.page, m.view.pane) = (Page::Settings, Some(crate::game::model::settings::Pane::Leadjoy));
         m.step(Input::Leadjoy(Ok(leadjoy_fixture(section))));
         m.view.focus = Focus::Setting(row);
         add(&format!("47-leadjoy-{section}"), m.clone());
@@ -174,7 +174,7 @@ pub(super) fn controllers(base: &Model, add: &mut impl FnMut(&str, Model)) {
     for (fixture, key) in [("keyboard","key-0"),("mouse","key-2"),("motion-long","trigger-key-47"),("sticks-missing","anti-shake"),("profiles-sub","sub-key-0")] {
         let mut m = base.clone();
         m.prefs.reduce_motion = true;
-        m.view.page = Page::Leadjoy;
+        (m.view.page, m.view.pane) = (Page::Settings, Some(crate::game::model::settings::Pane::Leadjoy));
         let state = leadjoy_fixture(fixture);
         let LeadjoyState::Ready(profile) = &state else { unreachable!() };
         let focus = profile.schema.fields().position(|field| field.key == key).unwrap() + 1;
@@ -197,10 +197,10 @@ fn engine_ready_applies_stream_preferences_once_without_schema_feedback() {
     ]}]})).unwrap();
     let event = FromEngine { re: None, event: ipc::Event::Ready { descriptor, schema } };
     m.prefs.bitrate_mbps = 150;
-    let commands = m.step(Input::Engine { engine: id.clone(), message: event.clone() });
+    let commands = m.step(Input::Engine { engine: id.clone(), message: Box::new(event.clone()) });
     assert!(commands.iter().any(|c| matches!(c, Command::Send { request: ipc::Request::Settings { values }, .. }
         if values.get("bitrate-mbps") == Some(&lumagame_core::settings::Value::Int(150)))));
-    let commands = m.step(Input::Engine { engine: id, message: event });
+    let commands = m.step(Input::Engine { engine: id, message: Box::new(event) });
     assert!(!commands.iter().any(|c| matches!(c, Command::Send { request: ipc::Request::Settings { .. }, .. })));
 }
 
@@ -239,5 +239,5 @@ fn an_engine_that_becomes_ready_after_the_uplink_was_read_starts_at_the_cap() {
     m.step(Input::Uplink(wired(100)));
     let descriptor = m.integrations.iter_mut().find(|e| e.manifest.id == id).unwrap().descriptor.take().unwrap();
     let ready = FromEngine { re: None, event: ipc::Event::Ready { descriptor, schema: bitrate_schema() } };
-    assert_eq!(sent_bitrates(&m.step(Input::Engine { engine: id, message: ready })), [Value::Int(85)]);
+    assert_eq!(sent_bitrates(&m.step(Input::Engine { engine: id, message: Box::new(ready) })), [Value::Int(85)]);
 }

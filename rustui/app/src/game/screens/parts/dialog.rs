@@ -25,7 +25,7 @@ pub fn veil(p: &mut Paint<'_>, id: u64, frame: Frame, hides: bool) {
 }
 /// The dim over the whole screen behind the open layer.
 pub fn curtain(p: &mut Paint<'_>) {
-    let hides = p.model.view.sheet == Some(Layer::EndSession);
+    let hides = p.model.view.top() == Some(Layer::EndSession);
     veil(p, 8000, Frame::new(0.0, 0.0, W, H), hides);
 }
 pub fn panel(p: &mut Paint<'_>, width: f32, height: f32) -> Frame {
