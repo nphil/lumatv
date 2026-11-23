@@ -10,6 +10,8 @@ use ui::{geometry::Frame, lucent::palette::Mode};
 pub enum Kind {
     /// A cover or a tile: the art is the control, so it takes the rim and the shadow without a wash.
     Tile,
+    /// The game Home features, a wide capsule of its own art: it grows more than a cover ([`HERO_SCALE`]).
+    Hero,
     /// A glance card or a panel.
     Card,
     /// A list row.
@@ -18,10 +20,14 @@ pub enum Kind {
     Button,
 }
 
+/// How much the featured game of Home grows when lit: the 28 px between it and the covers beside it takes the 22 px it gains on each side.
+const HERO_SCALE: f32 = 1.07;
+
 fn scale(p: &Paint<'_>, kind: Kind) -> f32 {
     let focus = &p.tokens.focus;
     match kind {
         Kind::Tile => focus.tile_scale,
+        Kind::Hero => HERO_SCALE,
         Kind::Card => focus.card_scale,
         Kind::Row => focus.row_scale,
         Kind::Button => focus.button_scale,
@@ -38,14 +44,14 @@ pub fn treat(p: &mut Paint<'_>, from: usize, id: u64, frame: Frame, kind: Kind, 
     }
     let z = p.plan.nodes[from..].iter().map(|node| node.z).max().unwrap_or(0) + 1;
     let radius = match kind {
-        Kind::Tile => Radius::Tile,
+        Kind::Tile | Kind::Hero => Radius::Tile,
         Kind::Card => Radius::Card,
         Kind::Row => Radius::Row,
         Kind::Button => Radius::Pill,
     };
-    let wash = if kind == Kind::Tile { 0.0 } else { p.tokens.states.focus_wash[usize::from(p.mode == Mode::Light)] };
+    let wash = if matches!(kind, Kind::Tile | Kind::Hero) { 0.0 } else { p.tokens.states.focus_wash[usize::from(p.mode == Mode::Light)] };
     // The wash carries the raised lip and the shadow: the control's own surface was drawn at rest. Over a tile's art it is clear.
-    let stage = p.art && kind == Kind::Tile;
+    let stage = p.art && matches!(kind, Kind::Tile | Kind::Hero);
     p.surface(id, frame, Fill::Tint(wash), radius, stage, true, false, z);
     if !p.reduced() {
         let lift = if kind == Kind::Row { 0.0 } else { p.tokens.focus.card_lift };
@@ -90,9 +96,15 @@ mod tests {
     #[test]
     fn a_button_a_card_and_a_tile_lift_by_the_themes_lift() {
         let lift = painted(|_| {}, |p| p.tokens.focus.card_lift);
-        for kind in [Kind::Button, Kind::Card, Kind::Tile] {
+        for kind in [Kind::Button, Kind::Card, Kind::Tile, Kind::Hero] {
             assert_eq!(lit(kind, true, false)[0].3, 200.0 - lift, "{kind:?}");
         }
+    }
+
+    #[test]
+    fn the_featured_game_grows_more_than_a_cover() {
+        let (tile, hero) = (lit(Kind::Tile, true, false)[0].4, lit(Kind::Hero, true, false)[0].4);
+        assert!(hero > tile && hero == HERO_SCALE);
     }
 
     #[test]

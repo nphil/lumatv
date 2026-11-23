@@ -138,7 +138,7 @@ fn tile(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, x: f32, w: f32) 
         let side = 28.0 * p.scale;
         p.words(id + 2, Frame::new(x + 12.0, ROW_Y + 12.0, side, side), vec![], vec![p.mark(icon, side, 0.0, 0.0, Role::Ink, true)], 12);
     }
-    focus::treat(p, from, id + 3, f, Kind::Tile, p.focused(focus));
+    focus::treat(p, from, id + 3, f, if w == FEATURED_W { Kind::Hero } else { Kind::Tile }, p.focused(focus));
     p.hit(focus, f);
 }
 
