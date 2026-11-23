@@ -1,0 +1,29 @@
+1795417683 {
+1795417683     "returnValue": true,
+1795417683     "jbLastTime": 4373,
+1795417683     "jbCount": 12,
+1795417683     "jbInterval": 500,
+1795417683     "pnwashKeyLock": true,
+1795417683     "offrsInterval": 4,
+1795417683     "offrsLastTime": 4524,
+1795417683     "offrsCount": 635,
+1795417683     "subscribed": true
+1795417683 }
+1795418040 {
+1795418040     "offrsInterval": 4,
+1795418040     "jbInterval": 500,
+1795418040     "jbLastTime": 4373,
+1795418040     "offrsCount": 636,
+1795418040     "jbCount": 12,
+1795418040     "offrsLastTime": 4524,
+1795418040     "pnwashKeyLock": true
+1795418040 }
+1795418040 {
+1795418040     "pnwashKeyLock": true,
+1795418040     "jbInterval": 500,
+1795418040     "jbLastTime": 4373,
+1795418040     "offrsCount": 636,
+1795418040     "jbCount": 12,
+1795418040     "offrsInterval": 4,
+1795418040     "offrsLastTime": 4562
+1795418040 }

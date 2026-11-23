@@ -1,0 +1,82 @@
+1795416356
+{
+    "returnValue": true,
+    "jbLastTime": 4373,
+    "jbCount": 12,
+    "jbInterval": 500,
+    "pnwashKeyLock": true,
+    "offrsInterval": 4,
+    "offrsLastTime": 4524,
+    "offrsCount": 635,
+    "subscribed": false
+}
+{
+    "returnValue": true,
+    "panelUsageTimeStore": 0,
+    "panelUsageTime": 27373
+}
+total 96
+-rw-r--r--    1 root     root             7 2022-12-31 19:00:11 -0500 autoJbInterval
+-rw-r--r--    1 root     root             4 2026-11-23 00:09:14 -0500 autoJbLastTime
+-rw-r--r--    1 root     root             1 2022-12-31 19:00:11 -0500 autoOffRsInterval
+-rw-r--r--    1 root     root             4 2026-11-23 00:09:14 -0500 autoOffRsLastTime
+-rw-r--r--    1 root     root             6 2026-11-23 00:09:14 -0500 autoOslbInterval
+-rw-r--r--    1 root     root             2 2026-11-23 00:09:14 -0500 completedJbCount
+-rw-r--r--    1 root     root             3 2026-11-23 00:09:14 -0500 completedOffRsCount
+-rw-r--r--    1 root     root             2 2022-12-31 19:00:11 -0500 coolingTime
+-rw-r--r--    1 root     root             1 2026-10-31 03:56:52 -0400 failAlertCount
+-rw-r--r--    1 root     root             1 2022-12-31 19:00:11 -0500 fakeOledPanelUtt
+-rw-r--r--    1 root     root             6 2026-11-23 01:39:09 -0500 gsrStressCount
+-rw-r--r--    1 root     root             4 2026-11-17 20:57:20 -0500 imageRetentionRiskReportedUTT
+-rw-r--r--    1 root     root             1 2026-11-22 23:59:48 -0500 offRSPopupFlag
+-rw-r--r--    1 root     root             2 2022-12-31 19:00:11 -0500 pcScreenSaverLatency
+-rw-r--r--    1 root     root             1 2026-11-22 23:59:48 -0500 requestMode
+-rw-r--r--    1 root     root             1 2026-09-25 05:02:40 -0400 scenario_exclusivity
+-rw-r--r--    1 root     root             1 2022-12-31 19:00:11 -0500 scenario_keylock
+-rw-r--r--    1 root     root             2 2022-12-31 19:00:11 -0500 shutdownStartnowHomeInterval
+-rw-r--r--    1 root     root             1 2022-12-31 19:00:11 -0500 shutdownStartnowKeyLock
+-rw-r--r--    1 root     root             1 2026-11-23 01:23:44 -0500 socTpcStatus
+-rw-r--r--    1 root     root             4 2026-11-22 23:59:48 -0500 state
+-rw-r--r--    1 root     root             1 2022-12-31 19:00:09 -0500 storeDischarged
+-rw-r--r--    1 root     root             3 2025-12-19 18:42:37 -0500 tpcAplCheckCnt
+-rw-r--r--    1 root     root             3 2022-12-31 19:00:11 -0500 tpcFppCheckInterval
+state=0 10
+jobScope=cat: can't open '/mnt/lg/cmn_data/pnwash/jobScope': No such file or directory
+completedOffRsCount=635
+autoOffRsLastTime=4524
+autoOffRsInterval=4
+failAlertCount=0
+completedJbCount=12
+autoJbLastTime=4373
+{
+    "returnValue": true,
+    "reasonArray": [
+        "ON_BY_MICOM_PWR_OFF_ON",
+        "OFF_BY_REMOTE_KEY",
+        "ON_BY_REMOTE_KEY",
+        "OFF_TO_ACTIVE_STANDBY",
+        "OFF_BY_PNWASHSTART",
+        "ON_BY_MICOM_PWR_OFF_ON",
+        "ON_BY_MICOM_PWR_OFF_ON",
+        "OFF_BY_KERNEL_COMMAND",
+        "ON_BY_REMOTE_KEY",
+        "OFF_TO_ACTIVE_STANDBY"
+    ],
+    "count": 10,
+    "startIndex": 0
+}
+{
+    "isOSLB": true,
+    "returnValue": true
+}
+{
+    "subscribed": false,
+    "category": "picture",
+    "method": "getSystemSettings",
+    "dimension": {
+    },
+    "settings": {
+        "scheduledPixelCleaning": "off"
+    },
+    "returnValue": true
+}

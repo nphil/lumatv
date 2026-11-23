@@ -1,0 +1,80 @@
+01:46:36 waiting for standby
+01:46:36 power=Active
+01:48:37 power=Active
+01:50:37 power=Active
+01:51:57 paused: LumaTV OS reboot + checks (Nitin 01:51), lock released
+01:57:57 waiting for standby
+01:57:57 power=Active
+01:58:08 power=Active
+01:58:18 power=Active
+01:58:29 power=Active
+01:58:39 power=Active
+01:58:50 power=Active
+01:59:00 power=Active
+01:59:10 power=Active
+01:59:21 power=Active
+01:59:31 power=Active
+01:59:42 power=Active
+01:59:52 power=Active
+02:00:02 power=Active
+02:00:13 power=Active
+02:00:23 power=Active
+02:00:33 power=Active
+02:00:44 power=Active
+02:00:54 power=Active
+02:01:05 power=Active
+02:01:15 power=Active
+02:01:25 power=Active
+02:01:36 power=Active
+02:01:46 power=Active
+02:01:56 power=Active
+02:02:07 power=Active
+02:02:17 power=Active
+02:02:27 power=Active
+02:02:38 power=Active
+02:02:48 power=Active
+02:02:58 power=Active
+02:03:09 power=Active
+02:03:19 power=Active
+02:03:29 power=Active
+02:03:40 power=Active
+02:03:50 power=Active
+02:04:00 power=Active
+02:04:11 power=Active
+02:04:21 power=Active
+02:04:32 power=Active
+02:04:42 power=Active
+02:04:52 power=Active
+02:05:03 power=Active
+02:05:13 power=Active
+02:05:23 power=Active
+02:05:34 power=Active
+02:05:44 power=Active
+02:05:54 power=Active
+02:06:05 power=Active
+02:06:15 power=Active
+02:06:26 power=Active
+02:06:36 power=Active
+02:06:46 power=Active
+02:06:57 power=Active
+02:07:07 power=Active
+02:07:18 power=Active
+02:07:28 power=Active Standby
+02:07:28 standby seen (Active Standby) t0=1795417648
+02:07:29 set woke (owner): stopping
+02:07:29 sampling ended
+02:07:29 done, lock released
+02:07:39 restart: the wake test matched 'Active Standby'; fixed
+02:07:39 waiting for standby
+02:07:39 power=Active Standby
+02:07:39 standby seen (Active Standby) t0=1795417659
+02:07:39 set woke (owner): stopping
+02:07:39 sampling ended
+02:07:40 done, lock released
+02:08:03 restart 2: wake test now exact
+02:08:03 waiting for standby
+02:08:03 power=Active Standby
+02:08:03 standby seen (Active Standby) t0=1795417683
+02:14:06 offrsCount rose 635 -> 636
+02:14:36 sampling ended
+02:14:38 done, lock released
