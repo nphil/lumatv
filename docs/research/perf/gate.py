@@ -103,10 +103,10 @@ GAME_SETUP = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"{GAME_ID}\"}}'", '
               f"luna-send -n 1 {SAM}/launch '{{\"id\":\"{GAME_ID}\"}}'", 'sleep 14']
 GAME_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"{GAME_ID}\"}}'", 'sleep 2',
                  f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
-# Keys that put the app on its Library page with the focus on the grid's first row, from Home or from the Library at any focus: Up clamps on the
-# nav row, Left clamps on its first tab, Right is Library's, OK on it opens the page (again, when already there: it resets the focus), two Downs
-# reach the filter row and the first grid row. The Library's walks leave focus anywhere in the grid and come back through this.
-GAME_LIBRARY_PREP = 'UPx20@0.03 LEFTx4@0.06 RIGHT OK s1.0 DOWNx2@0.3'
+# Keys that put the app on its Library page with the focus on the grid's first tile, from Home or from the Library at any focus: Up clamps on the
+# nav row, Left clamps on its first tab, Right is Library's, OK on it opens the page (again, when already there: it resets the focus), Down
+# reaches the grid's first tile. The Library's walks leave focus anywhere in the grid and come back through this.
+GAME_LIBRARY_PREP = 'UPx20@0.03 LEFTx4@0.06 RIGHT OK s1.0 DOWN s0.3'
 # LG's Search app (`com.webos.app.voice`, resident, an overlay over Home), cold, with its keyboard hidden by Back so that the keys
 # move focus: what `lumatv voice on` restyles. The first launch after a close is dropped by the app inside 300 ms, hence the sleep.
 VOICE_ID = 'com.webos.app.voice'
@@ -343,11 +343,11 @@ SURFACES = [
     # drawn at 120 Hz by its own engine, so its frames are the app's; the first frame after each key is what is asked, the burst-end check is
     # not (a walk's burst never ends at a point of its own). Every walk is D-pad only and ends where its prep starts it again; Back is pressed at
     # most once and never on Home, where it leaves the app.
-    # `game-home`: Home's nav tabs, the hero's three buttons, the shelves down and up with taps and a held key, no OK.
+    # `game-home`: the nav tabs (focus only; a tab switches on OK), the game strip across with taps and a held key, the hero's Play button, no OK.
     {'name': 'game-home', 'default': False, 'setup': GAME_SETUP, 'teardown': GAME_TEARDOWN, 'transition': False, 'app_retries': 0,
      'prep': 'UPx8@0.08 LEFTx4@0.08',
-     'open': '@game-home-open RIGHTx3@0.15 LEFTx3@0.15 DOWN s0.15 RIGHTx2@0.15 LEFTx2@0.15 DOWN s0.15 RIGHTx4@0.12 LEFTx4@0.12 DOWN s0.15 '
-             'DOWN:900 s0.2 UP:900 s0.2 UPx6@0.1',
+     'open': '@game-home-open RIGHTx2@0.15 LEFTx2@0.15 DOWN s0.15 RIGHTx6@0.12 LEFTx6@0.12 DOWN s0.15 UP s0.15 '
+             'RIGHT:900 s0.2 LEFT:900 s0.2 UPx3@0.1',
      'close': '@game-home-close', 'settle_s': 0.6, 'close_settle_s': 0.5,
      'thresholds': {'burst_end_ms': None}},
     # `game-library`: the Library's grid with the focus across a row, then down and up with a held key twice (the grid scrolls by rows).
@@ -361,11 +361,11 @@ SURFACES = [
      'prep': GAME_LIBRARY_PREP,
      'open': '@game-page-open OK', 'close': '@game-page-close BACK', 'settle_s': 1.5, 'close_settle_s': 1.0,
      'thresholds': {'burst_end_ms': None}},
-    # `game-settings`: Settings from Home's fourth nav tab (OK, on its release), the Appearance list down and up, out to the rail, down through
-    # its six sections and up, back to the nav row and Back to Home. Taps only: Left and Right on a row of the list change the value.
+    # `game-settings`: the avatar's Menu (OK, on its release), down to Settings and into Quick settings, its rows down and up, Back to the Menu and
+    # Back to Home. Taps only: Left and Right on a row change the value.
     {'name': 'game-settings', 'default': False, 'act': 'release', 'setup': GAME_SETUP, 'teardown': GAME_TEARDOWN, 'transition': False,
      'app_retries': 0, 'prep': 'UPx8@0.06 LEFTx4@0.06 RIGHTx3@0.1',
-     'open': '@game-settings-open OK s0.8 DOWNx2@0.15 DOWNx3@0.1 UPx3@0.1 LEFT s0.15 DOWNx5@0.2 UPx5@0.2 UP s0.15 BACK',
+     'open': '@game-settings-open OK s0.8 DOWNx2@0.15 OK s0.8 DOWNx4@0.15 UPx4@0.15 BACK s0.4 BACK',
      'close': '@game-settings-close', 'settle_s': 0.8, 'close_settle_s': 0.5,
      'thresholds': {'burst_end_ms': None}},
     # LG's Search app over Home, restyled by `lumatv voice on` (`--surfaces voice-focus`): the keyboard is hidden, then focus walks the field,
