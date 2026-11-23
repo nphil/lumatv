@@ -423,10 +423,10 @@ fn exit_closes_the_app_that_does_not_take_it_and_never_the_home_app() {
 }
 
 #[test]
-fn back_held_a_second_is_exit_and_a_short_back_is_unchanged() {
+fn a_short_back_reaches_the_app_whole_and_a_held_one_opens_the_task_manager_and_the_app_hears_nothing_of_it() {
     let mut server = Server::start();
     let mut a = app(&mut server, "Player", "org.test.player");
-    // The app takes Back (a KEYS_BACK app such as Netflix): a tap reaches it, a hold closes it.
+    // The app takes Back (a KEYS_BACK app such as Netflix): a tap reaches it, press and release together when the key is let go.
     let t = Instant::now();
     let calls = server.eval(move |s| {
         let w = s.scene.windows().next().unwrap().id;
@@ -438,17 +438,21 @@ fn back_held_a_second_is_exit_and_a_short_back_is_unchanged() {
     a.client.roundtrip();
     assert_eq!(a.client.state.keys, vec![(KEY_PREVIOUS, 1), (KEY_PREVIOUS, 0)]);
     a.client.state.keys.clear();
-    let (calls, held) = server.eval(move |s| {
+    // Held past BACK_HOLD: the task manager opens. The app gets no press, no repeat and no release of that key, and nothing is closed.
+    let (calls, open, held) = server.eval(move |s| {
         let t2 = t + Duration::from_secs(3);
         s.key_event_at(SeatId(0), KEY_PREVIOUS, true, false, t2);
-        s.poll_holds_at(t2 + Duration::from_millis(1100));
+        s.key_event_at(SeatId(0), KEY_PREVIOUS, true, false, t2 + Duration::from_millis(300));
+        s.poll_holds_at(t2 + lumatv_compositor::keys::BACK_HOLD + Duration::from_millis(50));
+        let open = s.switcher_active();
         s.key_event_at(SeatId(0), KEY_PREVIOUS, false, false, t2 + Duration::from_millis(1300));
-        (app_manager_calls(s), s.seat.pressed.clone())
+        (app_manager_calls(s), open, s.seat.pressed.clone())
     });
-    assert_eq!(calls, vec![("closeByAppId".to_string(), json!({"id": "org.test.player", "reason": "windowPolicy"}))]);
-    assert!(held.is_empty(), "the app was given the release of its Back: {held:?}");
+    assert!(calls.is_empty(), "{calls:?}");
+    assert!(open, "the task manager opened");
+    assert!(held.is_empty(), "{held:?}");
     a.client.roundtrip();
-    assert_eq!(a.client.state.keys, vec![(KEY_PREVIOUS, 1), (KEY_PREVIOUS, 0)]);
+    assert!(a.client.state.keys.is_empty(), "the app heard of a Back that was a hold: {:?}", a.client.state.keys);
 }
 
 #[test]

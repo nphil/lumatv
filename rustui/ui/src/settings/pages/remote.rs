@@ -184,8 +184,7 @@ fn rows(c: &Ctx) -> Vec<Row> {
         remote_toggle(c, "quickpanel", "layout-grid", "Quick panel on gear", "", "quickPanel", true),
         remote_toggle(c, "inputpicker", "cable", "Input picker on Input key", "", "inputPicker", true),
         remote_toggle(c, "quickpaneledit", "layout-grid", "Quick panel tiles: choices and editing", "OK on Picture mode or Sleep timer opens its choices beside the panel, and a held OK on a tile moves, removes or adds tiles. Off leaves OK and a held OK as they were.", "quickPanelEdit", false),
-        remote_toggle(c, "appswitcher", "layout-grid", "App switcher on a second Home press", "Pressing Home again, from an app within a moment or on Home itself, shows the apps that are open as live pictures, to switch to or quit. The first press still goes Home at once. Off leaves Home as it was.", "appSwitcher", false),
-        remote_toggle(c, "recents", "history", "Recent apps on Back", "Back on Home shows the same switcher, to switch to an app or quit it. Off leaves Back to LG's own.", "recents", false),
+        remote_toggle(c, "appswitcher", "layout-grid", "Task manager on a second Home press", "Pressing Home again, from an app within a moment or on Home itself, shows the task manager: the apps that are open as live pictures, to switch to or close, and how the TV is doing. The first press still goes Home at once. Off leaves Home as it was.", "appSwitcher", false),
     ];
     let (on, _) = quick(c);
     let mut qa = Row::toggle("quickaccess").tab(1).icon("hash").label("Quick Access for the number keys").help("A number key says what it opened, and one with nothing behind it asks what to give it. Off leaves the number keys as the dock's first ten tiles.").on(on);

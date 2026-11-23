@@ -73,6 +73,7 @@ impl State {
                     self.lg_guide_launched_at(Instant::now());
                 }
                 self.home_life_event(payload);
+                self.switcher_life_event(payload);
             }
             return true;
         }

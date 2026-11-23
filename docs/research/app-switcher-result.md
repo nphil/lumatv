@@ -1,6 +1,6 @@
 # App switcher: a second press of Home
 
-Built and host-tested; off until its TV check passes. Switches (Settings > Remote & pointer): `remote.appSwitcher` (App switcher on a second Home press) and `remote.recents` (Recent apps on Back, which opens the same switcher). The shell tells the compositor it can show it (`can: ["switcher"]`) only while `remote.appSwitcher` is on; with it off every Home press is what it was. Mocks: `docs/mocks/switcher/` (dark and light, 100 % and 200 % text, the shrink from an app as four frames).
+Built and host-tested; off until its TV check passes. Switch (Settings > Remote & pointer): `remote.appSwitcher` (App switcher on a second Home press). A Back hold of 600 ms opens the same switcher from anywhere (`task-manager.md`) and has no switch. The shell tells the compositor it can show it (`can: ["switcher"]`) only while `remote.appSwitcher` is on; with it off every Home press is what it was. Mocks: `docs/mocks/switcher/` (dark and light, 100 % and 200 % text, the shrink from an app as four frames).
 
 ## What it does
 
@@ -12,7 +12,7 @@ Built and host-tested; off until its TV check passes. Switches (Settings > Remot
 | A press while it is open | Closes it. |
 | Hold of 650 ms | The escape to LG's compositor, unchanged (`input.rs`, `lumatv-sm.c`); the tests hold it right after a tap and with the switcher open. |
 
-Back from the top of Home (`remote.recents`) opens the same switcher: one panel, one list, two doors. The old Home-layer Recents panel is gone.
+A Back hold of 600 ms opens the same switcher from anywhere: one panel, one list, two doors. A single Back on Home does nothing. The old Home-layer Recents panel is gone.
 
 In the switcher: Left and Right move between the cards (a window of four moves a card at a time past four), Down goes to the card's Quit, Up to Quit all in the header, OK opens the card, quits, or asks; Back or Home closes; a pointer hovers to focus and clicks to act. Quit all asks first (opaque backdrop at `scrimHide`, Cancel in focus, the danger style on Quit all only). An app being quit shows "Quitting…" and dims until its window is gone, "Couldn't quit" with "Try again" after 4 s. No apps open shows its own words. After 45 s without a key it closes (a still picture of an app is not left on an OLED).
 
@@ -44,7 +44,7 @@ Motion: pictures arrive 200 ms (from 94 % and transparent, or the app's whole sc
 3. A single Home tap over Plex: Home appears as before (journal `input: Home: launchDefaultApp`), nothing else, no later line. Time from the key to Home against step 1: the same.
 4. Over Plex, Home twice within 0.4 s: one `launchDefaultApp`, the journal says `Home twice within 400 ms: the app switcher, with … shrinking into its card` and `switcher: the shell placed the cards`; Plex's picture shrinks into the first card in 200 ms (`ctl capture /tmp/a.png` at 80 ms steps, or the frame gate), the other cards arrive with it, dim and names come in; focus on Plex, `ctl switcher` lists the three apps `live` (or `video` for an input). On Home with the switcher closed, one Home tap opens it from Home (no shrink); a second tap closes it.
 5. Pictures: each card shows its app's last picture, not black; a card of Live TV or an HDMI input shows its icon on a tile with "No preview". If an app's card is black or missing, `$T ctl windows` shows whether its window is still mapped while covered (the list is the mapped cards) and what buffer it holds.
-6. Keys and pointer: Left/Right, Down to Quit and Up to Quit all, OK opens the card and the app is in front within a second (`foreground` in `ctl keys`), Back closes, the Magic Remote hovers and clicks; Back from the top of Home (with `remote.recents` on) opens the same switcher.
+6. Keys and pointer: Left/Right, Down to Quit and Up to Quit all, OK opens the card and the app is in front within a second (`foreground` in `ctl keys`), Back closes, the Magic Remote hovers and clicks; a Back hold of 600 ms opens the same switcher and a single Back on Home does nothing.
 7. Quit: on a card, Down then OK: `ctl luna`/the journal shows `closeByAppId {id, reason: windowPolicy}`, `luna-send -n 1 luna://com.webos.applicationManager/running '{}'` no longer lists the app within a few seconds, the card dims, says Quitting and goes, the others slide to fill. Quit all asks first; Cancel changes nothing; Quit all closes every app, none of LumaTV's own.
 8. The hold: Home held 650 ms with the switcher open and closed still falls back to LG's compositor (`escaped` marker), as `tv-gate.sh homekey` expects.
 9. Frames: `tv-gate.sh frames` with the switcher opened and closed over Home and over an app (`Q:switcher-show` is in the trace): no refresh skipped, `renderUsMax` of the opening frames under 8 ms; closed, `ctl wake` shows the tick back at 10 a second within 3 s and `ctl switcher` says `Closed`.

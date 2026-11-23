@@ -176,7 +176,7 @@ mod tests {
         let dir = scratch("legacy");
         std::fs::write(
             dir.join("theme/theme.json"),
-            r#"{"remote": {"appKeys": {"disneyplus": "com.beb.plxnative", "amazon": ""}, "recents": true}, "accent": "x"}"#,
+            r#"{"remote": {"appKeys": {"disneyplus": "com.beb.plxnative", "amazon": ""}, "numberKeys": true}, "accent": "x"}"#,
         )
         .unwrap();
         let said = migrate_from(&dir, &dir.join("none.json"));
@@ -184,7 +184,7 @@ mod tests {
         let t = theme(&dir);
         assert_eq!(t["remote"]["buttons"], json!({"disneyplus": "app:com.beb.plxnative", "amazon": "nothing"}));
         assert!(t["remote"].get("appKeys").is_none());
-        assert_eq!((t["remote"]["recents"].clone(), t["accent"].clone()), (json!(true), json!("x")), "the rest stays");
+        assert_eq!((t["remote"]["numberKeys"].clone(), t["accent"].clone()), (json!(true), json!("x")), "the rest stays");
         assert!(migrate_from(&dir, &dir.join("none.json")).is_empty(), "nothing left to move");
         assert!(!dir.join(MARK).exists(), "no list was read, so no mark");
         let _ = std::fs::remove_dir_all(dir);

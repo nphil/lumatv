@@ -2188,6 +2188,18 @@ impl Output for Gl {
         Gl::prepare_previews(self, buffers);
     }
 
+    fn keep_thumb(&mut self, app: &str, buffer: &WlBuffer) -> bool {
+        Gl::keep_thumb(self, app, buffer)
+    }
+
+    fn has_thumb(&self, app: &str) -> bool {
+        Gl::has_thumb(self, app)
+    }
+
+    fn retain_thumbs(&mut self, apps: &[String]) {
+        Gl::retain_thumbs(self, apps);
+    }
+
     fn freeze_app(&mut self, id: crate::snapshot::SnapshotId, window: crate::window::WindowId, plan: &Plan, live: &crate::snapshot::Snapshots) -> bool {
         Gl::freeze_app(self, id, window, plan, live)
     }

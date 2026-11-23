@@ -71,7 +71,7 @@ After installing or trying any other app on the set (LumaGame, Marquee, a test I
 
 Pitfalls:
 
-- With Recent apps on Back and an app running, the wake's Back opens the app switcher, which takes every key and fails Home surfaces. The gate closes it with a second Back and refuses to run while the switcher is up, the ctl does not answer, or the refresh is not held at the asked rate (30f333f3).
+- A single Back on Home does nothing and a Back held 600 ms opens the task manager (the app switcher), so the wake's Back is harmless. The gate refuses to run while the switcher is up, the ctl does not answer, or the refresh is not held at the asked rate (30f333f3).
 - An unprompted real camera pop-up or full view on screen during a run belongs to a real camera, not the test: exclude those cycles and rerun. The gate turns pop-ups off before its surfaces and back on after.
 - After a Dolby Vision page `DE2VSYNC` can sit at 240 a second while `osd_irq` stays at 120, and the gate refuses to start; a few seconds of Live TV clears it.
 - A full host disk mid-run logs results late; check `df` first.

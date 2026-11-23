@@ -460,6 +460,7 @@ impl Shell {
                 acts.push(Act::Helper(Outbound { method, path, body, tag: Some(tag), beside: false }))
             }
             Effect::Channel { path, body } => acts.push(Act::Channel(Outbound { method: "POST", path, body: Some(body), tag: None, beside: false })),
+            Effect::ChannelRequest { tag, path, body } => acts.push(Act::Channel(Outbound { method: "POST", path, body: Some(body), tag: Some(tag), beside: false })),
             Effect::Theme { tag, patch } => self.write_theme(tag, &patch, now, acts),
             Effect::Read { tag, path } => {
                 let full = self.file_of(&path);
@@ -649,10 +650,9 @@ impl Shell {
                                 self.carry(e, now, acts);
                             }
                         }
-                        // the app switcher: the second press of Home with nothing open on Home, and Back from the top of Home when the owner wants it
+                        // the task manager: the second press of Home with nothing open on Home
                         crate::home::model::Request::Switcher => {
-                            let wanted = self.panels.recents_on() || matches!(input, Input::Topic { topic, .. } if topic == "homekey");
-                            if wanted && let Some(e) = self.panels.open_switcher(&self.kinds) {
+                            if let Some(e) = self.panels.open_switcher(&self.kinds) {
                                 self.carry(e, now, acts);
                             }
                         }
@@ -977,8 +977,10 @@ impl Shell {
             Event::Topic { topic, data } => {
                 self.feed(&Input::Topic { topic: topic.clone(), data: data.clone() }, now, &mut acts);
             }
+            // what the compositor answers to a request made with a tag (`Effect::ChannelRequest`) goes to the models like the helper's answers
+            Event::Answer { tag, status, body } => self.feed(&Input::Fetched { tag: *tag, status: *status, data: body.clone() }, now, &mut acts),
             // only the helper's feed holds its events back (`Feed::expand`)
-            Event::Answer { .. } | Event::Bytes { .. } | Event::Waiting => {}
+            Event::Bytes { .. } | Event::Waiting => {}
         }
         self.after(now, &mut acts);
         acts

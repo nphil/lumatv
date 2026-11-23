@@ -1724,7 +1724,7 @@ mod tests {
         "wallpaper": "wall_aurora.png", "material": "dark", "accent": "#EB6F92", "clock": {"style": "digital", "twelveHour": false},
         "wallpaperMotion": {"enabled": true, "amplitude": 7, "source": "video"}, "weather": {"zip": "30311", "days": 5},
         "apps": {"hidden": ["com.webos.app.browser"], "names": {"netflix": "Films"}}, "quickPanel": {"own": true, "tiles": ["sleep", "picture"]},
-        "remote": {"numberKeys": true, "recents": true, "quickAccess": {"1": "netflix"}}, "type": {"body": {"size": 34}},
+        "remote": {"numberKeys": true, "quickAccess": {"1": "netflix"}}, "type": {"body": {"size": 34}},
         "oledcare": {"enabled": true, "dimAfterMin": 4}, "screensaver": {"style": "art"}, "layout": {"overlays": {"volume": {"anchor": "right"}}},
         "overlays": {"enabled": true, "classes": {"doorbell": {"dwellMs": 20000}}}, "cameras": {"liveOverApps": true}
     }"##;
@@ -1834,7 +1834,7 @@ mod tests {
         assert_eq!(own["remote"], json!({"quickAccess": {"1": "netflix"}}));
         assert_eq!(
             shared["remote"],
-            json!({"numberKeys": true, "recents": true})
+            json!({"numberKeys": true})
         );
         assert_eq!(
             shared["oledcare"],

@@ -140,8 +140,10 @@ impl Scene {
 }
 
 impl crate::State {
-    /// Called before background/exposure notifications let the client change or release its picture.
+    /// Called before background/exposure notifications let the client change or release its picture. The app's last frame is kept for the
+    /// task manager first (`switcher/list.rs`): an app that has left the front has no picture of its own after this.
     pub(crate) fn freeze_app(&mut self, window: WindowId) {
+        self.keep_app_thumb(window);
         let Some(id) = self.scene.reserve_snapshot(window, &self.surfaces) else { return };
         if !self.output.freeze_app(id, window, self.scene.last_plan(), &self.scene.snapshots) {
             self.scene.invalidate_snapshot(window);

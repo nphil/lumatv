@@ -251,8 +251,8 @@ something else, in-place changes for focus/typing/caret, `pointer()`, `feed_lint
   layers, a video-plane app is an icon on a tile here); this draws the header, each card's name/state/Quit, the ring, the veils and the
   Quit all question. While the kind is on the compositor sends `apps`/`switcher` topics to this client only, takes `POST /v1/switcher` ops
   from it and counts it as the one that "can show" `switcher`; `Panels::apply` hands the cards' places (`Switcher::layout`, once per change) to
-  the shell as `take_drawn()`. Offered when `remote.appSwitcher` or `remote.recents` is on (both off until the TV check): a second Home press
-  (`homekey {switcher: true}` to Home at rest, `Request::Switcher`), and Back from the top of Home with `recents`.
+  the shell as `take_drawn()`. Offered when `remote.appSwitcher` is on (off until the TV check): a second Home press
+  (`homekey {switcher: true}` to Home at rest, `Request::Switcher`); a Back hold opens it from the compositor.
 - **`entry`**: text typed on the TV for the shell's *own* screens (Wi-Fi password, names, addresses; Settings' `ShellRequest::Text`). It is not
   the compositor's IME for text fields of apps (that is `keyboard`, below). Home's search keys (`home/search.rs`) are the model; the sheet is
   solid on a hiding dim in `z::KEYBOARD`, takes every key and click while up (and the release of a key it took), masks a password except its last

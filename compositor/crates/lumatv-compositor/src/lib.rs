@@ -63,6 +63,7 @@ pub mod subwatch;
 pub mod surface;
 pub mod switcher;
 pub mod system_ui;
+pub mod taskmgr;
 pub mod ticker;
 pub mod transition;
 /// LumaTV's UI engine drawing into the compositor's pages (feature `ui`, `rustui/`).

@@ -187,7 +187,7 @@ impl Env {
         self.theme.pointer(&format!("/remote/{name}")).and_then(Value::as_bool) != Some(false)
     }
 
-    /// A switch that is off until the owner turns it on (`remote.appSwitcher`, `remote.recents`: off until the TV check).
+    /// A switch that is off until the owner turns it on (`remote.appSwitcher`: off until the TV check).
     pub fn switch_set(&self, name: &str) -> bool {
         self.theme.pointer(&format!("/remote/{name}")).and_then(Value::as_bool) == Some(true)
     }

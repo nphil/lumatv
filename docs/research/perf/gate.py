@@ -1321,15 +1321,10 @@ class Rig:
 
     def wake(self):
         """Home's screensaver and idle dim take the first key, which wakes them and does nothing else: the first gear tap of a run after
-        5 minutes of quiet opened no panel (round 16). One Back, eaten by the saver or harmless on a Home with nothing open, first. With the
-        owner's "Recent apps on Back" (theme `remote.recents`) on and an app running, Back from the top of Home opens the app switcher, which
-        then takes every key of the run; a second Back closes it."""
+        5 minutes of quiet opened no panel (round 16). One Back, eaten by the saver or harmless on a Home with nothing open (a single Back
+        on Home does nothing)."""
         self.sh(f'python3 {KB} BACK')
         time.sleep(2)
-        state = self.lumatv_state()
-        if state and (state.get('switcher') or {}).get('open'):
-            self.sh(f'python3 {KB} BACK')
-            time.sleep(1)
 
     def capture(self, name, mode):
         self.set.capture(name, mode)

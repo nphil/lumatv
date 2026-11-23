@@ -25,7 +25,7 @@ context menu, the confirm dialog and the app switcher's chrome. Three kinds are 
   The compositor (`shell_rust.rs`, `switcher.rs`) now takes `Msg::Switcher` from the Rust client, sends `apps`/`switcher` topics only to
   the client that answers the kind, counts its `can` and closes the switcher if the client goes. A video-plane app has no picture (the
   compositor says so): its card is the app's icon on a tile with "No preview". Opened by the Home key at rest (`homekey {switcher:true}` ->
-  `Request::Switcher`) and by Back from the top of Home with `remote.recents`; both switches are off until the TV check.
+  `Request::Switcher`) and by a Back hold (the compositor's, `task-manager.md`); the Home press is off until the TV check.
 - **entry**: the on-screen keyboard for the shell's own screens (Home's search keys, a sheet over Settings in `z::KEYBOARD`, solid on a
   hiding dim, a password as bullets, 128 characters). Settings' `ShellRequest::Text` opens it; Done gives the text back once to
   `settings.entered`, Back/idle/app-front to `settings.entry_cancelled` (never a topic, never printed). It takes every key while up, and the

@@ -131,6 +131,20 @@ pub trait Output {
     /// them. The default does nothing.
     fn prepare_previews(&mut self, _buffers: &[WlBuffer]) {}
 
+    /// An app is leaving the front and is about to release its buffer: the output keeps this last frame, at a quarter of its size and in its
+    /// own memory, as the app's picture for the task manager. `true` when it did. The default keeps nothing.
+    fn keep_thumb(&mut self, _app: &str, _buffer: &WlBuffer) -> bool {
+        false
+    }
+
+    /// Whether [`Output::keep_thumb`] holds a picture of this app.
+    fn has_thumb(&self, _app: &str) -> bool {
+        false
+    }
+
+    /// The task manager lists exactly these apps: the pictures kept of any other are dropped.
+    fn retain_thumbs(&mut self, _apps: &[String]) {}
+
     /// Copies only this app's already imported, drawable UI surfaces into independent GPU storage. No CPU/readback fallback.
     fn freeze_app(&mut self, _id: crate::snapshot::SnapshotId, _window: crate::window::WindowId, _plan: &Plan, _live: &crate::snapshot::Snapshots) -> bool {
         false

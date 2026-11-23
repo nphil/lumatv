@@ -1637,6 +1637,18 @@ impl Output for Kms {
         self.gl.prepare_previews(buffers);
     }
 
+    fn keep_thumb(&mut self, app: &str, buffer: &WlBuffer) -> bool {
+        self.gl.keep_thumb(app, buffer)
+    }
+
+    fn has_thumb(&self, app: &str) -> bool {
+        self.gl.has_thumb(app)
+    }
+
+    fn retain_thumbs(&mut self, apps: &[String]) {
+        self.gl.retain_thumbs(apps);
+    }
+
     fn prepare_buffer(&mut self, buffer: &WlBuffer) -> bool {
         let new = self.gl.prepare(buffer);
         if new {

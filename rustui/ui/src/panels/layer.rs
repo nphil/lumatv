@@ -1,6 +1,6 @@
 //! The panels as one part of the shell, the way `system::layer::Layer` is: the quick panel, the input picker and the notification drawer
 //! (the kinds `quick`, `picker`, `drawer`), the context menu and the confirm dialog (`menu`, `confirm`, opened by whoever owns the thing they
-//! are about) and the app switcher's chrome (`switcher`), their models fed from the channel, the helper, the keys and the clock, their
+//! are about) and the task manager's chrome (`switcher`), their models fed from the channel, the helper, the keys and the clock, their
 //! surfaces drawn with the kit in the panels' band, and what the compositor is told of them (who has the keys, what can be shown now).
 //! Nothing here does I/O: effects go to the shell, which hands them to the host.
 //!
@@ -33,7 +33,7 @@ use super::picker_surface::{PickerSurface, Target as PickerTarget};
 use super::quick::Quick;
 use super::quick_surface::QuickSurface;
 use super::switcher::Switcher;
-use super::switcher_surface::{SwitcherSurface, Target as SwitcherTarget};
+use super::switcher_surface::{Pick as SwitcherPick, SwitcherSurface};
 use super::{Ask, K, Out, Typed};
 use crate::kit::lint::Lint;
 use crate::kit::pointer::Sample;
@@ -702,12 +702,13 @@ impl Panels {
                 None => return out,
             },
             Which::Switcher => match self.switcher_s.pointer(kit, engine, now_ns, s) {
-                Some(SwitcherTarget::Card(i)) => self.switcher.click_card(i, false, now),
-                Some(SwitcherTarget::Quit(i)) => self.switcher.click_card(i, true, now),
-                Some(SwitcherTarget::All) => self.switcher.click_all(now),
-                Some(SwitcherTarget::Cancel) => self.switcher.click_ask(0, now),
-                Some(SwitcherTarget::QuitAll) => self.switcher.click_ask(1, now),
-                Some(SwitcherTarget::Backdrop) => self.switcher.click_outside(now),
+                Some(SwitcherPick::Card(i)) => self.switcher.click_card(i, now),
+                Some(SwitcherPick::Drag(i)) => self.switcher.drag_quit(i, now),
+                Some(SwitcherPick::Close) => self.switcher.click_close(now),
+                Some(SwitcherPick::System) => self.switcher.click_system(now),
+                Some(SwitcherPick::Row(r)) => self.switcher.click_row(r, now),
+                Some(SwitcherPick::Choice(c)) => self.switcher.click_choice(c, now),
+                Some(SwitcherPick::Outside) => self.switcher.click_outside(now),
                 None => return out,
             },
             Which::Entry => match self.entry_s.pointer(kit, engine, now_ns, s) {
@@ -865,13 +866,15 @@ impl Panels {
                 }
             }
             if kinds.switcher {
-                let view = self.switcher.view(now_ms);
+                let view = self.switcher.view();
                 match self.switcher_s.apply(kit, engine, &view, self.switcher_life.phase(), now_ns) {
                     Ok(on) => live |= on && self.switcher_life.visible(),
-                    Err(e) => { self.interactive_visible |= live; return Err(format!("app switcher: {e}")); },
+                    Err(e) => { self.interactive_visible |= live; return Err(format!("task manager: {e}")); },
                 }
                 // the cards' places go to the compositor, which moves the pictures there on its own clock
-                self.drawn.extend(self.switcher.layout(straight(kit.tokens.extra(kit.mode).scrim_hide), kit.ui.look.reduced_motion));
+                let (top, palette) = (self.switcher_s.top(kit), SwitcherSurface::palette(kit));
+                let scrim = straight(kit.tokens.extra(kit.mode).scrim_hide);
+                self.drawn.extend(self.switcher.layout(now_ms, top, scrim, kit.ui.look.reduced_motion, kit.beat_ms(crate::kit::motion::Beat::Card), palette));
             }
             if kinds.entry {
                 let view = self.entry.view(over_video);
@@ -929,16 +932,15 @@ impl Panels {
         std::mem::take(&mut self.typed)
     }
 
-    /// Opens the app switcher over what is on the screen (a press of Home with nothing open on Home; Back from the top of Home when the owner
-    /// wants it), when it is on, the owner's switch is not off and there is an app to show.
+    /// Opens the task manager over what is on the screen (the second press of Home with nothing open on Home), when it is on, the owner's
+    /// switch is on and there is an app to show.
     pub fn open_switcher(&self, kinds: &Kinds) -> Option<Effect> {
         (kinds.switcher && self.env.screen_on && !self.env.ai_prompt_up() && self.switcher_wanted() && self.switcher.count() > 0 && !self.switcher.is_open()).then(|| self.switcher.open_effect())
     }
 
-    /// The owner's switches for the switcher (`remote.appSwitcher`: the second press of Home; `remote.recents`: Back from the top of Home). Both
-    /// are off until the TV check.
+    /// The owner's switch for the task manager on a second press of Home (`remote.appSwitcher`): off until the TV check.
     fn switcher_wanted(&self) -> bool {
-        self.env.switch_set("appSwitcher") || self.env.switch_set("recents")
+        self.env.switch_set("appSwitcher")
     }
 
     /// Where the bell is (Home's status bar says; it is where the drawer comes out of and goes back to).
@@ -966,11 +968,6 @@ impl Panels {
     /// The newest picture of a camera the list holds: the viewer opens on it.
     pub fn camera_picture(&self, id: &str) -> Option<crate::kit::picture::Picture> {
         self.camlist.picture(id).cloned()
-    }
-
-    /// Whether Back from the top of Home opens the switcher.
-    pub fn recents_on(&self) -> bool {
-        self.env.switch_set("recents")
     }
 
     /// Whether a panel wants every key: one is up.
@@ -1333,7 +1330,7 @@ mod tests {
         }
 
         fn posts(effects: &[Effect]) -> Vec<Value> {
-            effects.iter().filter_map(|e| if let Effect::Channel { path, body } = e { (path == "/v1/switcher").then(|| body.clone()) } else { None }).collect()
+            effects.iter().filter_map(|e| match e { Effect::Channel { path, body } | Effect::ChannelRequest { path, body, .. } => (path == "/v1/switcher").then(|| body.clone()), _ => None }).collect()
         }
     }
 
@@ -1410,7 +1407,7 @@ mod tests {
         assert!(r.p.can(&r.kinds).contains(&"switcher"));
         r.topic("apps", apps());
         assert!(!r.p.wants(&r.kinds));
-        r.topic("switcher", json!({"open": true, "from": "", "n": 1}));
+        r.topic("switcher", json!({"open": true, "from": "", "n": 1, "mode": "ui"}));
         assert_eq!(r.p.up(&r.kinds), Some(Which::Switcher), "the compositor opened it: the keys are its");
         assert!(r.apply());
         let layout = Rig::posts(&r.p.take_drawn());
@@ -1418,6 +1415,7 @@ mod tests {
         assert_eq!(layout[0]["op"], "layout");
         assert_eq!(layout[0]["cards"].as_array().unwrap().len(), 2, "both pictures are live: both are placed");
         assert_eq!(layout[0]["cards"][0]["id"], "plex");
+        assert_eq!(layout[0]["palette"]["panel"].as_array().map(Vec::len), Some(3), "the compositor's basic screen is drawn in the theme's colours");
         assert_eq!(layout[0]["scrim"]["a"].as_f64().map(|a| a > 0.9), Some(true), "the dim the compositor draws behind the cards");
         assert!(Rig::posts(&{ r.apply(); r.p.take_drawn() }).is_empty(), "the same places are not sent twice");
         r.press("right");
@@ -1448,11 +1446,10 @@ mod tests {
     fn the_switcher_is_offered_only_when_the_owner_switched_it_on_and_something_is_open() {
         let off = rig_with("switcher", json!({}));
         assert!(!off.p.can(&off.kinds).contains(&"switcher") && off.p.open_switcher(&off.kinds).is_none());
-        let mut on = rig_with("switcher", json!({"remote": {"recents": true}}));
+        let mut on = rig_with("switcher", json!({"remote": {"appSwitcher": true}}));
         assert!(on.p.open_switcher(&on.kinds).is_none(), "nothing is open");
         on.topic("apps", apps());
         assert_eq!(on.p.open_switcher(&on.kinds), Some(Effect::Channel { path: "/v1/switcher".into(), body: json!({"op": "open"}) }));
-        assert!(on.p.recents_on());
         on.topic("screen", json!({"on": false}));
         assert!(on.p.open_switcher(&on.kinds).is_none(), "not with the screen off");
     }

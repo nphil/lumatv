@@ -580,8 +580,14 @@ fn handle_request(req: &Request, token: &str, outbox: &Arc<Mutex<Outbox>>, inbox
             Handled::Answer(200, json!({"ok": true}))
         }
         ("POST", "/v1/switcher") => {
-            inbox.send(Msg::Switcher(body));
-            Handled::Answer(200, json!({"ok": true}))
+            // A System action the compositor refuses is answered here, so that the shell has the reason in the reply (`switcher/system.rs`).
+            match crate::switcher::refusal(&body, crate::taskmgr::stats::refresher_running) {
+                Some(refused) => Handled::Answer(200, refused),
+                None => {
+                    inbox.send(Msg::Switcher(body));
+                    Handled::Answer(200, json!({"ok": true}))
+                }
+            }
         }
         ("POST", "/v1/vwin") => {
             inbox.send(Msg::Vwin(body));

@@ -83,6 +83,19 @@ pub enum ToBridge {
     Fallback {
         reason: String,
     },
+    /// The task manager opened or closed, or Back was pressed while it was open. The helper (`lumatv-sm`) rescues a Back held for 3 s with
+    /// no such line since the press: that is the compositor not answering.
+    Taskmgr {
+        open: bool,
+    },
+    /// The System menu's Restart LumaTV: the helper ends the compositor and starts it again.
+    Restart {
+        reason: String,
+    },
+    /// The System menu's Restart TV: the helper reboots the set, unless the panel's pixel refresher runs.
+    Reboot {
+        reason: String,
+    },
 }
 
 /// The bus names the compositor owns through the bridge.
@@ -477,5 +490,16 @@ mod tests {
             _ => panic!(),
         }
         assert_eq!(power::register_calls().len(), 4);
+    }
+
+    #[test]
+    fn the_task_managers_lines_are_the_ones_the_helper_reads() {
+        for (m, line) in [
+            (ToBridge::Taskmgr { open: true }, r#"{"kind":"taskmgr","open":true}"#),
+            (ToBridge::Restart { reason: "x".into() }, r#"{"kind":"restart","reason":"x"}"#),
+            (ToBridge::Reboot { reason: "x".into() }, r#"{"kind":"reboot","reason":"x"}"#),
+        ] {
+            assert_eq!(serde_json::to_string(&m).unwrap(), line);
+        }
     }
 }

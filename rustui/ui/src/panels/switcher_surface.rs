@@ -1,464 +1,1071 @@
-//! The app switcher's chrome drawn (`docs/mocks/switcher`, `panels/Switcher.qml`): the header with "Open apps", the count and Quit all, and under
-//! each card of the row the app's icon and name, what is happening to it and, on the card in focus, its own Quit. The pictures of the apps are
-//! the compositor's, drawn under the shell's layers where `switcher::placed` says; nothing here covers a picture but the ring of the card in
-//! focus and the veil on the cards that are not. An app whose picture is on the video plane (it has none) is an icon on a tile in the card's
-//! place. More than four cards are a row that moves by a card when the focus leaves the window, with a bar that says where the window is.
+//! The task manager's chrome (`docs/research/task-manager.md`): what is drawn over the apps' pictures. The pictures are the compositor's, drawn
+//! under the shell's layers where `Switcher::layout` says; here are the frame of each card (the lit glass of the one in focus, the veil on the
+//! others), its icon and name, what is happening to it, an icon on a tile for an app with no picture, the strip of the TV's numbers, the
+//! two buttons below it, the System sheet and the confirmations.
 //!
-//! The model decides which card, its Quit or the header's Quit all has the focus; this follows it. The cards are made when the list says
-//! something else; the window, the veils and the focus move in place. Quit all asks first, in a card of its own over everything.
+//! The model decides what is where and who has the focus; this follows it. A card's chrome is made once per app and moves in place (the
+//! cards close up when one leaves, the focused card is larger), so a card keeps its look while the list around it changes. Nothing here
+//! repeats: the numbers update once a second as the compositor sends them, everything else moves on a key.
 
 use super::life::Phase;
-use super::stage::{Stage, Touch};
-use super::switcher::{Entry, Level, View, geo};
-use super::ui::{Arrive, Scroll, WordLine, Words, picture_layer};
+use super::stage::{Dim, Stage, Touch};
+use super::switcher::{ACTIONS, Action, AskState, AskView, Confirm, Entry, Focus as Zone, Picture, Reason, Standing, Stats, View, geo};
+use super::ui::{Arrive, WordLine, Words, hints_width, picture_layer, scrim, scrim_set};
 use crate::kit::button::{Button, Place, Spec as ButtonSpec, Tone, faded};
 use crate::kit::flow::Lifted;
 use crate::kit::focus::{Id, Region, Scope};
-use crate::kit::hint::{Action, Hint, HintRow, Key, RowAt, glyph_side};
+use crate::kit::hint::{Action as HintAction, Hint, HintRow, Key, RowAt, glyph_side};
 use crate::kit::icon;
 use crate::kit::lint::Lint;
 use crate::kit::motion::Beat;
 use crate::kit::pointer::Sample;
-use crate::kit::text::{role_style, width_of};
-use crate::kit::widgets::edge;
-use crate::kit::viewport::Reach;
+use crate::kit::text::{role_style, width_of, widest};
+use crate::kit::widgets::{Lift, Plate, Spot, edge, focus_wash, lit_edge};
 use crate::kit::wrap;
 use crate::kit::{Engine, Kit};
-use compositor_protocol::{Fill, GroupPose, Props, Rgba, Shape};
+use compositor_protocol::{Ease, Fill, GroupPose, Props, Rect, Rgba, Shape};
 use lumatv_tokens::{Radius, TypeRole};
 use serde_json::{Value, json};
 use ui::components::{Align, plate};
 use ui::geometry::Frame;
 use ui::group::Group;
-use ui::lucent::palette::PaletteRole;
-use ui::scene::{ImageLayer, ShapeLayer};
+use ui::lucent::palette::{Mode, PaletteRole};
+use ui::scene::{ImageLayer, Layer, ShapeLayer};
 use ui::text::Weight;
 
 pub const SCOPE: Scope = Scope(205);
 const ASK_SCOPE: Scope = Scope(207);
-const REGION_HEAD: Region = Region(2500);
+const SHEET_SCOPE: Scope = Scope(213);
+const REGION_LOWER: Region = Region(2500);
 const REGION_CARDS: Region = Region(2501);
 const REGION_ASK: Region = Region(2502);
+const REGION_SHEET: Region = Region(2503);
 const BASE: u32 = 0x2500_0000;
+const ID_CLOSE: Id = Id(BASE + 0x1000);
+const ID_SYSTEM: Id = Id(BASE + 0x1001);
+const ID_BACKDROP: Id = Id(BASE + 0xFF00);
+const ID_SHEET_BACK: Id = Id(BASE + 0xFF01);
+const ID_ASK_BACK: Id = Id(BASE + 0xFF02);
+/// The icon in a card's foot, and the room the words beside it have.
 const ICON: f32 = 48.0;
 /// The most cards whose chrome is made: the scene has a budget, and no one keeps more apps than this open.
-const MAX_CARDS: usize = 24;
-const ASK_W: f32 = 880.0;
-/// The cards' row shows through this window (the header's margins): a card that is leaving or arriving is cut at its edge.
-const WINDOW_X: f32 = 96.0;
-const WINDOW_W: f32 = 1728.0;
-const RING: f32 = 7.0;
+const MAX_CARDS: usize = 16;
+/// The page mark under the cards, when not all are in the window: how tall it is and how wide per app (a mark, not a rule across the screen).
+const MARK_H: f32 = 4.0;
+const MARK_PER_APP: f32 = 56.0;
+/// The height of the stats bars' area (a core's row, or the memory and GPU bar centred in it), and the gap between a core's rows.
+const BARS_H: f32 = 40.0;
+const BAR_GAP: f32 = 4.0;
+/// How far up a card has to be dragged for it to be quit.
+const DRAG_PX: f32 = 120.0;
+const FULL: Frame = Frame { x: 0.0, y: 0.0, w: 1920.0, h: 1080.0 };
 
 /// What the pointer can land on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Target {
+pub enum Pick {
     Card(usize),
-    Quit(usize),
-    All,
-    Cancel,
-    QuitAll,
-    Backdrop,
+    Close,
+    System,
+    Row(usize),
+    Choice(usize),
+    /// A card dragged up past the threshold.
+    Drag(usize),
+    /// The dim behind the sheet or a confirmation.
+    Outside,
 }
 
-impl Target {
-    pub fn id(self) -> Id {
-        Id(BASE
-            + match self {
-                Target::Card(i) => i as u32,
-                Target::Quit(i) => 0x100 + i as u32,
-                Target::All => 0x1000,
-                Target::Cancel => 0x1001,
-                Target::QuitAll => 0x1002,
-                Target::Backdrop => 0xFF00,
-            })
-    }
+fn card_id(serial: u32) -> Id {
+    Id(BASE + serial)
+}
 
-    pub fn from_id(id: Id) -> Option<Target> {
-        match id.0.checked_sub(BASE)? {
-            0x1000 => Some(Target::All),
-            0x1001 => Some(Target::Cancel),
-            0x1002 => Some(Target::QuitAll),
-            0xFF00 => Some(Target::Backdrop),
-            i if i < 0x100 => Some(Target::Card(i as usize)),
-            i if (0x100..0x200).contains(&i) => Some(Target::Quit((i - 0x100) as usize)),
-            _ => None,
-        }
+fn row_id(r: usize) -> Id {
+    Id(BASE + 0x1100 + r as u32)
+}
+
+fn choice_id(c: usize) -> Id {
+    Id(BASE + 0x1200 + c as u32)
+}
+
+fn state_words(s: Standing) -> &'static str {
+    match s {
+        Standing::Fine => "",
+        Standing::Hung => "Not responding",
+        Standing::Closing => "Closing",
+        Standing::Stuck => "Didn\u{2019}t quit",
     }
 }
 
-/// One card's chrome laid out for a window that starts at the first card (the row's offset moves it).
-#[derive(Clone, Debug, PartialEq)]
-struct CardLay {
-    pic: Frame,
-    foot_icon: Frame,
-    name: Vec<String>,
-    name_at: (f32, f32, f32),
-    state: Vec<String>,
-    state_at: (f32, f32, f32),
-    quit: Frame,
-    quit_label: &'static str,
-    /// The icon in the tile that stands in for a picture (cards with none).
-    tile_icon: Frame,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct Layout {
-    title: Frame,
-    count: Option<(String, Frame)>,
-    all: Option<Frame>,
-    empty: Option<(Frame, Frame)>,
-    cards: Vec<CardLay>,
-    bar: Option<(Frame, f32)>,
-    hints: Option<Frame>,
-    ask: Option<AskLay>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct AskLay {
-    card: Frame,
-    title: Vec<String>,
-    title_at: (f32, f32, f32),
-    body: Vec<String>,
-    body_at: (f32, f32, f32),
-    cancel: Frame,
-    quit_all: Frame,
-}
-
-fn state_words(e: &Entry) -> &'static str {
-    match e.state.as_str() {
-        "quitting" => "Quitting\u{2026}",
-        "stuck" => "Couldn\u{2019}t quit",
-        _ if e.picture == "video" || e.picture == "none" => "No preview",
-        _ => "",
+/// What a System choice does, in the plain words of the sheet: its glyph, its name and what follows from it.
+fn choice_words(a: Action) -> (&'static str, &'static str, &'static str) {
+    match a {
+        Action::RestartLumatv => ("refresh-cw", "Restart LumaTV", "Closes open apps and restarts the interface."),
+        Action::LgHome => ("house", "Bring back LG Home", "LumaTV stays off until the TV restarts."),
+        Action::Reboot => ("power", "Restart the TV", "Closes everything and reboots the TV."),
     }
 }
 
-fn layout(kit: &mut Kit, entries: &[Entry], asking: bool) -> Layout {
-    let (s2, s3, s4, s6) = (kit.space(2), kit.space(3), kit.space(4), kit.space(6));
-    let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
-    let n = entries.len().min(MAX_CARDS);
-    let title_style = role_style(kit, TypeRole::Title, Some(Weight::SemiBold), ink, Align::Left);
-    let (title_line, caption_line, body_line) = (kit.line(TypeRole::Title), kit.line(TypeRole::Caption), kit.line(TypeRole::Body));
+const REFRESHER: &str = "The panel refresher is running; try again when it is done.";
+
+/// A confirmation's title, its body and the name of its one destructive choice.
+fn ask_words(a: &AskView) -> (String, &'static str, &'static str) {
+    let (title, body, go) = match a.kind {
+        Confirm::CloseAll(n) => (format!("Close all {n} apps?"), "Everything that is open closes. Anything unsaved in them is lost.", "Close all"),
+        Confirm::System(Action::RestartLumatv) => ("Restart LumaTV?".to_string(), "Open apps close, then the interface restarts. Anything unsaved in them is lost.", "Restart"),
+        Confirm::System(Action::LgHome) => ("Bring back LG Home?".to_string(), "LumaTV turns off until the next restart. LG\u{2019}s own Home takes over.", "Bring back"),
+        Confirm::System(Action::Reboot) => ("Restart the TV?".to_string(), "The TV reboots and every open app closes. Anything unsaved is lost.", "Restart TV"),
+    };
+    let body = match (a.state, a.kind) {
+        (AskState::Asking, _) => body,
+        (AskState::Working, Confirm::System(Action::LgHome)) => "Switching to LG Home\u{2026}",
+        (AskState::Working, Confirm::System(Action::Reboot)) => "Restarting the TV\u{2026}",
+        (AskState::Working, _) => "Restarting LumaTV\u{2026}",
+        (AskState::Refused(Reason::Refresher), _) => REFRESHER,
+        (AskState::Refused(Reason::Busy), _) => "Another system action is already running.",
+        (AskState::Refused(Reason::Other), _) => "That did not start. Try again.",
+    };
+    (title, body, go)
+}
+
+/// Where everything stands for the look it is drawn in: none of it depends on the apps, so the compositor can be told where the row of
+/// cards is before there is a card.
+#[derive(Clone, Copy, Debug)]
+struct Metrics {
+    /// The top of the row of cards.
+    top: f32,
+    /// Room under a card for its name (two lines) and what is happening to it.
+    foot_h: f32,
+    name_w: f32,
+    /// The words go under the icon, not beside it: at large text the name beside the icon is a column too narrow for one word.
+    stacked: bool,
+    btn_h: f32,
+    action_y: f32,
+    strip_y: f32,
+    strip_h: f32,
+    head_h: f32,
+}
+
+fn metrics(kit: &mut Kit) -> Metrics {
+    let (s2, s3, s4, s5, s7, s8) = (kit.space(2), kit.space(3), kit.space(4), kit.space(5), kit.space(7), kit.space(8));
     let btn_h = Button::height(kit);
-    let head_h = kit.tokens.target.max(title_line).ceil();
-    let title_w = width_of(kit, title_style, "Open apps").ceil() + 2.0;
-    let title = Frame::new(WINDOW_X, 54.0 + ((head_h - title_line) / 2.0).round(), title_w, title_line);
-    let count = (!entries.is_empty()).then(|| {
-        let text = format!("{} open", entries.len());
-        let w = width_of(kit, role_style(kit, TypeRole::Caption, None, ink2, Align::Left), &text).ceil() + 2.0;
-        (text, Frame::new(WINDOW_X + title_w + s4, title.y + title_line - caption_line - (title_line * 0.12).round(), w, caption_line))
-    });
-    let all = (!entries.is_empty()).then(|| {
-        let w = Button::width_for(kit, "Quit all", true);
-        Frame::new(WINDOW_X + WINDOW_W - w, 54.0 + ((head_h - btn_h) / 2.0).round(), w, btn_h)
-    });
-    let empty = entries.is_empty().then(|| {
-        let w: f32 = 1000.0;
-        (Frame::new(((1920.0 - w) / 2.0).round(), 380.0, w, title_line), Frame::new(((1920.0 - w) / 2.0).round(), 380.0 + title_line + s3, w, kit.line(TypeRole::Label)))
-    });
-    let name_style = role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Left);
-    let caption_style = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
-    let mut cards = Vec::new();
-    for (i, e) in entries.iter().take(n).enumerate() {
-        let (x, y, w, h, _) = geo::card(i, entries.len(), 0);
-        let foot_y = y + h + s4 + 2.0;
-        let name_x = x + ICON + s4;
-        let name_w = w - ICON - s4;
-        let name = wrap::lines(kit, name_style, &e.title, name_w, 3);
-        let state_text = state_words(e);
-        let state = if state_text.is_empty() { Vec::new() } else { wrap::lines(kit, caption_style, state_text, name_w, 2) };
-        let name_h = name.len() as f32 * body_line;
-        let words_h = name_h + state.len() as f32 * caption_line;
-        let foot_h = words_h.max(ICON);
-        let quit_label = if e.state == "stuck" { "Try again" } else { "Quit" };
-        let qw = Button::width_for(kit, quit_label, true);
-        cards.push(CardLay {
-            pic: Frame::new(x, y, w, h),
-            foot_icon: Frame::new(x, foot_y + ((foot_h - ICON) / 2.0).round().min(0.0), ICON, ICON),
-            name_at: (name_x, foot_y, name_w),
-            name,
-            state_at: (name_x, foot_y + name_h, name_w),
-            state,
-            quit: Frame::new(x, foot_y + foot_h + s3, qw, btn_h),
-            quit_label,
-            tile_icon: Frame::new(x + (w - 104.0) / 2.0, y + (h - 104.0) / 2.0, 104.0, 104.0),
-        });
-    }
-    let bar = (entries.len() > geo::VISIBLE).then(|| (Frame::new(WINDOW_X, 830.0, WINDOW_W, 8.0), (WINDOW_W * geo::VISIBLE as f32 / entries.len() as f32).round()));
-    let hints = (!entries.is_empty()).then(|| {
-        let hs = [Hint::key(Key::Ok, Action::Open), Hint::key(Key::Back, Action::Close)];
-        let w = super::ui::hints_width(kit, &hs, TypeRole::Label, kit.space(7)) + 2.0 * s6;
-        let h = kit.tokens.target.max(glyph_side(kit, TypeRole::Label) as f32 + s3).ceil();
-        Frame::new(1920.0 - 96.0 - w, 1080.0 - 54.0 - h, w, h)
-    });
-    let ask = asking.then(|| {
-        let s8 = kit.space(8);
-        let inner = ASK_W - 96.0;
-        let body_style = role_style(kit, TypeRole::Body, None, ink2, Align::Left);
-        let title = wrap::lines(kit, title_style, &format!("Quit all {} apps?", entries.len()), inner, 3);
-        let body = wrap::lines(kit, body_style, "Everything that is open closes. Anything unsaved in them is lost.", inner, 6);
-        let (qw, cw) = (Button::width_for(kit, "Quit all", false), Button::width_for(kit, "Cancel", false));
-        let title_h = title.len() as f32 * title_line;
-        let body_h = body.len() as f32 * body_line;
-        let h = (s8 + title_h + s3 + body_h + s4 + btn_h + s8).ceil();
-        let card = Frame::new(((1920.0 - ASK_W) / 2.0).round(), ((1080.0 - h) / 2.0).round(), ASK_W, h);
-        let by = card.y + h - s8 - btn_h;
-        let right = card.x + ASK_W - 48.0;
-        let _ = s2;
-        AskLay {
-            title_at: (card.x + 48.0, card.y + s8, inner),
-            title,
-            body_at: (card.x + 48.0, card.y + s8 + title_h + s3, inner),
-            body,
-            quit_all: Frame::new(right - qw, by, qw, btn_h),
-            cancel: Frame::new(right - qw - kit.space(5) - cw, by, cw, btn_h),
-            card,
-        }
-    });
-    Layout { title, count, all, empty, cards, bar, hints, ask }
+    let action_y = 1080.0 - 54.0 - btn_h;
+    let head_h = kit.line(TypeRole::Body).max(kit.line(TypeRole::Caption)).ceil();
+    let strip_h = (2.0 * s5 + head_h + s3 + BARS_H).ceil();
+    let strip_y = action_y - s7 - strip_h;
+    let stacked = kit.line(TypeRole::Body) > ICON;
+    // the state words wrap to a second line where the card is narrower than they are, which only large text makes it
+    let words_h = 2.0 * kit.line(TypeRole::Body) + if stacked { 2.0 } else { 1.0 } * kit.line(TypeRole::Caption);
+    let foot_h = if stacked { ICON + s2 + words_h } else { words_h.max(ICON) }.ceil();
+    let cards_h = geo::H + s4 + foot_h + s8 + s2;
+    let zone = strip_y - s8 - 54.0;
+    let top = (54.0 + ((zone - cards_h) / 2.0).max(0.0)).round();
+    let rest_w = geo::W * geo::REST;
+    let name_w = if stacked { rest_w } else { rest_w - ICON - s3 };
+    Metrics { top, foot_h, name_w, stacked, btn_h, action_y, strip_y, strip_h, head_h }
 }
 
-/// The ring of a card in focus: a hollow outline just outside the picture, in the full ink (3:1 on any picture and on the dim), carried by
-/// the flowing focus like any lit plate: it fades from the card the focus left to the one it came to.
-struct Ring {
+/// The width of the "No preview" line on a tile: the resting picture less its margins.
+fn note_w(kit: &Kit) -> f32 {
+    (geo::W * geo::REST - 2.0 * kit.space(4)).floor()
+}
+
+/// The focus of a card is raised glass (Lucent "Focus": no outline, no underline, no landing bar): over the picture of the card in focus
+/// the focus wash with the sheen (light from the upper left) and the lit rim, on the picture's own frame. The flowing focus carries them
+/// like any lit plate: they fade from the card the focus left to the one it came to. What grows and loses its veil is the picture itself
+/// (`geo::pose`); it is the compositor's, so it neither rises nor casts a shadow from here.
+struct Lit {
     id: Id,
-    _shape: ShapeLayer,
+    _layers: [ShapeLayer; 2],
+    released: bool,
 }
 
-impl Ring {
+impl Lit {
     fn new(kit: &mut Kit, engine: &mut Engine, parent: &Group, id: Id, f: Frame, radius: f32, z: i32) -> std::io::Result<Self> {
         let other = |e: ui::error::UiError| std::io::Error::other(format!("{e}"));
-        let rest = GroupPose { x: f.x, y: f.y, pivot_x: f.w / 2.0, pivot_y: f.h / 2.0, ..GroupPose::IDENTITY };
+        let rest = Self::rest(f);
         let group = kit.ui.scene.group(Some(parent.id()), rest).map_err(other)?;
         let lit = kit.ui.scene.group(Some(group.id()), GroupPose { opacity: 0.0, ..GroupPose::IDENTITY }).map_err(other)?;
         let scene = kit.ui.scene.clone();
-        let look = Shape { corner_radius: radius + RING, fill: Fill::Solid(Rgba(0, 0, 0, 0)), border_width: 3.0, border: kit.ui.look.ink() };
-        let shape = scene.adopting(&lit, || kit.ui.scene.shape((f.w + 2.0 * RING) as u32, (f.h + 2.0 * RING) as u32, z, look, Props::at(-RING, -RING)));
+        let (w, h) = (f.w.round() as u32, f.h.round() as u32);
+        let sheen = kit.ui.look.theme.fields.sheen;
+        let clear = Rgba(0, 0, 0, 0);
+        let wash = Shape { corner_radius: radius, fill: Fill::Solid(focus_wash(kit)), border_width: 0.0, border: clear };
+        let glint = Fill::Linear { from: faded(Rgba(255, 255, 255, 255), sheen.peak), to: clear, angle_deg: 45.0 };
+        let rim = Shape { corner_radius: radius, fill: glint, border_width: 1.0, border: lit_edge(kit) };
+        let layers = scene.adopting(&lit, || [kit.ui.scene.shape(w, h, z, wash, Props::at(0.0, 0.0)), kit.ui.scene.shape(w, h, z + 1, rim, Props::at(0.0, 0.0))]);
         engine.focus.register(id, f, REGION_CARDS, SCOPE);
         engine.flow.lift(id, Lifted { group, rest, scale: 1.0, rise: 0.0, lit: Some(lit) });
-        Ok(Self { id, _shape: shape })
+        Ok(Self { id, _layers: layers, released: false })
+    }
+
+    fn rest(f: Frame) -> GroupPose {
+        GroupPose { x: f.x, y: f.y, pivot_x: f.w / 2.0, pivot_y: f.h / 2.0, ..GroupPose::IDENTITY }
+    }
+
+    /// The lit glass stands at another footprint.
+    fn to(&self, engine: &mut Engine, f: Frame) {
+        let _ = engine.flow.place(self.id, Self::rest(f));
+    }
+
+    fn release(&mut self, engine: &mut Engine) {
+        if !self.released {
+            engine.focus.unregister(self.id);
+            engine.flow.drop_lift(self.id);
+            self.released = true;
+        }
+    }
+}
+
+/// How a layer gets to where it is going: a move glides on the card beat, a fade starts from what the layer was (reduced motion is
+/// the fade alone, linear, and nothing moves).
+fn put(kit: &Kit, layer: &Layer, was: f32, to: Props, at_once: bool) {
+    let ms = kit.beat_ms(Beat::Card);
+    if at_once || ms == 0 {
+        layer.set(to);
+        return;
+    }
+    let reduced = kit.ui.look.reduced_motion;
+    if (was - to.opacity).abs() > f32::EPSILON {
+        layer.set(Props { opacity: was, ..to });
+        layer.animate(to, ms, if reduced { Ease::Linear } else { Ease::Out });
+    } else if reduced {
+        layer.set(to);
+    } else {
+        layer.animate(to, ms, Ease::Out);
+    }
+}
+
+/// Where a card stands: the footprint its picture has, whether it has the focus, whether it is in the window.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Pose {
+    f: geo::Rect,
+    focused: bool,
+    shown: bool,
+}
+
+/// The foot of a card (icon, name, what is happening) starts where its picture ends: at the footprint when the card has the focus, else at the
+/// resting picture.
+fn foot_at(f: geo::Rect, focused: bool) -> (f32, f32) {
+    let r = geo::pose(f, focused);
+    (r.x, r.y + r.h + 16.0)
+}
+
+struct Card {
+    serial: u32,
+    entry: Entry,
+    lit: Lit,
+    veil: ShapeLayer,
+    bg: Option<ShapeLayer>,
+    mark: Option<ImageLayer>,
+    note: Option<Words>,
+    icon: Option<ImageLayer>,
+    name: Words,
+    state: Option<Words>,
+    /// Where the name starts from the foot's top-left (beside the icon, a short name centred on it; stacked, under it).
+    name_dx: f32,
+    name_dy: f32,
+    name_h: f32,
+    /// The tile's content: its height and where the icon starts above the centre.
+    tile_h: f32,
+    pose: Option<Pose>,
+    /// Where the words are (they move as layers; a lint needs the offset from the box they were made in).
+    at: [(f32, f32); 2],
+}
+
+impl Card {
+    fn id(&self) -> Id {
+        card_id(self.serial)
+    }
+
+    fn release(&mut self, engine: &mut Engine) {
+        self.lit.release(engine);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new(kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, serial: u32, e: &Entry, f: geo::Rect, m: &Metrics) -> std::io::Result<Self> {
+        let scene = kit.ui.scene.clone();
+        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
+        let frame = Frame::new(f.x, f.y, f.w, f.h);
+        let lit = Lit::new(kit, engine, root, card_id(serial), frame, f.r, z + 6)?;
+        let name_style = role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Left);
+        let name = wrap::lines(kit, name_style, &e.title, m.name_w, 2);
+        let said_style = role_style(kit, TypeRole::Caption, None, ink, Align::Left);
+        let said = match state_words(e.standing) {
+            "" => Vec::new(),
+            s => wrap::lines(kit, said_style, s, m.name_w, 2),
+        };
+        let (body_line, caption_line) = (kit.line(TypeRole::Body), kit.line(TypeRole::Caption));
+        let name_h = name.len() as f32 * body_line;
+        let text_h = name_h + said.len() as f32 * caption_line;
+        let (name_dx, name_dy) = if m.stacked { (0.0, ICON + kit.space(2)) } else { (ICON + kit.space(3), ((ICON - text_h) / 2.0).max(0.0).round()) };
+        let note_w = note_w(kit);
+        let tile_h = 80.0 + kit.space(2) + caption_line;
+        let (raised, edge_c) = (kit.ui.look.colour(PaletteRole::GlassRaised), edge(kit));
+        let veil_look = plate::solid(veil_colour(kit), f.r);
+        let (fx, fy) = foot_at(f, false);
+        let parts = scene.adopting_view(root, || -> std::io::Result<_> {
+            // an app with no picture of its own to show: its icon on a tile, in the card's place
+            let (bg, mark, note) = if e.picture == Picture::Tile {
+                let bg = plate::shape(&kit.ui, frame, z + 1, Shape { corner_radius: f.r, fill: Fill::Solid(raised), border_width: 1.0, border: edge_c });
+                let at = Props::at(f.x + (f.w - 80.0) / 2.0, (f.y + (f.h - tile_h) / 2.0).round());
+                let mark = match picture_layer(kit, &e.icon, 80, 80, z + 2, at)? {
+                    Some(l) => Some(l),
+                    None => icon::layer(kit, "layout-grid", 56, ink2, z + 2, Props::at(at.x + 12.0, at.y + 12.0))?,
+                };
+                let note = Words::new(kit, f.x + (f.w - note_w) / 2.0, (f.y + (f.h - tile_h) / 2.0).round() + 80.0 + kit.space(2), note_w, z + 2, &[WordLine::new("No preview", TypeRole::Caption, ink2).aligned(Align::Centre)])?;
+                (Some(bg), mark, Some(note))
+            } else {
+                (None, None, None)
+            };
+            let veil = plate::shape(&kit.ui, frame, z + 4, veil_look);
+            // the app's own icon, or the generic one when it has no file: the name never stands alone in a gap
+            let icon = match picture_layer(kit, &e.icon, ICON as u32, ICON as u32, z + 3, Props::at(fx, fy))? {
+                Some(l) => Some(l),
+                None => icon::layer(kit, "layout-grid", 32, ink2, z + 3, Props::at(fx + 8.0, fy + 8.0))?,
+            };
+            let lines: Vec<WordLine> = name.iter().map(|t| WordLine::new(t, TypeRole::Body, ink).weight(Weight::SemiBold)).collect();
+            let name = Words::new(kit, fx + name_dx, fy + name_dy, m.name_w, z + 3, &lines)?;
+            let said_lines: Vec<WordLine> = said.iter().map(|t| WordLine::new(t, TypeRole::Caption, ink)).collect();
+            let state = if said.is_empty() { None } else { Some(Words::new(kit, fx + name_dx, fy + name_dy + name_h, m.name_w, z + 3, &said_lines)?) };
+            Ok((bg, mark, note, veil, icon, name, state))
+        })?;
+        let (bg, mark, note, veil, icon, name, state) = parts;
+        let at = [(name.frame().x, name.frame().y), state.as_ref().map_or((0.0, 0.0), |s| (s.frame().x, s.frame().y))];
+        Ok(Self { serial, entry: e.clone(), lit, veil, bg, mark, note, icon, name, state, name_dx, name_dy, name_h, tile_h, pose: None, at })
+    }
+
+    /// Takes the card to `pose`. A card out of the window fades where it was.
+    fn place(&mut self, kit: &Kit, engine: &mut Engine, pose: Pose, at_once: bool) {
+        let used = if pose.shown { pose } else { Pose { f: self.pose.map_or(pose.f, |p| p.f), focused: false, ..pose } };
+        if self.pose == Some(used) {
+            return;
+        }
+        let was = self.pose;
+        let (f, focused, shown) = (used.f, used.focused, used.shown);
+        let scale = if focused { 1.0 } else { geo::REST };
+        let (shown_op, was_op) = (if shown { 1.0 } else { 0.0 }, if was.is_some_and(|p| p.shown) { 1.0 } else { 0.0 });
+        let veil_op = if shown && !focused { 1.0 } else { 0.0 };
+        let was_veil = if was.is_some_and(|p| p.shown && !p.focused) { 1.0 } else { 0.0 };
+        let is = |op: f32, x: f32, y: f32| Props { opacity: op, ..Props::at(x, y) };
+        let sized = |op: f32| Props { opacity: op, scale, ..Props::at(f.x, f.y) };
+        put(kit, &self.veil, was_veil, sized(veil_op), at_once);
+        if let Some(bg) = &self.bg {
+            put(kit, bg, was_op, sized(shown_op), at_once);
+        }
+        let top = (f.y + (f.h - self.tile_h) / 2.0).round();
+        if let Some(l) = &self.mark {
+            put(kit, l, was_op, is(shown_op, f.x + (f.w - 80.0) / 2.0, top), at_once);
+        }
+        if let Some(l) = self.note.as_ref().and_then(Words::layer) {
+            put(kit, l, was_op, is(shown_op, f.x + (f.w - note_w(kit)) / 2.0, top + 80.0 + kit.space(2)), at_once);
+        }
+        let (fx, fy) = foot_at(f, focused);
+        if let Some(l) = &self.icon {
+            put(kit, l, was_op, is(shown_op, fx, fy), at_once);
+        }
+        let name_x = fx + self.name_dx;
+        if let Some(l) = self.name.layer() {
+            put(kit, l, was_op, is(shown_op, name_x, fy + self.name_dy), at_once);
+        }
+        self.at = [(name_x, fy + self.name_dy), (name_x, fy + self.name_dy + self.name_h)];
+        if let Some(l) = self.state.as_ref().and_then(Words::layer) {
+            put(kit, l, was_op, is(shown_op, self.at[1].0, self.at[1].1), at_once);
+        }
+        let r = geo::pose(f, focused);
+        engine.focus.place(self.id(), if shown { Frame::new(r.x, r.y, r.w, r.h) } else { Frame::new(0.0, 0.0, 0.0, 0.0) });
+        self.lit.to(engine, Frame::new(f.x, f.y, f.w, f.h));
+        self.pose = Some(used);
+    }
+
+    /// The card leaves: it flies up (reduced motion: it fades) and its focus is given back.
+    fn depart(&mut self, kit: &Kit, engine: &mut Engine, fly: bool) {
+        self.release(engine);
+        let Some(p) = self.pose else { return };
+        let up = if fly && !kit.ui.look.reduced_motion { geo::FLY } else { 0.0 };
+        let (f, scale) = (p.f, if p.focused { 1.0 } else { geo::REST });
+        let (fx, fy) = foot_at(f, p.focused);
+        let gone = |x: f32, y: f32| Props { opacity: 0.0, ..Props::at(x, y - up) };
+        let sized = Props { opacity: 0.0, scale, ..Props::at(f.x, f.y - up) };
+        put(kit, &self.veil, if p.shown && !p.focused { 1.0 } else { 0.0 }, sized, false);
+        if let Some(bg) = &self.bg {
+            put(kit, bg, 1.0, sized, false);
+        }
+        let top = (f.y + (f.h - self.tile_h) / 2.0).round();
+        if let Some(l) = &self.mark {
+            put(kit, l, 1.0, gone(f.x + (f.w - 80.0) / 2.0, top), false);
+        }
+        if let Some(l) = self.note.as_ref().and_then(Words::layer) {
+            put(kit, l, 1.0, gone(f.x + (f.w - note_w(kit)) / 2.0, top + 80.0 + kit.space(2)), false);
+        }
+        if let Some(l) = &self.icon {
+            put(kit, l, 1.0, gone(fx, fy), false);
+        }
+        if let Some(l) = self.name.layer() {
+            put(kit, l, 1.0, gone(self.at[0].0, self.at[0].1), false);
+        }
+        if let Some(l) = self.state.as_ref().and_then(Words::layer) {
+            put(kit, l, 1.0, gone(self.at[1].0, self.at[1].1), false);
+        }
+    }
+}
+
+/// The dim a card that does not have the focus is under: its picture is the compositor's, so this is a veil over it.
+fn veil_colour(kit: &Kit) -> Rgba {
+    faded(kit.tokens.extra(kit.mode).scrim_hide, if kit.mode == Mode::Light { 0.47 } else { 0.41 })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kind {
+    Cpu,
+    Mem,
+    Gpu,
+    Temp,
+}
+
+/// Which numbers the strip has (the strip is made again when this changes) and how wide the biggest memory figure is.
+#[derive(Clone, Debug, PartialEq)]
+struct Shape4 {
+    cores: usize,
+    gpu: bool,
+    temp: bool,
+    mem: String,
+}
+
+impl Shape4 {
+    fn of(s: Option<&Stats>) -> Self {
+        let mem = s.and_then(|s| s.mem).map_or_else(|| "9.9".to_string(), |m| gb(m.total_kb));
+        Self { cores: s.map_or(0, |s| s.cpu.len()).max(4), gpu: s.is_some_and(|s| s.gpu.is_some()), temp: s.is_some_and(|s| s.temp_c.is_some()), mem }
+    }
+}
+
+fn gb(kb: u64) -> String {
+    format!("{:.1}", kb as f64 / 1_048_576.0)
+}
+
+fn average(cpu: &[f32]) -> Option<f32> {
+    (!cpu.is_empty()).then(|| cpu.iter().sum::<f32>() / cpu.len() as f32)
+}
+
+struct StatTile {
+    kind: Kind,
+    label: Words,
+    value: Words,
+    viz: Frame,
+    /// The thickness of one bar and the top of the first: a core is a row, like the memory and GPU bars, and not a column.
+    bar_h: f32,
+    bars_y: f32,
+    _tracks: Vec<ShapeLayer>,
+    fills: Vec<ShapeLayer>,
+}
+
+/// The strip of numbers under the cards: one panel, a tile for each reading, a rule between them.
+struct Strip {
+    shape: Shape4,
+    frame: Frame,
+    _panel: ShapeLayer,
+    _rules: Vec<ShapeLayer>,
+    tiles: Vec<StatTile>,
+    shown: Option<Option<Stats>>,
+}
+
+impl Strip {
+    fn new(kit: &mut Kit, root: &Group, z: i32, m: &Metrics, shape: Shape4) -> std::io::Result<Self> {
+        let scene = kit.ui.scene.clone();
+        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
+        let (pad_x, pad_y, gap, label_gap) = (kit.space(6), kit.space(5), kit.space(7), kit.space(4));
+        let label_style = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
+        let value_style = role_style(kit, TypeRole::Body, Some(Weight::SemiBold), ink, Align::Right);
+        let mut kinds = vec![Kind::Cpu, Kind::Mem];
+        if shape.gpu {
+            kinds.push(Kind::Gpu);
+        }
+        if shape.temp {
+            kinds.push(Kind::Temp);
+        }
+        let mem_wide = format!("{0} / {0} GB", shape.mem);
+        let mut tiles_at = Vec::new();
+        let mut x = 96.0 + pad_x;
+        for k in &kinds {
+            let (label, widest_value, least) = match k {
+                Kind::Cpu => ("CPU", "100%", 240.0),
+                Kind::Mem => ("Memory", mem_wide.as_str(), 200.0),
+                Kind::Gpu => ("GPU", "100%", 140.0),
+                Kind::Temp => ("Temp", "100 \u{b0}C", 0.0),
+            };
+            let (lw, vw) = (width_of(kit, label_style, label), widest(kit, value_style, &[widest_value, "\u{2014}"]));
+            let w = (lw + label_gap + vw).max(least).ceil();
+            tiles_at.push((*k, label, x, w, lw, vw));
+            x += w + gap;
+        }
+        let frame = Frame::new(96.0, m.strip_y, (x - gap + pad_x - 96.0).ceil(), m.strip_h);
+        let panel = scene.adopting_view(root, || plate::shape(&kit.ui, frame, z + 2, Shape { corner_radius: kit.tokens.radius(Radius::Card), fill: Fill::Solid(kit.ui.look.colour(PaletteRole::Glass)), border_width: 1.0, border: edge(kit) }));
+        let (track, accent) = (kit.ui.look.theme.materials.track_off, kit.ui.look.accent());
+        let (label_line, value_line) = (kit.line(TypeRole::Caption), kit.line(TypeRole::Body));
+        let y0 = m.strip_y + pad_y;
+        let mut tiles = Vec::new();
+        let mut rules = Vec::new();
+        for (i, (kind, label, x, w, lw, vw)) in tiles_at.into_iter().enumerate() {
+            let tile = Frame::new(x, y0, w, m.head_h + kit.space(3) + BARS_H);
+            let viz = Frame::new(x, y0 + m.head_h + kit.space(3), w, BARS_H);
+            let (lf, vf) = (Frame::new(x, y0 + ((m.head_h - label_line) / 2.0).round(), lw, label_line), Frame::new(x + w - vw, y0 + ((m.head_h - value_line) / 2.0).round(), vw, value_line));
+            let (bars, bar_h) = match kind {
+                Kind::Cpu => (shape.cores, ((BARS_H + BAR_GAP) / shape.cores as f32 - BAR_GAP).clamp(2.0, 10.0).floor()),
+                Kind::Mem | Kind::Gpu => (1, 10.0),
+                Kind::Temp => (0, 0.0),
+            };
+            let bars_y = viz.y + ((BARS_H - (bars as f32 * (bar_h + BAR_GAP) - BAR_GAP)) / 2.0).max(0.0).floor();
+            let (tracks, fills, label_w, value_w) = scene.adopting_view(root, || -> std::io::Result<_> {
+                let mut tracks = Vec::new();
+                let mut fills = Vec::new();
+                for b in 0..bars {
+                    let (bx, by, bw, bh) = (viz.x, bars_y + b as f32 * (bar_h + BAR_GAP), w, bar_h);
+                    tracks.push(plate::shape(&kit.ui, Frame::new(bx, by, bw, bh), z + 3, plate::solid(track, (bw.min(bh) / 2.0).floor())));
+                    let fill = plate::shape(&kit.ui, Frame::new(bx, by, bw, bh), z + 4, plate::solid(accent, (bw.min(bh) / 2.0).floor()));
+                    fill.set(Props { opacity: 0.0, ..Props::at(bx, by) });
+                    fills.push(fill);
+                }
+                let label_w = Words::new(kit, lf.x, lf.y, lf.w, z + 4, &[WordLine::new(label, TypeRole::Caption, ink2)])?;
+                let value_w = Words::new(kit, vf.x, vf.y, vf.w, z + 4, &[WordLine::new("\u{2014}", TypeRole::Body, ink).weight(Weight::SemiBold).aligned(Align::Right)])?;
+                Ok((tracks, fills, label_w, value_w))
+            })?;
+            if i > 0 {
+                let rule = Frame::new((x - gap / 2.0).round(), y0, 1.0, tile.h);
+                rules.push(scene.adopting_view(root, || plate::shape(&kit.ui, rule, z + 3, plate::solid(edge(kit), 0.0))));
+            }
+            tiles.push(StatTile { kind, label: label_w, value: value_w, viz, bar_h, bars_y, _tracks: tracks, fills });
+        }
+        Ok(Self { shape, frame, _panel: panel, _rules: rules, tiles, shown: None })
+    }
+
+    /// The numbers as the last sample says them (a dash before there is one: nothing is made up).
+    fn show(&mut self, kit: &mut Kit, s: Option<&Stats>) {
+        if self.shown.as_ref().is_some_and(|w| w.as_ref() == s) {
+            return;
+        }
+        let first = self.shown.is_none();
+        self.shown = Some(s.cloned());
+        for t in &mut self.tiles {
+            match t.kind {
+                Kind::Cpu => {
+                    let avg = s.and_then(|s| average(&s.cpu));
+                    t.value.set(kit, 0, &avg.map_or("\u{2014}".to_string(), |a| format!("{a:.0}%")));
+                    for (b, fill) in t.fills.iter().enumerate() {
+                        let pct = s.and_then(|s| s.cpu.get(b)).copied();
+                        let y = t.bars_y + b as f32 * (t.bar_h + BAR_GAP);
+                        let w = pct.map_or(0.0, |p| (t.viz.w * p.clamp(0.0, 100.0) / 100.0).max(2.0));
+                        glide_to(kit, fill, Props { opacity: if pct.is_some() { 1.0 } else { 0.0 }, clip: Some(Rect { x: t.viz.x, y, w, h: t.bar_h }), ..Props::at(t.viz.x, y) }, first);
+                    }
+                }
+                Kind::Mem => {
+                    let m = s.and_then(|s| s.mem);
+                    t.value.set(kit, 0, &m.map_or("\u{2014}".to_string(), |m| format!("{} / {} GB", gb(m.used_kb()), gb(m.total_kb))));
+                    let frac = m.map_or(0.0, |m| m.used_kb() as f32 / m.total_kb.max(1) as f32);
+                    bar_to(kit, t, frac, m.is_some(), first);
+                }
+                Kind::Gpu => {
+                    let g = s.and_then(|s| s.gpu);
+                    t.value.set(kit, 0, &g.map_or("\u{2014}".to_string(), |g| format!("{g:.0}%")));
+                    bar_to(kit, t, g.unwrap_or(0.0) / 100.0, g.is_some(), first);
+                }
+                Kind::Temp => t.value.set(kit, 0, &s.and_then(|s| s.temp_c).map_or("\u{2014}".to_string(), |c| format!("{c:.0} \u{b0}C"))),
+            }
+        }
+    }
+}
+
+fn glide_to(kit: &Kit, layer: &ShapeLayer, to: Props, at_once: bool) {
+    if at_once {
+        layer.set(to);
+    } else {
+        kit.glide(layer, to, Beat::Label);
+    }
+}
+
+/// A bar that is a fraction of its track wide.
+fn bar_to(kit: &Kit, t: &StatTile, frac: f32, known: bool, at_once: bool) {
+    let Some(fill) = t.fills.first() else { return };
+    let w = (t.viz.w * frac.clamp(0.0, 1.0)).max(if known { 2.0 } else { 0.0 });
+    let y = t.viz.y + (BARS_H - 10.0) / 2.0;
+    glide_to(kit, fill, Props { opacity: if known { 1.0 } else { 0.0 }, clip: Some(Rect { x: t.viz.x, y, w, h: 10.0 }), ..Props::at(t.viz.x, y) }, at_once);
+}
+
+/// The sheet of what can be done to the TV: a title and three rows, each with its glyph, its name and what follows.
+struct Sheet {
+    sig: bool,
+    panel: Frame,
+    _scrim: ShapeLayer,
+    _card: ShapeLayer,
+    title: Words,
+    rows: Vec<SheetRow>,
+}
+
+struct SheetRow {
+    frame: Frame,
+    plate: Plate,
+    _glyph: Option<ImageLayer>,
+    label: Words,
+    said: Words,
+    off: bool,
+}
+
+impl Sheet {
+    fn new(kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, blocked: bool) -> std::io::Result<Self> {
+        let scene = kit.ui.scene.clone();
+        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
+        let (s5, s7, s8) = (kit.space(5), kit.space(7), kit.space(2));
+        let z = z + 20;
+        let text_w = (720.0 * kit.text_scale).min(1400.0).round();
+        let glyph_px = (32.0 * kit.text_scale).clamp(32.0, 56.0).round();
+        let text_dx = 24.0 + glyph_px + 20.0;
+        let row_w = text_dx + text_w + 24.0;
+        let panel_w = row_w + 2.0 * s7;
+        let (title_line, body_line, label_line) = (kit.line(TypeRole::Title), kit.line(TypeRole::Body), kit.line(TypeRole::Label));
+        let said_style = role_style(kit, TypeRole::Label, None, ink2, Align::Left);
+        let mut rows = Vec::new();
+        let mut y = 0.0;
+        for a in ACTIONS {
+            let (glyph, label, said) = choice_words(a);
+            let off = blocked && a == Action::Reboot;
+            let lines = wrap::lines(kit, said_style, if off { REFRESHER } else { said }, text_w, 4);
+            let h = (16.0 + body_line + 4.0 + lines.len() as f32 * label_line + 16.0).max(80.0).ceil();
+            rows.push((a, glyph, label, lines, y, h, off));
+            y += h + s8;
+        }
+        let panel_h = (s7 + title_line + s5 + y - s8 + s7).ceil();
+        let panel = Frame::new(((1920.0 - panel_w) / 2.0).round(), ((1080.0 - panel_h) / 2.0).round(), panel_w, panel_h);
+        let mut sheet_rows = Vec::new();
+        let (scrim_layer, card, title) = scene.adopting_view(root, || -> std::io::Result<_> {
+            let veil = scrim(kit, z, true);
+            scrim_set(&veil, true);
+            let card = plate::shape(&kit.ui, panel, z + 1, Shape { corner_radius: kit.tokens.radius(Radius::Sheet), fill: Fill::Solid(kit.ui.look.colour(PaletteRole::Sheet)), border_width: 1.0, border: edge(kit) });
+            let title = Words::new(kit, panel.x + s7, panel.y + s7, panel_w - 2.0 * s7, z + 3, &[WordLine::new("System", TypeRole::Title, ink).weight(Weight::SemiBold)])?;
+            Ok((veil, card, title))
+        })?;
+        engine.focus.register(ID_SHEET_BACK, FULL, REGION_SHEET, SHEET_SCOPE);
+        engine.focus.set_enabled(ID_SHEET_BACK, false);
+        for (i, (_, glyph, label, lines, ry, h, off)) in rows.into_iter().enumerate() {
+            let frame = Frame::new(panel.x + s7, panel.y + s7 + title_line + s5 + ry, row_w, h);
+            let plate_ = Plate::new(kit, engine, root, Spot { id: row_id(i), screen: frame, local: frame, region: REGION_SHEET, scope: SHEET_SCOPE, z: z + 2 }, Lift::Row, kit.tokens.radius(Radius::Row))?;
+            let tone = if off { ink2 } else { ink };
+            let (g, l, d) = scene.adopting_view(root, || -> std::io::Result<_> {
+                let g = icon::layer(kit, glyph, glyph_px as u32, tone, z + 3, Props::at(frame.x + 24.0, frame.y + ((frame.h - glyph_px) / 2.0).round()))?;
+                let l = Words::new(kit, frame.x + text_dx, frame.y + 16.0, text_w, z + 3, &[WordLine::new(label, TypeRole::Body, tone).weight(Weight::SemiBold)])?;
+                let ls: Vec<WordLine> = lines.iter().map(|t| WordLine::new(t, TypeRole::Label, ink2)).collect();
+                let d = Words::new(kit, frame.x + text_dx, frame.y + 16.0 + body_line + 4.0, text_w, z + 3, &ls)?;
+                Ok((g, l, d))
+            })?;
+            if off {
+                engine.focus.set_enabled(row_id(i), false);
+            }
+            sheet_rows.push(SheetRow { frame, plate: plate_, _glyph: g, label: l, said: d, off });
+        }
+        Ok(Self { sig: blocked, panel, _scrim: scrim_layer, _card: card, title, rows: sheet_rows })
     }
 
     fn destroy(self, engine: &mut Engine) {
-        engine.focus.unregister(self.id);
-        engine.flow.drop_lift(self.id);
+        engine.focus.unregister(ID_SHEET_BACK);
+        for r in self.rows {
+            r.plate.destroy(engine);
+        }
     }
 }
 
-struct CardParts {
-    ring: Ring,
-    veil: ShapeLayer,
-    _tile: Option<(ShapeLayer, Option<ImageLayer>)>,
-    _icon: Option<ImageLayer>,
-    name: Words,
-    state: Option<Words>,
-    quit: Button,
-    lay: CardLay,
-    entry: Entry,
-    /// The card is the one in focus (or its Quit is): its veil is off, its Quit shown.
-    current: Option<bool>,
-}
-
-struct AskParts {
-    _veil: ShapeLayer,
-    _card: ShapeLayer,
+/// A confirmation: the question, what follows and the two answers, the safe one first and in focus.
+struct Ask {
+    sig: (Confirm, AskState),
+    card: Frame,
+    /// Two dims: the sheet a question comes from is under it, and one dim leaves its words readable through.
+    _scrim: [ShapeLayer; 2],
+    _plate: ShapeLayer,
     title: Words,
     body: Words,
     cancel: Button,
-    quit_all: Button,
-    lay: AskLay,
+    go: Button,
 }
 
+impl Ask {
+    fn new(kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, a: &AskView) -> std::io::Result<Self> {
+        let scene = kit.ui.scene.clone();
+        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
+        let (s3, s4, s8) = (kit.space(3), kit.space(4), kit.space(8));
+        let z = z + 40;
+        let w = (880.0 * kit.text_scale).min(1500.0).round();
+        let inner = w - 96.0;
+        let (words_title, words_body, go_label) = ask_words(a);
+        let title_style = role_style(kit, TypeRole::Title, Some(Weight::SemiBold), ink, Align::Left);
+        let body_style = role_style(kit, TypeRole::Body, None, ink2, Align::Left);
+        let title = wrap::lines(kit, title_style, &words_title, inner, 3);
+        let body = wrap::lines(kit, body_style, words_body, inner, 6);
+        let (title_line, body_line, btn_h) = (kit.line(TypeRole::Title), kit.line(TypeRole::Body), Button::height(kit));
+        let (title_h, body_h) = (title.len() as f32 * title_line, body.len() as f32 * body_line);
+        let h = (s8 + title_h + s3 + body_h + s4 + btn_h + s8).ceil();
+        let card = Frame::new(((1920.0 - w) / 2.0).round(), ((1080.0 - h) / 2.0).round(), w, h);
+        let by = card.y + h - s8 - btn_h;
+        let (gw, cw) = (Button::width_for(kit, go_label, false), Button::width_for(kit, "Cancel", false));
+        let right = card.x + w - 48.0;
+        let working = a.state == AskState::Working;
+        let (sheet, lay_title, lay_body) = (kit.ui.look.colour(PaletteRole::Sheet), title, body);
+        let built = scene.adopting_view(root, || -> std::io::Result<_> {
+            // the question hides what is behind it, the pictures too
+            let veil = [scrim(kit, z, true), scrim(kit, z, true)];
+            for v in &veil {
+                scrim_set(v, true);
+            }
+            let shape = Shape { corner_radius: kit.tokens.radius(Radius::Sheet), fill: Fill::Solid(sheet), border_width: 1.0, border: edge(kit) };
+            let plate_ = plate::shape(&kit.ui, card, z + 1, shape);
+            let tl: Vec<WordLine> = lay_title.iter().map(|t| WordLine::new(t, TypeRole::Title, ink).weight(Weight::SemiBold)).collect();
+            let title = Words::new(kit, card.x + 48.0, card.y + s8, inner, z + 2, &tl)?;
+            let bl: Vec<WordLine> = lay_body.iter().map(|t| WordLine::new(t, TypeRole::Body, ink2)).collect();
+            let body = Words::new(kit, card.x + 48.0, card.y + s8 + title_h + s3, inner, z + 2, &bl)?;
+            let mut cancel = Button::new(kit, engine, Place { id: choice_id(0), frame: Frame::new(right - gw - kit.space(5) - cw, by, cw, btn_h), region: REGION_ASK, scope: ASK_SCOPE, z: z + 3 }, ButtonSpec::new("Cancel", Tone::Primary))?;
+            cancel.show(kit, true);
+            let mut go = Button::new(kit, engine, Place { id: choice_id(1), frame: Frame::new(right - gw, by, gw, btn_h), region: REGION_ASK, scope: ASK_SCOPE, z: z + 3 }, ButtonSpec::new(go_label, Tone::Danger))?;
+            go.show(kit, true);
+            Ok((veil, plate_, title, body, cancel, go))
+        })?;
+        let (veil, plate_, title, body, mut cancel, mut go) = built;
+        engine.focus.register(ID_ASK_BACK, FULL, REGION_ASK, ASK_SCOPE);
+        engine.focus.set_enabled(ID_ASK_BACK, false);
+        if working {
+            for b in [&mut cancel, &mut go] {
+                b.set_enabled(kit, engine, false);
+                b.set_dimmed(kit, true);
+            }
+        }
+        Ok(Self { sig: (a.kind, a.state), card, _scrim: veil, _plate: plate_, title, body, cancel, go })
+    }
+
+    fn destroy(self, engine: &mut Engine) {
+        engine.focus.unregister(ID_ASK_BACK);
+        self.cancel.destroy(engine);
+        self.go.destroy(engine);
+    }
+}
+
+/// Which glyph hints the pill shows: they say what the keys do where the focus is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Hints {
+    Cards,
+    Lower,
+}
+
+struct HintPill {
+    which: Hints,
+    _pill: ShapeLayer,
+    _rows: Vec<HintRow>,
+}
+
+fn hint_pill(kit: &mut Kit, root: &Group, z: i32, m: &Metrics, which: Hints) -> std::io::Result<HintPill> {
+    let ink = kit.ui.look.ink();
+    let hints = match which {
+        Hints::Cards => [Hint::key(Key::Ok, HintAction::Open), Hint::key(Key::Up, HintAction::Close)],
+        Hints::Lower => [Hint::key(Key::Ok, HintAction::Confirm), Hint::key(Key::Back, HintAction::Close)],
+    };
+    let (s3, s6, s7) = (kit.space(3), kit.space(6), kit.space(7));
+    let w = hints_width(kit, &hints, TypeRole::Label, s7) + 2.0 * s6;
+    let h = kit.tokens.target.max(glyph_side(kit, TypeRole::Label) as f32 + s3).ceil();
+    let f = Frame::new(1920.0 - 96.0 - w, m.action_y + ((m.btn_h - h) / 2.0).round(), w, h);
+    let scene = kit.ui.scene.clone();
+    let built = scene.adopting_view(root, || -> std::io::Result<_> {
+        let pill = plate::shape(&kit.ui, f, z + 2, plate::solid(faded(kit.tokens.extra(kit.mode).scrim_hide, 0.88), (f.h / 2.0).floor()));
+        let mut rows = Vec::new();
+        let mut x = f.x + s6;
+        for h in &hints {
+            let row = HintRow::new(kit, h, TypeRole::Label, RowAt { x, y: f.y, h: f.h, z: z + 3 }, ink)?;
+            x += row.width() + s7;
+            rows.push(row);
+        }
+        Ok((pill, rows))
+    })?;
+    Ok(HintPill { which, _pill: built.0, _rows: built.1 })
+}
+
+/// What is made for one look (theme, mode, text size) and what is shown on it.
 struct Built {
-    sig: String,
-    scroll: Scroll,
-    _title: Words,
-    count: Option<(Words, String)>,
-    all: Option<Button>,
-    empty: Option<(Words, Words)>,
-    cards: Vec<CardParts>,
-    bar: Option<(ShapeLayer, ShapeLayer, Frame, f32)>,
-    _hints_pill: Option<ShapeLayer>,
-    _hints: Vec<HintRow>,
-    layers: usize,
-    /// The first card of the window as drawn.
-    first: Option<usize>,
+    look: (u64, f32),
+    base: usize,
+    used: usize,
+    next: u32,
+    cards: Vec<Card>,
+    /// Cards that left and are still fading: their chrome goes when `until` (ns) has passed.
+    leaving: Vec<(Card, u64)>,
+    empty: Option<(Option<ImageLayer>, Words)>,
+    strip: Option<Strip>,
+    close: Button,
+    system: Button,
+    close_on: bool,
+    hints: Option<HintPill>,
+    bar: Option<(ShapeLayer, ShapeLayer, Frame, usize)>,
+    sheet: Option<Sheet>,
+    ask: Option<Ask>,
+    settled: bool,
+}
+
+/// One of the two buttons under the cards, at `x` and shown at once.
+#[allow(clippy::too_many_arguments)]
+fn lower_button(kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, m: &Metrics, id: Id, x: f32, label: &str, glyph: &'static str) -> std::io::Result<Button> {
+    let scene = kit.ui.scene.clone();
+    let w = Button::width_for(kit, label, true);
+    scene.adopting_view(root, || -> std::io::Result<_> {
+        let place = Place { id, frame: Frame::new(x, m.action_y, w, m.btn_h), region: REGION_LOWER, scope: SCOPE, z: z + 3 };
+        let mut button = Button::new(kit, engine, place, ButtonSpec::new(label, Tone::Plain).with_icon(glyph))?;
+        button.show(kit, true);
+        Ok(button)
+    })
+}
+
+impl Built {
+    fn new(kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, look: (u64, f32), m: &Metrics) -> std::io::Result<Self> {
+        let base = kit.room().layers;
+        let close = lower_button(kit, engine, root, z, m, ID_CLOSE, 96.0, "Close all", "x")?;
+        let system = lower_button(kit, engine, root, z, m, ID_SYSTEM, 96.0 + close.frame().w + kit.space(5), "System", "monitor-cog")?;
+        Ok(Self { look, base, used: 0, next: 1, cards: Vec::new(), leaving: Vec::new(), empty: None, strip: None, close, system, close_on: true, hints: None, bar: None, sheet: None, ask: None, settled: false })
+    }
+
+    fn serial(&mut self) -> u32 {
+        let s = self.next;
+        self.next = s % 0xFFF + 1;
+        s
+    }
+
+    fn destroy(self, engine: &mut Engine) {
+        for mut c in self.cards {
+            c.release(engine);
+        }
+        for (mut c, _) in self.leaving {
+            c.release(engine);
+        }
+        if let Some(s) = self.sheet {
+            s.destroy(engine);
+        }
+        if let Some(a) = self.ask {
+            a.destroy(engine);
+        }
+        self.close.destroy(engine);
+        self.system.destroy(engine);
+    }
+
+    /// Brings what is drawn to what the model says; the scopes that are modal over the stage's (the sheet, the confirmation) come back.
+    #[allow(clippy::too_many_arguments)]
+    fn update(&mut self, kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, m: &Metrics, v: &View, now_ns: u64) -> std::io::Result<Vec<Scope>> {
+        let at_once = !self.settled;
+        let total = v.entries.len();
+        let listed = total.min(MAX_CARDS);
+        self.leaving.retain(|(_, until)| *until > now_ns);
+        let mut old = std::mem::take(&mut self.cards);
+        let mut next: Vec<(Card, bool)> = Vec::with_capacity(listed);
+        for (i, e) in v.entries.iter().take(listed).enumerate() {
+            let found = old.iter().position(|c| c.entry.id == e.id).map(|p| old.remove(p));
+            let f = geo::card(i, total, v.first, m.top);
+            next.push(match found {
+                Some(c) if c.entry == *e => (c, false),
+                // an app whose title, icon or standing changed is drawn again where it stands
+                Some(mut c) => {
+                    c.release(engine);
+                    (Card::new(kit, engine, root, z, self.serial(), e, f, m)?, true)
+                }
+                None => (Card::new(kit, engine, root, z, self.serial(), e, f, m)?, false),
+            });
+        }
+        let linger = u64::from(kit.beat_ms(Beat::Card)) * 1_000_000 + 40_000_000;
+        for mut c in old {
+            c.depart(kit, engine, v.sent.contains(&c.entry.id));
+            self.leaving.push((c, now_ns + linger));
+        }
+        for (i, (c, once)) in next.iter_mut().enumerate() {
+            let pose = Pose { f: geo::card(i, total, v.first, m.top), focused: v.focus == Zone::Cards && v.index == i, shown: geo::in_window(i, v.first) };
+            c.place(kit, engine, pose, at_once || *once);
+        }
+        self.cards = next.into_iter().map(|(c, _)| c).collect();
+        if total == 0 {
+            if self.empty.is_none() {
+                self.empty = Some(empty_state(kit, root, z, m)?);
+            }
+        } else {
+            self.empty = None;
+        }
+        if total > geo::VISIBLE {
+            if self.bar.as_ref().is_none_or(|b| b.3 != total) {
+                self.bar = Some(window_bar(kit, root, z, m, total)?);
+            }
+            if let Some((_, thumb, track, _)) = &self.bar {
+                let span = (total - geo::VISIBLE) as f32;
+                let w = (track.w * geo::VISIBLE as f32 / total as f32).round();
+                glide_to(kit, thumb, Props::at((track.x + (track.w - w) * v.first.min(total - geo::VISIBLE) as f32 / span).round(), track.y), at_once);
+            }
+        } else {
+            self.bar = None;
+        }
+        let shape = Shape4::of(v.stats.as_ref());
+        if self.strip.as_ref().is_none_or(|s| s.shape != shape) {
+            self.strip = Some(Strip::new(kit, root, z, m, shape)?);
+        }
+        if let Some(s) = self.strip.as_mut() {
+            s.show(kit, v.stats.as_ref());
+        }
+        if (total > 0) != self.close_on {
+            self.close_on = total > 0;
+            if self.close_on {
+                self.close.set_enabled(kit, engine, true);
+                self.close.show(kit, at_once);
+            } else {
+                self.close.hide(kit, at_once);
+                self.close.set_enabled(kit, engine, false);
+            }
+            // System takes the left edge when Close all is not there, and does not float where it was
+            let x = if self.close_on { 96.0 + self.close.frame().w + kit.space(5) } else { 96.0 };
+            self.system.detach(engine);
+            self.system = lower_button(kit, engine, root, z, m, ID_SYSTEM, x, "System", "monitor-cog")?;
+        }
+        let which = if total > 0 && v.focus == Zone::Cards { Hints::Cards } else { Hints::Lower };
+        if v.sheet.is_some() || v.ask.is_some() {
+            self.hints = None;
+        } else if self.hints.as_ref().is_none_or(|h| h.which != which) {
+            self.hints = Some(hint_pill(kit, root, z, m, which)?);
+        }
+        let blocked = v.stats.as_ref().is_some_and(|s| s.refresher);
+        match (v.sheet, self.sheet.take()) {
+            (Some(_), Some(s)) if s.sig == blocked => self.sheet = Some(s),
+            (Some(_), old) => {
+                if let Some(s) = old {
+                    s.destroy(engine);
+                }
+                self.sheet = Some(Sheet::new(kit, engine, root, z, blocked)?);
+            }
+            (None, Some(s)) => s.destroy(engine),
+            (None, None) => {}
+        }
+        match (&v.ask, self.ask.take()) {
+            (Some(a), Some(s)) if s.sig == (a.kind, a.state) => self.ask = Some(s),
+            (Some(a), old) => {
+                if let Some(s) = old {
+                    s.destroy(engine);
+                }
+                self.ask = Some(Ask::new(kit, engine, root, z, a)?);
+            }
+            (None, Some(s)) => s.destroy(engine),
+            (None, None) => {}
+        }
+        self.used = self.base.abs_diff(kit.room().layers);
+        self.settled = true;
+        let mut modal = Vec::new();
+        if self.sheet.is_some() {
+            modal.push(SHEET_SCOPE);
+        }
+        if self.ask.is_some() {
+            modal.push(ASK_SCOPE);
+        }
+        Ok(modal)
+    }
+
+    /// The control a button id belongs to.
+    fn button(&mut self, id: Id) -> Option<&mut Button> {
+        if id == ID_CLOSE {
+            return Some(&mut self.close);
+        }
+        if id == ID_SYSTEM {
+            return Some(&mut self.system);
+        }
+        let a = self.ask.as_mut()?;
+        [&mut a.cancel, &mut a.go].into_iter().zip(0..).find_map(|(b, c)| (choice_id(c) == id).then_some(b))
+    }
+
+    fn pick(&self, id: Id) -> Option<Pick> {
+        if id == ID_CLOSE {
+            return Some(Pick::Close);
+        }
+        if id == ID_SYSTEM {
+            return Some(Pick::System);
+        }
+        if id == ID_BACKDROP {
+            return Some(Pick::Outside);
+        }
+        if let Some(i) = self.cards.iter().position(|c| c.id() == id) {
+            return Some(Pick::Card(i));
+        }
+        (0..ACTIONS.len()).find(|r| row_id(*r) == id).map(Pick::Row).or_else(|| (0..2).find(|c| choice_id(*c) == id).map(Pick::Choice))
+    }
+}
+
+/// What stands where no card does: a calm line, so an empty list reads as nothing open and not as a fault.
+fn empty_state(kit: &mut Kit, root: &Group, z: i32, m: &Metrics) -> std::io::Result<(Option<ImageLayer>, Words)> {
+    let scene = kit.ui.scene.clone();
+    let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
+    let gap = kit.space(4);
+    let all = 64.0 + gap + kit.line(TypeRole::Title);
+    let y = (((54.0 + m.strip_y - kit.space(8)) - all) / 2.0).round();
+    scene.adopting_view(root, || -> std::io::Result<_> {
+        let mark = icon::layer(kit, "layout-grid", 64, ink2, z + 3, Props::at(928.0, y))?;
+        let words = Words::new(kit, 660.0, y + 64.0 + gap, 600.0, z + 3, &[WordLine::new("No apps open", TypeRole::Title, ink).aligned(Align::Centre)])?;
+        Ok((mark, words))
+    })
+}
+
+/// Where the window of cards stands among all of them, when not all are in it: a short, dim mark centred under the cards.
+fn window_bar(kit: &mut Kit, root: &Group, z: i32, m: &Metrics, total: usize) -> std::io::Result<(ShapeLayer, ShapeLayer, Frame, usize)> {
+    let scene = kit.ui.scene.clone();
+    let y = (m.top + geo::H + kit.space(4) + m.foot_h + kit.space(3)).round();
+    let width = (total as f32 * MARK_PER_APP).min(1728.0);
+    let track = Frame::new(((1920.0 - width) / 2.0).round(), y, width, MARK_H);
+    let w = (track.w * geo::VISIBLE as f32 / total as f32).round();
+    let (off, thumb) = (faded(kit.ui.look.theme.materials.track_off, 0.6), faded(kit.ui.look.ink2(), 0.5));
+    let r = MARK_H / 2.0;
+    let (t, th) = scene.adopting_view(root, || (plate::shape(&kit.ui, track, z + 2, plate::solid(off, r)), plate::shape(&kit.ui, Frame::new(track.x, y, w, MARK_H), z + 3, plate::solid(thumb, r))));
+    Ok((t, th, track, total))
+}
+
+/// An opaque colour as `[r, g, b]`: `c` (premultiplied) over `under`.
+fn flat(c: Rgba, under: [u8; 3]) -> [u8; 3] {
+    let k = 255 - u32::from(c.3);
+    let mix = |top: u8, below: u8| (u32::from(top) + (u32::from(below) * k + 127) / 255).min(255) as u8;
+    [mix(c.0, under[0]), mix(c.1, under[1]), mix(c.2, under[2])]
 }
 
 pub struct SwitcherSurface {
     stage: Stage,
     built: Option<Built>,
-    ask: Option<AskParts>,
-    ask_modal: bool,
-}
-
-fn ring_of(c: &CardLay) -> f32 {
-    let _ = c;
-    geo::RADIUS
+    /// The scopes made modal over the stage's own, bottom first.
+    modals: Vec<Scope>,
+    metrics: Option<((u64, f32), Metrics)>,
+    /// The card a press began on and where, for a drag up.
+    press: Option<(Id, f32)>,
+    dragged: bool,
+    outside: Dim,
 }
 
 impl SwitcherSurface {
-    /// `z` is the panels' band base.
     pub fn new(z: i32) -> Self {
-        Self { stage: Stage::new(z, SCOPE), built: None, ask: None, ask_modal: false }
+        Self { stage: Stage::new(z, SCOPE), built: None, modals: Vec::new(), metrics: None, press: None, dragged: false, outside: Dim::default() }
     }
 
     pub fn is_up(&self) -> bool {
         self.stage.is_up()
     }
 
-    fn signature(kit: &Kit, entries: &[Entry]) -> String {
-        format!("{}|{}|{}", kit.generation(), kit.text_scale, entries.iter().map(|e| format!("{}|{}|{}|{}|{}", e.id, e.title, e.icon, e.picture, e.state)).collect::<Vec<_>>().join("/"))
-    }
-
-    fn veil_colour(kit: &Kit) -> Rgba {
-        faded(kit.tokens.extra(kit.mode).scrim_hide, if kit.mode == ui::lucent::palette::Mode::Light { 0.47 } else { 0.41 })
-    }
-
-    fn build(kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, entries: &[Entry], lay: Layout, sig: String) -> std::io::Result<Built> {
-        let before = kit.room().layers;
-        let scene = kit.ui.scene.clone();
-        let (ink, ink2) = (kit.ui.look.ink(), kit.ui.look.ink2());
-        let n = entries.len();
-        let content_w = WINDOW_W + (n.saturating_sub(geo::VISIBLE)) as f32 * (geo::W + geo::GAP);
-        let scroll = Scroll::row(kit, root, Frame::new(WINDOW_X, 0.0, WINDOW_W, 1080.0), content_w, Reach::of(1.0, 0.0, (geo::W, geo::H)))?;
-        let veil_look = plate::solid(Self::veil_colour(kit), geo::RADIUS);
-        let raised = kit.ui.look.colour(PaletteRole::GlassRaised);
-        let edge_c = edge(kit);
-        let (title, count, all, empty) = scene.adopting_view(root, || -> std::io::Result<_> {
-            let title = Words::new(kit, lay.title.x, lay.title.y, lay.title.w, z + 3, &[WordLine::new("Open apps", TypeRole::Title, ink).weight(Weight::SemiBold)])?;
-            let count = match &lay.count {
-                Some((text, f)) => Some((Words::new(kit, f.x, f.y, f.w, z + 3, &[WordLine::new(text, TypeRole::Caption, ink2)])?, text.clone())),
-                None => None,
-            };
-            let all = match lay.all {
-                Some(f) => {
-                    let mut b = Button::new(kit, engine, Place { id: Target::All.id(), frame: f, region: REGION_HEAD, scope: SCOPE, z: z + 3 }, ButtonSpec::new("Quit all", Tone::Plain).with_icon("x"))?;
-                    b.show(kit, true);
-                    Some(b)
-                }
-                None => None,
-            };
-            let empty = match &lay.empty {
-                Some((a, b)) => Some((
-                    Words::new(kit, a.x, a.y, a.w, z + 3, &[WordLine::new("No apps open", TypeRole::Title, ink).weight(Weight::SemiBold).aligned(Align::Centre)])?,
-                    Words::new(kit, b.x, b.y, b.w, z + 3, &[WordLine::new("Apps you open stay here until you quit them.", TypeRole::Label, ink2).aligned(Align::Centre)])?,
-                )),
-                None => None,
-            };
-            Ok((title, count, all, empty))
-        })?;
-        let mut cards = Vec::new();
-        for (i, (e, cl)) in entries.iter().zip(lay.cards.iter()).enumerate() {
-            let p = cl.pic;
-            let ring = Ring::new(kit, engine, &scroll.inner, Target::Card(i).id(), p, ring_of(cl), z + 6)?;
-            let (tile, icon, veil, name, state, quit) = scene.adopting_view(&scroll.inner, || -> std::io::Result<_> {
-                // an app with no picture of its own to show: its icon on a tile
-                let tile = if e.picture == "live" {
-                    None
-                } else {
-                    let bg = plate::shape(&kit.ui, p, z + 1, Shape { corner_radius: geo::RADIUS, fill: Fill::Solid(raised), border_width: 1.0, border: edge_c });
-                    let big = match picture_layer(kit, &e.icon, 104, 104, z + 2, Props::at(cl.tile_icon.x, cl.tile_icon.y))? {
-                        Some(l) => Some(l),
-                        None => icon::layer(kit, "layout-grid", 64, ink2, z + 2, Props::at(cl.tile_icon.x + 20.0, cl.tile_icon.y + 20.0))?,
-                    };
-                    Some((bg, big))
-                };
-                let veil = plate::shape(&kit.ui, p, z + 4, veil_look);
-                // the app's own icon, or the generic one when it has no file: the name never stands alone in a gap
-                let icon = match picture_layer(kit, &e.icon, ICON as u32, ICON as u32, z + 3, Props::at(cl.foot_icon.x, cl.foot_icon.y))? {
-                    Some(l) => Some(l),
-                    None => icon::layer(kit, "layout-grid", 32, ink2, z + 3, Props::at(cl.foot_icon.x + 8.0, cl.foot_icon.y + 8.0))?,
-                };
-                let lines: Vec<WordLine> = cl.name.iter().map(|t| WordLine::new(t, TypeRole::Body, ink).weight(Weight::SemiBold)).collect();
-                let name = Words::new(kit, cl.name_at.0, cl.name_at.1, cl.name_at.2, z + 3, &lines)?;
-                let state = if cl.state.is_empty() {
-                    None
-                } else {
-                    let ink = if e.state == "quitting" { ink } else { ink2 };
-                    let l: Vec<WordLine> = cl.state.iter().map(|t| WordLine::new(t, TypeRole::Caption, ink)).collect();
-                    Some(Words::new(kit, cl.state_at.0, cl.state_at.1, cl.state_at.2, z + 3, &l)?)
-                };
-                let mut quit = Button::new(kit, engine, Place { id: Target::Quit(i).id(), frame: cl.quit, region: REGION_CARDS, scope: SCOPE, z: z + 5 }, ButtonSpec::new(cl.quit_label, Tone::Plain).with_icon("x"))?;
-                quit.set_enabled(kit, engine, false);
-                Ok((tile, icon, veil, name, state, quit))
-            })?;
-            cards.push(CardParts { ring, veil, _tile: tile, _icon: icon, name, state, quit, lay: cl.clone(), entry: e.clone(), current: None });
-        }
-        let (bar, pill, hints) = scene.adopting_view(root, || -> std::io::Result<_> {
-            let bar = lay.bar.map(|(track, thumb_w)| {
-                let t = plate::shape(&kit.ui, track, z + 2, plate::solid(kit.ui.look.theme.materials.track_off, 4.0));
-                let th = plate::shape(&kit.ui, Frame::new(track.x, track.y, thumb_w, track.h), z + 3, plate::solid(ink2, 4.0));
-                (t, th, track, thumb_w)
-            });
-            let mut hints = Vec::new();
-            let pill = match lay.hints {
-                Some(f) => {
-                    let pill = plate::shape(&kit.ui, f, z + 2, plate::solid(faded(kit.tokens.extra(kit.mode).scrim_hide, 0.88), (f.h / 2.0).floor()));
-                    let mut x = f.x + kit.space(6);
-                    for h in [Hint::key(Key::Ok, Action::Open), Hint::key(Key::Back, Action::Close)] {
-                        let row = HintRow::new(kit, &h, TypeRole::Label, RowAt { x, y: f.y, h: f.h, z: z + 3 }, ink)?;
-                        x += row.width() + kit.space(7);
-                        hints.push(row);
-                    }
-                    Some(pill)
-                }
-                None => None,
-            };
-            Ok((bar, pill, hints))
-        })?;
-        let layers = before.saturating_sub(kit.room().layers);
-        Ok(Built { sig, scroll, _title: title, count, all, empty, cards, bar, _hints_pill: pill, _hints: hints, layers, first: None })
-    }
-
-    fn build_ask(kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, a: AskLay) -> std::io::Result<AskParts> {
-        let scene = kit.ui.scene.clone();
-        let (ink, ink2, sheet) = (kit.ui.look.ink(), kit.ui.look.ink2(), kit.ui.look.colour(PaletteRole::Sheet));
-        let z = z + 20;
-        let shape = Shape { corner_radius: kit.tokens.radius(Radius::Sheet), fill: Fill::Solid(sheet), border_width: 1.0, border: edge(kit) };
-        scene.adopting_view(root, || -> std::io::Result<AskParts> {
-            // the question hides what is behind it, the pictures too
-            let veil = crate::panels::ui::scrim(kit, z, true);
-            crate::panels::ui::scrim_set(&veil, true);
-            let card = plate::shape(&kit.ui, a.card, z + 1, shape);
-            let tl: Vec<WordLine> = a.title.iter().map(|t| WordLine::new(t, TypeRole::Title, ink).weight(Weight::SemiBold)).collect();
-            let title = Words::new(kit, a.title_at.0, a.title_at.1, a.title_at.2, z + 2, &tl)?;
-            let bl: Vec<WordLine> = a.body.iter().map(|t| WordLine::new(t, TypeRole::Body, ink2)).collect();
-            let body = Words::new(kit, a.body_at.0, a.body_at.1, a.body_at.2, z + 2, &bl)?;
-            let mut cancel = Button::new(kit, engine, Place { id: Target::Cancel.id(), frame: a.cancel, region: REGION_ASK, scope: ASK_SCOPE, z: z + 3 }, ButtonSpec::new("Cancel", Tone::Primary))?;
-            cancel.show(kit, true);
-            let mut quit_all = Button::new(kit, engine, Place { id: Target::QuitAll.id(), frame: a.quit_all, region: REGION_ASK, scope: ASK_SCOPE, z: z + 3 }, ButtonSpec::new("Quit all", Tone::Danger))?;
-            quit_all.show(kit, true);
-            Ok(AskParts { _veil: veil, _card: card, title, body, cancel, quit_all, lay: a.clone() })
-        })
-        .map_err(std::io::Error::other)
-    }
-
-    fn drop_ask(&mut self, engine: &mut Engine) {
-        if let Some(a) = self.ask.take() {
-            a.cancel.destroy(engine);
-            a.quit_all.destroy(engine);
-        }
-        if self.ask_modal {
-            engine.focus.close_modal();
-            self.ask_modal = false;
-        }
-    }
-
-    fn drop_built(&mut self, engine: &mut Engine) {
-        self.drop_ask(engine);
-        if let Some(b) = self.built.take() {
-            for c in b.cards {
-                c.ring.destroy(engine);
-                c.quit.destroy(engine);
-            }
-            if let Some(a) = b.all {
-                a.destroy(engine);
+    fn metrics(&mut self, kit: &mut Kit) -> Metrics {
+        let look = (kit.generation(), kit.text_scale);
+        match self.metrics {
+            Some((l, m)) if l == look => m,
+            _ => {
+                let m = metrics(kit);
+                self.metrics = Some((look, m));
+                m
             }
         }
     }
 
-    /// Fits the chrome to the view and to the phase of its life. Returns whether anything of it is on the screen.
+    /// The top of the row of cards for this look: the compositor places the pictures there.
+    pub fn top(&mut self, kit: &mut Kit) -> f32 {
+        self.metrics(kit).top
+    }
+
+    /// The colours the compositor's own basic screen is drawn in, from the theme: opaque `[r, g, b]`.
+    pub fn palette(kit: &Kit) -> Value {
+        let look = &kit.ui.look;
+        let panel = flat(look.colour(PaletteRole::Sheet), [0, 0, 0]);
+        let over = |c: Rgba| flat(c, panel);
+        json!({"panel": panel, "text": over(look.ink()), "muted": over(look.ink2()), "accent": over(look.accent()), "danger": over(look.danger())})
+    }
+
     pub fn apply(&mut self, kit: &mut Kit, engine: &mut Engine, v: &View, phase: Phase, now_ns: u64) -> std::io::Result<bool> {
         if phase == Phase::Gone {
             self.drop_all(engine);
@@ -469,108 +1076,62 @@ impl SwitcherSurface {
             self.drop_built(engine);
         }
         self.stage.ensure(kit, phase, Arrive::Fade, false)?;
-        let asking = v.asking && up && !v.entries.is_empty();
-        let sig = Self::signature(kit, &v.entries);
-        if self.built.as_ref().is_none_or(|b| b.sig != sig) {
+        let m = self.metrics(kit);
+        let look = (kit.generation(), kit.text_scale);
+        if self.built.as_ref().is_none_or(|b| b.look != look) {
             self.drop_built(engine);
-            let lay = layout(kit, &v.entries, false);
-            self.stage.backdrop(engine, Target::Backdrop.id(), REGION_HEAD);
-            let built = Self::build(kit, engine, self.stage.group(), self.stage.z(), &v.entries[..v.entries.len().min(MAX_CARDS)], lay, sig)?;
-            if kit.ui.scene.take_overflow() {
-                return Err(std::io::Error::other("the scene is full: the app switcher could not be drawn whole"));
-            }
-            self.built = Some(built);
+            self.stage.backdrop(engine, ID_BACKDROP, REGION_LOWER);
+            self.built = Some(Built::new(kit, engine, self.stage.group(), self.stage.z(), look, &m)?);
             self.stage.refocus();
         }
-        if !asking && self.ask.is_some() || !up {
-            self.drop_ask(engine);
-        }
-        if up {
-            self.update(kit, engine, v, now_ns);
-            if asking && self.ask.is_none() {
-                let lay = layout(kit, &v.entries, true).ask.expect("the question's layout");
-                let parts = Self::build_ask(kit, engine, self.stage.group(), self.stage.z(), lay)?;
-                if kit.ui.scene.take_overflow() {
-                    return Err(std::io::Error::other("the scene is full: the question could not be drawn"));
-                }
-                self.ask = Some(parts);
-                engine.focus.open_modal(ASK_SCOPE);
-                self.ask_modal = true;
-                self.stage.refocus();
+        let mut modal = Vec::new();
+        if up && let Some(b) = self.built.as_mut() {
+            modal = b.update(kit, engine, self.stage.group(), self.stage.z(), &m, v, now_ns)?;
+            if kit.ui.scene.take_overflow() {
+                return Err(std::io::Error::other("the scene is full: the task manager could not be drawn whole"));
             }
         }
-        if self.stage.phase(kit, engine, phase) {
-            let want = if asking {
-                Some(if v.ask_index == 1 { Target::QuitAll } else { Target::Cancel }.id())
-            } else if v.entries.is_empty() {
-                None
-            } else {
-                Some(
-                    match v.level {
-                        Level::All => Target::All,
-                        Level::Quit => Target::Quit(v.index),
-                        Level::Card => Target::Card(v.index),
-                    }
-                    .id(),
-                )
-            };
+        // the overlays' scopes are popped before the stage's own closes, pushed after it opens
+        let keep = self.modals.iter().zip(&modal).take_while(|(a, b)| a == b).count();
+        while self.modals.len() > keep {
+            self.modals.pop();
+            engine.focus.close_modal();
+        }
+        let live = self.stage.phase(kit, engine, phase);
+        for s in &modal[self.modals.len()..] {
+            engine.focus.open_modal(*s);
+            self.modals.push(*s);
+            self.stage.refocus();
+        }
+        if live {
+            let want = self.want(v);
             self.stage.focus(engine, want, now_ns);
         }
         Ok(true)
     }
 
-    /// What moves in place: the row's window, the veils, the Quit of the card in focus, the bar.
-    fn update(&mut self, kit: &mut Kit, engine: &mut Engine, v: &View, now_ns: u64) {
-        let _ = now_ns;
-        let Some(b) = self.built.as_mut() else { return };
-        let n = b.cards.len();
-        let first = if n > geo::VISIBLE { v.first.min(n - geo::VISIBLE) } else { 0 };
-        if b.first != Some(first) {
-            let shift = first as f32 * (geo::W + geo::GAP);
-            b.scroll.to(engine, shift, b.first.is_none());
-            for (i, c) in b.cards.iter().enumerate() {
-                let here = geo::in_window(i, first);
-                let place = |f: Frame| if here { Frame::new(f.x - shift, f.y, f.w, f.h) } else { Frame::new(0.0, 0.0, 0.0, 0.0) };
-                engine.focus.place(c.ring.id, place(c.lay.pic));
-                engine.focus.place(c.quit.id, place(c.lay.quit));
-            }
-            if let Some((_, thumb, track, w)) = &b.bar {
-                let x = track.x + (track.w * first as f32 / n.max(1) as f32).round();
-                let to = Props::at(x, track.y);
-                if b.first.is_none() {
-                    thumb.set(to);
-                } else {
-                    kit.glide(thumb, to, Beat::Scroll);
-                }
-                let _ = w;
-            }
-            b.first = Some(first);
+    /// The control the model's focus is on.
+    fn want(&self, v: &View) -> Option<Id> {
+        let b = self.built.as_ref()?;
+        if let Some(a) = &v.ask {
+            return Some(choice_id(a.choice.min(1)));
         }
-        let asking = v.asking;
-        for (i, c) in b.cards.iter_mut().enumerate() {
-            let current = i == v.index && v.level != Level::All;
-            if c.current == Some(current) && !asking {
-                continue;
-            }
-            let dim = !current && !asking;
-            let p = c.lay.pic;
-            let veil = Props { opacity: if dim { 1.0 } else { 0.0 }, ..Props::at(p.x, p.y) };
-            if c.current.is_none() { c.veil.set(veil) } else { kit.glide(&c.veil, veil, Beat::Focus) }
-            if let Some(l) = c.name.layer() {
-                let at = Props { opacity: if current { 1.0 } else { 0.72 }, ..Props::at(c.lay.name_at.0, c.lay.name_at.1) };
-                if c.current.is_none() { l.set(at) } else { kit.glide(l, at, Beat::Focus) }
-            }
-            if c.current != Some(current) {
-                if current {
-                    c.quit.set_enabled(kit, engine, c.entry.state != "quitting");
-                    c.quit.show(kit, true);
-                    c.quit.set_dimmed(kit, c.entry.state == "quitting");
-                } else {
-                    c.quit.hide(kit, true);
-                    c.quit.set_enabled(kit, engine, false);
-                }
-                c.current = Some(current);
-            }
+        if let Some(r) = v.sheet {
+            return Some(row_id(r));
+        }
+        Some(match v.focus {
+            Zone::Cards => b.cards.get(v.index).map_or(ID_SYSTEM, Card::id),
+            Zone::Close if b.close_on => ID_CLOSE,
+            Zone::Close | Zone::System => ID_SYSTEM,
+        })
+    }
+
+    fn drop_built(&mut self, engine: &mut Engine) {
+        while self.modals.pop().is_some() {
+            engine.focus.close_modal();
+        }
+        if let Some(b) = self.built.take() {
+            b.destroy(engine);
         }
     }
 
@@ -578,49 +1139,59 @@ impl SwitcherSurface {
         self.stage.key(engine);
     }
 
-    /// A sample of the pointer: the cue follows it on the pictures and the buttons, and a click is the target it ended on.
-    pub fn pointer(&mut self, kit: &Kit, engine: &mut Engine, now_ns: u64, s: Sample) -> Option<Target> {
+    /// A sample of the pointer: the cue follows it over the controls, a click is the control it ended on, and a card dragged up is a quit.
+    pub fn pointer(&mut self, kit: &Kit, engine: &mut Engine, now_ns: u64, s: Sample) -> Option<Pick> {
         let current = engine.focus.current();
-        let (built, ask) = (&mut self.built, &mut self.ask);
-        let mut set = |id: Id, f: &dyn Fn(&mut Button)| match Target::from_id(id) {
-            Some(Target::All) => {
-                if let Some(b) = built.as_mut().and_then(|b| b.all.as_mut()) {
-                    f(b);
-                }
-            }
-            Some(Target::Quit(i)) => {
-                if let Some(c) = built.as_mut().and_then(|b| b.cards.get_mut(i)) {
-                    f(&mut c.quit);
-                }
-            }
-            Some(Target::Cancel) => {
-                if let Some(a) = ask.as_mut() {
-                    f(&mut a.cancel);
-                }
-            }
-            Some(Target::QuitAll) => {
-                if let Some(a) = ask.as_mut() {
-                    f(&mut a.quit_all);
-                }
-            }
-            _ => {}
-        };
+        let (built, press) = (&mut self.built, &mut self.press);
         let click = self.stage.pointer(kit, engine, now_ns, s, |touch| match touch {
             Touch::Hover { from, to } => {
-                if let Some(f) = from {
-                    set(f, &|b| b.set_hover(kit, false));
+                let b = built.as_mut()?;
+                if let Some(btn) = from.and_then(|f| b.button(f)) {
+                    btn.set_hover(kit, false);
                 }
-                if let Some(t) = to.filter(|t| current != Some(*t)) {
-                    set(t, &|b| b.set_hover(kit, true));
+                if let Some(btn) = to.filter(|t| current != Some(*t)).and_then(|t| b.button(t)) {
+                    btn.set_hover(kit, true);
                 }
-                to.and_then(Target::from_id).filter(|t| matches!(t, Target::Card(_))).map(|_| geo::RADIUS)
+                match b.pick(to?)? {
+                    Pick::Card(i) => b.cards.get(i)?.pose.map(|p| geo::pose(p.f, p.focused).r),
+                    Pick::Row(_) => Some(kit.tokens.radius(Radius::Row)),
+                    _ => None,
+                }
             }
             Touch::Press { id, down } => {
-                set(id, &|b| b.set_pressed(kit, down));
+                let b = built.as_mut()?;
+                if let Some(btn) = b.button(id) {
+                    btn.set_pressed(kit, down);
+                }
+                *press = (down && matches!(b.pick(id), Some(Pick::Card(_)))).then_some((id, s.y));
                 None
             }
-        })?;
-        Target::from_id(click)
+        });
+        let b = self.built.as_ref()?;
+        if s.visible
+            && s.buttons & 1 != 0
+            && let Some((id, _)) = self.press.filter(|(_, y0)| s.y <= y0 - DRAG_PX)
+            && let Some(Pick::Card(i)) = b.pick(id)
+        {
+            self.press = None;
+            self.dragged = true;
+            return Some(Pick::Drag(i));
+        }
+        if self.dragged {
+            // the release that ends a drag is not a click
+            self.dragged = s.buttons & 1 != 0;
+            return None;
+        }
+        if let Some(id) = click {
+            return b.pick(id);
+        }
+        let back = if b.ask.is_some() {
+            Some(ID_ASK_BACK)
+        } else {
+            b.sheet.as_ref().map(|_| ID_SHEET_BACK)
+        };
+        let on = back.is_some_and(|id| s.visible && engine.focus.hit(s.x, s.y) == Some(id));
+        self.outside.feed(on, &s).then_some(Pick::Outside)
     }
 
     pub fn restyle(&mut self, engine: &mut Engine) {
@@ -634,7 +1205,7 @@ impl SwitcherSurface {
 
     /// How many layers the chrome holds.
     pub fn layers(&self) -> usize {
-        self.built.as_ref().map_or(0, |b| b.layers) + self.ask.as_ref().map_or(0, |_| 9)
+        self.built.as_ref().map_or(0, |b| b.used)
     }
 
     pub fn geometry(&self, engine: &Engine) -> Value {
@@ -643,70 +1214,103 @@ impl SwitcherSurface {
         let cards: Vec<Value> = b
             .cards
             .iter()
-            .map(|c| json!({"frame": f(engine.focus.frame(c.ring.id).unwrap_or(c.lay.pic)), "quit": f(engine.focus.frame(c.quit.id).unwrap_or(c.lay.quit)), "title": c.entry.title, "picture": c.entry.picture, "state": c.entry.state, "current": c.current}))
+            .map(|c| {
+                let said = c.state.as_ref().map_or("", |w| w.text(0));
+                json!({"id": c.entry.id, "title": c.entry.title, "picture": format!("{:?}", c.entry.picture), "said": said, "frame": f(engine.focus.frame(c.id()).unwrap_or(Frame::new(0.0, 0.0, 0.0, 0.0))), "shown": c.pose.is_some_and(|p| p.shown)})
+            })
             .collect();
-        let focus = engine.focus.current().and_then(Target::from_id).map(|t| match t {
-            Target::Card(i) => json!({"card": i}),
-            Target::Quit(i) => json!({"quit": i}),
-            Target::All => json!("all"),
-            Target::Cancel => json!("cancel"),
-            Target::QuitAll => json!("quitall"),
-            Target::Backdrop => json!("backdrop"),
+        let focus = engine.focus.current().and_then(|id| {
+            Some(match b.pick(id)? {
+                Pick::Card(i) => format!("card:{i}"),
+                Pick::Close => "close".to_string(),
+                Pick::System => "system".to_string(),
+                Pick::Row(r) => format!("row:{r}"),
+                Pick::Choice(c) => format!("choice:{c}"),
+                Pick::Drag(_) | Pick::Outside => return None,
+            })
         });
-        json!({"cards": cards, "all": b.all.as_ref().map(|a| f(a.frame())), "first": b.first, "focus": focus, "asking": self.ask.is_some(), "layers": self.layers(), "scope": SCOPE.0})
+        let sheet = b.sheet.as_ref().map(|s| json!({"rows": s.rows.iter().map(|r| json!({"frame": f(r.frame), "off": r.off, "label": r.label.text(0), "said": r.said.text(0)})).collect::<Vec<_>>()}));
+        let ask = b.ask.as_ref().map(|a| json!({"title": a.title.text(0), "body": a.body.text(0), "go": a.go.spec().label, "state": format!("{:?}", a.sig.1)}));
+        json!({
+            "cards": cards,
+            "leaving": b.leaving.len(),
+            "focus": focus,
+            "close": b.close_on.then(|| f(b.close.frame())),
+            "system": f(b.system.frame()),
+            "strip": b.strip.as_ref().map(|s| json!({"frame": f(s.frame), "tiles": s.tiles.iter().map(|t| format!("{:?}", t.kind)).collect::<Vec<_>>(), "values": s.tiles.iter().map(|t| t.value.text(0)).collect::<Vec<_>>()})),
+            "sheet": sheet,
+            "ask": ask,
+            "empty": b.empty.is_some(),
+            "layers": self.layers(),
+            "scope": SCOPE.0,
+        })
     }
 
-    /// Describes what is on the screen to a lint: the dim the compositor draws behind the chrome, the words on it, the buttons and the question.
+    /// Describes what is on the screen to a lint: the dim the compositor draws behind the chrome, the words on it, the strip, the buttons, and
+    /// the sheet or the confirmation that hides all of it.
     pub fn feed_lint(&self, kit: &mut Kit, lint: &mut Lint) {
         let Some(b) = &self.built else { return };
-        // the question's veil hides everything under it, the pictures too: only it is read
-        if let Some(a) = &self.ask {
-            let ask_dim = lint.panel("switcher question dim", Frame::new(0.0, 0.0, 1920.0, 1080.0), kit.tokens.extra(kit.mode).scrim_hide, false);
-            let card = lint.panel_on("switcher question", a.lay.card, kit.ui.look.colour(PaletteRole::Sheet), false, ask_dim);
-            a.title.feed_lint(kit, lint, "question title", Some(card), (0.0, 0.0));
-            a.body.feed_lint(kit, lint, "question body", Some(card), (0.0, 0.0));
+        let sheet = kit.ui.look.colour(PaletteRole::Sheet);
+        let dim = lint.panel("task manager dim", FULL, kit.tokens.extra(kit.mode).scrim_hide, false);
+        if let Some(a) = &b.ask {
+            let card = lint.panel_on("confirmation", a.card, sheet, false, dim);
+            a.title.feed_lint(kit, lint, "confirmation title", Some(card), (0.0, 0.0));
+            a.body.feed_lint(kit, lint, "confirmation words", Some(card), (0.0, 0.0));
             a.cancel.feed_lint(kit, lint, card);
-            a.quit_all.feed_lint(kit, lint, card);
+            a.go.feed_lint(kit, lint, card);
             return;
         }
-        let dim = lint.panel("switcher dim", Frame::new(0.0, 0.0, 1920.0, 1080.0), kit.tokens.extra(kit.mode).scrim_hide, false);
-        b._title.feed_lint(kit, lint, "switcher title", Some(dim), (0.0, 0.0));
-        if let Some((w, _)) = &b.count {
-            w.feed_lint(kit, lint, "switcher count", Some(dim), (0.0, 0.0));
+        if let Some(s) = &b.sheet {
+            let card = lint.panel_on("system sheet", s.panel, sheet, false, dim);
+            s.title.feed_lint(kit, lint, "system title", Some(card), (0.0, 0.0));
+            for (i, r) in s.rows.iter().enumerate() {
+                r.label.feed_lint(kit, lint, &format!("system row {i}"), Some(card), (0.0, 0.0));
+                r.said.feed_lint(kit, lint, &format!("system row {i} words"), Some(card), (0.0, 0.0));
+            }
+            return;
         }
-        if let Some(a) = &b.all {
-            a.feed_lint(kit, lint, dim);
-        }
-        if let Some((a, c)) = &b.empty {
-            a.feed_lint(kit, lint, "switcher empty", Some(dim), (0.0, 0.0));
-            c.feed_lint(kit, lint, "switcher empty line", Some(dim), (0.0, 0.0));
-        }
-        let shift = b.first.map_or(0.0, |f| f as f32 * (geo::W + geo::GAP));
+        let raised = kit.ui.look.colour(PaletteRole::GlassRaised);
         for (i, c) in b.cards.iter().enumerate() {
-            if !b.first.is_none_or(|f| geo::in_window(i, f)) {
-                continue;
+            let Some(p) = c.pose.filter(|p| p.shown) else { continue };
+            if let Some(note) = &c.note {
+                let r = geo::pose(p.f, p.focused);
+                let tile = lint.panel_on(&format!("card {i} tile"), Frame::new(r.x, r.y, r.w, r.h), raised, false, dim);
+                let top = (p.f.y + (p.f.h - c.tile_h) / 2.0).round() + 80.0 + kit.space(2);
+                note.feed_lint(kit, lint, &format!("card {i} caption"), Some(tile), (p.f.x + (p.f.w - note_w(kit)) / 2.0 - note.frame().x, top - note.frame().y));
             }
-            c.name.feed_lint(kit, lint, &format!("card {i} name"), Some(dim), (-shift, 0.0));
-            if let Some(s) = &c.state {
-                s.feed_lint(kit, lint, &format!("card {i} state"), Some(dim), (-shift, 0.0));
-            }
-            if c.current == Some(true) && c.entry.state != "quitting" {
-                c.quit.feed_lint_at(kit, lint, dim, (-shift, 0.0));
+            let name_shift = (c.at[0].0 - c.name.frame().x, c.at[0].1 - c.name.frame().y);
+            c.name.feed_lint(kit, lint, &format!("card {i} name"), Some(dim), name_shift);
+            if let Some(st) = &c.state {
+                st.feed_lint(kit, lint, &format!("card {i} state"), Some(dim), (c.at[1].0 - st.frame().x, c.at[1].1 - st.frame().y));
             }
         }
+        if let Some((_, words)) = &b.empty {
+            words.feed_lint(kit, lint, "no apps", Some(dim), (0.0, 0.0));
+        }
+        if let Some(s) = &b.strip {
+            let panel = lint.panel_on("stats strip", s.frame, kit.ui.look.colour(PaletteRole::Glass), true, dim);
+            for t in &s.tiles {
+                t.label.feed_lint(kit, lint, "stat label", Some(panel), (0.0, 0.0));
+                t.value.feed_lint(kit, lint, "stat value", Some(panel), (0.0, 0.0));
+            }
+        }
+        if b.close_on {
+            b.close.feed_lint(kit, lint, dim);
+        }
+        b.system.feed_lint(kit, lint, dim);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kit::screen::Input;
     use crate::kit::testkit;
     use crate::panels::K;
-    use crate::panels::switcher::Switcher;
-    use ui::lucent::palette::Mode;
+    use crate::panels::switcher::{APPS_TAG, Switcher};
 
     struct Up {
-        _h: ui::testing::Harness,
+        _h: Option<ui::testing::Harness>,
         kit: Kit,
         engine: Engine,
         s: SwitcherSurface,
@@ -714,46 +1318,73 @@ mod tests {
         t: u64,
     }
 
-    fn app(id: &str, title: &str, picture: &str, state: &str) -> Value {
-        json!({"id": id, "title": title, "picture": picture, "w": 1920, "h": 1080, "state": state})
+    fn app(id: &str, title: &str, picture: &str, state: &str, hung: bool) -> Value {
+        json!({"id": id, "title": title, "picture": picture, "w": 1920, "h": 1080, "state": state, "fg": false, "hung": hung, "pid": 7})
     }
 
-    fn three() -> Value {
-        json!([app("plex", "Plex", "live", ""), app("youtube.leanback.v4", "YouTube", "live", ""), app("com.webos.app.hdmi2", "HDMI 2", "video", "")])
-    }
-
-    fn six() -> Value {
+    /// One app in each standing: fine, not responding, with no picture to show, didn't quit, closing.
+    fn five() -> Value {
         json!([
-            app("a", "Plex", "live", ""),
-            app("b", "YouTube", "live", ""),
-            app("c", "Netflix", "live", ""),
-            app("d", "Disney+ with a long name that wraps onto lines", "live", ""),
-            app("e", "Prime Video", "live", ""),
-            app("f", "Spotify", "live", "")
+            app("a", "Plex", "live", "", false),
+            app("b", "YouTube", "live", "", true),
+            app("c", "HDMI 2", "none", "", false),
+            app("d", "Disney+ with a long name that wraps onto lines", "live", "stuck", false),
+            app("e", "Spotify", "live", "quitting", false)
         ])
     }
 
+    fn stats(refresher: bool, extras: bool) -> Value {
+        json!({
+            "n": 3,
+            "cpu": [12.0, 80.0, 40.0, 5.0, 60.0, 33.0],
+            "mem": {"totalKb": 3_000_000u64, "availKb": 1_200_000u64, "cachedKb": 400_000u64},
+            "gpu": if extras { json!(35) } else { Value::Null },
+            "tempC": if extras { json!(61) } else { Value::Null },
+            "mhz": 1200,
+            "refresher": refresher
+        })
+    }
+
     impl Up {
-        fn new(mode: Mode, scale: f32, list: Value) -> Self {
+        fn new(mode: ui::lucent::palette::Mode, scale: f32, list: Value) -> Self {
             let (h, kit) = testkit::kit_in(mode, scale);
+            Self::over(Some(h), kit, 1000, list, None)
+        }
+
+        /// A task manager open over `list` on `kit`, at `t` ms; `points` are the launch points that give the apps their icons.
+        fn over(h: Option<ui::testing::Harness>, kit: Kit, t: u64, list: Value, points: Option<Value>) -> Self {
             let engine = Engine::new(&kit).expect("an engine");
             let mut m = Switcher::new();
+            if let Some(p) = points {
+                m.apps.update(&Input::Luna { tag: APPS_TAG, payload: json!({"launchPoints": p}) });
+            }
             m.topic("apps", &list, 0);
-            m.topic("switcher", &json!({"open": true, "from": "", "n": 1}), 0);
-            let mut me = Self { _h: h, kit, engine, s: SwitcherSurface::new(crate::kit::z::PANELS + 40), m, t: 1000 };
-            me.apply(Phase::Open);
+            m.topic("switcher", &json!({"open": true, "from": "", "n": 1, "mode": "ui"}), 0);
+            let mut me = Self { _h: h, kit, engine, s: SwitcherSurface::new(crate::kit::z::PANELS + 40), m, t };
+            me.apply();
             me
         }
 
-        fn apply(&mut self, phase: Phase) {
-            let v = self.m.view(self.t);
-            self.s.apply(&mut self.kit, &mut self.engine, &v, phase, self.t * 1_000_000).expect("the chrome is drawn");
+        fn apply(&mut self) {
+            let v = self.m.view();
+            self.s.apply(&mut self.kit, &mut self.engine, &v, Phase::Open, self.t * 1_000_000).expect("the chrome is drawn");
         }
 
         fn key(&mut self, k: K) {
             self.m.key(k, self.t);
             self.t += 40;
-            self.apply(Phase::Open);
+            self.apply();
+        }
+
+        fn keys(&mut self, ks: &[K]) {
+            for k in ks {
+                self.key(*k);
+            }
+        }
+
+        fn push_stats(&mut self, s: Value) {
+            self.m.topic("stats", &s, self.t);
+            self.apply();
         }
 
         fn lint(&mut self) -> Vec<String> {
@@ -771,146 +1402,451 @@ mod tests {
         Sample { x, y, buttons: b, visible: true }
     }
 
-    #[test]
-    fn each_card_is_where_the_compositor_draws_its_picture_and_the_first_has_the_focus() {
-        let u = Up::new(Mode::Dark, 1.0, three());
-        let g = u.geo();
-        let cards = g["cards"].as_array().unwrap();
-        assert_eq!(cards.len(), 3);
-        for (i, c) in cards.iter().enumerate() {
-            let (x, y, w, h, _) = geo::card(i, 3, 0);
-            let f = &c["frame"];
-            assert_eq!((f["x"].as_f64().unwrap() as f32, f["y"].as_f64().unwrap() as f32, f["w"].as_f64().unwrap() as f32, f["h"].as_f64().unwrap() as f32), (x, y, w, h), "card {i}");
-        }
-        assert_eq!(g["focus"], json!({"card": 0}));
-        assert_eq!(cards[2]["picture"], "video", "the HDMI app's picture is on the video plane: its card is an icon on a tile");
-        assert!(g["all"]["w"].as_f64().unwrap() > 0.0, "Quit all is in the header");
+    fn centre(f: &Value) -> (f32, f32) {
+        let n = |k: &str| f[k].as_f64().expect("a number") as f32;
+        (n("x") + n("w") / 2.0, n("y") + n("h") / 2.0)
     }
 
     #[test]
-    fn the_focus_flies_to_the_next_card_its_own_quit_and_the_headers_quit_all_without_making_a_layer() {
-        let mut u = Up::new(Mode::Dark, 1.0, three());
+    fn each_card_stands_where_the_compositor_draws_its_picture_and_the_first_has_the_focus() {
+        let mut u = Up::new(ui::lucent::palette::Mode::Dark, 1.0, five());
+        let top = u.s.top(&mut u.kit);
+        let g = u.geo();
+        for (i, c) in g["cards"].as_array().unwrap().iter().take(geo::VISIBLE).enumerate() {
+            let r = geo::pose(geo::card(i, 5, 0, top), i == 0);
+            let f = &c["frame"];
+            assert_eq!([f["x"].as_f64(), f["y"].as_f64(), f["w"].as_f64(), f["h"].as_f64()], [r.x, r.y, r.w, r.h].map(|v| Some(f64::from(v))), "card {i}");
+        }
+        assert_eq!(g["cards"][4]["frame"]["w"], 0.0, "the fifth card is out of the window: nothing to focus");
+        assert_eq!(g["focus"], "card:0");
+        assert_eq!(g["cards"][2]["picture"], "Tile", "an app with no picture of its own gets an icon tile");
+    }
+
+    #[test]
+    fn captions_say_what_is_happening_to_a_card_in_words() {
+        let u = Up::new(ui::lucent::palette::Mode::Dark, 1.0, five());
+        let said: Vec<_> = u.geo()["cards"].as_array().unwrap().iter().map(|c| c["said"].as_str().unwrap().to_string()).collect();
+        assert_eq!(said, ["", "Not responding", "", "Didn\u{2019}t quit", "Closing"]);
+    }
+
+    #[test]
+    fn the_focus_goes_across_the_cards_down_to_the_buttons_and_back_without_making_a_layer() {
+        let mut u = Up::new(ui::lucent::palette::Mode::Dark, 1.0, five());
         let layers = u.kit.room().layers;
         u.key(K::Right);
-        assert_eq!(u.geo()["focus"], json!({"card": 1}));
-        assert!(u.engine.flow.settling_at(u.t * 1_000_000), "the ring flows between the cards");
+        assert_eq!(u.geo()["focus"], "card:1");
+        assert!(u.engine.flow.settling_at(u.t * 1_000_000), "the lit glass flows between the cards");
         u.key(K::Down);
-        assert_eq!(u.geo()["focus"], json!({"quit": 1}));
-        assert_eq!(u.geo()["cards"][1]["current"], true);
-        assert_eq!(u.geo()["cards"][0]["current"], false);
-        u.key(K::Up);
-        u.key(K::Up);
-        assert_eq!(u.geo()["focus"], json!("all"));
-        assert_eq!(u.kit.room().layers, layers, "nothing is made or dropped by a move of the focus");
-    }
-
-    #[test]
-    fn more_than_four_apps_are_a_row_that_moves_a_card_when_the_focus_leaves_the_window() {
-        let mut u = Up::new(Mode::Dark, 1.0, six());
-        assert_eq!(u.geo()["first"], 0);
-        for _ in 0..4 {
-            u.key(K::Right);
-        }
-        assert_eq!(u.geo()["focus"], json!({"card": 4}));
-        assert_eq!(u.geo()["first"], 1, "the window followed the focus");
-        let first = u.engine.focus.frame(Target::Card(1).id()).expect("a ring");
-        let hidden = u.engine.focus.frame(Target::Card(0).id()).expect("a ring");
-        assert!(first.w > 0.0 && hidden.w == 0.0, "a card out of the window cannot be pointed at: {first:?} {hidden:?}");
-    }
-
-    #[test]
-    fn quit_all_asks_first_in_a_card_of_its_own_whose_safe_answer_has_the_focus() {
-        let mut u = Up::new(Mode::Dark, 1.0, three());
-        u.key(K::Up);
-        u.key(K::Ok);
-        let g = u.geo();
-        assert_eq!(g["asking"], true);
-        assert_eq!(g["focus"], json!("cancel"));
-        assert_eq!(u.engine.focus.modal(), Some(ASK_SCOPE));
+        assert_eq!(u.geo()["focus"], "close");
         u.key(K::Right);
-        assert_eq!(u.geo()["focus"], json!("quitall"));
+        assert_eq!(u.geo()["focus"], "system");
+        u.key(K::Up);
+        assert_eq!(u.geo()["focus"], "card:1", "up from the buttons returns to the card");
+        assert_eq!(u.kit.room().layers, layers, "moving the focus draws nothing new");
+    }
+
+    #[test]
+    fn a_card_that_is_quit_leaves_and_the_others_close_up() {
+        let mut u = Up::new(ui::lucent::palette::Mode::Dark, 1.0, five());
+        let before = u.geo()["cards"][1]["frame"]["x"].as_f64().unwrap();
+        u.key(K::Up);
+        let g = u.geo();
+        assert_eq!(g["cards"].as_array().unwrap().len(), 4, "its chrome is no longer a card");
+        assert_eq!(g["leaving"], 1, "it flies up while it fades");
+        assert!((g["cards"][0]["frame"]["x"].as_f64().unwrap() - before).abs() > 1.0, "the neighbours reflow");
+        u.t += 2000;
+        u.apply();
+        assert_eq!(u.geo()["leaving"], 0, "and then its layers are gone");
+    }
+
+    #[test]
+    fn the_system_sheet_has_three_rows_and_a_choice_asks_with_cancel_in_focus() {
+        let mut u = Up::new(ui::lucent::palette::Mode::Dark, 1.0, five());
+        u.keys(&[K::Down, K::Right, K::Ok]);
+        let g = u.geo();
+        assert_eq!(g["sheet"]["rows"].as_array().unwrap().len(), 3);
+        assert_eq!(g["focus"], "row:0");
+        assert_eq!(g["sheet"]["rows"][2]["label"], "Restart the TV");
+        u.keys(&[K::Down, K::Down, K::Ok]);
+        let g = u.geo();
+        assert_eq!(g["ask"]["title"], "Restart the TV?");
+        assert_eq!(g["ask"]["go"], "Restart TV");
+        assert_eq!(g["focus"], "choice:0", "the confirmation starts on Cancel");
         u.key(K::Back);
-        assert_eq!(u.geo()["asking"], false);
-        assert_eq!(u.engine.focus.modal(), Some(SCOPE), "the question gave the keys back to the cards");
-        assert_eq!(u.geo()["focus"], json!("all"), "the focus returns to the button that asked");
+        assert_eq!(u.geo()["ask"], Value::Null, "Back cancels the question");
+        assert_eq!(u.geo()["focus"], "row:2", "and goes back one step, to the sheet");
+        u.key(K::Back);
+        assert_eq!(u.geo()["sheet"], Value::Null);
     }
 
     #[test]
-    fn a_click_on_a_picture_its_quit_the_header_and_the_dim_name_what_was_hit() {
-        let mut u = Up::new(Mode::Dark, 1.0, three());
-        let t = |n: u64| (3000 + n) * 1_000_000;
-        let (px, py, w, h, _) = geo::card(1, 3, 0);
-        let (x, y) = (px + w / 2.0, py + h / 2.0);
-        u.s.pointer(&u.kit, &mut u.engine, t(0), at(x, y, 0));
-        u.s.pointer(&u.kit, &mut u.engine, t(10), at(x, y, 1));
-        assert_eq!(u.s.pointer(&u.kit, &mut u.engine, t(20), at(x, y, 0)), Some(Target::Card(1)));
-        u.key(K::Down);
-        let q = u.engine.focus.frame(Target::Quit(0).id()).expect("a button");
-        let q = (q.x + 8.0, q.y + 8.0);
-        u.s.pointer(&u.kit, &mut u.engine, t(30), at(q.0, q.1, 0));
-        u.s.pointer(&u.kit, &mut u.engine, t(40), at(q.0, q.1, 1));
-        let hit = u.s.pointer(&u.kit, &mut u.engine, t(50), at(q.0, q.1, 0));
-        assert!(matches!(hit, Some(Target::Quit(_))), "{hit:?}");
-        u.s.pointer(&u.kit, &mut u.engine, t(60), at(30.0, 1000.0, 0));
-        u.s.pointer(&u.kit, &mut u.engine, t(70), at(30.0, 1000.0, 1));
-        assert_eq!(u.s.pointer(&u.kit, &mut u.engine, t(80), at(30.0, 1000.0, 0)), Some(Target::Backdrop));
+    fn the_restart_row_says_why_it_is_off_while_the_panel_refresher_runs() {
+        let mut u = Up::new(ui::lucent::palette::Mode::Dark, 1.0, five());
+        u.push_stats(stats(true, true));
+        u.keys(&[K::Down, K::Right, K::Ok]);
+        let rows = u.geo()["sheet"]["rows"].clone();
+        assert_eq!(rows[2]["off"], true);
+        assert_eq!(rows[2]["said"], "The panel refresher is running; try again when it is done.");
+        assert_eq!(rows[0]["off"], false);
     }
 
     #[test]
-    fn what_happens_to_an_app_is_said_under_it_and_a_stuck_app_offers_another_try() {
-        let list = json!([app("a", "Plex", "live", "quitting"), app("b", "YouTube", "live", "stuck"), app("c", "HDMI 2", "video", "")]);
-        let mut u = Up::new(Mode::Dark, 1.0, list);
+    fn no_apps_is_a_calm_empty_state_with_system_still_reachable() {
+        let mut u = Up::new(ui::lucent::palette::Mode::Dark, 1.0, json!([]));
+        u.push_stats(stats(false, false));
         let g = u.geo();
-        assert_eq!(g["cards"][0]["state"], "quitting");
-        assert_eq!(g["cards"][1]["state"], "stuck");
-        u.key(K::Right);
-        u.key(K::Down);
-        assert_eq!(u.s.built.as_ref().unwrap().cards[1].lay.quit_label, "Try again");
-        assert_eq!(u.s.built.as_ref().unwrap().cards[2].lay.state, vec!["No preview".to_string()], "a card with no picture says so");
+        assert_eq!(g["empty"], true);
+        assert_eq!(g["close"], Value::Null, "there is nothing to close");
+        assert_eq!(g["focus"], "system");
+        assert!(g["strip"]["tiles"].as_array().unwrap().len() >= 2, "the numbers still show");
     }
 
     #[test]
-    fn it_reads_clean_in_both_materials_at_100_and_200_percent_with_three_apps_many_and_the_question() {
-        for mode in [Mode::Dark, Mode::Light] {
-            for scale in [1.0, 2.0] {
-                for (name, list) in [("three", three()), ("six", six())] {
-                    let mut u = Up::new(mode, scale, list);
-                    let f = u.lint();
-                    assert!(f.is_empty(), "{name} {mode:?} {scale}: {f:#?}");
-                    u.key(K::Down);
-                    let f = u.lint();
-                    assert!(f.is_empty(), "{name} with Quit {mode:?} {scale}: {f:#?}");
-                    u.key(K::Up);
-                    u.key(K::Up);
-                    u.key(K::Ok);
-                    let f = u.lint();
-                    assert!(f.is_empty(), "{name} asking {mode:?} {scale}: {f:#?}");
+    fn the_strip_has_a_dash_before_the_first_sample_and_a_tile_for_gpu_and_temperature_only_when_they_are_read() {
+        let mut u = Up::new(ui::lucent::palette::Mode::Dark, 1.0, five());
+        assert_eq!(u.geo()["strip"]["values"], json!(["\u{2014}", "\u{2014}"]), "no sample yet: dashes, not zeros");
+        u.push_stats(stats(false, false));
+        assert_eq!(u.geo()["strip"]["tiles"], json!(["Cpu", "Mem"]));
+        assert_eq!(u.geo()["strip"]["values"][1], "1.7 / 2.9 GB");
+        u.push_stats(stats(false, true));
+        assert_eq!(u.geo()["strip"]["tiles"], json!(["Cpu", "Mem", "Gpu", "Temp"]));
+        assert_eq!(u.geo()["strip"]["values"][3], "61 \u{b0}C");
+    }
+
+    #[test]
+    fn clicks_land_on_cards_and_buttons_and_a_drag_up_is_a_quit_not_a_click() {
+        let mut u = Up::new(ui::lucent::palette::Mode::Dark, 1.0, five());
+        let g = u.geo();
+        let (cx, cy) = centre(&g["cards"][1]["frame"]);
+        let mut ns = u.t * 1_000_000;
+        let mut feed = |u: &mut Up, x: f32, y: f32, b: u32| {
+            ns += 40_000_000;
+            u.s.pointer(&u.kit, &mut u.engine, ns, at(x, y, b))
+        };
+        feed(&mut u, cx, cy, 0);
+        feed(&mut u, cx, cy, 1);
+        assert_eq!(feed(&mut u, cx, cy, 0), Some(Pick::Card(1)));
+        let (sx, sy) = centre(&g["system"]);
+        feed(&mut u, sx, sy, 0);
+        feed(&mut u, sx, sy, 1);
+        assert_eq!(feed(&mut u, sx, sy, 0), Some(Pick::System));
+        feed(&mut u, cx, cy, 0);
+        feed(&mut u, cx, cy, 1);
+        assert_eq!(feed(&mut u, cx, cy - DRAG_PX - 10.0, 1), Some(Pick::Drag(1)));
+        assert_eq!(feed(&mut u, cx, cy - DRAG_PX - 10.0, 0), None, "the release of a drag is not a click");
+    }
+
+    #[test]
+    fn what_is_drawn_passes_the_lint_in_both_modes_at_both_text_sizes() {
+        use ui::lucent::palette::Mode;
+        for (mode, scale) in [(Mode::Dark, 1.0), (Mode::Light, 1.0), (Mode::Dark, 2.0), (Mode::Light, 2.0)] {
+            let mut u = Up::new(mode, scale, five());
+            u.push_stats(stats(false, true));
+            assert_eq!(u.lint(), Vec::<String>::new(), "cards and strip, {mode:?} at {scale}");
+            u.keys(&[K::Down, K::Right, K::Ok]);
+            assert_eq!(u.lint(), Vec::<String>::new(), "the sheet, {mode:?} at {scale}");
+            u.keys(&[K::Ok]);
+            assert_eq!(u.lint(), Vec::<String>::new(), "a confirmation, {mode:?} at {scale}");
+            let mut empty = Up::new(mode, scale, json!([]));
+            empty.push_stats(stats(false, false));
+            assert_eq!(empty.lint(), Vec::<String>::new(), "no apps, {mode:?} at {scale}");
+        }
+    }
+
+    #[test]
+    fn dropping_gives_back_every_layer_and_every_key() {
+        let mut u = Up::new(ui::lucent::palette::Mode::Dark, 1.0, five());
+        u.keys(&[K::Down, K::Right, K::Ok]);
+        let v = u.m.view();
+        u.s.apply(&mut u.kit, &mut u.engine, &v, Phase::Gone, 0).expect("gone");
+        assert_eq!(u.s.layers(), 0);
+        assert_eq!(u.geo(), Value::Null);
+        assert!(u.engine.focus.current().is_none());
+    }
+
+    /// The scenes written as PNGs for looking at, when `TASKMGR_SHOTS` names a directory (and `LIBGL_ALWAYS_SOFTWARE=1` on a machine with a
+    /// GPU): the real renderer on software GL. The compositor draws the pictures in the TV, so here fake ones stand in the card rectangles of
+    /// the layout the model sends, over the dim the compositor draws. Without the variable the test does nothing.
+    mod shots {
+        use super::*;
+        use crate::kit::icon::Icons;
+        use crate::kit::screen::Effect;
+        use crate::panels::switcher::SYSTEM_TAG;
+        use compositor_protocol::Event;
+        use lumatv_render::host::{Engine as Host, HostConfig};
+        use lumatv_render::{Gles, now_ns};
+        use lumatv_tokens::Tokens;
+        use std::io;
+        use std::path::Path;
+        use std::sync::mpsc::Receiver;
+        use std::time::{Duration, Instant};
+        use ui::lucent::material::MaterialTier;
+        use ui::testing::TempDir;
+
+        const FRAME_NS: u64 = 16_666_667;
+        /// Long enough for the fades and glides (a card's beat is a few hundred ms) to land.
+        const FRAMES: usize = 45;
+
+        struct Rig {
+            host: Host,
+            events: Receiver<Event>,
+            ns: u64,
+            _shm: TempDir,
+        }
+
+        fn rig(mode: Mode, scale: f32) -> io::Result<(Rig, Kit)> {
+            let shm = TempDir::new("taskmgr-shots");
+            let gles = Gles::software_pbuffer(c"libEGL.so.1", 1920, 1080)?;
+            let config = HostConfig { width: 1920, height: 1080, refresh_hz: 60.0, shm_dir: shm.path().to_owned(), direct: false, gpu_sync: false, idle_trim: false, pages: 0, reference: false, blit: false, external: false, system_z: i32::MAX };
+            let (mut host, end) = Host::new(gles, config)?;
+            let (scene, _, events) = ui::Scene::over_with(end, ui::SceneOptions { shm_dir: Some(shm.path().to_owned()), ..Default::default() })?;
+            host.finish_handshake()?;
+            let mut kit = Kit::new(scene, Tokens::shipped(), mode, MaterialTier::T1, scale)?;
+            kit.icons = Icons::new(&testkit::module_dir());
+            Ok((Rig { host, events, ns: now_ns(), _shm: shm }, kit))
+        }
+
+        impl Rig {
+            fn pump(&mut self, kit: &mut Kit) -> io::Result<()> {
+                while let Ok(event) = self.events.try_recv() {
+                    kit.ui.scene.observe(&event);
                 }
-                let mut none = Up::new(mode, scale, json!([]));
-                let f = none.lint();
-                assert!(f.is_empty(), "no apps {mode:?} {scale}: {f:#?}");
+                if let Some(atlas) = kit.ui.text_atlas() {
+                    atlas.pump();
+                }
+                if kit.ui.scene.has_pending() {
+                    kit.ui.try_commit()?;
+                }
+                if self.host.pump()?.closed {
+                    return Err(io::Error::other("the renderer closed"));
+                }
+                Ok(())
+            }
+
+            /// Until every glyph has landed in the atlas: a label is a picture for good before.
+            fn land(&mut self, kit: &mut Kit) -> io::Result<()> {
+                let end = Instant::now() + Duration::from_secs(20);
+                loop {
+                    self.pump(kit)?;
+                    self.host.apply_waiting(now_ns());
+                    self.host.tidy();
+                    if kit.ui.glyph_text_settled() && !kit.ui.scene.has_pending() && !self.host.tidy_more() {
+                        return Ok(());
+                    }
+                    if Instant::now() > end {
+                        return Err(io::Error::other("the glyph atlas did not settle"));
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            }
+
+            /// Draws the scene `FRAMES` refreshes on from the later of the rig's clock and the model's, and returns the page.
+            fn shot(&mut self, kit: &mut Kit, at_ms: u64) -> io::Result<Vec<u8>> {
+                self.land(kit)?;
+                self.ns = self.ns.max(at_ms * 1_000_000);
+                for _ in 0..FRAMES {
+                    self.ns += FRAME_NS;
+                    self.pump(kit)?;
+                    let cost = self.host.draw(self.ns);
+                    self.host.frame_done(self.ns, &cost);
+                    self.host.tidy();
+                }
+                Ok(self.host.read_page(0))
             }
         }
-    }
 
-    #[test]
-    fn a_change_of_the_list_makes_the_cards_again_and_leaving_frees_the_keys_and_the_layers() {
-        let mut u = Up::new(Mode::Dark, 1.0, three());
-        let with = u.kit.room().layers;
-        u.m.topic("apps", &json!([app("plex", "Plex", "live", "")]), 5000);
-        u.t = 5000;
-        u.apply(Phase::Open);
-        assert_eq!(u.geo()["cards"].as_array().unwrap().len(), 1);
-        u.apply(Phase::Gone);
-        assert!(!u.s.is_up() && u.engine.focus.modal().is_none());
-        assert!(u.kit.room().layers >= with, "everything it made is given back");
-    }
-
-    #[test]
-    fn ids_name_what_the_pointer_lands_on() {
-        for t in [Target::Card(0), Target::Card(23), Target::Quit(2), Target::All, Target::Cancel, Target::QuitAll, Target::Backdrop] {
-            assert_eq!(Target::from_id(t.id()), Some(t));
+        fn write_png(path: &Path, rgba: &[u8]) -> io::Result<()> {
+            let mut encoder = png::Encoder::new(io::BufWriter::new(std::fs::File::create(path)?), 1920, 1080);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder.write_header().and_then(|mut w| w.write_image_data(rgba)).map_err(io::Error::other)
         }
-        assert_eq!(Target::from_id(Id(1)), None);
+
+        /// An app icon as the launch points name it: a rounded square from `from` to `to` with a disc of `mark` in it.
+        fn icon_file(dir: &Path, name: &str, from: Rgba, to: Rgba, mark: Rgba) -> io::Result<String> {
+            const S: usize = 96;
+            let mut px = Vec::with_capacity(S * S * 4);
+            for y in 0..S {
+                for x in 0..S {
+                    let (cx, cy) = (x as f32 + 0.5 - 48.0, y as f32 + 0.5 - 48.0);
+                    let (qx, qy) = (cx.abs() - 26.0, cy.abs() - 26.0);
+                    let d = qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - 22.0;
+                    let t = (x + y) as f32 / (2.0 * S as f32);
+                    let (a, b) = if cx.hypot(cy) < 20.0 { (mark, mark) } else { (from, to) };
+                    let mix = |p: u8, q: u8| (f32::from(p) + (f32::from(q) - f32::from(p)) * t) as u8;
+                    px.extend_from_slice(&[mix(a.0, b.0), mix(a.1, b.1), mix(a.2, b.2), ((0.5 - d).clamp(0.0, 1.0) * 255.0) as u8]);
+                }
+            }
+            let path = dir.join(format!("{name}.png"));
+            let mut encoder = png::Encoder::new(io::BufWriter::new(std::fs::File::create(&path)?), S as u32, S as u32);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder.write_header().and_then(|mut w| w.write_image_data(&px)).map_err(io::Error::other)?;
+            Ok(path.to_string_lossy().into_owned())
+        }
+
+        /// The five apps of the scenes: one of each standing, the one with no picture (a game on the video plane) with its icon on a tile.
+        fn apps() -> Value {
+            json!([
+                app("plex", "Plex", "live", "", false),
+                app("youtube", "YouTube", "thumb", "", true),
+                app("music", "Spotify", "live", "quitting", false),
+                app("game", "LumaGame", "none", "", false),
+                app("disney", "Disney+ with a long name that wraps onto lines", "live", "stuck", false)
+            ])
+        }
+
+        /// The readings of the scenes: three cores.
+        fn stats(refresher: bool, extras: bool) -> Value {
+            let mut s = super::stats(refresher, extras);
+            s["cpu"] = json!([12.0, 80.0, 40.0]);
+            s
+        }
+
+        fn launch_points(kit: &Kit, dir: &Path) -> io::Result<Value> {
+            let c = |r| kit.ui.look.colour(r);
+            let mark = c(PaletteRole::Ink);
+            let mut points = Vec::new();
+            for (id, title, from, to) in [
+                ("plex", "Plex", PaletteRole::Warning, PaletteRole::Positive),
+                ("youtube", "YouTube", PaletteRole::Danger, PaletteRole::Accent),
+                ("game", "LumaGame", PaletteRole::Accent, PaletteRole::Info),
+                ("disney", "Disney+ with a long name that wraps onto lines", PaletteRole::Info, PaletteRole::Accent),
+                ("music", "Spotify", PaletteRole::Positive, PaletteRole::Info),
+            ] {
+                points.push(json!({"id": id, "title": title, "icon": icon_file(dir, id, c(from), c(to), mark)?}));
+            }
+            Ok(Value::Array(points))
+        }
+
+        /// What the compositor draws under the chrome: a dim over a Home-like backdrop and, when `pictures`, a fake picture in each rectangle the
+        /// model's layout names.
+        fn stand_in(u: &mut Up, pictures: bool) -> Vec<ShapeLayer> {
+            let top = u.s.top(&mut u.kit);
+            let palette = SwitcherSurface::palette(&u.kit);
+            let cards = match u.m.layout(u.t, top, json!({"r": 0.0, "g": 0.0, "b": 0.0, "a": 1.0}), false, 200, palette) {
+                Some(Effect::Channel { body, .. }) => body["cards"].as_array().cloned().unwrap_or_default(),
+                _ => Vec::new(),
+            };
+            let k = &u.kit;
+            let (c, scene) = (|r| k.ui.look.colour(r), k.ui.scene.clone());
+            let plain = |r: f32, fill: Fill| Shape { corner_radius: r, fill, border_width: 0.0, border: Rgba(0, 0, 0, 0) };
+            let mut out = Vec::new();
+            let mut put = |x: f32, y: f32, w: f32, h: f32, z: i32, shape: Shape| out.push(scene.shape(w.round() as u32, h.round() as u32, z, shape, Props::at(x, y)));
+            put(0.0, 0.0, 1920.0, 1080.0, 70, plain(0.0, Fill::Linear { from: faded(c(PaletteRole::Info), 0.5), to: c(PaletteRole::Canvas), angle_deg: 135.0 }));
+            if !pictures {
+                return out;
+            }
+            put(0.0, 0.0, 1920.0, 1080.0, 71, plain(0.0, Fill::Solid(k.tokens.extra(k.mode).scrim_hide)));
+            let looks = [(PaletteRole::Accent, PaletteRole::Info), (PaletteRole::Ink, PaletteRole::Ink2), (PaletteRole::Positive, PaletteRole::Info), (PaletteRole::Danger, PaletteRole::Warning)];
+            for (i, card) in cards.iter().enumerate() {
+                let n = |key: &str| card[key].as_f64().unwrap_or(0.0) as f32;
+                let (x, y, w, h, r) = (n("x"), n("y"), n("w"), n("h"), n("r"));
+                let (from, to) = looks[i % looks.len()];
+                put(x, y, w, h, 72, plain(r, Fill::Linear { from: c(from), to: c(to), angle_deg: 120.0 }));
+                let ink = faded(c(PaletteRole::Canvas), 0.45);
+                put(x + w * 0.06, y + h * 0.08, w * 0.4, h * 0.07, 73, plain(4.0, Fill::Solid(ink)));
+                put(x + w * 0.06, y + h * 0.5, w * 0.4, h * 0.38, 73, plain(8.0, Fill::Solid(ink)));
+                put(x + w * 0.54, y + h * 0.5, w * 0.4, h * 0.38, 73, plain(8.0, Fill::Solid(ink)));
+            }
+            out
+        }
+
+        struct Scene {
+            name: &'static str,
+            /// Dark and light at 100 % and 200 % text, else dark at 100 % only.
+            matrix: bool,
+            empty: bool,
+            /// The compositor's pictures are there (not in its basic screen).
+            pictures: bool,
+            prep: fn(&mut Up),
+        }
+
+        const SHEET: [K; 3] = [K::Down, K::Right, K::Ok];
+
+        fn scenes() -> Vec<Scene> {
+            fn scene(name: &'static str, matrix: bool, empty: bool, pictures: bool, prep: fn(&mut Up)) -> Scene {
+                Scene { name, matrix, empty, pictures, prep }
+            }
+            vec![
+                scene("a-apps", true, false, true, |u| u.push_stats(stats(false, true))),
+                scene("a-apps-last-focused", false, false, true, |u| {
+                    u.push_stats(stats(false, true));
+                    u.keys(&[K::Right, K::Right, K::Right, K::Right]);
+                }),
+                scene("a-apps-close-all-focused", false, false, true, |u| {
+                    u.push_stats(stats(false, true));
+                    u.key(K::Down);
+                }),
+                scene("b-system", true, false, true, |u| {
+                    u.push_stats(stats(false, true));
+                    u.keys(&SHEET);
+                }),
+                scene("c-restart-lumatv-confirm", true, false, true, |u| {
+                    u.push_stats(stats(false, true));
+                    u.keys(&SHEET);
+                    u.key(K::Ok);
+                }),
+                scene("d-close-all-confirm", false, false, true, |u| {
+                    u.push_stats(stats(false, true));
+                    u.keys(&[K::Down, K::Ok]);
+                }),
+                scene("e-lg-home-confirm", false, false, true, |u| {
+                    u.push_stats(stats(false, true));
+                    u.keys(&SHEET);
+                    u.keys(&[K::Down, K::Ok]);
+                }),
+                scene("f-restart-tv-refresher-sheet", false, false, true, |u| {
+                    u.push_stats(stats(true, true));
+                    u.keys(&SHEET);
+                }),
+                scene("f-restart-tv-refused", false, false, true, |u| {
+                    u.push_stats(stats(false, true));
+                    u.keys(&SHEET);
+                    u.keys(&[K::Down, K::Down, K::Ok, K::Right, K::Ok]);
+                    u.m.update(&Input::Fetched { tag: SYSTEM_TAG, status: 200, data: json!({"ok": false, "error": "refresher"}) }, u.t);
+                    u.apply();
+                }),
+                scene("g-empty", true, true, true, |u| u.push_stats(stats(false, false))),
+                scene("h-working", false, false, true, |u| {
+                    u.push_stats(stats(false, true));
+                    u.keys(&SHEET);
+                    u.keys(&[K::Ok, K::Right, K::Ok]);
+                }),
+                scene("i-basic-screen-draws-nothing", false, false, false, |u| {
+                    u.push_stats(stats(false, true));
+                    u.m.topic("switcher", &json!({"open": true, "from": "", "n": 1, "mode": "fallback"}), u.t);
+                    let v = u.m.view();
+                    u.s.apply(&mut u.kit, &mut u.engine, &v, Phase::Gone, u.t * 1_000_000).expect("gone");
+                    assert!(!v.up && u.s.layers() == 0 && u.geo() == Value::Null, "the compositor's own screen is in charge: nothing of ours is drawn");
+                }),
+            ]
+        }
+
+        fn shoot(dir: &Path, s: &Scene, mode: Mode, scale: f32) -> io::Result<()> {
+            let (mut rig, kit) = rig(mode, scale)?;
+            let icons = TempDir::new("taskmgr-icons");
+            let points = launch_points(&kit, icons.path())?;
+            let list = if s.empty { json!([]) } else { apps() };
+            let mut u = Up::over(None, kit, rig.ns / 1_000_000, list, Some(points));
+            (s.prep)(&mut u);
+            let _behind = stand_in(&mut u, s.pictures);
+            let page = rig.shot(&mut u.kit, u.t)?;
+            let (look, text) = (if mode == Mode::Dark { "dark" } else { "light" }, (scale * 100.0) as u32);
+            write_png(&dir.join(format!("{}-{look}-{text}.png", s.name)), &page)
+        }
+
+        #[test]
+        fn the_scenes_are_written_as_pngs_for_looking_at_when_a_directory_is_named() {
+            let Ok(dir) = std::env::var("TASKMGR_SHOTS") else { return };
+            let dir = Path::new(&dir);
+            std::fs::create_dir_all(dir).expect("the shot directory");
+            for s in scenes() {
+                let looks: &[(Mode, f32)] = if s.matrix { &[(Mode::Dark, 1.0), (Mode::Light, 1.0), (Mode::Dark, 2.0), (Mode::Light, 2.0)] } else { &[(Mode::Dark, 1.0)] };
+                for &(mode, scale) in looks {
+                    shoot(dir, &s, mode, scale).unwrap_or_else(|e| panic!("{} ({mode:?}, {scale}): {e}", s.name));
+                }
+            }
+        }
     }
 }

@@ -345,6 +345,9 @@ impl State {
             self.luna_state.nooperation.update(&ev.payload, std::time::Instant::now());
             return;
         }
+        if self.switcher_sam_answer(ev.token, &ev.payload) {
+            return;
+        }
         if self.cover_answer(ev.token, &ev.payload) { return; }
         if self.lg_guide_event(ev.token, &ev.payload) {
             return;

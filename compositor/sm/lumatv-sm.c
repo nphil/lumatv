@@ -1,7 +1,7 @@
 // lumatv-sm: the process systemd starts as /usr/bin/surface-manager once LumaTV's compositor is live (track C4).
 // It is 32-bit and dynamically linked against the set's own libluna-service2 and glib, because ls-hubd grants the
 // compositor's bus names to the executable at that path and a 64-bit process cannot load LG's 32-bit libraries.
-// Four duties (docs/research/compositor-c2-result.md §5 and §8, docs/research/cutover-result.md):
+// Five duties (docs/research/compositor-c2-result.md §5 and §8, docs/research/cutover-result.md, docs/research/task-manager.md):
 //
 //   1. Decide (decide()). LumaTV runs only if the enabled flag is a persistent one or a session of this boot, the
 //      bundle is whole, no escape is recorded, the firmware fingerprint equals the one `install` recorded, a persistent
@@ -22,6 +22,13 @@
 //      blind to its input.
 //   4. Bridge luna. Register the compositor's bus names, forward every call as a JSON line, send the compositor's
 //      replies (subscriptions kept by token) and make its outbound calls.
+//   5. System actions and the rescue (docs/research/task-manager.md). The task manager asks this process for what only it can do: `restart`
+//      (the installer's own `lumatv restart`, run as a unit of its own so that stopping the compositor's unit does not end it), `reboot`
+//      (refused while LG's pixel refresher runs; the one place a reboot is run) and `fallback` (LG's Home); it says when it is open
+//      (`taskmgr`). On its own, Back held 3 s with the task manager not answering restarts LumaTV and leaves a crash bundle, and held
+//      10 s is LG's Home: the way out of a compositor that answers pings and nothing else. Armed only for a compositor that had
+//      answered pings for 10 s before the press. No timer runs while no Back is down. A hand-over to LG's Home is followed by a toast
+//      saying what happened, once LG's Home is back.
 //
 // JSON lines on the bridge socket (compositor/crates/lumatv-compositor/src/luna.rs):
 //   to the compositor:   {"kind":"inbound","token":N,"service":S,"method":M,"payload":P,"subscribe":B,"sender":S}
@@ -29,6 +36,7 @@
 //                        {"kind":"ping","seq":N}
 //   from the compositor: {"kind":"reply","token":N,"payload":P}   {"kind":"outbound","token":N,"uri":U,"payload":P,"subscribe":B}
 //                        {"kind":"cancel","token":N}   {"kind":"pong","seq":N}   {"kind":"fallback","reason":R}
+//                        {"kind":"taskmgr","open":B}   {"kind":"restart","reason":R}   {"kind":"reboot","reason":R}
 //
 // State files in --state DIR (default /var/lib/lumatv/compositor): enabled (empty or "persistent": every boot;
 // "session <boot id>": this boot only), escaped (an escape was made: it and the stock UI hold made with it last for
@@ -147,6 +155,11 @@ static const char *escape_mark = "/tmp/.lumatv-escaped";
 // LumaTV's app directories (the app's own, the card and the GeForce NOW app: `org.nphil.lumatv`, `org.nphil.lumatv.card`, ...), where its programs
 // run from besides the data directory above the state directory. The escape ends what runs from either.
 static const char *apps_dir = "/media/developer/apps/usr/palm/applications/org.nphil.lumatv";
+// What the system actions run and read (a test points them elsewhere): systemd-run starts the restart as a unit of its own, reboot is
+// systemctl under another name, and the first word of the refresher's state file is 2 while LG's pixel refresher runs.
+static const char *systemd_run = "/usr/bin/systemd-run";
+static const char *reboot_program = "/sbin/reboot";
+static const char *pnwash_state = "/mnt/lg/cmn_data/pnwash/state";
 // What the escape's sweep ended, for the evidence bundle: the helper holds the log's collector, and it is among the dead.
 static char ended_text[1024];
 static bool dry_run = false, probe = false;
@@ -156,6 +169,9 @@ static GMainLoop *loop;
 static pid_t child_pid = 0;
 static int bridge_listen = -1, bridge_fd = -1;
 static unsigned long ping_seq = 0, pong_seq = 0;
+// What the rescue reads: when the compositor first answered a ping, and when the task manager last said it opened or closed (0: not yet).
+static double comp_up_since, taskmgr_at;
+static bool taskmgr_open;
 static unsigned long inbound_token = 0;
 static double started_mono;
 static char running_path[600];
@@ -446,6 +462,53 @@ static bool home_due(const struct home *h, double now) {
     return false;
 }
 
+// ---- the rescue: a Back held while the task manager does not answer it ----
+// Back held 3 s with no word from the task manager since the press began restarts LumaTV (what `restart` does, no failure counted) and leaves a
+// crash bundle that says why; still held at 10 s, with LumaTV still here, it is the escape to LG's Home. That is what is left of a compositor
+// that answers every ping and nothing else: the heartbeat and the watchdog see no fault in it. Armed by the compositor having answered pings
+// for 10 s before the press, so a Back held while LumaTV starts is nobody's rescue. Any `taskmgr` line since the press is the compositor
+// answering: the manager opened (it does at 600 ms of the hold) or closed because this very Back acted. The remotes are read as the Home hold
+// reads them, with no grab: the compositor gets every key as before. While no Back is down none of this runs; its one timer is one-shot, set
+// for the hold's next step.
+#define BACK_RESTART_SECS 3.0
+#define BACK_ESCAPE_SECS 10.0
+#define BACK_ARM_SECS 10.0
+// A word that reached this process just ahead of the press it answers (the two come over different descriptors) still answers it.
+#define BACK_ANSWER_SLACK 0.25
+
+struct back { double down_at[2]; };                    // KEY_BACK, KEY_PREVIOUS: when each went down (0: up)
+static const int back_keys[2] = { KEY_BACK, KEY_PREVIOUS };
+
+// A key event of a remote, as home_event takes it. True when a hold began or ended: a repeat changes nothing, and never moves the start.
+static bool back_event(struct back *b, int code, int value, double now) {
+    int i = code == KEY_BACK ? 0 : code == KEY_PREVIOUS ? 1 : -1;
+    if (i < 0) return false;
+    if ((value == 1 || value == 2) && b->down_at[i] == 0) { b->down_at[i] = now; return true; }
+    if (value == 0 && b->down_at[i] != 0) { b->down_at[i] = 0; return true; }
+    return false;
+}
+
+// The Back keys already down in a key-state bitmap (EVIOCGKEY) start their holds now: a press seen late is never counted early.
+static void back_seed(struct back *b, const unsigned char *bits, size_t n, double now) {
+    memset(b, 0, sizeof *b);
+    for (int i = 0; i < 2; i++)
+        if ((size_t)back_keys[i] / 8 < n && (bits[back_keys[i] / 8] & (1u << (back_keys[i] % 8)))) back_event(b, back_keys[i], 1, now);
+}
+
+enum back_step { BACK_WAIT, BACK_RESTART, BACK_ESCAPE };
+
+// What a Back held since `down` (0: none) is owed at `now`, and in `*next` when to look again (0: not before something changes). `up` is when
+// the compositor first answered a ping and `answered` when the task manager last reported (0: not yet); `restarted`: this hold has had its restart.
+static enum back_step back_decide(double down, double now, double up, double answered, bool restarted, double *next) {
+    *next = 0;
+    if (down == 0 || up == 0 || down < up + BACK_ARM_SECS || answered + BACK_ANSWER_SLACK >= down) return BACK_WAIT;
+    if (now - down >= BACK_ESCAPE_SECS) return BACK_ESCAPE;
+    if (restarted) { *next = down + BACK_ESCAPE_SECS; return BACK_WAIT; }
+    if (now - down >= BACK_RESTART_SECS) return BACK_RESTART;
+    *next = down + BACK_RESTART_SECS;
+    return BACK_WAIT;
+}
+
 static bool name_is_network_keys(const char *name) {
     return strstr(name, "Smart Remote RCU Input") != NULL || strstr(name, "LGE Network Input") != NULL;
 }
@@ -587,10 +650,29 @@ static void emit_lsm_ready(void) {
     logline("lsm-ready emitted");
 }
 
+// What LG's Home shows once it is back after a hand-over: a title and, under it, what happened (the reason the bundle records), as the JSON
+// luna-send takes. The plugin hub's toasts are the same call: Home as the source, no action, not kept.
+static void json_escape(const char *s, char *out, size_t outsz);
+static void toast_payload(const char *reason, bool fault, char *out, size_t outsz) {
+    char message[400], text[560];
+    snprintf(message, sizeof message, "%s\n%s. LG's Home is showing.", fault ? "LumaTV stopped" : "LumaTV is off", reason);
+    json_escape(message, text, sizeof text);
+    snprintf(out, outsz, "{\"sourceId\":\"com.webos.app.home\",\"message\":\"%s\",\"noaction\":true,\"persistent\":false}", text);
+}
+
+// recover-home.sh, then the toast, once and bounded: createToast has stalled for 20 minutes before (the gate's second run, 2026-10-30). The script
+// ends when it has launched LG's Home or given up, the nearest there is to "Home is back". The outcome is logged, as nothing else sees it.
+// $1 is the script and $2 the toast.
+static const char recover_then_toast[] =
+    "sh \"$1\" --stock; rc=$?\n"
+    "if timeout -k 1 10 luna-send -n 1 -f luna://com.webos.notification/createToast \"$2\" 2>/dev/null"
+    " | grep -q '\"returnValue\"[[:space:]]*:[[:space:]]*true'; then s=sent; else s=failed; fi\n"
+    "python3 \"$(dirname \"$1\")/logrelay.py\" send lumatv-sm \"toast: $s (recovery exited $rc)\" >/dev/null 2>&1\n";
+
 // After this process execs LG's compositor, WebAppMgr may have hit its start limit and the web Home cannot come
 // back by itself; recover-home.sh (compositor/tools/tv-recover-home.sh) waits for LG's compositor and repairs
 // that. Started as its own session so it outlives the exec and nothing of it reaches the unit's main process.
-static void spawn_recovery(void) {
+static void spawn_recovery(const char *toast) {
     char script[600];
     snprintf(script, sizeof script, "%s/bin/recover-home.sh", state_dir);
     if (access(script, R_OK) != 0) { logline("no %s; LG's Home is not relaunched", script); return; }
@@ -604,11 +686,11 @@ static void spawn_recovery(void) {
         if (null >= 0) { dup2(null, 0); dup2(null, 1); dup2(null, 2); close(null); }
         for (int fd = 3; fd < 256; fd++) close(fd);
         unsetenv("NOTIFY_SOCKET");
-        execl("/bin/sh", "sh", script, "--stock", (char *)NULL);
+        execl("/bin/sh", "sh", "-c", recover_then_toast, "sh", script, toast, (char *)NULL);
         _exit(127);
     }
     (void)waitpid(p, NULL, WNOHANG);
-    logline("recover-home.sh started");
+    logline("recover-home.sh started; the toast follows once it ends");
 }
 
 // ---- crash evidence (LPC 2026: a crash record shown at the next start) ----
@@ -879,7 +961,11 @@ static void fallback_with(const char *reason, bool count_failure, bool everythin
     }
     // A fallback after the unit started under this supervisor (not the decision at start-up, where nothing of
     // LG's was disturbed yet) needs WebAppMgr and Home brought back once LG's compositor is up.
-    if (supervising) spawn_recovery();
+    if (supervising) {
+        char toast[700];
+        toast_payload(reason, count_failure, toast, sizeof toast);
+        spawn_recovery(toast);
+    }
     // The bind mount placed by the early hook: once it is gone, the path is LG's file again, and so is every later
     // restart of the unit until the next boot decides anew.
     if (umount2(lg_binary, MNT_DETACH) != 0 && errno != EINVAL) logline("umount %s: %s", lg_binary, strerror(errno));
@@ -1196,6 +1282,74 @@ static void json_escape(const char *s, char *out, size_t outsz) {
     out[o] = 0;
 }
 
+// ---- what the compositor asks of this process: a restart, a reboot, and word of the task manager ----
+static void back_watch(void);
+
+// True while LG's pixel refresher runs: the first word of its state file is 2 (tools/lumatv `refresher_running` reads the same). A run is never
+// interrupted, so no reboot is started while one goes; a missing or empty file is no run.
+static bool refresher_running(void) {
+    char line[64], word[16];
+    return read_first_line(pnwash_state, line, sizeof line) && sscanf(line, "%15s", word) == 1 && !strcmp(word, "2");
+}
+
+static void action_exited(int pid, int status, gpointer what) {
+    if (WIFEXITED(status)) logline("%s exited with %d", (const char *)what, WEXITSTATUS(status));
+    else logline("%s killed by signal %d", (const char *)what, WTERMSIG(status));
+}
+
+// A program run for the compositor: no stdio, nothing this process holds, its end in the log.
+static bool start_action(const char *what, const char *program, char *const argv[]) {
+    pid_t p = fork();
+    if (p < 0) { logline("%s: fork: %s", what, strerror(errno)); return false; }
+    if (p == 0) {
+        int null = open("/dev/null", O_RDWR);
+        if (null >= 0) { dup2(null, 0); dup2(null, 1); dup2(null, 2); close(null); }
+        for (int fd = 3; fd < 256; fd++) close(fd);
+        unsetenv("NOTIFY_SOCKET");
+        execv(program, argv);
+        _exit(127);
+    }
+    g_child_watch_add(p, action_exited, (gpointer)what);
+    return true;
+}
+
+// The installer's own restart of LumaTV (tools/lumatv `restart`: it brings Home back, refuses while the pixel refresher runs and waits out a
+// recovery in progress), run as a unit of its own. A child left in the compositor's unit would go with it when the restart stops that unit. The
+// unit's name keeps it to one at a time, and --collect clears the unit whatever its end. A restart on request is no fault: no failure is counted.
+static bool restart_lumatv(const char *reason) {
+    char tool[700];
+    snprintf(tool, sizeof tool, "%s/tools/lumatv", apps_dir);
+    logline("restart: %s", reason);
+    if (dry_run) { logline("dry run: would run %s restart as the unit lumatv-restart", tool); return false; }
+    if (access(tool, X_OK) != 0) { logline("restart: %s cannot be run (%s); LumaTV is not restarted", tool, strerror(errno)); return false; }
+    char *const argv[] = { (char *)"systemd-run", (char *)"--no-block", (char *)"--collect", (char *)"--unit=lumatv-restart", tool, (char *)"restart", NULL };
+    return start_action("restart: systemd-run", systemd_run, argv);
+}
+
+// The one place a reboot is run, behind the refresher's guard however it was asked for. Plain `reboot` (systemctl under that name), not luna's
+// machineReboot: the set comes back powered on, where machineReboot leaves it in standby.
+static bool reboot_tv(const char *reason) {
+    if (refresher_running()) { logline("reboot refused: pixel refresher running (%s)", reason); return false; }
+    logline("reboot: %s", reason);
+    if (dry_run) { logline("dry run: would run %s", reboot_program); return false; }
+    char *const argv[] = { (char *)"reboot", NULL };         // /sbin/reboot is systemctl, which acts on the name it was run as
+    return start_action("reboot: reboot", reboot_program, argv);
+}
+
+// The task manager opened or closed. A Back held while it does not answer is the rescue's; any word since the press is an answer.
+static void taskmgr_line(bool open) {
+    if (taskmgr_at == 0 || open != taskmgr_open) logline("taskmgr: %s", open ? "open" : "closed");
+    taskmgr_open = open;
+    taskmgr_at = mono_now();
+    back_watch();
+}
+
+// The reason a line gives for what it asks, "requested" when it gives none.
+static void line_reason(const char *line, char *out, size_t outsz) {
+    snprintf(out, outsz, "requested");
+    json_string(line, "reason", out, outsz);
+}
+
 // ---- the bridge socket ----
 static char inbuf[256 * 1024];
 static size_t inlen;
@@ -1405,6 +1559,7 @@ static void handle_line(char *line) {
     json_string(line, "kind", kind, sizeof kind);
     if (!strcmp(kind, "pong")) {
         json_number(line, "seq", &pong_seq);
+        if (comp_up_since == 0) comp_up_since = mono_now();
     } else if (!strcmp(kind, "reply")) {
         unsigned long token = 0; const char *v; size_t n;
         if (json_number(line, "token", &token) && json_value(line, "payload", &v, &n)) {
@@ -1423,10 +1578,20 @@ static void handle_line(char *line) {
         unsigned long token = 0;
         if (json_number(line, "token", &token)) cancel_call(token);
     } else if (!strcmp(kind, "fallback")) {
-        char reason[256] = "requested";
-        json_string(line, "reason", reason, sizeof reason);
+        char reason[256];
+        line_reason(line, reason, sizeof reason);
         // The owner's escape asked for by the compositor: the same as Home held 10 s.
         escape(reason);
+    } else if (!strcmp(kind, "taskmgr")) {
+        taskmgr_line(json_bool(line, "open"));
+    } else if (!strcmp(kind, "restart")) {
+        char reason[256];
+        line_reason(line, reason, sizeof reason);
+        restart_lumatv(reason);
+    } else if (!strcmp(kind, "reboot")) {
+        char reason[256];
+        line_reason(line, reason, sizeof reason);
+        reboot_tv(reason);
     } else {
         logline("bridge: unknown message kind %s", kind);
     }
@@ -1838,7 +2003,7 @@ static void ask_power(void) {
 }
 
 // ---- the Home watcher's devices ----
-static struct { int fd; char path[300]; struct home home; bool resync; enum input_kind kind; unsigned watch; } inputs[MAX_INPUTS];
+static struct { int fd; char path[300]; struct home home; struct back back; bool resync; enum input_kind kind; unsigned watch; } inputs[MAX_INPUTS];
 static void home_seed(struct home *h, const unsigned char *bits, size_t n, double now);
 static int input_read_keys(int fd, unsigned char *bits, size_t n) { return ioctl(fd, EVIOCGKEY(n), bits); }
 static int (*input_get_keys)(int, unsigned char *, size_t) = input_read_keys;
@@ -1851,6 +2016,8 @@ static void input_close_slot(int slot) {
     inputs[slot].watch = 0;
     inputs[slot].resync = false;
     memset(&inputs[slot].home, 0, sizeof inputs[slot].home);
+    memset(&inputs[slot].back, 0, sizeof inputs[slot].back);
+    back_watch();
 }
 
 static gboolean on_input(GIOChannel *ch, int cond, gpointer data) {
@@ -1858,7 +2025,7 @@ static gboolean on_input(GIOChannel *ch, int cond, gpointer data) {
     int idx = (int)(intptr_t)data;
     int fd = inputs[idx].fd;
     if (fd < 0) return 0;
-    bool gone = (cond & (G_IO_HUP | G_IO_ERR)) != 0;
+    bool gone = (cond & (G_IO_HUP | G_IO_ERR)) != 0, back_moved = false;
     struct input_event ev[32];
     for (int batch = 0; batch < 4 && !gone; batch++) {
         ssize_t n = read(fd, ev, sizeof ev);
@@ -1867,21 +2034,35 @@ static gboolean on_input(GIOChannel *ch, int cond, gpointer data) {
         for (size_t i = 0; i < (size_t)n / sizeof ev[0]; i++) {
             if (ev[i].type == EV_SYN && ev[i].code == SYN_DROPPED) {
                 memset(&inputs[idx].home, 0, sizeof inputs[idx].home);
+                memset(&inputs[idx].back, 0, sizeof inputs[idx].back);
                 inputs[idx].resync = true;
+                back_moved = true;
             } else if (inputs[idx].resync && ev[i].type == EV_SYN && ev[i].code == SYN_REPORT) {
                 unsigned char bits[KEY_STATE_BYTES] = {0};
                 if (input_get_keys(fd, bits, sizeof bits) >= 0) {
                     home_seed(&inputs[idx].home, bits, sizeof bits, mono_now());
+                    back_seed(&inputs[idx].back, bits, sizeof bits, mono_now());
                     inputs[idx].resync = false;
+                    back_moved = true;
                 }
             } else if (!inputs[idx].resync && ev[i].type == EV_KEY) {
-                home_event(&inputs[idx].home, ev[i].code, ev[i].value, mono_now());
+                double now = mono_now();
+                home_event(&inputs[idx].home, ev[i].code, ev[i].value, now);
+                if (back_event(&inputs[idx].back, ev[i].code, ev[i].value, now)) back_moved = true;
             }
         }
         if ((size_t)n < sizeof ev) break;
     }
     // A device that goes (a remote's radio dropping) takes its key releases with it: a Home that was down on it is no hold.
-    if (gone) { close(fd); inputs[idx].fd = -1; inputs[idx].watch = 0; inputs[idx].resync = false; memset(&inputs[idx].home, 0, sizeof inputs[idx].home); return 0; }
+    if (gone) {
+        close(fd);
+        inputs[idx].fd = -1; inputs[idx].watch = 0; inputs[idx].resync = false;
+        memset(&inputs[idx].home, 0, sizeof inputs[idx].home);
+        memset(&inputs[idx].back, 0, sizeof inputs[idx].back);
+        back_watch();
+        return 0;
+    }
+    if (back_moved) back_watch();
     return 1;
 }
 
@@ -1927,10 +2108,14 @@ static void scan_inputs(void) {
             snprintf(inputs[slot].path, sizeof inputs[slot].path, "%s", path);
             inputs[slot].resync = false;
             memset(&inputs[slot].home, 0, sizeof inputs[slot].home);
+            memset(&inputs[slot].back, 0, sizeof inputs[slot].back);
             unsigned char bits[KEY_STATE_BYTES] = {0};
-            if (ioctl(fd, EVIOCGKEY(sizeof bits), bits) >= 0)
+            if (ioctl(fd, EVIOCGKEY(sizeof bits), bits) >= 0) {
                 home_seed(&inputs[slot].home, bits, sizeof bits, mono_now());
+                back_seed(&inputs[slot].back, bits, sizeof bits, mono_now());
+            }
             inputs[slot].watch = g_io_add_watch(g_io_channel_unix_new(fd), G_IO_IN | G_IO_ERR | G_IO_HUP, on_input, (gpointer)(intptr_t)slot);
+            back_watch();
         }
     }
     closedir(d);
@@ -1946,6 +2131,74 @@ static gboolean on_home_timer(gpointer data) {
         escape("hold Home 10 s (supervisor)");
     }
     return 1;
+}
+
+// The rescue's timer: one-shot, and set only while a Back is down. `timer_add` and `timer_remove` are where a test takes the clock over.
+static unsigned back_timer;
+static bool back_restarted;
+static unsigned (*timer_add)(unsigned, GSourceFunc, gpointer) = g_timeout_add;
+static gboolean (*timer_remove)(unsigned) = g_source_remove;
+static gboolean on_back_timer(gpointer data);
+
+// The earliest of the Back keys down on any remote (0: none).
+static double back_held_since(void) {
+    double since = 0;
+    for (int i = 0; i < MAX_INPUTS; i++) {
+        if (inputs[i].fd < 0) continue;
+        for (int k = 0; k < 2; k++) {
+            double t = inputs[i].back.down_at[k];
+            if (t != 0 && (since == 0 || t < since)) since = t;
+        }
+    }
+    return since;
+}
+
+// Moves the timer to `at` (0: no timer), a millisecond late so that the step is due when it fires.
+static void back_arm(double at) {
+    if (back_timer) timer_remove(back_timer);
+    back_timer = 0;
+    if (at == 0) return;
+    double ms = (at - mono_now()) * 1000 + 1;
+    back_timer = timer_add(ms < 1 ? 1 : (unsigned)ms, on_back_timer, NULL);
+}
+
+// Looks at the hold afresh, after a key event, a `taskmgr` line or a device going. A step that is due is run by the timer, at once.
+static void back_watch(void) {
+    double down = back_held_since(), next, now = mono_now();
+    if (down == 0) back_restarted = false;
+    enum back_step step = back_decide(down, now, comp_up_since, taskmgr_at, back_restarted, &next);
+    back_arm(step == BACK_WAIT ? next : now);
+}
+
+// A remote with something queued is read before its hold is judged (a release, or the remote going), as for Home.
+static bool back_input_pending(void) {
+    for (int i = 0; i < MAX_INPUTS; i++) {
+        if (inputs[i].fd < 0 || (inputs[i].back.down_at[0] == 0 && inputs[i].back.down_at[1] == 0)) continue;
+        struct pollfd queued = { .fd = inputs[i].fd, .events = POLLIN };
+        if (poll(&queued, 1, 0) != 0) return true;
+    }
+    return false;
+}
+
+static gboolean on_back_timer(gpointer data) {
+    (void)data;
+    back_timer = 0;                                          // this source ends with the return below
+    double now = mono_now(), next, down = back_held_since();
+    enum back_step step = back_decide(down, now, comp_up_since, taskmgr_at, back_restarted, &next);
+    if (step != BACK_WAIT && back_input_pending()) { back_arm(now + 0.05); return 0; }
+    if (step == BACK_RESTART) {
+        char how[64] = "never reported", bundle[64];
+        if (taskmgr_at > 0) snprintf(how, sizeof how, "%s %.0f s before the press", taskmgr_open ? "opened" : "closed", down - taskmgr_at);
+        logline("rescue: Back held %.1f s and the task manager did not answer (it %s; the compositor has answered pings for %.0f s): restarting LumaTV", now - down, how, now - comp_up_since);
+        back_restarted = true;
+        crash_bundle("rescue: Back held 3 s, task manager did not open", true, bundle, sizeof bundle);
+        if (!restart_lumatv("rescue: Back held 3 s")) logline("rescue: LumaTV was not restarted; Back held to 10 s is LG's Home");
+    } else if (step == BACK_ESCAPE) {
+        logline("rescue: Back held %.1f s and LumaTV is still here: LG's Home", now - down);
+        escape("rescue: Back held 10 s, LumaTV did not restart");
+    }
+    back_watch();
+    return 0;
 }
 
 // Every 2 s: new input nodes, tvpower's state when it is not known, then the compositor's counters.
@@ -3037,6 +3290,346 @@ static void test_escape_ends_everything(void) {
     apps_dir = "/media/developer/apps/usr/palm/applications/org.nphil.lumatv";
 }
 
+// ---- the system actions and the rescue ----
+// Waits for the children this process has started (the fake programs here are short), so that what they did, or did not do, can be read.
+static void settle_children(void) {
+    for (int i = 0; i < 2000; i++) {
+        pid_t p = waitpid(-1, NULL, WNOHANG);
+        if (p < 0) return;
+        if (p == 0) usleep(1000);
+    }
+}
+
+// A program that appends its arguments to <root>/<name>.log, in the place of systemd-run or reboot.
+static const char *fake_program(const char *name) {
+    static char path[4][700];
+    static int k;
+    char *p = path[k++ % 4], text[900];
+    snprintf(p, sizeof path[0], "%s/%s", rootdir, name);
+    snprintf(text, sizeof text, "#!/bin/sh\necho \"$*\" >> %s/%s.log\n", rootdir, name);
+    put_raw(p, text);
+    CHECK(chmod(p, 0755) == 0);
+    return p;
+}
+
+static void root_file(const char *name, char *out, size_t n) {
+    char p[700];
+    snprintf(p, sizeof p, "%s/%s", rootdir, name);
+    slurp_path(p, out, n);
+}
+
+static char tool_path[700];
+
+// LumaTV's installer where the restart looks for it, and its apps directory, which the cleanup at the end removes.
+static void fake_installer(void) {
+    char dir[700];
+    snprintf(dir, sizeof dir, "%s/tools", apps_dir);
+    mkdir_p(dir);
+    snprintf(tool_path, sizeof tool_path, "%s/lumatv", dir);
+    put_raw(tool_path, "#!/bin/sh\n");
+    CHECK(chmod(tool_path, 0755) == 0);
+    if (nmade < 32) snprintf(made[nmade++], sizeof made[0], "%s-apps", rootdir);
+}
+
+static void bridge_line(const char *text) {
+    char line[512];
+    snprintf(line, sizeof line, "%s", text);
+    handle_line(line);
+}
+
+static void test_refresher_guard(void) {
+    fresh_state();
+    pnwash_state = strdup(path_in_state("pnwash-state"));
+    CHECK(!refresher_running());                                          // no file
+    put("pnwash-state", "2 1\n");
+    CHECK(refresher_running());
+    put("pnwash-state", "  2\t7");
+    CHECK(refresher_running());
+    put("pnwash-state", "0 8\n");                                         // what the set reads when idle
+    CHECK(!refresher_running());
+    put("pnwash-state", "1 0\n");
+    CHECK(!refresher_running());
+    put("pnwash-state", "8 2\n");                                         // the state is the first word
+    CHECK(!refresher_running());
+    put("pnwash-state", "22 1\n");
+    CHECK(!refresher_running());
+    put("pnwash-state", "");
+    CHECK(!refresher_running());
+    pnwash_state = "/mnt/lg/cmn_data/pnwash/state";
+}
+
+// The rescue's decisions at fake times: the compositor first answered a ping at 1000 s.
+static void test_back_hold(void) {
+    double next;
+    const double up = 1000;
+    CHECK(back_decide(0, 1500, up, 0, false, &next) == BACK_WAIT && next == 0);               // no Back down: nothing owed, nothing waited for
+    CHECK(back_decide(1100, 1100.3, up, 0, false, &next) == BACK_WAIT && next == 1103);       // a tap, still short at its release...
+    CHECK(back_decide(0, 1100.4, up, 0, false, &next) == BACK_WAIT && next == 0);             // ...and then nothing
+    CHECK(back_decide(1100, 1102.99, up, 0, false, &next) == BACK_WAIT && next == 1103);      // held and not answered: the restart at 3 s
+    CHECK(back_decide(1100, 1103, up, 0, false, &next) == BACK_RESTART);
+    CHECK(back_decide(1100, 1103.2, up, 0, true, &next) == BACK_WAIT && next == 1110);        // once, and then the escape at 10 s
+    CHECK(back_decide(1100, 1109.99, up, 0, true, &next) == BACK_WAIT && next == 1110);
+    CHECK(back_decide(1100, 1110, up, 0, true, &next) == BACK_ESCAPE);
+    CHECK(back_decide(1100, 1110, up, 0, false, &next) == BACK_ESCAPE);                       // a restart that never ran does not hold it back
+    CHECK(back_decide(1100, 1103, up, 1100.6, false, &next) == BACK_WAIT && next == 0);       // the task manager opened: nothing, ever
+    CHECK(back_decide(1100, 1111, up, 1100.6, true, &next) == BACK_WAIT && next == 0);
+    CHECK(back_decide(1100, 1103, up, 1099.9, false, &next) == BACK_WAIT && next == 0);       // a word just ahead of the press answers it
+    CHECK(back_decide(1100, 1103, up, 1099.7, false, &next) == BACK_RESTART);                 // an older one does not
+    CHECK(back_decide(1009.99, 1020, up, 0, false, &next) == BACK_WAIT && next == 0);         // not armed in the compositor's first 10 s
+    CHECK(back_decide(1010, 1013, up, 0, false, &next) == BACK_RESTART);
+    CHECK(back_decide(1100, 1120, 0, 0, false, &next) == BACK_WAIT && next == 0);             // never answered a ping
+
+    struct back b = { { 0 } };
+    CHECK(back_event(&b, KEY_BACK, 1, 2000) && b.down_at[0] == 2000);
+    CHECK(!back_event(&b, KEY_BACK, 2, 2001) && !back_event(&b, KEY_BACK, 1, 2002) && b.down_at[0] == 2000);   // repeats never move the start
+    CHECK(back_event(&b, KEY_PREVIOUS, 2, 2002.5) && b.down_at[1] == 2002.5);                 // the other code, first seen as a repeat
+    CHECK(!back_event(&b, KEY_ENTER, 1, 2003) && !back_event(&b, KEY_HOMEPAGE, 1, 2003));    // other keys are not Back
+    CHECK(back_event(&b, KEY_BACK, 0, 2004) && b.down_at[0] == 0 && b.down_at[1] == 2002.5);
+    CHECK(!back_event(&b, KEY_BACK, 0, 2005));                                                // a key that is not down is not released
+    CHECK(back_event(&b, KEY_BACK, 1, 2006) && b.down_at[0] == 2006);                         // a new press is a new hold
+    // the key-state bitmap: each code is found, and an answer that ends before the key's byte reads none
+    unsigned char bits[KEY_STATE_BYTES] = {0};
+    struct back s;
+    bits[KEY_PREVIOUS / 8] |= 1u << (KEY_PREVIOUS % 8);
+    back_seed(&s, bits, sizeof bits, 3000);
+    CHECK(s.down_at[0] == 0 && s.down_at[1] == 3000);
+    back_seed(&s, bits, (size_t)KEY_PREVIOUS / 8, 3000);
+    CHECK(s.down_at[0] == 0 && s.down_at[1] == 0);
+    memset(bits, 0, sizeof bits);
+    bits[KEY_BACK / 8] |= 1u << (KEY_BACK % 8);
+    back_seed(&s, bits, sizeof bits, 3001);
+    CHECK(s.down_at[0] == 3001 && s.down_at[1] == 0);
+}
+
+// The rescue as the loop drives it: key events through on_input on a pipe, the timer taken over by a fake that records it, the restart a fake
+// systemd-run.
+static unsigned timers_added, timers_removed, timer_ms, timer_live;
+static unsigned fake_timer_add(unsigned ms, GSourceFunc fn, gpointer data) { (void)fn; (void)data; timers_added++; timer_ms = ms; return timer_live = 100 + timers_added; }
+static gboolean fake_timer_remove(unsigned id) { CHECK(id == timer_live); timers_removed++; timer_live = 0; return 1; }
+
+static void remote_key(int fd, int code, int value) {
+    struct input_event ev = {0};
+    ev.type = EV_KEY; ev.code = code; ev.value = value;
+    CHECK(write(fd, &ev, sizeof ev) == (ssize_t)sizeof ev);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1);
+}
+
+static void fire_back_timer(void) { timer_live = 0; CHECK(on_back_timer(NULL) == 0); }
+
+static void test_back_rescue(void) {
+    fresh_root();
+    fake_installer();
+    log_directory = rootdir;
+    runtime_dir = rootdir;
+    started_mono = mono_now() - 100;
+    systemd_run = fake_program("systemd-run");
+    timer_add = fake_timer_add; timer_remove = fake_timer_remove;
+    for (int i = 0; i < MAX_INPUTS; i++) inputs[i].fd = -1;
+    int p[2];
+    CHECK(pipe2(p, O_NONBLOCK) == 0);
+    inputs[0].fd = p[0];
+    memset(&inputs[0].back, 0, sizeof inputs[0].back);
+    comp_up_since = mono_now() - 60;
+    taskmgr_at = 0; back_timer = 0; back_restarted = false;
+
+    // a press sets the one timer for its 3 s, repeats set none, the release takes it away
+    remote_key(p[1], KEY_BACK, 1);
+    CHECK(timers_added == 1 && back_timer != 0 && timer_ms >= 2900 && timer_ms <= 3100);
+    remote_key(p[1], KEY_BACK, 2); remote_key(p[1], KEY_BACK, 2); remote_key(p[1], KEY_BACK, 2);
+    CHECK(timers_added == 1 && timers_removed == 0);
+    remote_key(p[1], KEY_BACK, 0);
+    CHECK(back_timer == 0 && timers_removed == 1);
+    // the task manager answering a hold takes the timer away (the other Back code, this time)
+    remote_key(p[1], KEY_PREVIOUS, 1);
+    CHECK(timers_added == 2 && back_timer != 0);
+    bridge_line("{\"kind\":\"taskmgr\",\"open\":true}");
+    CHECK(back_timer == 0 && timers_removed == 2);
+    remote_key(p[1], KEY_PREVIOUS, 0);
+    CHECK(timers_added == 2 && timers_removed == 2);
+    // no other key sets a timer
+    remote_key(p[1], KEY_ENTER, 1); remote_key(p[1], KEY_HOMEPAGE, 1);
+    remote_key(p[1], KEY_ENTER, 0); remote_key(p[1], KEY_HOMEPAGE, 0);
+    CHECK(timers_added == 2 && back_timer == 0);
+    // a compositor that has answered pings for 5 s is not yet trusted with the rescue
+    comp_up_since = mono_now() - 5;
+    remote_key(p[1], KEY_BACK, 1);
+    CHECK(timers_added == 2 && back_timer == 0);
+    remote_key(p[1], KEY_BACK, 0);
+
+    // a hold nobody answered: at 3 s the installer restarts LumaTV, a bundle says why, no failure is counted, and 10 s is the next step
+    comp_up_since = mono_now() - 100;
+    taskmgr_at = 0;
+    remote_key(p[1], KEY_BACK, 1);
+    inputs[0].back.down_at[0] = mono_now() - 3.5;                         // as if the press were 3.5 s ago
+    unsigned before = timers_added;
+    fire_back_timer();
+    CHECK(back_restarted && timers_added == before + 1 && timer_ms >= 6300 && timer_ms <= 6700);
+    settle_children();
+    char got[1024], want[1024], path[700], latest[64];
+    root_file("systemd-run.log", got, sizeof got);
+    snprintf(want, sizeof want, "--no-block --collect --unit=lumatv-restart %s restart\n", tool_path);
+    CHECK(!strcmp(got, want));
+    snprintf(path, sizeof path, "%s/../crash/latest", tdir);
+    slurp_path(path, latest, sizeof latest);
+    snprintf(path, sizeof path, "%s/../crash/%s/reason.txt", tdir, latest);
+    slurp_path(path, got, sizeof got);
+    CHECK(strstr(got, "reason: rescue: Back held 3 s, task manager did not open\n") && strstr(got, "kind: problem\n"));
+    snprintf(path, sizeof path, "%s/../crash/pending", tdir);
+    CHECK(file_exists(path) && !has("failures"));
+    // a second look in the same hold restarts nothing more
+    fire_back_timer();
+    settle_children();
+    root_file("systemd-run.log", got, sizeof got);
+    CHECK(count_lines(got) == 1);
+    // a release that is queued and not yet read is read first: nothing starts, and the look comes again soon
+    inputs[0].back.down_at[0] = mono_now() - 3.5;
+    back_restarted = false;
+    struct input_event release = {0};
+    release.type = EV_KEY; release.code = KEY_BACK; release.value = 0;
+    CHECK(write(p[1], &release, sizeof release) == (ssize_t)sizeof release);
+    fire_back_timer();
+    CHECK(!back_restarted && timer_ms <= 60);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1 && back_timer == 0);
+    settle_children();
+    root_file("systemd-run.log", got, sizeof got);
+    CHECK(count_lines(got) == 1);
+
+    close(p[0]); close(p[1]);
+    inputs[0].fd = -1;
+    memset(&inputs[0].back, 0, sizeof inputs[0].back);
+    back_timer = 0; back_restarted = false; comp_up_since = 0; taskmgr_at = 0; taskmgr_open = false;
+    timer_add = g_timeout_add; timer_remove = g_source_remove;
+    systemd_run = "/usr/bin/systemd-run";
+    runtime_dir = "/tmp/xdg"; log_directory = "/tmp/lumatv-logs";
+    escape_mark = "/tmp/.lumatv-escaped";
+    apps_dir = "/media/developer/apps/usr/palm/applications/org.nphil.lumatv";
+}
+
+// The three new bridge lines, and pong's first answer.
+static void test_bridge_lines(void) {
+    fresh_root();
+    fake_installer();
+    log_directory = rootdir;
+    systemd_run = fake_program("systemd-run");
+    reboot_program = fake_program("reboot");
+    pnwash_state = strdup(path_in_state("pnwash-state"));
+    char got[1024], want[1024];
+    comp_up_since = 0;
+    bridge_line("{\"kind\":\"pong\",\"seq\":7}");
+    double first = comp_up_since;
+    bridge_line("{\"kind\":\"pong\",\"seq\":8}");
+    CHECK(first > 0 && comp_up_since == first && pong_seq == 8);                 // the clock starts at the first answer only
+    taskmgr_at = 0;
+    bridge_line("{\"kind\":\"taskmgr\",\"open\":true}");
+    CHECK(taskmgr_open && taskmgr_at > 0);
+    double opened = taskmgr_at;
+    bridge_line("{\"kind\":\"taskmgr\",\"open\":false}");
+    CHECK(!taskmgr_open && taskmgr_at >= opened);
+    // restart: the installer's own, as a unit of its own, whether or not the line gives a reason
+    bridge_line("{\"kind\":\"restart\",\"reason\":\"Restart LumaTV\"}");
+    bridge_line("{\"kind\":\"restart\"}");
+    settle_children();
+    root_file("systemd-run.log", got, sizeof got);
+    snprintf(want, sizeof want, "--no-block --collect --unit=lumatv-restart %s restart\n", tool_path);
+    CHECK(count_lines(got) == 2 && !strncmp(got, want, strlen(want)));
+    // reboot: refused while the refresher runs, run when it does not and when its state is not there
+    put("pnwash-state", "2 1\n");
+    bridge_line("{\"kind\":\"reboot\",\"reason\":\"Restart TV\"}");
+    settle_children();
+    root_file("reboot.log", got, sizeof got);
+    CHECK(got[0] == 0 && !reboot_tv("direct"));
+    put("pnwash-state", "0 8\n");
+    bridge_line("{\"kind\":\"reboot\",\"reason\":\"Restart TV\"}");
+    settle_children();
+    root_file("reboot.log", got, sizeof got);
+    CHECK(count_lines(got) == 1);
+    drop("pnwash-state");
+    bridge_line("{\"kind\":\"reboot\"}");
+    settle_children();
+    root_file("reboot.log", got, sizeof got);
+    CHECK(count_lines(got) == 2);
+    // a dry run runs neither, and a restart with no installer to run is not started
+    dry_run = true;
+    bridge_line("{\"kind\":\"restart\"}");
+    bridge_line("{\"kind\":\"reboot\"}");
+    dry_run = false;
+    CHECK(unlink(tool_path) == 0);
+    bridge_line("{\"kind\":\"restart\"}");
+    settle_children();
+    root_file("systemd-run.log", got, sizeof got);
+    CHECK(count_lines(got) == 2);
+    root_file("reboot.log", got, sizeof got);
+    CHECK(count_lines(got) == 2);
+    comp_up_since = 0; pong_seq = 0; taskmgr_at = 0; taskmgr_open = false;
+    systemd_run = "/usr/bin/systemd-run"; reboot_program = "/sbin/reboot"; pnwash_state = "/mnt/lg/cmn_data/pnwash/state";
+    log_directory = "/tmp/lumatv-logs";
+    escape_mark = "/tmp/.lumatv-escaped";
+    apps_dir = "/media/developer/apps/usr/palm/applications/org.nphil.lumatv";
+}
+
+// A hand-over to LG's Home, in a process of its own (it ends in the exec of LG's compositor), with a fake luna-send and python3 first on the path:
+// the toast it asks for, that it follows the recovery script, and the line the relay is given. `answer` is what the notification service replies.
+static void handover(const char *answer, bool fault, char *args, size_t argsz, char *relay, size_t relaysz) {
+    fresh_root();
+    char path[700], lg[700], dir[700], text[800];
+    snprintf(dir, sizeof dir, "%s/fakebin", rootdir);
+    CHECK(mkdir(dir, 0755) == 0);
+    snprintf(path, sizeof path, "%s/luna-send", dir);
+    snprintf(text, sizeof text, "#!/bin/sh\nprintf '%%s\\n' \"$@\" > \"$(dirname \"$0\")/../toast.args\"\necho '%s'\n", answer);
+    put_raw(path, text);
+    CHECK(chmod(path, 0755) == 0);
+    snprintf(path, sizeof path, "%s/python3", dir);
+    put_raw(path, "#!/bin/sh\necho \"$*\" >> \"$(dirname \"$0\")/../relay.log\"\n");
+    CHECK(chmod(path, 0755) == 0);
+    put("bin/recover-home.sh", "echo \"$@\" > \"$(dirname \"$0\")/recovered\"\n");
+    snprintf(lg, sizeof lg, "%s/lg-compositor", rootdir);
+    put_raw(lg, "#!/bin/sh\necho ran > \"$(dirname \"$0\")/lg-ran\"\n");
+    CHECK(chmod(lg, 0755) == 0);
+    fflush(NULL);
+    pid_t supervisor = fork();
+    if (supervisor == 0) {
+        char *argv[] = { lg, NULL }, search[700];
+        snprintf(search, sizeof search, "%s:/usr/bin:/bin", dir);
+        setenv("PATH", search, 1);
+        saved_argv = argv;
+        lg_binary = lg;
+        supervising = true;
+        started_mono = mono_now();
+        runtime_dir = rootdir;
+        log_directory = rootdir;
+        child_pid = fork();
+        if (child_pid == 0) { for (;;) pause(); }
+        if (fault) fallback("heartbeat: two beats missed", true);
+        else escape("rescue: Back held 10 s, LumaTV did not restart");
+        _exit(99);
+    }
+    int status = 0;
+    CHECK(waitpid(supervisor, &status, 0) == supervisor && WIFEXITED(status) && WEXITSTATUS(status) == 0);   // LG's compositor ran and ended
+    snprintf(path, sizeof path, "%s/relay.log", rootdir);
+    for (int i = 0; i < 600 && !file_exists(path); i++) usleep(5000);
+    slurp_path(path, relay, relaysz);
+    snprintf(path, sizeof path, "%s/toast.args", rootdir);
+    slurp_path(path, args, argsz);
+}
+
+static void test_escape_toast(void) {
+    char args[1024], relay[1024], got[256];
+    handover("{\"returnValue\":true}", true, args, sizeof args, relay, sizeof relay);
+    CHECK(strstr(args, "-n\n1\n-f\nluna://com.webos.notification/createToast\n") != NULL);
+    CHECK(strstr(args, "\"sourceId\":\"com.webos.app.home\"") && strstr(args, "\"noaction\":true") && strstr(args, "\"persistent\":false"));
+    CHECK(strstr(args, "\"message\":\"LumaTV stopped\\nheartbeat: two beats missed. LG's Home is showing.\"") != NULL);
+    CHECK(strstr(relay, "send lumatv-sm toast: sent (recovery exited 0)") != NULL);
+    slurp("bin/recovered", got, sizeof got);
+    CHECK(!strcmp(got, "--stock"));                                           // the script ran, and before the toast
+    handover("{\"returnValue\":false}", false, args, sizeof args, relay, sizeof relay);
+    CHECK(strstr(args, "\"message\":\"LumaTV is off\\nrescue: Back held 10 s, LumaTV did not restart. LG's Home is showing.\"") != NULL);
+    CHECK(strstr(relay, "send lumatv-sm toast: failed (recovery exited 0)") != NULL);
+    slurp("escaped", got, sizeof got);
+    CHECK(!strcmp(got, "rescue: Back held 10 s, LumaTV did not restart") && !has("failures"));
+    escape_mark = "/tmp/.lumatv-escaped";
+    apps_dir = "/media/developer/apps/usr/palm/applications/org.nphil.lumatv";
+}
+
 int main(void) {
     test_json();
     test_decide();
@@ -3054,6 +3647,11 @@ int main(void) {
     test_bridge_gone();
     test_logs_do_not_touch_old_files();
     test_crash_bundle();
+    test_refresher_guard();
+    test_back_hold();
+    test_back_rescue();
+    test_bridge_lines();
+    test_escape_toast();
     for (int i = 0; i < nmade; i++) { char cmd[300]; snprintf(cmd, sizeof cmd, "rm -rf %s", made[i]); if (system(cmd) != 0) failures_seen++; }
     printf("lumatv-sm json tests: %s\n", failures_seen ? "FAILED" : "ok");
     return failures_seen ? 1 : 0;

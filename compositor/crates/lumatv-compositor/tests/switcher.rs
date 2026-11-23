@@ -1,7 +1,7 @@
-//! The app switcher (`switcher.rs`) under the real `State`, with the shell client played by messages and the apps by windows:
+//! The task manager (`switcher.rs`) under the real `State`, with the shell client played by messages and the apps by windows:
 //! the second press of Home (and that a single press is Home at once, with nothing held back to see whether another comes), the
 //! Home hold's escape untouched, the list of running apps, the pictures drawn while it is open and never otherwise, a card's
-//! motion, Quit through the app manager, and the shell going away.
+//! motion, Quit through the app manager, and the shell going away, where the basic screen takes over.
 //!
 //! Time is an argument everywhere it matters: the server is not left to tick on its own, and each step names the instant it is at.
 
@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use harness::{Client, Server, Window, drawn};
 use lumatv_compositor::State;
 use lumatv_compositor::input::code::*;
-use lumatv_compositor::luna::ToBridge;
+use lumatv_compositor::luna::{Event, ToBridge};
 use lumatv_compositor::render::egl::Platform;
 use lumatv_compositor::render::gl::{BufferPath, Gl};
 use lumatv_compositor::scene::Hole;
@@ -176,6 +176,8 @@ fn a_second_press_from_an_app_opens_the_switcher_and_does_not_ask_for_home_again
         assert_eq!(launches_home(s), 1, "the first press went Home at once");
         assert!(!s.switcher_active(), "and opened nothing");
         tap(s, t0 + MS(300), MS(80));
+        // the app manager has had its moment to answer: the shell is told of the opening
+        s.switcher_frame(t0 + MS(600));
         (launches_home(s), topic(s, "switcher"), topic(s, "apps"))
     });
     assert_eq!(homes, 1, "the second press is the switcher's: no second Home");
@@ -286,6 +288,7 @@ fn a_press_on_home_with_apps_open_is_offered_to_the_shell_which_opens_it_and_a_t
         let offered = recorded(s, "homekey").last().cloned();
         // the shell, with nothing open on Home, asks for it
         op(s, json!({"op": "open"}));
+        s.switcher_frame(Instant::now() + MS(130));
         (launches_home(s), offered, topic(s, "switcher"), topic(s, "apps"))
     });
     assert_eq!(homes, 1, "Home as ever");
@@ -322,7 +325,7 @@ fn with_no_app_open_home_offers_nothing() {
 fn an_app_with_its_picture_on_the_video_plane_is_listed_as_video_and_never_given_a_picture() {
     let rig = rig_home(&["switcher"]);
     rig.server.eval(|s| {
-        let surface = s.switcher_apps().into_iter().find(|a| a.id == "youtube").unwrap().surface;
+        let surface = s.switcher_apps().into_iter().find(|a| a.id == "youtube").unwrap().surface.unwrap();
         s.scene.holes.push(Hole { surface, rect: Rect::new(0, 0, 400, 225) });
         s.luna_notify();
         let t0 = Instant::now();
@@ -476,14 +479,20 @@ fn reduced_motion_fades_and_does_not_travel() {
 }
 
 #[test]
-fn the_shell_that_does_not_place_the_cards_in_time_is_given_up() {
+fn the_shell_that_does_not_place_the_cards_in_time_is_replaced_by_the_basic_screen() {
     let rig = rig_home(&["switcher"]);
     rig.server.eval(|s| {
         let t0 = Instant::now();
         assert!(s.switcher_open(None, t0));
         s.switcher_frame(t0 + MS(700));
-        assert_eq!(topic(s, "switcher")["open"], false);
-        s.switcher_frame(t0 + MS(1000));
+        assert_eq!(s.switcher_report()["mode"], "ui", "the shell still has its time");
+        s.switcher_frame(t0 + MS(800));
+        assert_eq!(s.switcher_report()["mode"], "fallback");
+        assert!(s.switcher_active() && backdrop_in_plan(s), "the basic screen is drawn instead of nothing");
+        // it takes the keys itself: Back is its close, and the app never hears of it
+        s.key_event_at(SeatId(0), KEY_BACK, true, false, t0 + MS(900));
+        s.key_event_at(SeatId(0), KEY_BACK, false, false, t0 + MS(950));
+        s.switcher_frame(t0 + MS(1200));
         assert!(!s.switcher_active());
     });
 }
@@ -590,15 +599,20 @@ fn quit_all_asks_for_every_app_and_lumatvs_own_are_never_closed() {
 }
 
 #[test]
-fn home_and_the_shell_going_away_close_it() {
+fn the_shell_going_away_hands_an_open_task_manager_to_the_basic_screen_and_ends_a_closing_one() {
     let rig = rig_home(&["switcher"]);
     rig.server.eval(|s| {
         let t0 = Instant::now();
         assert!(s.switcher_open(None, t0));
         op(s, layout(&[("plex", 112, 340, 400, 225, 22)], 0));
-        assert!(s.switcher_active());
         s.shell_rust_restart();
-        assert!(!s.switcher_active(), "no shell, no switcher: nothing could place the cards or take a key");
+        assert!(s.switcher_active(), "the basic screen has its own keys: it stays");
+        assert_eq!(s.switcher_report()["mode"], "fallback");
+        s.switcher_frame(t0 + MS(50));
+        assert!(backdrop_in_plan(s));
+        s.switcher_close("test", t0 + MS(60));
+        s.switcher_reset();
+        assert!(!s.switcher_active(), "one that is already closing has nothing to hand over");
         assert!(!backdrop_in_plan(s));
     });
 }
@@ -633,6 +647,246 @@ fn the_switcher_asks_for_nothing_it_has_no_cards_for() {
         op(s, json!({"op": "quit", "id": "ghost"}));
         op(s, json!({"op": "bogus"}));
         assert!(calls(s, LAUNCH).is_empty() && calls(s, CLOSE_APP).is_empty());
+    });
+}
+
+// ---- the list the app manager vouches for, hung apps, system actions, the numbers and the basic screen ----
+
+/// What the app manager answers when asked what runs, as its `running` call does.
+fn sam_answers(s: &mut State, running: Value) {
+    let token = s
+        .luna
+        .history()
+        .iter()
+        .rev()
+        .find_map(|m| match m {
+            ToBridge::Outbound(o) if o.uri.ends_with("/running") => Some(o.token),
+            _ => None,
+        })
+        .expect("the task manager asked the app manager what runs");
+    s.luna_event(Event { token, payload: json!({"returnValue": true, "running": running}) });
+}
+
+/// A layout that carries the shell's palette: from it the shell is one that draws the numbers, and is watched for answering them.
+fn armed_layout() -> Value {
+    let mut body = layout(&[("plex", 112, 340, 400, 225, 22)], 0);
+    body["palette"] = json!({"panel": [16, 12, 28], "text": [224, 222, 244], "muted": [144, 140, 170], "accent": [196, 167, 231], "danger": [235, 111, 146]});
+    body
+}
+
+fn bridged(s: &State, line: &ToBridge) -> bool {
+    s.luna.history().contains(line)
+}
+
+/// The shell's list as `id:picture`.
+fn listed(s: &State) -> Vec<String> {
+    topic(s, "apps").as_array().unwrap().iter().map(|a| format!("{}:{}", a["id"].as_str().unwrap(), a["picture"].as_str().unwrap())).collect()
+}
+
+/// Whether the process shows as stopped in `/proc`, which a `SIGSTOP`ped one does once the signal is handled.
+fn stopped(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|t| t.rsplit(") ").next().is_some_and(|rest| rest.starts_with('T')))
+}
+
+#[test]
+fn the_app_managers_list_adds_a_running_app_that_has_no_window_and_never_a_service() {
+    let mut rig = rig_home(&["switcher"]);
+    rig.server.eval(|s| {
+        // opened once, it has seen the three
+        let t0 = Instant::now();
+        assert!(s.switcher_open(None, t0));
+        s.switcher_close("test", t0 + MS(10));
+        s.switcher_frame(t0 + MS(400));
+        assert!(!s.switcher_active());
+    });
+    // YouTube's window goes, and the app manager still has it running
+    let youtube = rig.apps.remove(1);
+    youtube.win.surface.destroy();
+    drop(youtube);
+    rig.apps[0]._client.roundtrip();
+    rig.server.eval(|s| {
+        s.luna_notify();
+        assert!(s.switcher_open(None, Instant::now()));
+        let windows: Vec<String> = s.switcher_apps().into_iter().map(|a| a.id).collect();
+        assert_eq!(windows, ["plex", "netflix"], "until the app manager has answered, the windows are all there is");
+        sam_answers(
+            s,
+            json!([
+                {"id": "plex", "processid": "999991"},
+                {"id": "netflix", "processid": "999992"},
+                {"id": "youtube", "processid": "999993"},
+                {"id": "com.webos.service.update", "processid": "999994"},
+            ]),
+        );
+        assert_eq!(listed(s), ["plex:live", "netflix:live", "youtube:none"], "what has no window is last, and a service never is there");
+    });
+}
+
+#[test]
+fn an_app_whose_process_is_stopped_is_marked_hung_and_quit_ends_it_without_asking_it() {
+    let rig = rig_home(&["switcher"]);
+    let mut child = std::process::Command::new("sleep").arg("60").spawn().expect("sleep starts");
+    let pid = child.id();
+    unsafe { libc::kill(pid as i32, libc::SIGSTOP) };
+    let waited = Instant::now();
+    while !stopped(pid) && waited.elapsed() < WAIT {
+        std::thread::sleep(MS(5));
+    }
+    assert!(stopped(pid), "the test's process stopped");
+    rig.server.eval(move |s| {
+        let t0 = Instant::now();
+        assert!(s.switcher_open(None, t0));
+        op(s, layout(&[("plex", 112, 340, 400, 225, 22), ("youtube", 544, 340, 400, 225, 22)], 0));
+        sam_answers(s, json!([{"id": "plex", "processid": pid.to_string()}, {"id": "youtube", "processid": "999993"}]));
+        let apps = topic(s, "apps");
+        let hung = |id: &str| apps.as_array().unwrap().iter().find(|a| a["id"] == id).unwrap()["hung"].clone();
+        assert_eq!((hung("plex"), hung("youtube")), (json!(true), json!(false)), "a stopped process cannot answer a close");
+        op(s, json!({"op": "quit", "id": "plex"}));
+        assert!(calls(s, CLOSE_APP).is_empty(), "it is not asked: it would not hear");
+    });
+    let waited = Instant::now();
+    let ended = loop {
+        match child.try_wait().unwrap() {
+            Some(status) => break Some(status),
+            None if waited.elapsed() > WAIT => break None,
+            None => std::thread::sleep(MS(10)),
+        }
+    };
+    if ended.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    assert!(ended.is_some_and(|status| !status.success()), "quit killed the stopped process");
+}
+
+#[test]
+fn a_system_action_closes_the_apps_first_and_tells_the_helper_after() {
+    let rig = rig_home(&["switcher"]);
+    rig.server.eval(|s| {
+        let restart = ToBridge::Restart { reason: "the task manager".into() };
+        let t0 = Instant::now();
+        assert!(s.switcher_open(None, t0));
+        op(s, layout(&[("plex", 112, 340, 400, 225, 22), ("youtube", 544, 340, 400, 225, 22), ("netflix", 976, 340, 400, 225, 22)], 0));
+        op(s, json!({"op": "system", "action": "restart-lumatv"}));
+        assert_eq!(calls(s, CLOSE_APP).len(), 3, "every app is asked to close first");
+        assert!(!bridged(s, &restart));
+        s.switcher_frame(Instant::now() + MS(1000));
+        assert!(!bridged(s, &restart), "the apps have their four seconds");
+        s.switcher_frame(Instant::now() + Duration::from_secs(5));
+        assert!(bridged(s, &restart), "then the helper is told, the apps that did not go notwithstanding");
+    });
+}
+
+#[test]
+fn closing_the_task_manager_calls_off_an_action_the_helper_was_not_told_of() {
+    let rig = rig_home(&["switcher"]);
+    rig.server.eval(|s| {
+        let t0 = Instant::now();
+        assert!(s.switcher_open(None, t0));
+        op(s, layout(&[("plex", 112, 340, 400, 225, 22)], 0));
+        op(s, json!({"op": "system", "action": "lg-home"}));
+        s.switcher_close("test", Instant::now());
+        s.switcher_frame(Instant::now() + Duration::from_secs(10));
+        assert!(!bridged(s, &ToBridge::Fallback { reason: "the task manager".into() }));
+    });
+}
+
+#[test]
+fn the_numbers_are_read_only_while_it_is_open() {
+    let rig = rig_home(&["switcher"]);
+    rig.server.eval(|s| {
+        let read = |s: &State| s.switcher_report()["numbers"]["samples"].as_u64().unwrap();
+        let t0 = Instant::now();
+        s.switcher_frame(t0 + MS(2000));
+        assert_eq!(read(s), 0, "closed: nothing is read");
+        let t1 = t0 + MS(3000);
+        assert!(s.switcher_open(None, t1));
+        op(s, layout(&[("plex", 112, 340, 400, 225, 22)], 0));
+        assert_eq!(read(s), 1, "the baseline, read as it opens");
+        s.switcher_frame(t1 + MS(300));
+        s.switcher_frame(t1 + MS(1400));
+        assert_eq!(read(s), 3);
+        assert_eq!(topic(s, "stats")["n"], 2, "the shell is sent the numbers from the second reading on");
+        s.switcher_close("test", t1 + MS(1500));
+        s.switcher_frame(t1 + MS(1800));
+        assert!(!s.switcher_active());
+        s.switcher_frame(t1 + MS(9000));
+        s.switcher_frame(t1 + MS(20_000));
+        assert_eq!(read(s), 3, "closed again: nothing is read");
+    });
+}
+
+#[test]
+fn a_shell_that_stops_answering_its_numbers_is_replaced_by_the_basic_screen_and_one_that_answers_is_not() {
+    let rig = rig_home(&["switcher"]);
+    rig.server.eval(|s| {
+        let t0 = Instant::now();
+        assert!(s.switcher_open(None, t0));
+        op(s, armed_layout());
+        for at in [300, 1400, 2500] {
+            s.switcher_frame(t0 + MS(at));
+            let n = topic(s, "stats")["n"].as_u64().expect("the shell is sent the numbers");
+            op(s, json!({"op": "beat", "n": n}));
+        }
+        s.switcher_frame(t0 + MS(5000));
+        assert_eq!(s.switcher_report()["mode"], "ui", "a shell that answers is left to draw");
+        // and now it says nothing
+        s.switcher_frame(t0 + MS(7400));
+        assert_eq!(s.switcher_report()["mode"], "ui", "2.4 s is not yet 2.5");
+        s.switcher_frame(t0 + MS(7600));
+        assert_eq!(s.switcher_report()["mode"], "fallback");
+    });
+}
+
+#[test]
+fn the_basic_screen_closes_itself_after_forty_five_seconds_of_nobody_pressing_anything() {
+    let rig = rig_home(&["switcher"]);
+    rig.server.eval(|s| {
+        let t0 = Instant::now();
+        assert!(s.switcher_open(None, t0));
+        s.switcher_frame(t0 + MS(800));
+        assert_eq!(s.switcher_report()["mode"], "fallback");
+        s.switcher_frame(t0 + MS(44_000));
+        assert!(backdrop_in_plan(s), "still there at 44 s");
+        s.switcher_frame(t0 + MS(46_000));
+        s.switcher_frame(t0 + MS(46_500));
+        assert!(!s.switcher_active() && !backdrop_in_plan(s), "gone: a screen nobody is at does not stay lit");
+    });
+}
+
+#[test]
+fn the_basic_screen_takes_ok_itself_and_launches_the_app_it_is_on() {
+    let rig = rig_home(&["switcher"]);
+    rig.server.eval(|s| {
+        let t0 = Instant::now();
+        assert!(s.switcher_open(None, t0));
+        s.switcher_frame(t0 + MS(800));
+        assert_eq!(s.switcher_report()["mode"], "fallback");
+        s.key_event_at(SeatId(0), KEY_OK, true, false, t0 + MS(900));
+        s.key_event_at(SeatId(0), KEY_OK, false, false, t0 + MS(950));
+        let launched = calls(s, LAUNCH);
+        assert_eq!(launched.len(), 1, "{launched:?}");
+        assert_eq!(launched[0]["id"], "plex", "the first card, the newest app");
+    });
+}
+
+#[test]
+fn a_hold_of_back_opens_it_over_home_with_no_app_running_and_without_a_shell_the_basic_screen_draws_it() {
+    let server = Server::start();
+    server.ticking.store(false, Ordering::SeqCst);
+    server.eval(|s| {
+        let t0 = Instant::now();
+        let _ = lumatv_compositor::control::handle(s, "switcher hold");
+        assert!(s.switcher_active(), "it opens with nothing running: the screen says so");
+        assert_eq!(s.switcher_report()["mode"], "fallback", "and with no shell the compositor draws it");
+        assert!(bridged(s, &ToBridge::Taskmgr { open: true }), "the helper is told it is open");
+        s.switcher_frame(t0 + MS(50));
+        assert!(backdrop_in_plan(s));
+        s.key_event_at(SeatId(0), KEY_BACK, true, false, t0 + MS(100));
+        s.key_event_at(SeatId(0), KEY_BACK, false, false, t0 + MS(150));
+        s.switcher_frame(t0 + MS(500));
+        assert!(!s.switcher_active() && !backdrop_in_plan(s));
+        assert!(bridged(s, &ToBridge::Taskmgr { open: false }));
     });
 }
 

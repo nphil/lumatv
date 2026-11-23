@@ -1,9 +1,12 @@
 //! Routes remote system requests to the native UI or explicitly selected LG apps.
 
+use std::time::Instant;
+
 use serde_json::{Value, json};
 
 use crate::State;
 use crate::keys::{HoldAction, SystemRequest};
+use crate::scene::HOME_APP;
 
 const QUICK_ACCESS: &str = "com.webos.app.magicnum";
 const ACCESSIBILITY: &str = "com.webos.app.accessibility-overlay";
@@ -44,9 +47,18 @@ impl State {
             SystemRequest::OpenSettings => self.button_shows("settings", "LumaTV's Settings"),
             SystemRequest::OpenNotifications => self.button_shows("drawer", "the notification drawer"),
             SystemRequest::PictureOff => self.picture_off(),
-            SystemRequest::Exit => self.back_pressed(),
+            SystemRequest::TaskManager => self.back_held(),
             SystemRequest::CloseKeyboard => self.close_keyboard("a key asked for the keyboard to close"),
         }
+    }
+
+    /// Back held ([`crate::keys::BACK_HOLD`]): the task manager opens over what is on the screen: Home, or an app that does not answer, with
+    /// or without apps running. The foreground app shrinks into its card; Home and LumaTV's own apps are not cards.
+    pub(crate) fn back_held(&mut self) {
+        let foreground = self.foreground_app();
+        let from = (!foreground.is_empty() && foreground != HOME_APP).then_some(foreground);
+        self.journal("input: Back held: the task manager".into());
+        self.taskmgr_open(from, Instant::now());
     }
 
     /// A button the owner set to open one of LumaTV's own surfaces (Settings > Remote & pointer > Buttons). Never LG's: a surface the shell

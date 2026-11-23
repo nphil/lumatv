@@ -1,4 +1,4 @@
-//! The app switcher's scrim and pictures in the GL renderer (`scene/backdrop.rs`).
+//! The task manager's scrim, pictures and basic screen in the GL renderer (`scene/backdrop.rs`).
 //!
 //! A picture is a window's own buffer drawn again, scaled: no copy to the CPU, no read back, nothing of the video plane (a window
 //! with a hole never gets a picture, `switcher.rs`). The window is 1920 by 1080 and the card 400 by 225, a shrink by almost five:
@@ -7,6 +7,11 @@
 //! 2x2 average); a picture is drawn from the smallest copy that is still at least as wide as the card, never shrunk by more than
 //! two. The chain is made when the switcher opens, while the shell places the cards (`prepare_previews`), and again when the
 //! window's buffer changes; it is dropped with the switcher. The card's corners are rounded in the fragment shader.
+//!
+//! An app that leaves the front releases its buffer, so its last frame is kept then as a thumbnail: the same two halvings, only the
+//! quarter kept (480 by 270, 0.5 MB, at most [`THUMBS_KEPT`]). Thumbnails outlive the switcher; the compositor drops the ones of apps
+//! that are gone (`retain_thumbs`). The basic screen is a few textures of finished pixels, uploaded when they change and dropped with
+//! the switcher.
 
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -17,7 +22,7 @@ use wayland_server::protocol::wl_buffer::WlBuffer;
 
 use super::{Gl, VS, egl, link, set_params};
 use crate::Rect;
-use crate::scene::{Backdrop, PlannedPreview};
+use crate::scene::{Backdrop, Overlay, PlannedPreview, PlannedSource};
 use egl::GLuint;
 
 /// The picture's fragment shader: the buffer (or a flat colour, when `u_color.a` is not negative) times how much of the pixel is inside a
@@ -42,6 +47,7 @@ struct Program {
     u_a: i32,
 }
 
+#[derive(Clone, Copy)]
 struct Level {
     fbo: GLuint,
     tex: GLuint,
@@ -53,12 +59,29 @@ struct Chain {
     levels: Vec<Level>,
 }
 
-/// What the renderer keeps for the switcher while it is open.
+/// A texture of the basic screen: which pixels (`rev`) and how big.
+struct Tex {
+    tex: GLuint,
+    rev: u64,
+    size: (i32, i32),
+}
+
+/// The most thumbnails kept at once.
+const THUMBS_KEPT: usize = 12;
+
+/// What the renderer keeps for the switcher.
 #[derive(Default)]
 pub(super) struct Previews {
     program: Option<Program>,
     failed: bool,
     chains: HashMap<ObjectId, Chain>,
+    /// An app's last picture at a quarter of its size; `thumb_order` has the apps, the one kept longest ago first.
+    thumbs: HashMap<String, Level>,
+    thumb_order: Vec<String>,
+    /// The half-size step a thumbnail is made through.
+    scratch: Option<Level>,
+    /// The parts of the basic screen, by key.
+    overlays: HashMap<u8, Tex>,
 }
 
 impl Gl {
@@ -233,9 +256,111 @@ impl Gl {
         }
     }
 
-    /// Frees the copies once the switcher is closed (the plan carries no backdrop).
+    /// Keeps `buffer` as `app`'s last picture. It is made when the app leaves the front, from the buffer it is about to release, and is
+    /// submitted before the client can write into that buffer again (the rule of a window's saved picture, `freeze_app`). `false` when it
+    /// cannot be made now: the driver is still busy with the buffer, or it cannot be imported.
+    pub fn keep_thumb(&mut self, app: &str, buffer: &WlBuffer) -> bool {
+        if self.textures.get(&buffer.id()).is_some_and(|t| t.external && (t.warm_sync.is_some() || t.held)) {
+            return false;
+        }
+        let Some((tex, size, y_invert, _)) = self.texture_for(buffer, None, &Rect::default()) else { return false };
+        if size.0 <= 0 || size.1 <= 0 {
+            return false;
+        }
+        let half = ((size.0 + 1) / 2, (size.1 + 1) / 2);
+        let quarter = ((half.0 + 1) / 2, (half.1 + 1) / 2);
+        let scratch = self.previews.scratch.take();
+        let Some(scratch) = self.fit_level(scratch, half) else { return false };
+        self.previews.scratch = Some(scratch);
+        let old = self.previews.thumbs.remove(app);
+        let Some(thumb) = self.fit_level(old, quarter) else { return false };
+        self.shrink(tex, y_invert, scratch.fbo, half);
+        self.shrink(scratch.tex, true, thumb.fbo, quarter);
+        self.restore_target();
+        if let Some(fence) = self.egl.kick_fence() {
+            // SAFETY: consumes this context's fence without waiting.
+            unsafe { self.egl.wait_fence(fence, 0) };
+        } else {
+            // SAFETY: submits this context's work; no CPU readback or wait.
+            unsafe { (self.egl.api.glFlush)() };
+        }
+        self.previews.thumbs.insert(app.to_string(), thumb);
+        self.previews.thumb_order.retain(|a| a != app);
+        self.previews.thumb_order.push(app.to_string());
+        while self.previews.thumb_order.len() > THUMBS_KEPT {
+            let oldest = self.previews.thumb_order.remove(0);
+            if let Some(l) = self.previews.thumbs.remove(&oldest) {
+                self.free_level(&l);
+            }
+        }
+        true
+    }
+
+    /// Whether a thumbnail of `app` is kept.
+    pub fn has_thumb(&self, app: &str) -> bool {
+        self.previews.thumbs.contains_key(app)
+    }
+
+    /// Drops the thumbnails of every app not in `apps`.
+    pub fn retain_thumbs(&mut self, apps: &[String]) {
+        let gone: Vec<String> = self.previews.thumbs.keys().filter(|k| !apps.contains(*k)).cloned().collect();
+        for k in gone {
+            if let Some(l) = self.previews.thumbs.remove(&k) {
+                self.free_level(&l);
+            }
+        }
+        self.previews.thumb_order.retain(|a| apps.contains(a));
+        if self.previews.thumbs.is_empty()
+            && let Some(l) = self.previews.scratch.take()
+        {
+            self.free_level(&l);
+        }
+    }
+
+    /// `level` if it is `size`, else one that is (the old one freed).
+    fn fit_level(&self, level: Option<Level>, size: (i32, i32)) -> Option<Level> {
+        if let Some(l) = level {
+            if l.size == size {
+                return Some(l);
+            }
+            self.free_level(&l);
+        }
+        match self.make_level(size) {
+            Ok(l) => Some(l),
+            Err(e) => {
+                log::warn!("the task manager's thumbnail: {e}");
+                None
+            }
+        }
+    }
+
+    /// Puts an overlay's pixels in a texture of its own when they are new: the basic screen changes on a key, not on a frame.
+    fn upload_overlay(&mut self, o: &Overlay) {
+        let (w, h) = (o.rect.w, o.rect.h);
+        if w <= 0 || h <= 0 || o.rgba.len() != w as usize * h as usize * 4 {
+            return;
+        }
+        let have = self.previews.overlays.get(&o.key).map(|t| (t.tex, t.rev, t.size));
+        if have.is_some_and(|(_, rev, size)| rev == o.rev && size == (w, h)) {
+            return;
+        }
+        let a = &self.egl.api;
+        let mut tex = have.map_or(0, |(t, _, _)| t);
+        // SAFETY: texture creation and upload on the current context, from a buffer of exactly w * h * 4 bytes.
+        unsafe {
+            if tex == 0 {
+                (a.glGenTextures)(1, &mut tex);
+            }
+            (a.glBindTexture)(egl::GL_TEXTURE_2D, tex);
+            (a.glTexImage2D)(egl::GL_TEXTURE_2D, 0, egl::GL_RGBA as i32, w, h, 0, egl::GL_RGBA, egl::GL_UNSIGNED_BYTE, o.rgba.as_ptr() as *const c_void);
+            set_params(a);
+        }
+        self.previews.overlays.insert(o.key, Tex { tex, rev: o.rev, size: (w, h) });
+    }
+
+    /// Frees the copies and the basic screen's textures once the switcher is closed (the plan carries no backdrop). Thumbnails stay.
     pub(super) fn free_previews(&mut self) {
-        if self.previews.chains.is_empty() {
+        if self.previews.chains.is_empty() && self.previews.overlays.is_empty() {
             return;
         }
         for (_, chain) in std::mem::take(&mut self.previews.chains) {
@@ -243,12 +368,20 @@ impl Gl {
                 self.free_level(l);
             }
         }
+        for (_, t) in std::mem::take(&mut self.previews.overlays) {
+            // SAFETY: a texture this renderer made, freed once.
+            unsafe { (self.egl.api.glDeleteTextures)(1, &t.tex) };
+        }
     }
 
-    /// Which texture a picture is drawn from: the smallest of the buffer and its two copies that is still wider than the card.
+    /// Which texture a picture is drawn from: a thumbnail, or the smallest of the buffer and its two copies that is still wider than the card.
     fn picture_source(&self, p: &PlannedPreview) -> Option<(GLuint, bool)> {
-        let chain = self.previews.chains.get(&p.buffer.id())?;
-        let t = self.textures.get(&p.buffer.id())?;
+        let buffer = match &p.source {
+            PlannedSource::Thumb(app) => return self.previews.thumbs.get(app).map(|l| (l.tex, true)),
+            PlannedSource::Window { buffer, .. } => buffer,
+        };
+        let chain = self.previews.chains.get(&buffer.id())?;
+        let t = self.textures.get(&buffer.id())?;
         let w = p.rect.w;
         Some(match chain.levels.as_slice() {
             [_, q] if w <= q.size.0 => (q.tex, true),
@@ -257,7 +390,7 @@ impl Gl {
         })
     }
 
-    /// The scrim over the whole output and the pictures on it, inside `rects`.
+    /// The scrim over the whole output, the basic screen on it and the pictures on that, inside `rects`.
     pub(super) fn draw_backdrop(&mut self, b: &Backdrop, rects: &[Rect]) {
         if self.preview_program().is_none() {
             return;
@@ -265,7 +398,13 @@ impl Gl {
         // Every copy is made before the frame's own target is bound again below: making one binds others.
         let mut ready = Vec::with_capacity(b.previews.len());
         for p in &b.previews {
-            ready.push(self.ensure_chain(&p.buffer, p.dirty));
+            ready.push(match &p.source {
+                PlannedSource::Window { buffer, dirty, .. } => self.ensure_chain(buffer, *dirty),
+                PlannedSource::Thumb(_) => true,
+            });
+        }
+        for o in &b.overlays {
+            self.upload_overlay(o);
         }
         self.restore_target();
         let Some(prog) = self.previews.program.as_ref() else { return };
@@ -288,6 +427,22 @@ impl Gl {
                 if !clip.is_empty() {
                     self.scissor(&clip);
                     self.quad(a_pos, a_uv, dummy, &full, true);
+                }
+            }
+        }
+        for o in &b.overlays {
+            let Some(tex) = self.previews.overlays.get(&o.key).filter(|t| t.rev == o.rev).map(|t| t.tex) else { continue };
+            let a = &self.egl.api;
+            // SAFETY: as above.
+            unsafe {
+                (a.glUniform4f)(u_color, 0.0, 0.0, 0.0, -1.0);
+                (a.glUniform4f)(u_a, 1.0, 0.0, o.rect.w as f32, o.rect.h as f32);
+            }
+            for r in rects {
+                let clip = o.rect.intersect(r);
+                if !clip.is_empty() {
+                    self.scissor(&clip);
+                    self.quad(a_pos, a_uv, tex, &o.rect, true);
                 }
             }
         }

@@ -8,7 +8,7 @@ use wayland_server::protocol::wl_buffer::WlBuffer;
 use crate::Rect;
 use crate::buffer::{BufferKindRef, kind_of};
 use crate::output::{FrameClock, Image, Output, Presented, RenderStats};
-use crate::scene::{Backdrop, HoleVeil, Plan, Posed, coverage};
+use crate::scene::{Backdrop, HoleVeil, Plan, PlannedSource, Posed, coverage};
 use crate::surface::Surfaces;
 use crate::transition::{VEIL_RGB, mask_coverage};
 
@@ -54,7 +54,8 @@ impl Software {
         self.pixels[(y * self.width + x) as usize]
     }
 
-    /// The app switcher's scrim and pictures (`scene/backdrop.rs`), inside `area`. Only `wl_shm` pictures can be read here.
+    /// The task manager's scrim, the basic screen and the pictures (`scene/backdrop.rs`), inside `area`. Only `wl_shm` pictures can be read
+    /// here; a thumbnail is the GL renderer's own and is skipped.
     fn draw_backdrop(&mut self, b: &Backdrop, area: &Rect, stats: &mut RenderStats) {
         let scrim = pack(b.scrim);
         if b.scrim[3] > 0.0 {
@@ -66,12 +67,30 @@ impl Software {
                 }
             }
         }
+        for o in &b.overlays {
+            let clip = o.rect.intersect(area);
+            if clip.is_empty() || o.rgba.len() != o.rect.w as usize * o.rect.h as usize * 4 {
+                continue;
+            }
+            for y in clip.y..clip.bottom() {
+                let from = ((y - o.rect.y) as usize * o.rect.w as usize + (clip.x - o.rect.x) as usize) * 4;
+                let row = y as usize * self.width as usize + clip.x as usize;
+                for (i, px) in o.rgba[from..from + clip.w as usize * 4].chunks_exact(4).enumerate() {
+                    let d = &mut self.pixels[row + i];
+                    *d = blend(*d, u32::from_be_bytes([px[3], px[0], px[1], px[2]]));
+                }
+            }
+        }
         for p in &b.previews {
             let clip = p.rect.intersect(area);
             if clip.is_empty() {
                 continue;
             }
-            let BufferKindRef::Shm(shm) = kind_of(&p.buffer) else {
+            let PlannedSource::Window { buffer, src: size, .. } = &p.source else {
+                stats.skipped += 1;
+                continue;
+            };
+            let BufferKindRef::Shm(shm) = kind_of(buffer) else {
                 stats.skipped += 1;
                 continue;
             };
@@ -82,14 +101,14 @@ impl Software {
             shm.pool.with_bytes(|bytes| {
                 for y in clip.y..clip.bottom() {
                     let fy = (y - p.rect.y) as f32 + 0.5;
-                    let sy = ((fy / h * p.src.1 as f32) as i32).clamp(0, p.src.1 - 1);
+                    let sy = ((fy / h * size.1 as f32) as i32).clamp(0, size.1 - 1);
                     for x in clip.x..clip.right() {
                         let fx = (x - p.rect.x) as f32 + 0.5;
                         let cover = coverage(fx, fy, w, h, p.radius) * p.alpha;
                         if cover <= 0.0 {
                             continue;
                         }
-                        let sx = ((fx / w * p.src.0 as f32) as i32).clamp(0, p.src.0 - 1);
+                        let sx = ((fx / w * size.0 as f32) as i32).clamp(0, size.0 - 1);
                         if let Some(src) = shm.pixel(bytes, sx, sy) {
                             let d = &mut pixels[y as usize * width + x as usize];
                             *d = blend(*d, scale(src, cover));

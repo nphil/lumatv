@@ -3,6 +3,7 @@
 //! layer over opaque pixels stays opaque (no video shows through the UI) and over the hole stays translucent (the video shows through it), a full
 //! screen video app with nothing over it draws one frame and then nothing, and a layer that appears over it draws only its own rectangle and
 //! hands the screen back to nothing when it goes.
+//! A video hole clears every layer under its window inside its rectangle (another app's card and overlay included) and nothing outside it.
 
 mod harness;
 
@@ -288,4 +289,112 @@ fn a_full_screen_video_app_draws_one_frame_and_then_nothing_and_a_layer_over_it_
 /// The toast's buffer: 320x80 of dark glass, `a` its premultiplied alpha.
 fn glass(ui: &mut Client, a: u32) -> wayland_client::protocol::wl_buffer::WlBuffer {
     ui.shm_pattern(320, 80, move |_, _| (a << 24) | ((a / 2) << 16) | ((a / 2) << 8) | (a / 2))
+}
+
+const GAME_RED: u32 = 0xffc0_2040;
+const OTHER: Rect = Rect { x: 500, y: 250, w: 900, h: 500 };
+const ORANGE: u32 = 0xffe0_8020;
+const CONTROLS: Rect = Rect { x: 200, y: 960, w: 1520, h: 80 };
+const DARK: u32 = 0xff30_3030;
+
+/// LumaGame's page: a chequer of two greens, and the same in red once it has drawn on.
+fn game_green(x: i32, y: i32) -> u32 {
+    if (x / 60 + y / 60) % 2 == 0 { 0xff20_8040 } else { 0xff40_2080 }
+}
+
+fn game_drawn_on(x: i32, y: i32) -> u32 {
+    if (x / 60 + y / 60) % 2 == 0 { GAME_RED } else { game_green(x, y) }
+}
+
+fn opaque(argb: u32) -> [u8; 4] {
+    [(argb >> 16) as u8, (argb >> 8) as u8, argb as u8, 255]
+}
+
+/// What the page holds at (x, y): the frame's own controls over everything, the video's hole clear where it is, then what the layers under the
+/// frame draw, the other app's overlay over the game's card.
+fn page_has(game: fn(i32, i32) -> u32, hole: Option<Rect>, x: i32, y: i32) -> [u8; 4] {
+    if CONTROLS.contains(x, y) {
+        opaque(DARK)
+    } else if hole.is_some_and(|h| h.contains(x, y)) {
+        [0, 0, 0, 0]
+    } else if OTHER.contains(x, y) {
+        opaque(ORANGE)
+    } else {
+        opaque(game(x, y))
+    }
+}
+
+/// LumaGame under the frame, which is an overlay window with a video hole: the hole clears what the layers under the frame's window drew
+/// (the game's card, and another app's overlay between them), inside its rectangle for the card and for the full screen, as it grows and as it
+/// shrinks, and when the game draws on under it; what is outside it is untouched, and a page nobody draws on costs nothing.
+#[test]
+fn a_video_hole_clears_every_layer_under_its_window_inside_its_rectangle_and_nothing_outside_it() {
+    let Some((mut server, flips, owed)) = rig() else { return };
+    let n = |a: &Arc<AtomicU64>| a.load(Ordering::SeqCst);
+    let mut game = Client::connect(&mut server);
+    let game_win = game.card("_WEBOS_WINDOW_TYPE_CARD", "Game");
+    let game_buf = game.shm_pattern(1920, 1080, game_green);
+    game.present(&game_win.surface, &game_buf);
+    game.roundtrip();
+    let mut other = Client::connect_extra(&mut server);
+    let other_win = other.card_as("_WEBOS_WINDOW_TYPE_OVERLAY", "Other", "com.example.other");
+    let other_buf = other.shm_pattern(1920, 1080, |x, y| if OTHER.contains(x, y) { ORANGE } else { 0 });
+    other.present(&other_win.surface, &other_buf);
+    other.roundtrip();
+    let mut frame = Client::connect_extra(&mut server);
+    let frame_win = frame.card_as("_WEBOS_WINDOW_TYPE_OVERLAY", "Frame", "org.nphil.lumatv.frame");
+    let frame_buf = frame.shm_pattern(1920, 1080, |x, y| if CONTROLS.contains(x, y) { DARK } else { 0 });
+    frame.present(&frame_win.surface, &frame_buf);
+    frame.roundtrip();
+    let sid = server.eval(|s| s.scene.windows().find(|w| w.title == "Frame").unwrap().surface);
+    let set_hole = |rect: Option<Rect>| {
+        server.eval(move |s| {
+            s.scene.holes.retain(|h| h.surface != sid);
+            if let Some(rect) = rect {
+                s.scene.holes.push(Hole { surface: sid, rect });
+            }
+        });
+    };
+    let check = |game: fn(i32, i32) -> u32, hole: Option<Rect>, what: &str| {
+        let img = server.eval(harness::drawn);
+        for y in (0..1080).step_by(7) {
+            for x in (0..1920).step_by(7) {
+                assert_eq!(at(&img, x, y), page_has(game, hole, x, y), "{what}: ({x},{y})");
+            }
+        }
+        // the hole's own edge: its last pixels are cleared and the next ones outside it are not
+        if let Some(h) = hole {
+            for (x, y) in [(h.x, h.y + 3), (h.right() - 1, h.bottom() - 4), (h.x + 3, h.y), (h.right() - 4, h.bottom() - 1), (h.x - 1, h.y + 3), (h.right(), h.y + 3), (h.x + 3, h.y - 1), (h.x + 3, h.bottom())] {
+                if (0..1920).contains(&x) && (0..1080).contains(&y) {
+                    assert_eq!(at(&img, x, y), page_has(game, hole, x, y), "{what}: the hole's edge at ({x},{y})");
+                }
+            }
+        }
+    };
+    check(game_green, None, "no video yet");
+    set_hole(Some(HOLE));
+    check(game_green, Some(HOLE), "a card's hole");
+    set_hole(Some(FULL));
+    check(game_green, Some(FULL), "the hole grown to the whole screen");
+    // the game draws on under the video, a full picture each time: cleared again, and one pass over the screen at most
+    let drawn_on = game.shm_pattern(1920, 1080, game_drawn_on);
+    game.present(&game_win.surface, &drawn_on);
+    game.roundtrip();
+    let (px0, us0) = (n(&owed), server.eval(|s| s.stats.render_us_last));
+    check(game_drawn_on, Some(FULL), "the game drawing on under a full-screen video");
+    let (owed_px, us) = (n(&owed) - px0, server.eval(|s| s.stats.render_us_last));
+    eprintln!("measured: a full picture drawn under a full-screen video hole: {owed_px} px owed, {us} us in the GL driver (the frame before: {us0} us)");
+    assert!(owed_px <= 1920 * 1088, "one pass over the page's 64-row tiles at most (17 of them, 1088 rows): {owed_px} px");
+    set_hole(Some(HOLE));
+    check(game_drawn_on, Some(HOLE), "the hole back to the card: the game's picture returns round it");
+    set_hole(None);
+    check(game_drawn_on, None, "the video gone");
+    let (drawn0, flips0, px0) = (server.eval(|s| s.stats.frames_drawn), n(&flips), n(&owed));
+    server.eval(|s| {
+        for _ in 0..120 {
+            s.tick();
+        }
+    });
+    assert_eq!((server.eval(|s| s.stats.frames_drawn), n(&flips), n(&owed) - px0), (drawn0, flips0, 0), "nothing changes, nothing is drawn");
+    std::mem::forget((game_buf, other_buf, frame_buf, drawn_on));
 }

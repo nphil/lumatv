@@ -4,8 +4,10 @@
 //! `system_ui.rs` carries out what it asks for, so every decision here is a host test.
 //!
 //! LG's chain swallows the gear, Input and the app keys and decides at the release (a tap) or at 1 s (a hold, converted to
-//! another key); the digits and Back reach the app at once and a 1 s hold acts besides; Mute is a toggle at its release unless
+//! another key); the digits reach the app at once and a 1 s hold acts besides; Mute is a toggle at its release unless
 //! it was held 2 s. The same shapes here, on every device (LG converts holds for its own remotes only, which is all this set has).
+//! Back is LumaTV's own: it is held back until its release (a tap then reaches the app whole, press and release together) or until
+//! [`BACK_HOLD`], when it opens the task manager and the app never hears of it. No repeat of a held Back reaches the app.
 //! One exception: with LumaTV's own picker able to answer (`Ctx::picker_ready`) the Input key's tap acts on its press, as LumaTV's
 //! key filter did under LG's compositor (`payload/keyfilter/lumatv.js`: "the Input key acts on the press, as LG's does"). Waiting
 //! for the release put the picker's first frame behind the key by the length of the tap (50 ms for the gate's injected one).
@@ -16,8 +18,11 @@ use serde_json::Value;
 
 use crate::input::code::*;
 
-/// How long the gear, Input, a digit or Back is held for LG's long-press conversion (`handleLongPressKeys`, 1000 ms).
+/// How long the gear, Input or a digit is held for LG's long-press conversion (`handleLongPressKeys`, 1000 ms).
 pub const HOLD: Duration = Duration::from_millis(1000);
+/// Back held for the task manager (`switcher.rs`): longer than a tap and shorter than LG's own long-press conversion (1000 ms). Chosen,
+/// not measured; the tick polls it within one panel frame while keys are being pressed (`ticker.rs`).
+pub const BACK_HOLD: Duration = Duration::from_millis(600);
 /// Mute held for the accessibility panel (`handleAccessibility`, 2000 ms).
 pub const HOLD_MUTE: Duration = Duration::from_millis(2000);
 
@@ -237,8 +242,8 @@ pub enum SystemRequest {
     OpenNotifications,
     /// A button the owner set to turn the picture off and keep the sound.
     PictureOff,
-    /// Exit, or Back held: the foreground app closes (the Home app stays).
-    Exit,
+    /// Back held for [`BACK_HOLD`]: the task manager, from anywhere (over a hung app, a keyboard, Home).
+    TaskManager,
     /// Exit while the keyboard is up: the keyboard closes first (LG's order).
     CloseKeyboard,
 }
@@ -255,6 +260,9 @@ pub enum Action {
 pub struct Outcome {
     /// The event goes no further: no app gets it and the mask and policy routing is skipped.
     pub swallow: bool,
+    /// A Back that was held back ended before its hold: the caller gives the app its press and this release now (the release itself is
+    /// never delivered as it is).
+    pub replay: bool,
     pub actions: Vec<Action>,
 }
 
@@ -266,6 +274,8 @@ pub struct Ctx<'a> {
     pub keyboard_up: bool,
     /// The shell client can show the input picker now: the Input key's tap is acted on at its press.
     pub picker_ready: bool,
+    /// The task manager is up: Back goes to it at once and is not held back to see whether it turns into a hold.
+    pub taskmgr: bool,
 }
 
 struct Held {
@@ -295,7 +305,7 @@ impl Router {
     pub fn event(&mut self, code: u32, pressed: bool, now: Instant, ctx: &Ctx) -> Outcome {
         if pressed {
             if let Some(h) = self.down.iter().find(|h| h.code == code) {
-                return Outcome { swallow: h.swallowed || h.fired, actions: Vec::new() };
+                return Outcome { swallow: h.swallowed || h.fired, ..Outcome::default() };
             }
             let logical = self.table.classify(code);
             let mut out = Outcome::default();
@@ -314,6 +324,8 @@ impl Router {
                     out.swallow = true;
                     out.actions.push(Action::Request(SystemRequest::LaunchApp(k.lg_app().to_string())));
                 }
+                // Held back until its release or its hold: whichever comes first decides what the app hears of it.
+                Logical::Back if !ctx.taskmgr => out.swallow = true,
                 Logical::Exit if ctx.keyboard_up => {
                     out.swallow = true;
                     out.actions.push(Action::Request(SystemRequest::CloseKeyboard));
@@ -325,20 +337,28 @@ impl Router {
         }
         let Some(i) = self.down.iter().position(|h| h.code == code) else { return Outcome::default() };
         let h = self.down.swap_remove(i);
-        let mut out = Outcome { swallow: h.swallowed || h.fired, actions: Vec::new() };
+        let mut out = Outcome { swallow: h.swallowed || h.fired, ..Outcome::default() };
         if !h.fired {
             match h.logical {
                 Logical::Gear => out.actions.push(Action::Request(SystemRequest::QuickSettings)),
                 Logical::Input if !h.early => out.actions.push(Action::Request(SystemRequest::InputPicker)),
+                Logical::Back if h.swallowed => out.replay = true,
                 _ => {}
             }
         }
         out
     }
 
-    /// Whether a key with a hold is down and has not fired it: the tick has something to measure.
+    /// Whether a key with a hold is down and has not fired it: the tick has something to measure. A Back that was not held back has no hold.
     pub fn waiting(&self) -> bool {
-        self.down.iter().any(|h| !h.fired && matches!(h.logical, Logical::Gear | Logical::Input | Logical::Digit(_) | Logical::Back | Logical::Mute))
+        self.down.iter().any(|h| {
+            !h.fired
+                && match h.logical {
+                    Logical::Gear | Logical::Input | Logical::Digit(_) | Logical::Mute => true,
+                    Logical::Back => h.swallowed,
+                    _ => false,
+                }
+        })
     }
 
     /// Whether `code` is down (a press seen, no release yet): its further presses are the remote's repeats.
@@ -351,7 +371,8 @@ impl Router {
         let mut out = Vec::new();
         for h in self.down.iter_mut().filter(|h| !h.fired) {
             let due = match h.logical {
-                Logical::Gear | Logical::Input | Logical::Digit(_) | Logical::Back => HOLD,
+                Logical::Gear | Logical::Input | Logical::Digit(_) => HOLD,
+                Logical::Back if h.swallowed => BACK_HOLD,
                 Logical::Mute => HOLD_MUTE,
                 _ => continue,
             };
@@ -369,10 +390,10 @@ impl Router {
                     out.push(Action::Request(SystemRequest::QuickAccess(n)));
                     out.push(Action::ClientRelease(h.code));
                 }
-                Logical::Back => {
-                    out.push(Action::Request(if ctx.keyboard_up { SystemRequest::CloseKeyboard } else { SystemRequest::Exit }));
-                    out.push(Action::ClientRelease(h.code));
-                }
+                // The app never had this press: there is no release to give it, and none of the repeats came. The task manager may have
+                // come up by another door meanwhile (a double Home): the hold has nothing to ask then, and still ends the gesture.
+                Logical::Back if ctx.taskmgr => {}
+                Logical::Back => out.push(Action::Request(SystemRequest::TaskManager)),
                 Logical::Mute => out.push(Action::Request(SystemRequest::Accessibility)),
                 _ => continue,
             }
@@ -397,6 +418,7 @@ mod tests {
         foreground: String,
         keyboard_up: bool,
         picker_ready: bool,
+        taskmgr: bool,
     }
 
     impl Rig {
@@ -407,6 +429,7 @@ mod tests {
                 foreground: "com.webos.app.home".into(),
                 keyboard_up: false,
                 picker_ready: false,
+                taskmgr: false,
             }
         }
 
@@ -415,12 +438,12 @@ mod tests {
         }
 
         fn key(&mut self, code: u32, pressed: bool) -> Outcome {
-            let ctx = Ctx { foreground: &self.foreground, keyboard_up: self.keyboard_up, picker_ready: self.picker_ready };
+            let ctx = Ctx { foreground: &self.foreground, keyboard_up: self.keyboard_up, picker_ready: self.picker_ready, taskmgr: self.taskmgr };
             self.router.event(code, pressed, self.now, &ctx)
         }
 
         fn poll(&mut self) -> Vec<Action> {
-            let ctx = Ctx { foreground: &self.foreground, keyboard_up: self.keyboard_up, picker_ready: self.picker_ready };
+            let ctx = Ctx { foreground: &self.foreground, keyboard_up: self.keyboard_up, picker_ready: self.picker_ready, taskmgr: self.taskmgr };
             self.router.poll(self.now, &ctx)
         }
 
@@ -646,17 +669,72 @@ mod tests {
     }
 
     #[test]
-    fn back_held_is_exit_and_the_app_is_given_its_release() {
+    fn a_back_tap_is_held_back_and_given_to_the_app_whole_at_its_release() {
+        for code in [KEY_PREVIOUS, KEY_BACK] {
+            let mut r = Rig::new();
+            let (press, polled, release) = r.hold(code, 150);
+            assert!(press.swallow && press.actions.is_empty() && !press.replay, "the press waits to see whether it is a hold");
+            assert!(polled.is_empty());
+            assert!(release.replay && release.swallow && release.actions.is_empty(), "press and release are the caller's to deliver: {release:?}");
+        }
+    }
+
+    #[test]
+    fn a_back_held_for_the_task_manager_asks_for_it_once_and_the_app_hears_nothing_of_it() {
         let mut r = Rig::new();
-        let (_, polled, release) = r.hold(KEY_PREVIOUS, 400);
-        assert!(polled.is_empty() && !release.swallow);
-        let (press, polled, release) = r.hold(KEY_PREVIOUS, 1000);
-        assert!(!press.swallow);
-        assert_eq!(polled, vec![req(Exit), Action::ClientRelease(KEY_PREVIOUS)]);
-        assert!(release.swallow);
+        assert!(r.key(KEY_PREVIOUS, true).swallow);
+        assert!(r.router.waiting(), "the tick has a hold to measure");
+        // the remote's auto-repeat while it is held: none of it reaches the app
+        r.at(300);
+        assert!(r.key(KEY_PREVIOUS, true).swallow);
+        r.at(299);
+        assert!(r.poll().is_empty(), "599 ms is still a tap");
+        r.at(1);
+        assert_eq!(r.poll(), vec![req(TaskManager)], "and the app never had the press, so it has no release to be given");
+        assert!(r.poll().is_empty(), "once");
+        assert!(!r.router.waiting());
+        r.at(200);
+        assert!(r.key(KEY_PREVIOUS, true).swallow, "repeats after the hold are the router's too");
+        let release = r.key(KEY_PREVIOUS, false);
+        assert!(release.swallow && !release.replay && release.actions.is_empty());
+    }
+
+    #[test]
+    fn the_back_hold_opens_the_task_manager_over_the_keyboard_and_over_home() {
+        let mut r = Rig::new();
         r.keyboard_up = true;
-        let (_, polled, _) = r.hold(KEY_PREVIOUS, 1000);
-        assert_eq!(polled[0], req(CloseKeyboard), "with the keyboard up the hold closes it first");
+        let (press, polled, release) = r.hold(KEY_PREVIOUS, 700);
+        assert!(press.swallow);
+        assert_eq!(polled, vec![req(TaskManager)], "not the keyboard's close: Exit does that");
+        assert!(release.swallow && !release.replay);
+        r.foreground = "org.test.player".into();
+        r.keyboard_up = false;
+        assert_eq!(r.hold(KEY_BACK, 700).1, vec![req(TaskManager)]);
+    }
+
+    #[test]
+    fn with_the_task_manager_up_back_goes_to_it_at_once_and_no_hold_is_measured() {
+        let mut r = Rig::new();
+        r.taskmgr = true;
+        let press = r.key(KEY_PREVIOUS, true);
+        assert!(!press.swallow && !r.router.waiting());
+        r.at(300);
+        assert!(!r.key(KEY_PREVIOUS, true).swallow, "its repeats too");
+        r.at(2000);
+        assert!(r.poll().is_empty());
+        let release = r.key(KEY_PREVIOUS, false);
+        assert!(!release.swallow && !release.replay);
+    }
+
+    #[test]
+    fn a_back_hold_that_finds_the_task_manager_already_up_asks_for_nothing_and_ends_the_gesture() {
+        let mut r = Rig::new();
+        assert!(r.key(KEY_PREVIOUS, true).swallow);
+        r.taskmgr = true;
+        r.at(700);
+        assert!(r.poll().is_empty());
+        let release = r.key(KEY_PREVIOUS, false);
+        assert!(release.swallow && !release.replay, "the app hears nothing of it");
     }
 
     #[test]

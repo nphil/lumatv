@@ -910,11 +910,12 @@ impl State {
         let foreground = self.foreground_app();
         let keyboard_up = self.keyboard_up();
         let picker_ready = self.shell_can("picker");
+        let taskmgr = self.switcher.accepting();
         let logical = self.keys.router.table.classify(code);
         let first_press = pressed && !self.keys.router.is_down(code);
         let out = {
             let router = &mut self.keys.router;
-            router.event(code, pressed, now, &Ctx { foreground: &foreground, keyboard_up, picker_ready })
+            router.event(code, pressed, now, &Ctx { foreground: &foreground, keyboard_up, picker_ready, taskmgr })
         };
         self.run_actions(out.actions);
         // The gear is down: its tap opens the quick panel at the release, and the shell puts the panel in the scene now, off the
@@ -922,14 +923,31 @@ impl State {
         if first_press && logical == keys::Logical::Gear {
             self.shell_show("quick", true);
         }
+        if out.replay {
+            // A Back tap that was held back to see whether it would turn into a hold: the app is given the whole of it now.
+            self.deliver_key(seat, code, true, false, from_network, now);
+            self.deliver_key(seat, code, false, false, from_network, now);
+            return;
+        }
+        // While the task manager is open the compositor sees each key first: the basic screen takes the keys it draws for, and every Back
+        // is told to the helper (`switcher/basic.rs`). A press the router withheld or swallowed is not offered; a release is, for a press taken.
+        if !(pressed && out.swallow) && self.switcher_key(code, pressed, first_press, now) {
+            self.seat.last_input = "key";
+            return;
+        }
+        self.deliver_key(seat, code, pressed, out.swallow, from_network, now);
+    }
+
+    /// One key past the routing's own decisions (`keys.rs`): `swallow` is what it decided. The Rust shell's layer, then the focus routing.
+    fn deliver_key(&mut self, seat: seat::SeatId, code: u32, pressed: bool, swallow: bool, from_network: bool, now: Instant) {
         // The Rust shell's layer: every key but the compositor's own while it wants them, and its cards' OK and Back (`shell_rust.rs`).
         if !matches!(code, code::KEY_HOME | code::KEY_HOMEPAGE | code::KEY_RF_HOME | code::KEY_VOLUMEUP | code::KEY_VOLUMEDOWN | code::KEY_MUTE)
-            && self.shell_rust_takes_key(seat, code, pressed, out.swallow, now)
+            && self.shell_rust_takes_key(seat, code, pressed, swallow, now)
         {
             self.seat.last_input = "key";
             return;
         }
-        if out.swallow {
+        if swallow {
             self.seat.last_input = "key";
             return;
         }
@@ -950,7 +968,7 @@ impl State {
         match r {
             Route::Client | Route::Dropped | Route::Back if grabbing && !app_holds => self.grab_key(code, pressed),
             Route::Client => {
-                if pressed && matches!(logical, keys::Logical::Digit(_)) {
+                if pressed && matches!(self.keys.router.table.classify(code), keys::Logical::Digit(_)) {
                     self.shell_rust.digit_at = Some(now);
                 }
                 // The shell's overlay stands in for what the app draws after this key (`mask.rs`): the claimed region of its window is blanked
@@ -1049,9 +1067,10 @@ impl State {
             let foreground = self.foreground_app();
             let keyboard_up = self.keyboard_up();
             let picker_ready = self.shell_can("picker");
+            let taskmgr = self.switcher.accepting();
             let actions = {
                 let Keys { router, .. } = &mut self.keys;
-                router.poll(now, &Ctx { foreground: &foreground, keyboard_up, picker_ready })
+                router.poll(now, &Ctx { foreground: &foreground, keyboard_up, picker_ready, taskmgr })
             };
             self.run_actions(actions);
         }

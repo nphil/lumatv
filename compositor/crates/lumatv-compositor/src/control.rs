@@ -130,8 +130,10 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             }
         }
         "switcher" => {
-            // switcher [open | close | quitall | activate ID | quit ID]: the app switcher (`switcher.rs`) as the shell would ask for it; without
-            // a word, what it holds. A TV check opens it without the remote's keys and reads its cards.
+            // switcher [open | close | quitall | activate ID | quit ID | force ID | system ACTION | hold | basic]: the task manager
+            // (`switcher.rs`) as the shell would ask for it; `hold` as a hold of Back does it (over anything, with no app too) and `basic` the
+            // same with the compositor's own screen drawing it; without a word, what it holds. A TV check opens it without the remote's keys
+            // and reads its cards, its numbers and which screen draws it.
             let now = std::time::Instant::now();
             match words.next() {
                 Some(op @ ("open" | "close" | "quitall")) => {
@@ -140,6 +142,19 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                 Some(op @ ("activate" | "quit")) => {
                     let id = words.next().unwrap_or("");
                     state.switcher_op(&json!({"op": op, "id": id}), now);
+                }
+                Some("force") => {
+                    let id = words.next().unwrap_or("");
+                    state.switcher_op(&json!({"op": "quit", "id": id, "force": true}), now);
+                }
+                Some("system") => {
+                    let action = words.next().unwrap_or("");
+                    state.switcher_op(&json!({"op": "system", "action": action}), now);
+                }
+                Some("hold") => state.back_held(),
+                Some("basic") => {
+                    state.back_held();
+                    state.switcher_basic(now);
                 }
                 _ => {}
             }

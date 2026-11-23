@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use wayland_server::protocol::wl_buffer::WlBuffer;
 
 use backdrop::BackdropSig;
-pub use backdrop::{Backdrop, BackdropSpec, PlannedPreview, PreviewSpec, coverage};
+pub use backdrop::{Backdrop, BackdropSpec, Overlay, PlannedPreview, PlannedSource, PreviewSource, PreviewSpec, coverage};
 
 use crate::damage::Tiles;
 use crate::mask::{MAX_RECTS, Mask, Op};

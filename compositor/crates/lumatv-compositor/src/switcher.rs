@@ -1,20 +1,24 @@
-//! The app switcher: a second press of Home shows the running apps as live pictures of their own windows, one card each, over a dim
-//! Home. The shell (`panels/Switcher.qml`, in its system layer) draws everything about a card but its picture: where the cards go,
-//! their names, the focus, Quit. This module is the compositor's half:
+//! The task manager (once the app switcher): the running apps as pictures of their own windows, one card each, over a dim. A hold of Back
+//! opens it from anywhere (`keys.rs`): Home, an app, one that has hung. A second press of Home does too while the owner's switch is on. The
+//! shell (`panels/switcher.rs`, in its system layer) draws everything about a card but its picture: where the cards go, their names, the
+//! focus, Quit, the numbers and the System menu. This module is the compositor's half:
 //!
 //! - **the trigger** ([`HomeTaps`]): a Home tap acts when the key is let go, as it always did, and the first one is never held back
-//!   to see whether a second comes. A second tap within [`DOUBLE_HOME`] of a tap that went Home from an app opens the switcher
-//!   with that app shrinking into its card; a tap while Home is in front and at rest (the shell decides, it knows what Home has
-//!   open) opens it too; a tap while it is open closes it.
-//! - **the apps**: the cards the compositor holds, newest first, each with whether a picture of it can be drawn. An app whose picture
-//!   is on the video plane (a hole in its window, or an input) is never sampled: the plane cannot be read here and the switcher shows
-//!   the app's icon on a tile instead.
+//!   to see whether a second comes. A second tap within [`DOUBLE_HOME`] of a tap that went Home from an app opens it with that app
+//!   shrinking into its card; a tap while Home is in front and at rest (the shell decides, it knows what Home has open) opens it too; a
+//!   tap while it is open closes it. A Back hold opens it with apps or without ([`State::taskmgr_open`]).
+//! - **the apps** (`list.rs`): the windows' cards plus what the app manager says runs, newest first, each with whether a picture of it
+//!   can be drawn. An app whose picture is on the video plane (a hole in its window, or an input) is never sampled: the plane cannot be
+//!   read here and the card shows the app's icon on a tile instead. An app that left the front keeps its last frame.
 //! - **the pictures**: the shell tells where each card is (`layout`), the compositor moves the picture there on its own clock
 //!   ([`Track`]: a 200 ms move lasts 200 ms at 60 or 120 Hz) and the scene draws it with the scrim, below the shell's layer
 //!   (`scene/backdrop.rs`). Only a card that is open costs anything: closed, there is no state to plan, nothing to draw and no
 //!   timer.
-//! - **leaving**: OK on a card grows its picture to the whole screen while SAM launches the app; Quit asks SAM (`closeByAppId`, as
-//!   LG's own recents does) and shows the card as closing until its window is gone.
+//! - **leaving**: OK on a card grows its picture to the whole screen while the app manager launches the app; Quit asks it
+//!   (`closeByAppId`, as LG's own recents does) and shows the card as closing until its window is gone. An app that has hung is ended
+//!   instead (`list.rs`).
+//! - **the basic screen** (`basic.rs`): when the shell cannot draw it, the compositor draws a plain one itself, with the same actions.
+//! - **System** (`system.rs`): Restart LumaTV, LG Home and Restart TV, each asked of the helper `lumatv-sm`.
 //!
 //! Everything that is a decision is a function of the clock an argument carries, so the host tests move time by hand.
 
@@ -22,10 +26,18 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use crate::scene::{BackdropSpec, HOME_APP, PreviewSpec};
+use crate::luna::ToBridge;
+use crate::scene::{BackdropSpec, HOME_APP, PreviewSource, PreviewSpec};
 use crate::surface::SurfaceId;
+use crate::taskmgr::Palette;
 use crate::window::{WindowId, WindowType};
 use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect, State};
+
+mod basic;
+mod list;
+mod system;
+
+pub(crate) use system::refusal;
 
 /// A second Home tap within this of the first (release to release) is a double press.
 pub const DOUBLE_HOME: Duration = Duration::from_millis(400);
@@ -37,7 +49,7 @@ pub const EXIT_MS: u32 = 160;
 pub const SCRIM_MS: u32 = 160;
 /// A card that fades (a card out of the window, one being quit, one that is not the one chosen).
 pub const FADE_MS: u32 = 120;
-/// How far the shell has to answer an opening with the cards' places: past this the switcher is given up (the shell is gone or stuck).
+/// How far the shell has to answer an opening with the cards' places: past this it is taken for gone or stuck and the basic screen takes over.
 const LAYOUT_WAIT: Duration = Duration::from_millis(600);
 /// The chosen picture is held at full size this long at most for the app to be in front.
 const ACTIVATE_HOLD: Duration = Duration::from_millis(1000);
@@ -228,34 +240,38 @@ impl Track {
 
 // ---- the apps ----
 
-/// Whether a picture of an app can be drawn from its window.
+/// Whether a picture of an app can be drawn, and from what.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Picture {
     /// Its window's buffer, scaled.
     Live,
+    /// The last picture the compositor kept when the app left the front (the app released its buffer then): the renderer's own small copy.
+    Thumb,
     /// Its picture is on the video plane (a hole in its window, or an input): never sampled, the shell shows its icon.
     Video,
-    /// Its window has nothing to draw.
+    /// Nothing to draw: no window of it has a picture yet.
     None,
 }
 
 impl Picture {
-    fn word(self) -> &'static str {
+    pub(crate) fn word(self) -> &'static str {
         match self {
             Picture::Live => "live",
+            Picture::Thumb => "thumb",
             Picture::Video => "video",
             Picture::None => "none",
         }
     }
 }
 
-/// A running app as the switcher lists it.
+/// A running app as the task manager lists it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct App {
     pub id: String,
     pub title: String,
-    pub window: WindowId,
-    pub surface: SurfaceId,
+    /// Its window and surface: none for an app the app manager runs that has nothing here.
+    pub window: Option<WindowId>,
+    pub surface: Option<SurfaceId>,
     pub size: (i32, i32),
     pub picture: Picture,
 }
@@ -287,7 +303,7 @@ enum Phase {
 
 struct Card {
     app: String,
-    surface: SurfaceId,
+    surface: Option<SurfaceId>,
     picture: Picture,
     track: Track,
     /// Where the picture starts when the shell places it: the app's own screen (a second press from it), or none (it arrives).
@@ -317,6 +333,15 @@ pub struct Switcher {
     reduced: bool,
     /// What the topics last said was made of (`apps_signature`): the list is rebuilt only when it changed.
     pub(crate) topics_sig: u64,
+    /// The foreground app when it opened: another one coming to the front closes it (`from` is the app that shrinks into its card, which
+    /// is not always the one in front).
+    over: String,
+    /// What runs, what was seen and what has hung (`list.rs`).
+    list: list::Roster,
+    /// Which screen draws it, the numbers and the watch on the shell (`basic.rs`).
+    basic: basic::Basic,
+    /// The System action under way (`system.rs`).
+    system: Option<system::Going>,
 }
 
 impl Switcher {
@@ -332,38 +357,6 @@ impl Switcher {
 }
 
 impl State {
-    /// The running apps, newest first: the cards the compositor holds, minus Home, LumaTV's own apps and the members of surface groups.
-    pub fn switcher_apps(&self) -> Vec<App> {
-        let mut found: Vec<(u64, App)> = Vec::new();
-        for w in self.scene.windows() {
-            let id = w.app_id();
-            if w.kind != WindowType::Card || w.in_group || w.map_serial == 0 || w.front == 0 || id.is_empty() || own_app(id) {
-                continue;
-            }
-            let Some(s) = self.surfaces.get(w.surface).filter(|s| s.is_mapped()) else { continue };
-            let size = s.size();
-            let video = input_app(id)
-                || self.scene.holes.iter().any(|h| h.surface == w.surface)
-                || self.foreign.exported.values().any(|e| e.surface == w.surface && !e.contexts.is_empty());
-            let picture = if video {
-                Picture::Video
-            } else if size.0 <= 0 || size.1 <= 0 {
-                Picture::None
-            } else {
-                Picture::Live
-            };
-            let title = if w.title.is_empty() { id.to_string() } else { w.title.clone() };
-            let app = App { id: id.to_string(), title, window: w.id, surface: w.surface, size, picture };
-            match found.iter_mut().find(|(_, a)| a.id == app.id) {
-                Some(old) if old.0 >= w.front => {}
-                Some(old) => *old = (w.front, app),
-                None => found.push((w.front, app)),
-            }
-        }
-        found.sort_by_key(|a| std::cmp::Reverse(a.0));
-        found.into_iter().map(|(_, a)| a).collect()
-    }
-
     /// Whether any of the switcher is on the screen or on its way (the transitions leave the windows alone meanwhile).
     pub fn switcher_active(&self) -> bool {
         self.switcher.active()
@@ -394,25 +387,38 @@ impl State {
         }
     }
 
-    /// Opens the switcher over what is on the screen. `from` is the app whose picture is on the screen now and shrinks into its card.
-    /// Returns whether it opened (it does not while it is open, or when no app runs).
+    /// Opens it over what is on the screen, as a second Home press or the shell asks: not when no app runs (there is nothing to switch
+    /// between). `from` is the app whose picture is on the screen now and shrinks into its card. Returns whether it opened (it does not
+    /// while it is open).
     pub fn switcher_open(&mut self, from: Option<String>, now: Instant) -> bool {
+        self.open_over(from, false, now)
+    }
+
+    /// Opens it for a hold of Back, over anything and with no app running too: its System menu is of use then (Restart LumaTV is for the
+    /// time nothing else works).
+    pub(crate) fn taskmgr_open(&mut self, from: Option<String>, now: Instant) -> bool {
+        self.open_over(from, true, now)
+    }
+
+    fn open_over(&mut self, from: Option<String>, empty_ok: bool, now: Instant) -> bool {
         if matches!(self.switcher.phase, Phase::Waiting | Phase::Open | Phase::Activating) {
             return false;
         }
+        self.switcher_note_seen();
         let apps = self.switcher_apps();
-        if apps.is_empty() {
+        if apps.is_empty() && !empty_ok {
             self.journal("switcher: no app is open".into());
             return false;
         }
         let foreground = self.foreground_app();
+        let over = foreground.clone();
         let from = from.filter(|f| apps.iter().any(|a| a.id == *f));
         let mut cards = Vec::with_capacity(apps.len());
         for a in &apps {
             let mut start = None;
             if a.picture == Picture::Live && from.as_deref() == Some(a.id.as_str()) {
                 // Where its picture is: on its way home (the transition hands it over), else it is the whole screen if it still is.
-                start = self.scene.take_visual(a.window).filter(|v| v.alpha > 0.05).map(|v| Pose::new(v.rect, v.alpha, v.radius));
+                start = a.window.and_then(|w| self.scene.take_visual(w)).filter(|v| v.alpha > 0.05).map(|v| Pose::new(v.rect, v.alpha, v.radius));
                 if start.is_none() && foreground == a.id {
                     start = Some(Pose::new(output_rect(), 1.0, 0.0));
                 }
@@ -432,25 +438,36 @@ impl State {
         sw.phase = Phase::Waiting;
         sw.seq += 1;
         sw.from = from.clone();
+        sw.over = over;
         sw.cards = cards;
         sw.scrim_rgb = [SCRIM_DEFAULT[0], SCRIM_DEFAULT[1], SCRIM_DEFAULT[2]];
         sw.scrim = Some(Track::still(Pose { x: 0.0, y: 0.0, w: 0.0, h: 0.0, alpha: 0.0, radius: 0.0 }, now));
         sw.quitting.clear();
         sw.stuck.clear();
         sw.activating = None;
-        sw.until = Some(now + LAYOUT_WAIT);
+        sw.until = Some(now + list::ASK_WAIT + LAYOUT_WAIT);
         sw.reduced = false;
+        sw.list.begin(now);
+        sw.basic.begin(now);
         let seq = sw.seq;
         self.journal(format!(
             "switcher: opened #{seq} over {} app(s){}",
             apps.len(),
             from.as_deref().map(|f| format!(", {f} shrinking into its card")).unwrap_or_default()
         ));
+        self.luna.send(ToBridge::Taskmgr { open: true });
         self.shell_mark("Q:switcher-show");
         // The pictures' first-use costs are paid while the shell is placing the cards, not in the frame that first shows them.
-        let buffers: Vec<_> =
-            apps.iter().filter(|a| a.picture == Picture::Live).filter_map(|a| self.surfaces.get(a.surface).and_then(|s| s.current.buffer.clone())).collect();
+        let buffers: Vec<_> = apps
+            .iter()
+            .filter(|a| a.picture == Picture::Live)
+            .filter_map(|a| a.surface.and_then(|s| self.surfaces.get(s)).and_then(|s| s.current.buffer.clone()))
+            .collect();
         self.output.prepare_previews(&buffers);
+        self.switcher_ask(now);
+        if !self.shell_can("switcher") {
+            self.basic_enter("LumaTV's interface is not running.", now, false);
+        }
         self.shell_sync_topics();
         true
     }
@@ -471,12 +488,15 @@ impl State {
         }
         self.switcher.phase = Phase::Closing;
         self.switcher.until = Some(now + Duration::from_millis(EXIT_MS as u64));
+        self.switcher.basic.end();
+        self.system_cancel();
+        self.luna.send(ToBridge::Taskmgr { open: false });
         self.journal(format!("switcher: closed ({why})"));
         self.shell_sync_topics();
     }
 
-    /// What the shell asks over `POST /v1/switcher`: `open`, `layout`, `close`, `activate`, `quit`, `quitall`. Returns whether the picture
-    /// changed in a way a frame should show now.
+    /// What the shell asks over `POST /v1/switcher`: `open`, `layout`, `close`, `activate`, `quit`, `quitall`, `beat`, `system`. Returns
+    /// whether the picture changed in a way a frame should show now.
     pub fn switcher_op(&mut self, body: &Value, now: Instant) -> bool {
         let op = body.get("op").and_then(Value::as_str).unwrap_or("");
         let id = body.get("id").and_then(Value::as_str).unwrap_or("").to_string();
@@ -485,29 +505,42 @@ impl State {
             "layout" => return self.switcher_layout(body, now),
             "close" => self.switcher_close("the shell asked", now),
             "activate" => self.switcher_activate(&id, now),
-            "quit" => self.switcher_quit(&id, now),
-            "quitall" => {
-                let ids: Vec<String> = self.switcher_apps().into_iter().map(|a| a.id).collect();
-                self.journal(format!("switcher: quit all ({} app(s))", ids.len()));
-                for id in ids {
-                    self.switcher_quit(&id, now);
-                }
+            "quit" => self.switcher_quit(&id, body.get("force").and_then(Value::as_bool).unwrap_or(false), now),
+            "quitall" => self.switcher_quit_all(now),
+            "beat" => {
+                self.switcher_beat(body.get("n").and_then(Value::as_u64).unwrap_or(0));
+                return false;
             }
+            "system" => self.switcher_system(body, now),
             other => self.journal(format!("switcher: the shell asked for {other:?}, which is not one of its requests")),
         }
         self.switcher.active()
     }
 
+    /// Quit on every card.
+    fn switcher_quit_all(&mut self, now: Instant) {
+        let ids: Vec<String> = self.switcher_apps().into_iter().map(|a| a.id).collect();
+        self.journal(format!("switcher: quit all ({} app(s))", ids.len()));
+        for id in ids {
+            self.switcher_quit(&id, false, now);
+        }
+    }
+
     /// The shell's places for the cards: `{"cards": [{"id", "x", "y", "w", "h", "r"}], "scrim": {"r", "g", "b", "a"}, "ms", "reduced"}`. A
     /// card it names moves there (the first time, it arrives or shrinks in); one it leaves out fades. Returns whether anything moves.
     fn switcher_layout(&mut self, body: &Value, now: Instant) -> bool {
-        if !self.switcher.accepting() {
+        if !self.switcher.accepting() || self.switcher.basic.mode == basic::Mode::Fallback {
             return false;
         }
         let first = self.switcher.phase == Phase::Waiting;
         let ms = body.get("ms").and_then(Value::as_u64).unwrap_or(OPEN_MS as u64).min(400) as u32;
         let reduced = body.get("reduced").and_then(Value::as_bool).unwrap_or(false);
         self.switcher.reduced = reduced;
+        // the colours the basic screen draws with if it has to (`basic.rs`); a shell that sends them is the one it watches
+        if let Some(p) = body.get("palette").and_then(Palette::parse) {
+            self.switcher.basic.palette = p;
+            self.switcher.basic.armed = true;
+        }
         if let Some(s) = body.get("scrim") {
             let f = |k: &str, d: f32| s.get(k).and_then(Value::as_f64).map_or(d, |v| v as f32);
             let a = f("a", 1.0).clamp(0.0, 1.0);
@@ -598,20 +631,26 @@ impl State {
     }
 
     /// Quit on a card: the window is asked to close and the app manager is told to close the app (`closeByAppId`, the reason LG's own
-    /// recents gives, `windowPolicy`). The card says it is closing until its window is gone.
-    fn switcher_quit(&mut self, id: &str, now: Instant) {
+    /// recents gives, `windowPolicy`). The card says it is closing until its window is gone. An app that has hung, or one that `force` says
+    /// did not quit in time, is ended instead (`list.rs`): a stopped process never acts on a request to quit.
+    fn switcher_quit(&mut self, id: &str, force: bool, now: Instant) {
         if id.is_empty() || own_app(id) || !self.switcher_apps().iter().any(|a| a.id == id) {
             self.journal(format!("switcher: quit {id:?}: no such app is open"));
             return;
         }
-        if self.switcher.quitting.iter().any(|(a, _)| a == id) {
+        let hung = self.switcher.list.is_hung(id);
+        let forced = force && self.switcher.stuck.iter().any(|a| a == id);
+        if self.switcher.quitting.iter().any(|(a, _)| a == id) && !hung {
             return;
         }
+        self.switcher.quitting.retain(|(a, _)| a != id);
         self.switcher.quitting.push((id.to_string(), now));
         self.switcher.stuck.retain(|a| a != id);
-        self.journal(format!("switcher: quit {id}"));
-        self.close_app(id);
-        self.luna_call("luna://com.webos.applicationManager/closeByAppId".into(), json!({"id": id, "reason": "windowPolicy"}));
+        self.journal(format!("switcher: quit {id}{}", if hung { " (it has hung)" } else if forced { " (forced)" } else { "" }));
+        if !((hung || forced) && self.kill_app(id)) {
+            self.close_app(id);
+            self.luna_call("luna://com.webos.applicationManager/closeByAppId".into(), json!({"id": id, "reason": "windowPolicy"}));
+        }
         for c in self.switcher.cards.iter_mut().filter(|c| c.app == id && c.placed) {
             let cur = c.track.at(now);
             c.track.retarget(now, Pose { alpha: QUIT_ALPHA, ..cur }, FADE_MS, Curve::Settle, true);
@@ -626,6 +665,13 @@ impl State {
         }
         let foreground = self.foreground_app();
         let apps = self.switcher_apps();
+        // a card shows what its app is now: a picture that was live is a kept one once the app has left the front
+        for c in &mut self.switcher.cards {
+            if let Some(a) = apps.iter().find(|a| a.id == c.app) {
+                c.picture = a.picture;
+                c.surface = a.surface;
+            }
+        }
         // an app that is gone fades out with its card; one that did not quit in time says so
         let mut changed_topic = false;
         for c in &mut self.switcher.cards {
@@ -654,16 +700,18 @@ impl State {
             changed_topic = true;
         }
         self.switcher.cards.retain(|c| !(c.gone && c.track.done(now)));
+        changed_topic |= self.switcher_list_tick(now);
+        changed_topic |= self.switcher_numbers(now);
+        changed_topic |= self.system_step(now, apps.len());
         match self.switcher.phase {
             Phase::Waiting if self.switcher.until.is_some_and(|t| now >= t) => {
-                self.journal("switcher: the shell did not place the cards in time; closed".into());
-                self.switcher.phase = Phase::Open;
-                self.switcher_close("no layout", now);
+                self.basic_enter("LumaTV's interface did not place the cards in time.", now, true);
             }
             Phase::Waiting | Phase::Open => {
-                // The app manager brought something else to the front (a launch by voice, by an app of its own): the switcher is not what is wanted.
+                // The app manager brought something else to the front (a launch by voice, by an app of its own): the task manager is not what is
+                // wanted. An app of LumaTV's own that was in front when it opened (it has no card) is not "something else".
                 let from = self.switcher.from.as_deref().unwrap_or("");
-                if !foreground.is_empty() && foreground != HOME_APP && foreground != from {
+                if !foreground.is_empty() && foreground != HOME_APP && foreground != from && foreground != self.switcher.over {
                     self.switcher_close("another app came to the front", now);
                 }
             }
@@ -683,19 +731,29 @@ impl State {
         if self.switcher.phase == Phase::Closed {
             return;
         }
-        let previews: Vec<PreviewSpec> = self
-            .switcher
-            .cards
-            .iter()
-            .filter(|c| c.placed && c.picture == Picture::Live)
-            .filter_map(|c| {
-                let p = c.track.at(now);
-                (p.alpha >= SEEN && p.w >= 1.0 && p.h >= 1.0).then_some(PreviewSpec { surface: c.surface, rect: p.rect(), alpha: p.alpha, radius: p.radius })
-            })
-            .collect();
+        let (previews, overlays) = if self.switcher.basic.mode == basic::Mode::Fallback && self.switcher.accepting() {
+            self.basic_frame(&apps)
+        } else {
+            let previews = self
+                .switcher
+                .cards
+                .iter()
+                .filter(|c| c.placed)
+                .filter_map(|c| {
+                    let source = match (c.picture, c.surface) {
+                        (Picture::Live, Some(surface)) => PreviewSource::Window(surface),
+                        (Picture::Thumb, _) => PreviewSource::Thumb(c.app.clone()),
+                        _ => return None,
+                    };
+                    let p = c.track.at(now);
+                    (p.alpha >= SEEN && p.w >= 1.0 && p.h >= 1.0).then_some(PreviewSpec { source, rect: p.rect(), alpha: p.alpha, radius: p.radius })
+                })
+                .collect();
+            (previews, Vec::new())
+        };
         let a = self.switcher.scrim.as_ref().map_or(0.0, |t| t.at(now).alpha);
         let [r, g, b] = self.switcher.scrim_rgb;
-        self.scene.set_backdrop(Some(BackdropSpec { scrim: [r * a, g * a, b * a, a], previews }));
+        self.scene.set_backdrop(Some(BackdropSpec { scrim: [r * a, g * a, b * a, a], overlays, previews }));
     }
 
     /// Everything is over: the pictures and the dim are dropped from the scene, and with them the renderer's copies.
@@ -706,15 +764,26 @@ impl State {
         self.switcher.quitting.clear();
         self.switcher.activating = None;
         self.switcher.until = None;
+        self.switcher.basic.end();
+        self.switcher.basic.finish();
+        self.system_cancel();
         self.scene.set_backdrop(None);
         self.shell_sync_topics();
     }
 
-    /// The shell client is gone: nothing is left to place the cards or to take the keys, so it is closed at once, without a motion.
+    /// The shell client is gone: nothing is left to place the cards or to take the keys. While it is open the basic screen takes over (it
+    /// has its own keys); in any other phase it is closed at once, without a motion.
     pub fn switcher_reset(&mut self) {
-        if self.switcher.phase != Phase::Closed {
-            self.journal("switcher: the shell went away; closed".into());
-            self.switcher_finish();
+        match self.switcher.phase {
+            Phase::Closed => {}
+            Phase::Waiting | Phase::Open if self.switcher.basic.mode == basic::Mode::Ui => {
+                self.basic_enter("LumaTV's interface went away.", Instant::now(), false);
+            }
+            Phase::Waiting | Phase::Open => {}
+            _ => {
+                self.journal("switcher: the shell went away; closed".into());
+                self.switcher_finish();
+            }
         }
     }
 
@@ -730,6 +799,7 @@ impl State {
             mix(w.in_group as u64);
             mix(w.title.len() as u64);
             mix(w.app_id().len() as u64);
+            mix(self.surfaces.get(w.surface).is_some_and(|s| s.is_mapped()) as u64);
         }
         mix(self.scene.holes.len() as u64);
         mix(self.foreign.exported.values().map(|e| e.contexts.len() as u64 + 1).sum());
@@ -739,10 +809,16 @@ impl State {
         mix(self.switcher.stuck.len() as u64 + 1000);
         mix(self.switcher.phase as u64);
         mix(self.switcher.seq);
+        mix(self.switcher.list.version);
+        mix(self.switcher.list.waiting() as u64);
+        mix(self.switcher.basic.mode as u64);
+        mix(self.switcher.system.is_some() as u64);
         h
     }
 
-    /// The topics the shell follows: `apps` (what is running, newest first) and `switcher` (whether it is open, and from where).
+    /// The topics the shell follows: `apps` (what is running, newest first), and `switcher` (whether it is open, from where, and which
+    /// screen draws it). An opening is announced once the app manager has answered (or [`list::ASK_WAIT`] has passed): the shell places the
+    /// cards from one list, not from two that differ.
     pub fn switcher_sync_topics(&mut self) {
         let sig = self.apps_signature();
         if sig == self.switcher.topics_sig {
@@ -759,13 +835,18 @@ impl State {
                 ""
             }
         };
+        let from = if self.switcher.accepting() { self.switcher.from.clone().unwrap_or_default() } else { String::new() };
         let list: Vec<Value> = apps
             .iter()
-            .map(|a| json!({"id": a.id, "title": a.title, "picture": a.picture.word(), "w": a.size.0, "h": a.size.1, "state": state(&a.id)}))
+            .map(|a| {
+                json!({
+                    "id": a.id, "title": a.title, "picture": a.picture.word(), "w": a.size.0, "h": a.size.1,
+                    "state": state(&a.id), "hung": self.switcher.list.is_hung(&a.id), "fg": a.id == from,
+                })
+            })
             .collect();
-        let open = self.switcher.accepting();
-        let from = if open { self.switcher.from.clone().unwrap_or_default() } else { String::new() };
-        let state = json!({"open": open, "from": from, "n": self.switcher.seq});
+        let open = self.switcher.accepting() && !self.switcher.list.waiting();
+        let state = json!({"open": open, "from": from, "n": self.switcher.seq, "mode": self.switcher.basic.mode.word()});
         self.shell_rust.push_if_changed("apps", Value::Array(list));
         self.shell_rust.push_if_changed("switcher", state);
     }
@@ -773,15 +854,20 @@ impl State {
     /// `ctl switcher`.
     pub fn switcher_report(&self) -> Value {
         let now = Instant::now();
+        let sampler = &self.switcher.basic.sampler;
         json!({
             "ok": true,
             "phase": format!("{:?}", self.switcher.phase),
             "open": self.switcher.accepting(),
+            "mode": self.switcher.basic.mode.word(),
             "from": self.switcher.from,
             "apps": self.switcher_apps().iter().map(|a| json!({"id": a.id, "picture": a.picture.word(), "size": [a.size.0, a.size.1]})).collect::<Vec<_>>(),
             "cards": self.switcher.cards.iter().map(|c| { let p = c.track.at(now); json!({"id": c.app, "placed": c.placed, "rect": [p.x, p.y, p.w, p.h], "alpha": p.alpha}) }).collect::<Vec<_>>(),
             "quitting": self.switcher.quitting.iter().map(|(a, _)| a).collect::<Vec<_>>(),
             "stuck": self.switcher.stuck,
+            "hung": self.switcher.list.hung,
+            "working": self.switcher.system.as_ref().map(|g| g.action.word()),
+            "numbers": {"samples": sampler.samples, "us": sampler.micros},
         })
     }
 }

@@ -58,8 +58,15 @@ pub enum Effect {
         path: String,
         body: Option<Value>,
     },
-    /// `POST` to the compositor's UI channel (`/v1/switcher`: the app switcher's requests); nothing comes back.
+    /// `POST` to the compositor's UI channel (`/v1/switcher`: the task manager's requests); nothing comes back.
     Channel {
+        path: String,
+        body: Value,
+    },
+    /// `POST` to the compositor's UI channel whose answer comes back as [`Input::Fetched`] with the tag: the compositor's reply body (a
+    /// refusal is in it), or null with status 0 when none came.
+    ChannelRequest {
+        tag: u64,
         path: String,
         body: Value,
     },

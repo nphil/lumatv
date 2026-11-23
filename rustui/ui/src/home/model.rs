@@ -153,7 +153,7 @@ pub struct Confirm {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
     Quick,
-    /// The app switcher: Back from the top of Home (when the owner wants it) and a press of Home with nothing open on Home.
+    /// The task manager: a press of Home with nothing open on Home.
     Switcher,
     Settings,
     /// Settings at one of its pages (Quick Access's More, a Search answer that is a page).
@@ -1304,7 +1304,7 @@ impl Home {
                     self.redraw(out);
                 }
             }
-            // the Home key while Home is in front: with nothing open on Home and the switcher on offer (the compositor says so), the app switcher
+            // the Home key while Home is in front: with nothing open on Home and the task manager on offer (the compositor says so), the task manager
             "homekey" => {
                 if data.get("switcher").and_then(Value::as_bool) == Some(true) && self.at_rest() {
                     self.requests.push(Request::Switcher);
@@ -1815,7 +1815,6 @@ impl Home {
                         self.activate_card(&wid, out);
                     }
                 }
-                ("back", _) => self.requests.push(Request::Switcher),
                 (_, Some(d)) => {
                     if let Moved::To(_, to) = self.focus.step(d)
                         && let Some(i) = Self::dock_index_of(to)
@@ -1848,7 +1847,6 @@ impl Home {
                     _ => {}
                 }
             }
-            ("back", _) => self.requests.push(Request::Switcher),
             (_, Some(d)) => {
                 if let Moved::To(_, to) = self.focus.step(d)
                     && let Some(i) = Self::dock_index_of(to)
@@ -4759,6 +4757,19 @@ mod tests {
         press(&mut h, "ok", 2100);
         assert_eq!(h.take_requests(), vec![Request::CameraList]);
         assert!(h.status_frames().len() == h.status_items().len(), "a frame for every button");
+    }
+
+    #[test]
+    fn back_on_a_card_or_on_the_status_bar_asks_for_nothing() {
+        let mut h = smart_home(json!([lamp()]));
+        h.walk_to_card("smart", 1100);
+        press(&mut h, "back", 2000);
+        let mut bar = home();
+        while bar.focus.current() != Some(Id(STATUS_ID + bar.status_index("cameras").unwrap() as u32)) {
+            press(&mut bar, "right", 2000);
+        }
+        press(&mut bar, "back", 2100);
+        assert!(h.take_requests().is_empty() && bar.take_requests().is_empty(), "a single Back at the top of Home is the compositor's, not a request of the task manager");
     }
 
     /// The owner placed the status bar (`layout.overlays.statusbar` of the theme).

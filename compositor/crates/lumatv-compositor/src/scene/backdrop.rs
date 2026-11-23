@@ -1,9 +1,14 @@
-//! What the app switcher draws between Home and the shell's system layer: one scrim over the whole output and, on it, the pictures
-//! of the running apps' windows, each scaled into a rectangle the switcher moves (`switcher.rs`).
+//! What the task manager draws between Home and the shell's system layer: one scrim over the whole output and, on it, the pictures of
+//! the running apps' windows, each scaled into a rectangle the switcher moves (`switcher.rs`), and the parts of the basic screen.
 //!
-//! The pictures are the windows' own buffers drawn a second time, scaled; nothing is copied to the CPU and nothing is read back. A
-//! window whose picture is on the video plane (it has a hole) is never given a picture here: the plane cannot be sampled and the
-//! switcher shows that app's icon instead. Without a spec (the switcher closed) the plan carries nothing of this and costs nothing.
+//! The pictures are the windows' own buffers drawn a second time, scaled, or the small copy the renderer kept of an app that left the
+//! front (a client releases its buffer then); nothing is read back to the CPU. A window whose picture is on the video plane (it has a
+//! hole) is never given a picture here: the plane cannot be sampled and the switcher shows that app's icon instead. The basic screen
+//! (`taskmgr/fallback.rs`) arrives as overlays: finished pixels the CPU painted, drawn over the scrim and under the pictures. Without a
+//! spec (the switcher closed) the plan carries nothing of this and costs nothing.
+
+use std::fmt;
+use std::sync::Arc;
 
 use wayland_server::Resource;
 use wayland_server::backend::ObjectId;
@@ -13,40 +18,80 @@ use super::Scene;
 use crate::surface::{SurfaceId, Surfaces};
 use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect};
 
-/// One picture the switcher wants: the surface's buffer scaled into `rect`, `alpha` opaque, its corners rounded by `radius` pixels.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// Where a picture comes from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PreviewSource {
+    /// A window's current buffer.
+    Window(SurfaceId),
+    /// The copy the renderer kept of this app's last frame (`Output::keep_thumb`).
+    Thumb(String),
+}
+
+/// One picture the switcher wants: the source scaled into `rect`, `alpha` opaque, its corners rounded by `radius` pixels.
+#[derive(Clone, Debug, PartialEq)]
 pub struct PreviewSpec {
-    pub surface: SurfaceId,
+    pub source: PreviewSource,
     pub rect: Rect,
     pub alpha: f32,
     pub radius: f32,
 }
 
-/// What the switcher asks of one frame: the scrim (premultiplied RGBA, 0 to 1) and the pictures, bottom to top.
+/// A part of the basic screen: premultiplied RGBA8, rows top first, `rect.w * rect.h * 4` bytes. `rev` is new whenever the pixels are.
+#[derive(Clone)]
+pub struct Overlay {
+    pub key: u8,
+    pub rev: u64,
+    pub rect: Rect,
+    pub rgba: Arc<Vec<u8>>,
+}
+
+impl PartialEq for Overlay {
+    fn eq(&self, other: &Overlay) -> bool {
+        self.key == other.key && self.rev == other.rev && self.rect == other.rect
+    }
+}
+
+impl fmt::Debug for Overlay {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Overlay").field("key", &self.key).field("rev", &self.rev).field("rect", &self.rect).finish_non_exhaustive()
+    }
+}
+
+/// What the switcher asks of one frame: the scrim (premultiplied RGBA, 0 to 1), the parts of the basic screen and the pictures, bottom to top.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BackdropSpec {
     pub scrim: [f32; 4],
+    pub overlays: Vec<Overlay>,
     pub previews: Vec<PreviewSpec>,
+}
+
+/// What a planned picture is drawn from.
+pub enum PlannedSource {
+    Window {
+        surface: SurfaceId,
+        buffer: WlBuffer,
+        /// The buffer's size in pixels.
+        src: (i32, i32),
+        y_invert: bool,
+        /// Its window drew since the last frame: a copy made earlier is stale.
+        dirty: bool,
+    },
+    Thumb(String),
 }
 
 /// A picture as the renderers draw it.
 pub struct PlannedPreview {
-    pub surface: SurfaceId,
-    pub buffer: WlBuffer,
-    /// The buffer's size in pixels.
-    pub src: (i32, i32),
-    pub y_invert: bool,
+    pub source: PlannedSource,
     pub rect: Rect,
     pub alpha: f32,
     pub radius: f32,
-    /// Its window drew since the last frame: a copy made earlier is stale.
-    pub dirty: bool,
 }
 
 /// The backdrop follows all client windows and sits under native UI chrome.
 pub struct Backdrop {
     pub before: usize,
     pub scrim: [f32; 4],
+    pub overlays: Vec<Overlay>,
     pub previews: Vec<PlannedPreview>,
 }
 
@@ -54,7 +99,8 @@ pub struct Backdrop {
 #[derive(Default, PartialEq)]
 pub(super) struct BackdropSig {
     scrim: [u32; 4],
-    previews: Vec<(SurfaceId, Rect, u32, u32, Option<ObjectId>)>,
+    overlays: Vec<(u8, u64, Rect)>,
+    previews: Vec<(PreviewSource, Rect, u32, u32, Option<ObjectId>)>,
 }
 
 impl Scene {
@@ -71,31 +117,37 @@ impl Scene {
         if let Some(spec) = &self.backdrop {
             let before = self.plan.items.len();
             let mut previews = Vec::with_capacity(spec.previews.len());
+            let mut keys = Vec::with_capacity(spec.previews.len());
             for p in &spec.previews {
-                let Some(s) = surfaces.get(p.surface) else { continue };
-                let Some(buffer) = s.current.buffer.clone() else { continue };
-                let src = s.size();
-                let rect = p.rect.intersect(&output);
-                if src.0 <= 0 || src.1 <= 0 || rect.is_empty() || p.alpha < 1.0 / 255.0 {
+                if p.rect.intersect(&output).is_empty() || p.alpha < 1.0 / 255.0 {
                     continue;
                 }
-                // A picture whose source drew something since the last frame is drawn again (`None` is everything, an empty list nothing).
-                let changed = s.current.damage.as_ref().is_none_or(|d| !d.is_empty());
-                dirty |= changed;
-                previews.push(PlannedPreview {
-                    surface: p.surface,
-                    buffer,
-                    src,
-                    y_invert: s.current.y_invert,
-                    rect: p.rect,
-                    alpha: p.alpha,
-                    radius: p.radius,
-                    dirty: changed,
-                });
+                let source = match &p.source {
+                    PreviewSource::Thumb(app) => PlannedSource::Thumb(app.clone()),
+                    PreviewSource::Window(surface) => {
+                        let Some(s) = surfaces.get(*surface) else { continue };
+                        let Some(buffer) = s.current.buffer.clone() else { continue };
+                        let src = s.size();
+                        if src.0 <= 0 || src.1 <= 0 {
+                            continue;
+                        }
+                        // A picture whose source drew something since the last frame is drawn again (`None` is everything, an empty list nothing).
+                        let changed = s.current.damage.as_ref().is_none_or(|d| !d.is_empty());
+                        dirty |= changed;
+                        PlannedSource::Window { surface: *surface, buffer, src, y_invert: s.current.y_invert, dirty: changed }
+                    }
+                };
+                let buffer_id = match &source {
+                    PlannedSource::Window { buffer, .. } => Some(buffer.id()),
+                    PlannedSource::Thumb(_) => None,
+                };
+                keys.push((p.source.clone(), p.rect, p.alpha.to_bits(), p.radius.to_bits(), buffer_id));
+                previews.push(PlannedPreview { source, rect: p.rect, alpha: p.alpha, radius: p.radius });
             }
             sig.scrim = spec.scrim.map(f32::to_bits);
-            sig.previews = previews.iter().map(|p| (p.surface, p.rect, p.alpha.to_bits(), p.radius.to_bits(), Some(p.buffer.id()))).collect();
-            self.plan.backdrop = Some(Backdrop { before, scrim: spec.scrim, previews });
+            sig.overlays = spec.overlays.iter().map(|o| (o.key, o.rev, o.rect)).collect();
+            sig.previews = keys;
+            self.plan.backdrop = Some(Backdrop { before, scrim: spec.scrim, overlays: spec.overlays.clone(), previews });
         }
         if sig == self.last_backdrop && !dirty {
             return;
@@ -115,6 +167,11 @@ impl Scene {
         }
         for (_, r, _, _, _) in self.last_backdrop.previews.iter().chain(sig.previews.iter()) {
             reach(r, &mut self.plan);
+        }
+        if self.last_backdrop.overlays != sig.overlays {
+            for (_, _, r) in self.last_backdrop.overlays.iter().chain(sig.overlays.iter()) {
+                reach(r, &mut self.plan);
+            }
         }
         self.last_backdrop = sig;
     }
