@@ -62,6 +62,8 @@ pub const OPT_IN: OptIn = OptIn {
 const OLD_OWNER: &str = "base.livetv";
 /// What players call the tuner until the owner names it.
 const DEFAULT_NAME: &str = "LumaTV";
+/// The hub topic of who is using the tuner and whether H.264 is being made: `{streaming, clients, converting}`.
+pub const USE_TOPIC: &str = "tuner";
 /// The page's action: look at the TV now (Settings runs it when the page opens).
 const CHECK: &str = "check";
 /// The page's action that checks how every channel comes in.
@@ -263,6 +265,7 @@ impl Plugin {
         self.tuner.transcode(None);
         self.xcode = None;
         self.page = None;
+        self.ctx.hub.set(USE_TOPIC, json!({"streaming": false, "clients": 0, "converting": false}));
     }
 
     /// Follows the owner's switch: on registers the page and serves the tuner, off closes the listener and takes the page away.
@@ -359,17 +362,29 @@ impl Plugin {
         }
     }
 
-    /// What the page says of the converter.
-    fn converter_line(&self) -> String {
+    /// What the page says of the converter, and whether it is converting now.
+    fn converter_report(&self) -> (String, bool) {
         match (&self.xcode, &self.xcode_problem) {
-            (Some(xcode), _) => xcode.status(),
-            (None, Some(why)) => format!("Not available: {why}"),
-            (None, None) => "Off".to_owned(),
+            (Some(xcode), _) => {
+                let report = xcode.report();
+                (report.line, report.converting)
+            }
+            (None, Some(why)) => (format!("Not available: {why}"), false),
+            (None, None) => ("Off".to_owned(), false),
         }
+    }
+
+    /// Puts the `tuner` topic Home's status bar draws its glyphs from: whether a client's stream has the tuner (at most one has), and whether the
+    /// converter is making H.264 now. Nothing is asked of the converter's engine while it is off, and an unchanged state raises no event.
+    fn publish_use(&self, converting: bool) {
+        let streaming = self.on && matches!(self.tuner.status(), Status::Streaming { .. });
+        self.ctx.hub.set(USE_TOPIC, json!({"streaming": streaming, "clients": u8::from(streaming), "converting": streaming && converting}));
     }
 
     /// Puts what the page says when it changed: the status, the addresses while it listens, the networks it answers.
     fn publish(&mut self) {
+        let (converter, converting) = self.converter_report();
+        self.publish_use(converting);
         let Some(page) = &self.page else {
             return;
         };
@@ -380,7 +395,7 @@ impl Plugin {
             None => self.tuner.status().to_string(),
         };
         facts.insert("status".to_owned(), json!(line(status)));
-        facts.insert("converter".to_owned(), json!(line(self.converter_line())));
+        facts.insert("converter".to_owned(), json!(line(converter)));
         if let Some(addr) = self.tuner.addr() {
             for (key, path) in [
                 ("discover", "discover.json"),
@@ -770,6 +785,11 @@ pub(crate) mod tests {
         );
         assert_eq!(facts["facts"]["networks"], "127.0.0.0/8");
         assert_eq!(entry(&ctx)["state"], "connected");
+        assert_eq!(
+            ctx.hub.get(USE_TOPIC),
+            Some(json!({"streaming": false, "clients": 0, "converting": false})),
+            "Home's glyphs read an idle tuner"
+        );
 
         plugins.switch(ID, false, None).unwrap();
         soon("off again: the listener is closed", || {

@@ -164,6 +164,9 @@ struct StatusBar {
     items: Vec<StatusItem>,
     profile_key: String,
     mark: Option<Mark>,
+    /// The tuner's glyphs, each with where it is.
+    tuner: Vec<(ImageLayer, Props)>,
+    tuner_hidden: Option<bool>,
     /// Where the pane was last put (`update_layers`): it is put again only when that changes.
     at: Option<Props>,
     /// Whether the bar came through whole: it is made again when not, since nothing else would (the chip is made last).
@@ -178,6 +181,9 @@ struct Mark {
     /// Whether the bar was hidden when the layers were last put (`update_layers`).
     hidden: Option<bool>,
 }
+
+/// How much of the ink the tuner's glyphs have: they are marks, not controls, and one stays on the bar for as long as a stream runs.
+const TUNER_OPACITY: f32 = 0.7;
 
 /// A card: its lift and its content.
 #[allow(dead_code)]
@@ -903,7 +909,7 @@ impl HomeSurface {
         let profile = home.profile().cloned().unwrap_or(Value::Null);
         let strip = home.strip();
         let titles = if strip.items.iter().any(|i| i.get("type").and_then(Value::as_str) == Some(strip::TICKER)) { home.unread.titles.as_slice() } else { &[] };
-        let profile_key = format!("{}|{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}", profile, home.status_items().len(), home.profile_left(), home.chip(), home.mark_frame(), home.status_mark().map(|m| m.0), strip.items, titles);
+        let profile_key = format!("{}|{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}", profile, home.status_items().len(), home.profile_left(), home.chip(), home.mark_frame(), home.status_mark().map(|m| m.0), strip.items, titles, home.tuner_frame(), home.tuner_glyphs());
         let mend = self.status.as_mut().is_some_and(|s| s.mend.due(&kit.ui.scene, now));
         if !mend && self.status.as_ref().is_some_and(|s| s.profile_key == profile_key && s.frame == frame && s.group == group) {
             return Ok(());
@@ -985,7 +991,8 @@ impl HomeSurface {
             items.push(item);
         }
         let mark = Self::build_mark(kit, home)?;
-        self.status = Some(StatusBar { pane, frame, group, items, profile_key, mark, at: None, mend });
+        let tuner = Self::build_tuner(kit, home)?;
+        self.status = Some(StatusBar { pane, frame, group, items, profile_key, mark, tuner, tuner_hidden: None, at: None, mend });
         Ok(())
     }
 
@@ -1054,6 +1061,23 @@ impl HomeSurface {
             Some(Text::line_at(kit, x + tx, y + h / 2.0, w - tx, Z_STATUS + 3, style, words)?)
         };
         Ok(Some(Mark { icon, icon_at, words, hidden: None }))
+    }
+
+    /// The tuner's glyphs, each centred in its slot of the box `tuner_frame` gives, on whole pixels.
+    fn build_tuner(kit: &mut Kit, home: &Home) -> std::io::Result<Vec<(ImageLayer, Props)>> {
+        let (Some((x, y, _, h)), slot) = (home.tuner_frame(), home.tuner_slot()) else { return Ok(Vec::new()) };
+        let ink = kit.ui.look.ink();
+        let grid = crate::kit::vector_icon::GRID * crate::kit::vector_icon::multiple(kit.text_scale);
+        let mut out = Vec::new();
+        for (i, glyph) in home.tuner_glyphs().into_iter().enumerate() {
+            let centre = (x + slot * (i as f32 + 0.5), y + h / 2.0);
+            let shift = kit.icons.crisp(glyph, grid).map_or((0, 0), |(_, s)| *s);
+            let (ix, iy) = crate::kit::icon::crisp_origin(centre, grid, shift);
+            if let Some(layer) = crate::kit::icon::crisp_layer(kit, glyph, ink, Z_STATUS + 3, centre)? {
+                out.push((layer, Props::at(ix, iy)));
+            }
+        }
+        Ok(out)
     }
 
     /// The mark's time left, written again when the minute changes (the bar is laid out again only when its width does).
@@ -1562,6 +1586,12 @@ impl HomeSurface {
             }
             for it in &s.items {
                 it.lift.pose(engine, 1.0, !hidden);
+            }
+            if s.tuner_hidden != Some(hidden) {
+                s.tuner_hidden = Some(hidden);
+                for (layer, at) in &s.tuner {
+                    layer.set(Props { opacity: if hidden { 0.0 } else { TUNER_OPACITY }, visible: !hidden, ..*at });
+                }
             }
             if let Some(m) = &mut s.mark
                 && m.hidden != Some(hidden)

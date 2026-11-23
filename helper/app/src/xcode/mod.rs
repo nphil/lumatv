@@ -77,18 +77,25 @@ impl Xcode {
         Some(Arc::new(codec::Converter::new(self.engine.clone(), look)))
     }
 
-    /// Where it stands, in a line for the plugin's page.
-    pub fn status(&self) -> String {
+    /// Where it stands: a line for the plugin's page, and whether a conversion is running now (not paused, resting or stopped).
+    pub fn report(&self) -> Report {
         let snapshot = self.engine.snapshot();
         let live = snapshot.jobs.iter().filter(|job| job.state != JobKind::Ended).count();
-        match (snapshot.state, live) {
-            (EngineState::Wedged, _) => "Stopped until the helper restarts: the video hardware did not answer".to_owned(),
-            (EngineState::Cooling, _) => "Resting: the conversion failed repeatedly".to_owned(),
-            (EngineState::Held, _) => format!("Paused: {}", snapshot.holds.first().map_or("the video hardware is in use", |h| h.reason.as_str())),
-            (_, 0) => format!("Ready (program {})", self.child),
-            (_, n) => format!("Converting {n} {}", if n == 1 { "stream" } else { "streams" }),
-        }
+        let (line, converting) = match (snapshot.state, live) {
+            (EngineState::Wedged, _) => ("Stopped until the helper restarts: the video hardware did not answer".to_owned(), false),
+            (EngineState::Cooling, _) => ("Resting: the conversion failed repeatedly".to_owned(), false),
+            (EngineState::Held, _) => (format!("Paused: {}", snapshot.holds.first().map_or("the video hardware is in use", |h| h.reason.as_str())), false),
+            (_, 0) => (format!("Ready (program {})", self.child), false),
+            (_, n) => (format!("Converting {n} {}", if n == 1 { "stream" } else { "streams" }), true),
+        };
+        Report { line, converting }
     }
+}
+
+/// What [`Xcode::report`] says.
+pub struct Report {
+    pub line: String,
+    pub converting: bool,
 }
 
 impl Drop for Xcode {

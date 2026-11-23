@@ -106,6 +106,11 @@ fn rows(c: &Ctx) -> Vec<Row> {
     let mut profile_button = theme_seg("profilebutton", 1, "user", "Profile button", &["Left", "Right"], Some(usize::from(!left)), |i| json!({"layout": {"statusBar": {"profile": if i == 0 { "left" } else { "right" }}}}));
     profile_button.help = "Which end of the top bar has your profile; the other buttons take the other end.".into();
     rows.push(profile_button);
+    use crate::tuner_use::Place;
+    let place = Place::of(c.theme_str("layout.statusBar.tuner"));
+    let mut tuner = theme_seg("tunerglyphs", 1, "antenna", "Tuner glyphs", &Place::WORDS, Place::CHOICES.iter().position(|p| *p == place), |i| json!({"layout": {"statusBar": {crate::tuner_use::PLACE_KEY: Place::CHOICES[i].key()}}}));
+    tuner.help = "An antenna in the top bar while a player streams from the tuner, and a chip beside it while the stream is made into H.264. Which end of the bar has them, or off.".into();
+    rows.push(tuner);
     rows.push(theme_toggle(c, ("twelvehour", 1, "clock", "12-hour clock", ""), "clock.twelveHour", true));
     rows.push(Row::link("homeassistant").tab(1).icon("house-wifi").label("Home Assistant").value(&super::homeassistant::words(c)).does(vec![Op::Open { page: "homeassistant".into(), arg: Default::default() }]));
     rows.push(Row::link("cameras").tab(1).icon("video").label("Cameras").value(&super::cameras::summary(c)).does(vec![Op::Open { page: "cameras".into(), arg: Default::default() }]));
@@ -295,6 +300,17 @@ mod tests {
         assert_eq!(patch_of_row(row, Arg::Index(0)), json!({"layout": {"statusBar": {"profile": "left"}}}));
         w.theme["layout"] = json!({"statusBar": {"profile": "left"}});
         assert_eq!(by_id(&rows(&w.ctx()), "profilebutton").index, Some(0));
+    }
+
+    #[test]
+    fn the_tuner_glyph_row_defaults_to_the_right_and_writes_only_its_key() {
+        let mut w = world();
+        let r = rows(&w.ctx());
+        let row = by_id(&r, "tunerglyphs");
+        assert_eq!((row.tab, row.index), (1, Some(0)));
+        assert_eq!(patch_of_row(row, Arg::Index(2)), json!({"layout": {"statusBar": {"tuner": "off"}}}));
+        w.theme["layout"] = json!({"statusBar": {"tuner": "left"}});
+        assert_eq!(by_id(&rows(&w.ctx()), "tunerglyphs").index, Some(1));
     }
 
     #[test]

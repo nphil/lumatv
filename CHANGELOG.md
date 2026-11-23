@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Home's top bar shows an antenna glyph at its right end while a player is streaming from the Live TV tuner, and a chip glyph beside it while that stream is being converted to H.264; no words, 70 % of the bar's ink, and nothing at all while the tuner is idle. Settings › Home › Tuner glyphs puts them at the right (default) or left end of the bar, or turns them off. The helper publishes the state on a `tuner` topic.
+
 LumaGame's top bar follows the mock: its pill is the raised glass's own colour with a 1 px edge (it was a see-through tint), the places are semibold with the Lucent house, library and search marks, items sit 4 px apart, and the places that are not current read at 90 % ink. The pad's LB/RB marks show only while the focus is on the bar, not at rest. The avatar at the right is the signed-in Steam account's profile picture (a 64 px picture the Steam engine caches, at most 64 KiB, https from steamstatic or akamaihd hosts only) with the word Menu beside it, and a person glyph when signed out or offline. All static; the pill is darker than before, never brighter.
 
 LumaGame's Home shows the focused game as a wide capsule of its hero art with tall covers beside it, low on the screen, and the Down state's cards sit lower.

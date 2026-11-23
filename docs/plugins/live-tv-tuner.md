@@ -133,6 +133,8 @@ or measuring a channel for the meter), the three addresses to give a player, the
 switch for the messages in the stream, and the switch for H.264 (*Make H.264 for players that ask*, off) with a line that says whether the
 converter is ready, converting, paused for an app or not available. Turning it off asks nothing.
 
+Home's top bar shows the tuner's use as glyphs, from the helper's `tuner` topic (`{streaming, clients, converting}`, published on every change and nothing more while idle): an antenna while a player's stream has the tuner, a chip beside it while the converter is making that stream's H.264. They are drawn at 70 % of the bar's ink, only while so, and go with the bar when it hides. Settings › Home › Tuner glyphs puts them at the bar's right end (default) or left end, or off (`layout.statusBar.tuner`, a profile's own key).
+
 Its antenna meter reads the TV's demodulator about once a second while the page is open, of an RF channel picked (the helper tunes its
 first channel) or of the one the tuner is on: a bar of the signal to noise from 16 to 30 dB in the verdict's colour, a tick at the best
 reading since the channel was picked, and the lock, MSE, dB, packet errors and BER (n/a when the TV's 24-bit count is full). Good is no

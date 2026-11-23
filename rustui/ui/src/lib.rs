@@ -18,3 +18,4 @@ pub mod panels;
 pub mod settings;
 pub mod shell;
 pub mod system;
+pub mod tuner_use;

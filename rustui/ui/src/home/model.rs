@@ -270,6 +270,8 @@ pub struct Home {
     pub dnd: crate::dnd::Dnd,
     mark: Option<(&'static str, String)>,
     mark_due: Option<u64>,
+    /// Who is using the antenna tuner, as the helper publishes it: its glyphs are on the bar while that is so (`tuner_glyphs`).
+    pub tuner: crate::tuner_use::TunerUse,
     /// The mark's words' width, measured by the surface as the chip's name is: the shape it was measured for (`mark_shape`), the text size and the width.
     mark_width: Option<(String, f32, f32)>,
     pub profiles: Value,
@@ -417,6 +419,7 @@ impl Home {
             dnd: crate::dnd::Dnd::default(),
             mark: None,
             mark_due: None,
+            tuner: crate::tuner_use::TunerUse::default(),
             mark_width: None,
             profiles: Value::Null,
             kept_profile: None,
@@ -695,7 +698,7 @@ impl Home {
     /// apart, a change of purpose `status_gaps.1`.
     fn status_run(&self) -> Vec<(f32, f32)> {
         let mut out = Vec::new();
-        let mut x = if self.mark.is_some() { self.mark_span() + self.status_gaps.1 } else { 0.0 };
+        let mut x = self.run_start();
         let mut before: Option<Purpose> = None;
         // the chip on the left is not in the run: it has its own place at the glass's left (see `status_frames`)
         for it in self.status_item_list().skip(usize::from(self.profile_left())) {
@@ -709,6 +712,60 @@ impl Home {
             before = Some(purpose);
         }
         out
+    }
+
+    /// Where the buttons begin along the bar: after the mark, and the tuner's glyphs when they are at the left.
+    fn run_start(&self) -> f32 {
+        let mut x = if self.mark.is_some() { self.mark_span() + self.status_gaps.1 } else { 0.0 };
+        if self.tuner_place() == crate::tuner_use::Place::Left && !self.tuner_glyphs().is_empty() {
+            x += self.tuner_span() + self.status_gaps.1;
+        }
+        x
+    }
+
+    /// Where the owner has the tuner's glyphs (`layout.statusBar.tuner` of the theme, a profile's own key): the right end of the bar until chosen.
+    pub fn tuner_place(&self) -> crate::tuner_use::Place {
+        crate::tuner_use::Place::of(self.theme.pointer("/layout/statusBar").and_then(|b| b.get(crate::tuner_use::PLACE_KEY)).and_then(Value::as_str))
+    }
+
+    /// The glyphs the bar shows of the tuner now: none while it is idle or the owner has them off.
+    pub fn tuner_glyphs(&self) -> Vec<&'static str> {
+        if self.tuner_place() == crate::tuner_use::Place::Off { Vec::new() } else { self.tuner.glyphs() }
+    }
+
+    /// One glyph's slot: a little narrower than a button, so that they read as marks and not as buttons.
+    pub fn tuner_slot(&self) -> f32 {
+        ((self.status_height() - 2.0 * STATUS_INSET) * 0.75 / 2.0).round() * 2.0
+    }
+
+    fn tuner_span(&self) -> f32 {
+        self.tuner_slot() * self.tuner_glyphs().len() as f32
+    }
+
+    /// The tuner's glyphs' box `(x, y, w, h)`, in the buttons' box: before the buttons at the left, after the last one at the right; none while
+    /// there is nothing to show.
+    pub fn tuner_frame(&self) -> Option<(f32, f32, f32, f32)> {
+        if self.tuner_glyphs().is_empty() {
+            return None;
+        }
+        let group = self.status_group();
+        let x = match self.tuner_place() {
+            crate::tuner_use::Place::Left => self.run_start() - self.tuner_span() - self.status_gaps.1,
+            _ => self.run_end(),
+        };
+        let h = self.status_height() - 2.0 * STATUS_INSET;
+        Some((group.x + STATUS_INSET + x, group.y + STATUS_INSET, self.tuner_span(), h))
+    }
+
+    /// Where the tuner's glyphs begin at the right: a purpose's gap after the last button.
+    fn run_end(&self) -> f32 {
+        self.status_run().last().map_or(self.run_start(), |(x, w)| x + w + self.status_gaps.1)
+    }
+
+    /// The bar's whole run: the buttons, and the glyphs after them when they are at the right.
+    fn status_end(&self) -> f32 {
+        let end = self.status_run().last().map_or(0.0, |(x, w)| x + w);
+        if self.tuner_place() == crate::tuner_use::Place::Right && !self.tuner_glyphs().is_empty() { self.run_end() + self.tuner_span() } else { end }
     }
 
     /// The status bar's two boxes: the one its buttons sit in (as wide as they are, `STATUS_INSET` round them) and the glass behind them. Both are
@@ -725,7 +782,7 @@ impl Home {
     /// (the placement still gives their height).
     fn status_place(&self) -> (ui::geometry::Frame, ui::geometry::Frame, (bool, bool)) {
         const ITEM: &str = "statusbar";
-        let span = self.status_run().last().map_or(0.0, |(x, w)| x + w) + 2.0 * STATUS_INSET;
+        let span = self.status_end() + 2.0 * STATUS_INSET;
         let h = self.status_height();
         let frame = lumatv_placement::Frame::from_json(&self.layout, self.theme.pointer("/overlays/limit"));
         let registry = lumatv_placement::Registry::shipped();
@@ -1376,6 +1433,14 @@ impl Home {
             crate::dnd::TOPIC => {
                 self.dnd = crate::dnd::Dnd::from_json(data);
                 self.sync_mark(out);
+            }
+            crate::tuner_use::TOPIC => {
+                let was = self.tuner_glyphs();
+                self.tuner = crate::tuner_use::TunerUse::from_json(data);
+                if self.tuner_glyphs() != was {
+                    self.register();
+                    self.redraw(out);
+                }
             }
             "plugins" | "ha.link" => {
                 let was_off = self.ha_off();
@@ -4807,6 +4872,44 @@ mod tests {
         assert_eq!(h.status_pill().x, 64.0);
         placed(&mut h, "top-right", 0.0);
         assert_eq!(h.status_pill().x + h.status_pill().w, 1856.0);
+    }
+
+    fn tuner_topic(h: &mut Home, streaming: bool, converting: bool) {
+        h.update(&Input::Helper { topic: crate::tuner_use::TOPIC.into(), data: json!({"streaming": streaming, "clients": u8::from(streaming), "converting": converting}) }, 1600);
+    }
+
+    fn tuner_at(h: &mut Home, place: &str) {
+        let mut theme = h.theme.clone();
+        theme["layout"] = json!({"statusBar": {"tuner": place}});
+        h.set_theme(theme);
+    }
+
+    #[test]
+    fn the_tuner_glyphs_are_on_the_bar_only_while_in_use_at_the_end_the_owner_chose_and_never_take_a_focus_slot() {
+        for scale in [1.0, 2.0] {
+            let mut h = home();
+            h.set_text_scale(scale);
+            named(&mut h);
+            h.set_name_width("Nitin".into(), 47.63);
+            let (idle, buttons) = (h.status_pill(), h.status_frames());
+            assert!(h.tuner_frame().is_none(), "text {scale}: nothing while idle");
+            tuner_topic(&mut h, true, false);
+            assert_eq!(h.tuner_glyphs(), ["antenna"]);
+            let (pill, f) = (h.status_pill(), h.tuner_frame().unwrap());
+            assert!(pill.w > idle.w && f.0 >= h.status_frames().last().map(|b| b.0 + b.2).unwrap() && f.0 + f.2 <= pill.x + pill.w, "text {scale}: right of the buttons, in the pill: {f:?} {pill:?}");
+            assert_eq!(h.status_frames().len(), buttons.len(), "text {scale}: not a button");
+            tuner_topic(&mut h, true, true);
+            assert_eq!(h.tuner_glyphs(), ["antenna", "cpu"]);
+            assert!(h.tuner_frame().unwrap().2 > f.2);
+            tuner_at(&mut h, "left");
+            let (pill, f, frames) = (h.status_pill(), h.tuner_frame().unwrap(), h.status_frames());
+            assert!(f.0 >= pill.x && f.0 + f.2 < frames[0].0 && frames.windows(2).all(|w| w[0].0 + w[0].2 < w[1].0), "text {scale}: left of the buttons: {f:?} {frames:?}");
+            tuner_at(&mut h, "off");
+            assert!(h.tuner_frame().is_none() && h.status_pill().w == idle.w, "text {scale}: off takes no room");
+            tuner_at(&mut h, "right");
+            tuner_topic(&mut h, false, false);
+            assert!(h.tuner_frame().is_none() && h.status_pill().w == idle.w, "text {scale}: the pill is as it was when the stream ends");
+        }
     }
 
     /// The profile's choice of the chip's end of the bar (`layout.statusBar.profile`) with the bar placed as the owner may have it.
