@@ -1,0 +1,11 @@
+audiopass is licensed under the GNU Lesser General Public License, version 2.1 or (at your option) any later version; the licence
+text is in LICENSE.
+
+It is a Rust port of the route logic in dts_restore_plus by josippapez
+(https://github.com/josippapez/dts_restore_plus, commit b8fa7db445fff52b1d5183d7a2cfc0cd4169b523, LGPL-2.1-or-later):
+
+  webos25/restore/src/lgroute-graph.h    the graph node parser and the bypass converter search       -> src/graph.rs
+  webos25/restore/src/lgroute-control.c  the eARC output words: validation, un-mixing, restoring       -> src/sndout.rs, src/route.rs
+  webos25/restore/src/lgroute.c          the converter command and the give-up rule for LG re-mixing  -> src/route.rs
+
+The upstream kernel module (webos25/kmod, GPL-2.0-only) and the GStreamer sink are not used or ported.

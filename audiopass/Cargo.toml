@@ -1,0 +1,20 @@
+[package]
+name = "audiopass"
+description = "TrueHD passthrough to an eARC receiver on LG webOS: readiness, arming, monitoring and restoration of LG's audio route"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+license = "LGPL-2.1-or-later"
+
+[features]
+# A scripted TV for tests of crates that drive the route.
+testing = []
+
+[dependencies]
+libc = "0.2"
+sha2 = "0.10"
+
+[[bin]]
+name = "audiopass"
+path = "src/main.rs"

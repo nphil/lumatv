@@ -1,0 +1,198 @@
+digraph {
+ rankdir="LR";
+ node [color=black, fillcolor=white, style=filled, shape=box, fontname="sans"]
+ subgraph cluster_proc7_00000000dff951e3_processor_7 {
+  label="processor_7
+proc_id:7";
+ }
+ subgraph cluster_proc4_00000000c1c60e21_dsp2 {
+  label="dsp2
+proc_id:4";
+   subgraph cluster_inst_0000000038746941_mixerbin_04280001 {
+    label="mixerbin_04280001";
+    mixerbin_04280001_000000006605572b_in0 [label="in0"];
+    mixerbin_04280001_000000003445d4d4_in1 [label="in1"];
+    mixerbin_04280001_00000000c85fbf51_in11 [label="in11"];
+    mixerbin_04280001_000000004025c871_in10 [label="in10"];
+    mixerbin_04280001_00000000b9be8fdd_out1 [label="out1"];
+    mixerbin_04280001_00000000c28161f3_out0 [label="out0"];
+   }
+   subgraph cluster_inst_00000000b1b46bf2_delay_041c0005 {
+    label="delay_041c0005";
+    delay_041c0005_000000001628b5d1_in0 [label="in0"];
+    delay_041c0005_00000000174aa800_out0 [label="out0"];
+   }
+   subgraph cluster_inst_000000009682a1cb_delay_041c0004 {
+    label="delay_041c0004";
+    delay_041c0004_0000000032c6165e_in0 [label="in0"];
+    delay_041c0004_000000003410907b_out0 [label="out0"];
+   }
+   subgraph cluster_inst_00000000c94f2617_delay_041c0003 {
+    label="delay_041c0003";
+    delay_041c0003_00000000083fad6b_in0 [label="in0"];
+    delay_041c0003_00000000fab171bc_out0 [label="out0"];
+   }
+   subgraph cluster_inst_00000000120a868f_delay_041c0002 {
+    label="delay_041c0002";
+    delay_041c0002_0000000028d32d04_in0 [label="in0"];
+    delay_041c0002_00000000035b5bb7_out0 [label="out0"];
+   }
+   subgraph cluster_inst_00000000d0eaf72e_delay_041c0001 {
+    label="delay_041c0001";
+    delay_041c0001_00000000ddee4b32_out0 [label="out0"];
+   }
+   subgraph cluster_inst_00000000a1dd1942_gain_041b013e {
+    label="gain_041b013e";
+    gain_041b013e_00000000aa29092b_in0 [label="in0"];
+    gain_041b013e_00000000f16bccbf_out0 [label="out0"];
+   }
+   subgraph cluster_inst_0000000093834c3a_gain_041b0008 {
+    label="gain_041b0008";
+    gain_041b0008_00000000604a0440_in0 [label="in0"];
+    gain_041b0008_0000000025bd86a5_out0 [label="out0"];
+   }
+   subgraph cluster_inst_000000003261cc36_gain_041b0005 {
+    label="gain_041b0005";
+    gain_041b0005_000000001f44b916_in0 [label="in0"];
+    gain_041b0005_00000000a000cddb_out0 [label="out0"];
+   }
+   subgraph cluster_inst_0000000025ab597b_gain_041b0004 {
+    label="gain_041b0004";
+    gain_041b0004_00000000e407f6e9_in0 [label="in0"];
+    gain_041b0004_00000000fc9190e1_out0 [label="out0"];
+   }
+   subgraph cluster_inst_0000000022f6ae89_gain_041b0001 {
+    label="gain_041b0001";
+    gain_041b0001_000000005b7ffc41_in0 [label="in0"];
+    gain_041b0001_000000009fa5ab10_out0 [label="out0"];
+   }
+   subgraph cluster_inst_00000000ae6d7305_fader_04190004 {
+    label="fader_04190004";
+    fader_04190004_000000000bf14a90_out0 [label="out0"];
+   }
+   subgraph cluster_inst_00000000f4f204f8_fader_04190003 {
+    label="fader_04190003";
+    fader_04190003_00000000c1738432_out0 [label="out0"];
+   }
+   subgraph cluster_inst_000000008c9ca1b2_fader_04190002 {
+    label="fader_04190002";
+    fader_04190002_00000000c76da4d9_out0 [label="out0"];
+   }
+   subgraph cluster_inst_00000000c1f70fb2_fader_04190001 {
+    label="fader_04190001";
+    fader_04190001_0000000007fd7200_out0 [label="out0"];
+   }
+   subgraph cluster_inst_00000000f348c1cb_bypass_04160001 {
+    label="bypass_04160001";
+    bypass_04160001_00000000419f0f8d_in0 [label="in0"];
+   }
+   subgraph cluster_inst_000000006343458e_gluepw_04110260 {
+    label="gluepw_04110260";
+    gluepw_04110260_0000000079335152_in0 [label="in0"];
+   }
+   subgraph cluster_inst_000000007c49024e_gluepw_04110001 {
+    label="gluepw_04110001";
+    gluepw_04110001_00000000cc7bf985_in0 [label="in0"];
+   }
+ }
+ subgraph cluster_proc5_00000000941b8332_dsp3 {
+  label="dsp3
+proc_id:5";
+ }
+ subgraph cluster_proc3_00000000ac169e66_dsp1 {
+  label="dsp1
+proc_id:3";
+   subgraph cluster_inst_00000000bf504210_outctrlbin_03300002 {
+    label="outctrlbin_03300002";
+    outctrlbin_03300002_0000000014c82afc_in0 [label="in0"];
+    outctrlbin_03300002_00000000b8097975_out0 [label="out0"];
+   }
+   subgraph cluster_inst_000000001822966a_outctrlbin_03300001 {
+    label="outctrlbin_03300001";
+    outctrlbin_03300001_00000000bdaf2641_in0 [label="in0"];
+    outctrlbin_03300001_000000008a8441f6_out0 [label="out0"];
+   }
+   subgraph cluster_inst_00000000bf909bce_encoderbin_032f0001 {
+    label="encoderbin_032f0001";
+    encoderbin_032f0001_00000000b26b062a_in0 [label="in0"];
+    encoderbin_032f0001_000000005d937924_out0 [label="out0"];
+   }
+   subgraph cluster_inst_0000000076fa57f5_output_hp_03250001 {
+    label="output_hp_03250001";
+    output_hp_03250001_0000000078fa4df4_in0 [label="in0"];
+   }
+   subgraph cluster_inst_00000000ebb294b5_output_arc_03230001 {
+    label="output_arc_03230001";
+    output_arc_03230001_00000000316dfd35_in0 [label="in0"];
+   }
+   subgraph cluster_inst_00000000c906b3fc_queue_03180001 {
+    label="queue_03180001";
+    queue_03180001_00000000616e3612_in0 [label="in0"];
+    queue_03180001_000000005295dd12_out0 [label="out0"];
+   }
+   subgraph cluster_inst_000000002cff84ef_gluepr_031000f6 {
+    label="gluepr_031000f6";
+    gluepr_031000f6_000000007e3e45ea_out0 [label="out0"];
+   }
+   subgraph cluster_inst_00000000ef0f08c9_gluepr_03100001 {
+    label="gluepr_03100001";
+    gluepr_03100001_00000000d63d82ee_out0 [label="out0"];
+   }
+ }
+ subgraph cluster_proc2_000000004d82887c_dsp0 {
+  label="dsp0
+proc_id:2";
+ }
+ mixerbin_04280001_00000000b9be8fdd_out1 -> gluepw_04110260_0000000079335152_in0;
+ shared_buf_0000000046ebb42e [label="phys:0x0000000086895000
+size:262144
+offset:0x1426d000"];
+ subgraph cluster_proc4_00000000c1c60e21_dsp2 {
+   subgraph cluster_inst_000000006343458e_gluepw_04110260 {
+     gluepw_04110260_out [label="jumper"];
+   }
+ }
+ gluepw_04110260_out -> shared_buf_0000000046ebb42e [style=dotted];
+ subgraph cluster_proc3_00000000ac169e66_dsp1 {
+   subgraph cluster_inst_000000002cff84ef_gluepr_031000f6 {
+     gluepr_031000f6_in [label="jumper"];
+   }
+ }
+ shared_buf_0000000046ebb42e -> gluepr_031000f6_in [style=dotted];
+ mixerbin_04280001_00000000c28161f3_out0 -> gluepw_04110001_00000000cc7bf985_in0;
+ shared_buf_000000006d2a8d5f [label="phys:0x0000000086855000
+size:262144
+offset:0x1422d000"];
+ subgraph cluster_proc4_00000000c1c60e21_dsp2 {
+   subgraph cluster_inst_000000007c49024e_gluepw_04110001 {
+     gluepw_04110001_out [label="jumper"];
+   }
+ }
+ gluepw_04110001_out -> shared_buf_000000006d2a8d5f [style=dotted];
+ subgraph cluster_proc3_00000000ac169e66_dsp1 {
+   subgraph cluster_inst_00000000ef0f08c9_gluepr_03100001 {
+     gluepr_03100001_in [label="jumper"];
+   }
+ }
+ shared_buf_000000006d2a8d5f -> gluepr_03100001_in [style=dotted];
+ delay_041c0005_00000000174aa800_out0 -> gain_041b013e_00000000aa29092b_in0;
+ delay_041c0004_000000003410907b_out0 -> gain_041b0008_00000000604a0440_in0;
+ delay_041c0003_00000000fab171bc_out0 -> gain_041b0005_000000001f44b916_in0;
+ delay_041c0002_00000000035b5bb7_out0 -> gain_041b0004_00000000e407f6e9_in0;
+ delay_041c0001_00000000ddee4b32_out0 -> gain_041b0001_000000005b7ffc41_in0;
+ gain_041b013e_00000000f16bccbf_out0 -> mixerbin_04280001_000000006605572b_in0;
+ gain_041b0008_0000000025bd86a5_out0 -> mixerbin_04280001_000000003445d4d4_in1;
+ gain_041b0005_00000000a000cddb_out0 -> mixerbin_04280001_00000000c85fbf51_in11;
+ gain_041b0004_00000000fc9190e1_out0 -> mixerbin_04280001_000000004025c871_in10;
+ gain_041b0001_000000009fa5ab10_out0 -> bypass_04160001_00000000419f0f8d_in0;
+ fader_04190004_000000000bf14a90_out0 -> delay_041c0005_000000001628b5d1_in0;
+ fader_04190003_00000000c1738432_out0 -> delay_041c0004_0000000032c6165e_in0;
+ fader_04190002_00000000c76da4d9_out0 -> delay_041c0003_00000000083fad6b_in0;
+ fader_04190001_0000000007fd7200_out0 -> delay_041c0002_0000000028d32d04_in0;
+ outctrlbin_03300002_00000000b8097975_out0 -> output_arc_03230001_00000000316dfd35_in0;
+ outctrlbin_03300001_000000008a8441f6_out0 -> output_hp_03250001_0000000078fa4df4_in0;
+ encoderbin_032f0001_000000005d937924_out0 -> queue_03180001_00000000616e3612_in0;
+ queue_03180001_000000005295dd12_out0 -> outctrlbin_03300002_0000000014c82afc_in0;
+ gluepr_031000f6_000000007e3e45ea_out0 -> encoderbin_032f0001_00000000b26b062a_in0;
+ gluepr_03100001_00000000d63d82ee_out0 -> outctrlbin_03300001_00000000bdaf2641_in0;
+}
