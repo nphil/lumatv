@@ -6,7 +6,6 @@
 
 use super::html::{Doc, El};
 use super::{count, https, listed};
-use crate::http::COMMUNITY;
 use lumagame_core::community::{Absence, Guide, HubItem, MAX_BLURB, MAX_GUIDES, MAX_HUB_ITEMS, MAX_NAME, MAX_TITLE, Section};
 
 /// Longest id Steam gives a published file, in digits.
@@ -39,7 +38,6 @@ fn item(doc: &Doc<'_>, card: El) -> Option<HubItem> {
     let id = id(doc, card)?;
     let image = https(&doc.attr(doc.first(Some(card), "apphub_CardContentPreviewImage")?, "src")?)?;
     Some(HubItem {
-        url: page_of(&id),
         title: words(doc, card, "apphub_CardContentTitle", MAX_TITLE),
         author: words(doc, card, "apphub_CardContentAuthorName", MAX_NAME),
         youtube: youtube(&image),
@@ -58,7 +56,6 @@ fn guide(doc: &Doc<'_>, card: El) -> Option<Guide> {
         return None;
     }
     Some(Guide {
-        url: page_of(&id),
         title: name,
         summary: words(doc, card, "apphub_CardContentGuideDesc", MAX_BLURB),
         author: words(doc, card, "apphub_CardContentAuthorName", MAX_NAME),
@@ -76,11 +73,6 @@ fn id(doc: &Doc<'_>, card: El) -> Option<String> {
             doc.attr(card, "data-modal-content-url").and_then(|url| url.rsplit_once("id=").and_then(|(_, id)| digits(id.split('&').next().unwrap_or_default())))
         })
         .or_else(|| doc.attr(card, "id").and_then(|id| id.strip_prefix("apphub_Card_").and_then(digits)))
-}
-
-/// Where the item is shown on steamcommunity.com.
-fn page_of(id: &str) -> String {
-    format!("{COMMUNITY}/sharedfiles/filedetails/?id={id}")
 }
 
 /// The id of a video, from the thumbnail Steam shows for it: the only place the fragment says where a video is from.
@@ -130,7 +122,6 @@ mod tests {
             ("3842423884", "I always dreamed of being an actor… I wanted to see my face on a show’s poster.", "Player One")
         );
         assert_eq!(first.image, "https://images.steamusercontent.com/ugc/1/AA/?imw=1024&&ima=fit&impolicy=Letterbox&imcolor=%23000000&letterbox=false");
-        assert_eq!(first.url, "https://steamcommunity.com/sharedfiles/filedetails/?id=3842423884");
         assert_eq!((first.likes, first.comments, first.youtube.as_deref()), (66, 56, None));
         assert_eq!((items[1].likes, items[1].comments, items[1].title.as_str()), (1_234, 1_005, ""), "thousands separators; a card with no title has none");
     }
@@ -154,7 +145,7 @@ mod tests {
         assert_eq!(first.id, "3838373048");
         assert_eq!(first.title, "All 7 Collectible Locations in Cyberpunk 2077 (UPDATED 2026)");
         assert_eq!(first.summary, "Night City holds seven pieces of an old life, and six of them lead straight to a trophy.");
-        assert_eq!((first.author.as_str(), first.url.as_str()), ("Guide Writer", "https://steamcommunity.com/sharedfiles/filedetails/?id=3838373048"));
+        assert_eq!(first.author, "Guide Writer");
         assert_eq!(
             first.image.as_deref(),
             Some("https://images.steamusercontent.com/ugc/2/BB/?imw=128&imh=128&ima=fit&impolicy=Letterbox&imcolor=%23000000&letterbox=true")

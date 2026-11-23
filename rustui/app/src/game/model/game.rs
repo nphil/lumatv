@@ -540,7 +540,7 @@ mod tests {
     /// GeForce NOW lists Hades II (Steam app 1145350) and Steam, on with achievements and the community, has said two long news posts.
     /// Steam is signed in when `signed_in`.
     fn hades(signed_in: bool) -> (Model, GameId) {
-        let news = (0..2).map(|i| NewsItem { title: format!("Patch {i}"), text: "word ".repeat(300), author: None, source: None, at: 0, url: None }).collect();
+        let news = (0..2).map(|i| NewsItem { title: format!("Patch {i}"), text: "word ".repeat(300), author: None, source: None, at: 0 }).collect();
         hades_with(signed_in, Community { news: Part::list(news), ..Community::default() })
     }
     /// Hades II as `hades` has it, with `community` for what Steam's community says of it.

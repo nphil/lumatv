@@ -308,7 +308,6 @@ pub(super) fn hades_community(now: u64) -> lumagame_core::community::Community {
         author: Some("Supergiant Games".into()),
         source: None,
         at: now - days * day,
-        url: None,
     };
     let topic = |id: &str, title: &str, author: &str, replies, ago: u64| Topic {
         id: id.into(),
@@ -326,7 +325,6 @@ pub(super) fn hades_community(now: u64) -> lumagame_core::community::Community {
         summary: summary.into(),
         author: author.into(),
         image: None,
-        url: format!("https://steamcommunity.com/sharedfiles/filedetails/?id={id}"),
     };
     let shot = |n: u32| Shot { thumb: format!("fixture://media/shot-{n}.jpg"), full: format!("fixture://media/shot-{n}.jpg") };
     let trailer = |n: u32, title: &str| Trailer { title: title.into(), thumb: format!("fixture://media/trailer-{n}.jpg"), hls: Some(format!("https://fixture.invalid/trailer-{n}.m3u8")), dash: None };

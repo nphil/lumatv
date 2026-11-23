@@ -24,7 +24,6 @@ fn with_hub(base: &Model) -> Model {
         title: title.into(),
         author: author.into(),
         image: format!("fixture://media/shot-{}.jpg", n % 5 + 1),
-        url: String::new(),
         youtube: youtube.map(str::to_owned),
         likes: 0,
         comments: 0,

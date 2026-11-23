@@ -151,8 +151,6 @@ pub struct NewsItem {
     pub source: Option<String>,
     /// In Unix seconds.
     pub at: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
 }
 
 /// A store screenshot: a small picture to list and the full-size one.
@@ -185,8 +183,6 @@ pub struct HubItem {
     pub author: String,
     /// A preview picture.
     pub image: String,
-    /// Its page on steamcommunity.com.
-    pub url: String,
     /// The YouTube id, for a video.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub youtube: Option<String>,
@@ -203,7 +199,6 @@ pub struct Guide {
     pub author: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
-    pub url: String,
 }
 
 /// One line of the hub's discussion list.
@@ -264,7 +259,6 @@ pub(crate) fn sample() -> Community {
             author: Some("Dev".into()),
             source: None,
             at: 1_700_000_000,
-            url: Some("https://example.invalid/n".into()),
         }]),
         players: Section::Present { value: 47_861 },
         rarity: Section::Present { value: BTreeMap::from([("ACH_WIN".to_owned(), 885)]) },
@@ -275,7 +269,6 @@ pub(crate) fn sample() -> Community {
             title: String::new(),
             author: "Someone".into(),
             image: "https://example.invalid/i.jpg".into(),
-            url: "https://steamcommunity.com/sharedfiles/filedetails/?id=123".into(),
             youtube: None,
             likes: 5,
             comments: 1,
@@ -339,7 +332,6 @@ mod tests {
                         title: text(MAX_TITLE),
                         author: text(MAX_NAME),
                         image: url(),
-                        url: url(),
                         youtube: Some("x".repeat(11)),
                         likes: u32::MAX,
                         comments: u32::MAX,
@@ -374,7 +366,6 @@ mod tests {
                         author: Some(text(MAX_NAME)),
                         source: Some(text(MAX_NAME)),
                         at: u64::MAX,
-                        url: Some(url()),
                     })
                     .collect(),
             ),
@@ -393,7 +384,6 @@ mod tests {
                         summary: text(MAX_BLURB),
                         author: text(MAX_NAME),
                         image: Some(url()),
-                        url: url(),
                     })
                     .collect(),
             ),

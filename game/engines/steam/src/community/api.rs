@@ -99,7 +99,6 @@ fn news_item(value: &Value) -> Option<NewsItem> {
         author: some(line(string(value.get("author")), MAX_NAME)),
         source: some(line(string(value.get("feedlabel")), MAX_NAME)),
         at: number(value.get("date")),
-        url: address(value.get("url")),
     })
 }
 
@@ -275,18 +274,16 @@ mod tests {
     }
 
     #[test]
-    fn news_gives_title_text_author_source_time_and_an_https_address() {
+    fn news_gives_title_text_author_source_and_time() {
         let items = present(news(&ok(include_str!("fixtures/news.json"))));
         assert_eq!(items.len(), 3, "the post with no title is left out");
         let first = &items[0];
         assert_eq!(first.title, "Edgerunners 2 Update (2.5) is out now!");
         assert_eq!((first.author.as_deref(), first.source.as_deref(), first.at), (Some("Studio Writer"), Some("Community Announcements"), 1_792_663_614));
-        assert_eq!(first.url.as_deref(), Some("https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114032016"));
         assert_eq!(first.text, "In the City of (Broken) Dreams, it’s not about how you flatline.\n\nRead the patch notes: what's new\n• New outfits\n• Fixes");
-        // A third-party feed carries HTML, and a post with a plain address or none keeps no link.
+        // A third-party feed carries HTML.
         assert_eq!(items[1].text, "Seen from above & below. Read more");
-        assert_eq!((items[1].author.as_deref(), items[1].url.as_deref()), (None, None), "an address that is not https is dropped");
-        assert_eq!(items[2].url, None);
+        assert_eq!(items[1].author, None);
     }
 
     #[test]

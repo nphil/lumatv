@@ -299,7 +299,6 @@ mod tests {
             title: "Speedrun".into(),
             author: "zag".into(),
             image: "https://x/video.jpg".into(),
-            url: String::new(),
             youtube: Some("dQw4w9WgXcQ".into()),
             likes: 0,
             comments: 0,
