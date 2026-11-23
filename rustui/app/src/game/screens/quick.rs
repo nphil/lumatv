@@ -4,13 +4,13 @@
 //! on the lit row: the drawer sits over a whole page, so its own layers stay few.
 //!
 //! Node ids: 8800-8804 the drawer, 9000 and up each row (20 apart: `+0` the words, `+7` the switch, `+10` the focus), 9200 the group
-//! label, 9210 and 9211 the All settings button.
+//! label, 9210 and 9211 the All settings button; a stepper's chip is its row's `+4`.
 use crate::game::model::{
     Focus, Layer,
     quick::{Item, QuickSetting},
 };
 use crate::game::screens::{
-    paint::{Fill, Mark, Paint},
+    paint::{Fill, H, Mark, Paint, W},
     parts::{
         Side, drawer,
         focus::{self, Kind},
@@ -34,6 +34,9 @@ const ROOM: f32 = 22.0;
 /// The room between a stepper's value and its arrows.
 const ARROW_GAP: f32 = 12.0;
 const SWITCH_W: f32 = 82.0;
+/// A stepper's glass chip: its height and the room inside it at each end.
+const CHIP_H: f32 = 52.0;
+const CHIP_PAD: f32 = 14.0;
 
 /// What a row ends in.
 enum End<'a> {
@@ -71,7 +74,8 @@ fn line(p: &mut Paint<'_>, id: u64, f: Frame, Label { icon, name, sub }: Label<'
             let ty = p.bold(Type::Label);
             let value = ellipsise(p.fonts, value, ty, ((f.w - 2.0 * PAD_X) * 0.45).floor());
             let value_w = p.fonts.measure(&value, ty).width.ceil();
-            right -= small;
+            let end = right;
+            right -= CHIP_PAD + small;
             marks.push(p.mark(Icon::ChevronRight, small, right, (f.h - small) / 2.0, Role::Ink, false));
             right -= ARROW_GAP + value_w;
             let mut word = p.word(value, Type::Label, p.ink(Role::Ink, false), right, (f.h - p.line(Type::Label)) / 2.0, value_w);
@@ -79,6 +83,9 @@ fn line(p: &mut Paint<'_>, id: u64, f: Frame, Label { icon, name, sub }: Label<'
             words.push(word);
             right -= ARROW_GAP + small;
             marks.push(p.mark(Icon::Back, small, right, (f.h - small) / 2.0, Role::Ink, false));
+            right -= CHIP_PAD;
+            let chip_h = CHIP_H.max(small + 16.0);
+            p.surface(id + 4, Frame::new(f.x + right, f.y + (f.h - chip_h) / 2.0, end - right, chip_h), Fill::Glass, Radius::Pill, false, false, false, 11);
         }
         End::Switch(on) => {
             // The track is the switch's one layer; the knob and the tick ride in the row's text layer.
@@ -122,6 +129,7 @@ pub(super) fn quick(p: &mut Paint<'_>) {
 fn menu(p: &mut Paint<'_>) {
     let m = p.model;
     let content = drawer::open(p, Side::Right, drawer::WIDTH, "Menu");
+    darken(p);
     let from = p.plan.nodes.len();
     let subject = m.quick_subject();
     let mut y = content.y;
@@ -162,6 +170,7 @@ fn settings(p: &mut Paint<'_>) {
     let m = p.model;
     let crumb = Focus::SheetAction(0);
     let content = drawer::open_crumbed(p, Side::Right, drawer::WIDTH, ("Menu", crumb), "Quick settings");
+    darken(p);
     let from = p.plan.nodes.len();
     if let Some(chip) = p.plan.nodes.iter().find(|n| n.id == 8803).map(|n| n.frame) {
         p.hit(crumb, chip);
@@ -181,6 +190,16 @@ fn settings(p: &mut Paint<'_>) {
     drawer::lift(p, from);
 }
 
+/// Spreads the drawer's scrim under the sheet too, so bright art does not show through its glass.
+fn darken(p: &mut Paint<'_>) {
+    let screen = Frame::new(0.0, 0.0, W, H);
+    if let Some(scrim) = p.plan.nodes.iter_mut().find(|n| n.id == drawer::SCRIM) {
+        scrim.frame = screen;
+        scrim.props.x = 0.0;
+        scrim.props.y = 0.0;
+    }
+}
+
 /// The glass button at the foot's right that opens the full settings. Uncached, like the crumb: it appears after the page's first frames.
 fn all_settings(p: &mut Paint<'_>) {
     let focus = Focus::SheetAction(1);
@@ -193,10 +212,7 @@ fn all_settings(p: &mut Paint<'_>) {
     let f = Frame::new(foot.x + foot.w - w, foot.y + foot.h - h, w, h);
     let focused = p.focused(focus);
     let from = p.plan.nodes.len();
-    // At rest the button is its words alone: the drawer already sits over a whole page, and a resting pill would be one more layer.
-    if focused {
-        p.surface(9210, f, Fill::Glass, Radius::Pill, false, true, false, 12);
-    }
+    p.surface(9210, f, Fill::Glass, Radius::Pill, false, focused, false, 12);
     let mut word = p.word(label, Type::Label, p.ink(Role::Ink, false), 24.0 + icon + 12.0, (h - p.line(Type::Label)) / 2.0, text_w);
     word.ty = ty;
     let mark = p.mark(Icon::Cog, icon, 24.0, (h - icon) / 2.0, Role::Ink, false);

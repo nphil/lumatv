@@ -33,6 +33,9 @@ const FOOT_CLEAR: f32 = 18.0;
 /// The crumb is 64 px tall; the title sits right under it.
 const CRUMB_H: f32 = 64.0;
 
+/// The scrim's node.
+pub const SCRIM: u64 = 8800;
+
 /// Opens a drawer of `width` on `side` with `title`, and returns the frame for its content. Sets `p.art` off (the drawer is a sheet),
 /// `p.anchor` to the foot, so `hints::bar(.., Side::Left, ..)` sits inside the sheet, and `p.content_z` to the sheet's.
 pub fn open(p: &mut Paint<'_>, side: Side, width: f32, title: &str) -> Frame {
@@ -68,7 +71,7 @@ fn shell(p: &mut Paint<'_>, side: Side, width: f32, crumb: Option<(&str, Focus)>
             Side::Right => Frame::new(0.0, 0.0, sheet.x, H),
         };
         p.arrives(beside, Enter::FADE);
-        veil(p, 8800, beside, false);
+        veil(p, SCRIM, beside, false);
     }
 
     p.arrives(sheet, Enter::slide(toward, 0.0));

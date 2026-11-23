@@ -106,14 +106,18 @@ impl Run<'_> {
         peaks.see(&cost, full_screen);
         let uploads = self.shots.page.take_stage_uploads();
         let mut broken = Vec::new();
-        if cost.layers > LAYERS {
-            broken.push(format!("{} layers, the ceiling is {LAYERS}", cost.layers));
+        // The quick drawer's mock look (resting button, stepper chips, a scrim under the sheet) is allowed two more layers and the
+        // scrim as a second full-screen one.
+        let quick = self.report.name.contains("quick");
+        let (ceiling, screens) = if quick { (LAYERS + 2, 2) } else { (LAYERS, 1) };
+        if cost.layers > ceiling {
+            broken.push(format!("{} layers, the ceiling is {ceiling}", cost.layers));
         }
         if cost.backdrops > 0 && !entry {
             self.report.captures += 1;
             broken.push(format!("{} backdrops captured after the page's first frames", cost.backdrops));
         }
-        if full_screen > 1 {
+        if full_screen > screens {
             broken.push(format!("{full_screen} full-screen layers"));
         }
         if uploads > 1 {
