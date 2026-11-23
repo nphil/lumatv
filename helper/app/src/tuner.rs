@@ -34,6 +34,7 @@ use crate::plugins::local::{Handler, Local, OptIn, Spec};
 use crate::plugins::roster;
 use crate::plugins::session::{MAX_FACT_LINE, Shared};
 use crate::settings::SettingsStore;
+use crate::xcode::Xcode;
 use lumatuner::{Cidr, Config as Offer, Grade, Reading, Reception, Signal, Status, Tuner};
 use plugin_api::wire::ToPlugin;
 use serde_json::{Map, Value as Json, json};
@@ -106,12 +107,14 @@ pub fn migrate(settings: &SettingsStore, plugins_dir: &Path) {
 enum Event {
     /// The owner's switch may have changed: [`Shared::switched_on`] says how it stands.
     Switch,
-    /// The page's values: the name players show, and whether streams carry slates.
-    Settings { name: String, slates: bool },
+    /// The page's values: the name players show, whether streams carry slates, and whether `?transcode=` is made into H.264.
+    Settings { name: String, slates: bool, convert: bool },
     /// The switch of channel `guide`'s row: in the lineup or out of it.
     Lineup(String),
     /// The engine's status changed.
     Status,
+    /// The converter's state changed.
+    Converter,
     /// Look at the TV now.
     Check,
     Stop,
@@ -171,6 +174,11 @@ struct Plugin {
     /// What is kept of the channels, and where.
     kept: Kept,
     kept_file: PathBuf,
+    /// Whether the page asks for H.264 on request, the converter that makes it while that is so, and why there is none when it is asked
+    /// for.
+    convert: bool,
+    xcode: Option<Xcode>,
+    xcode_problem: Option<String>,
 }
 
 impl Plugin {
@@ -205,6 +213,9 @@ impl Plugin {
             theme: Arc::new(Theme::new(ctx.paths.theme_file(), look::fonts_dir(app))),
             kept,
             kept_file,
+            convert: false,
+            xcode: None,
+            xcode_problem: None,
         }
     }
 
@@ -224,13 +235,15 @@ impl Plugin {
             match rx.recv_timeout(wait) {
                 Ok(Event::Stop) | Err(RecvTimeoutError::Disconnected) => break,
                 Ok(Event::Switch) => self.switch(),
-                Ok(Event::Settings { name, slates }) => {
+                Ok(Event::Settings { name, slates, convert }) => {
                     self.slates(slates);
                     self.name = name;
+                    self.convert = convert;
                     self.reconcile();
                 }
                 Ok(Event::Lineup(guide)) => self.lineup(&guide),
                 Ok(Event::Status) => self.keep(),
+                Ok(Event::Converter) => {}
                 Ok(Event::Check) => {
                     self.tuner.check();
                 }
@@ -247,6 +260,8 @@ impl Plugin {
             self.publish();
         }
         self.tuner.stop();
+        self.tuner.transcode(None);
+        self.xcode = None;
         self.page = None;
     }
 
@@ -270,6 +285,7 @@ impl Plugin {
             let values = self.ctx.settings.effective(ID);
             self.name = values.as_ref().map_or_else(|| DEFAULT_NAME.to_owned(), name_of);
             self.slates(values.as_ref().is_none_or(slates_of));
+            self.convert = values.as_ref().is_some_and(convert_of);
         } else {
             self.page = None;
             self.said = Json::Null;
@@ -279,6 +295,7 @@ impl Plugin {
 
     /// Makes the listener match the switch: up exactly while the plugin is on, under its name, on the address the TV has now.
     fn reconcile(&mut self) {
+        self.converter();
         if !self.on {
             self.tuner.stop();
             self.problem = None;
@@ -309,6 +326,48 @@ impl Plugin {
         }
     }
 
+    /// Makes the converter match the owner's wishes: there exactly while the plugin is on and its setting asks for H.264. A start that
+    /// fails is tried again at the next check; the streams go out as the stations send them meanwhile.
+    fn converter(&mut self) {
+        if !(self.on && self.convert) {
+            self.xcode_problem = None;
+            if self.xcode.is_some() {
+                self.tuner.transcode(None);
+                self.xcode = None;
+            }
+            return;
+        }
+        if self.xcode.is_some() {
+            return;
+        }
+        let tx = self.tx.clone();
+        match Xcode::start(&self.ctx, move || {
+            let _ = tx.send(Event::Converter);
+        }) {
+            Ok(xcode) => {
+                self.tuner.transcode(xcode.codec());
+                self.xcode = Some(xcode);
+                self.xcode_problem = None;
+            }
+            Err(e) => {
+                let why = e.to_string();
+                if self.xcode_problem.as_deref() != Some(why.as_str()) {
+                    crate::log_warn!("tuner: the H.264 converter is not available: {why}");
+                }
+                self.xcode_problem = Some(why);
+            }
+        }
+    }
+
+    /// What the page says of the converter.
+    fn converter_line(&self) -> String {
+        match (&self.xcode, &self.xcode_problem) {
+            (Some(xcode), _) => xcode.status(),
+            (None, Some(why)) => format!("Not available: {why}"),
+            (None, None) => "Off".to_owned(),
+        }
+    }
+
     /// Puts what the page says when it changed: the status, the addresses while it listens, the networks it answers.
     fn publish(&mut self) {
         let Some(page) = &self.page else {
@@ -321,6 +380,7 @@ impl Plugin {
             None => self.tuner.status().to_string(),
         };
         facts.insert("status".to_owned(), json!(line(status)));
+        facts.insert("converter".to_owned(), json!(line(self.converter_line())));
         if let Some(addr) = self.tuner.addr() {
             for (key, path) in [
                 ("discover", "discover.json"),
@@ -397,13 +457,18 @@ fn slates_of(values: &Values) -> bool {
     !matches!(values.get("slates"), Some(Setting::Bool(false)))
 }
 
-/// The page, as the schema format writes it: the name players show, the slates' switch, the facts it says and the list of channels.
+/// Whether `?transcode=` is made into H.264: off unless the owner switched it on.
+fn convert_of(values: &Values) -> bool {
+    matches!(values.get("transcode"), Some(Setting::Bool(true)))
+}
+
+/// The page, as the schema format writes it: the name players show, the slates' switch, the H.264 switch, the facts it says and the list of channels.
 fn schema_json() -> Json {
     let fact = |key: &str, label: &str| {
         json!({"key": key, "label": label, "kind": {"type": "read-only", "value": {"capability": format!("plugin.{ID}.{key}")}},
                "apply": "on-commit"})
     };
-    json!({"format": 1, "owner": ID, "revision": 4, "title": OPT_IN.spec.name, "sections": [
+    json!({"format": 1, "owner": ID, "revision": 5, "title": OPT_IN.spec.name, "sections": [
         {"id": "tuner", "title": "Tuner", "fields": [
             fact("status", "Status"),
             {"key": "name", "label": "Name shown in players", "kind": {"type": "text", "max_chars": 40, "secret": false},
@@ -411,6 +476,10 @@ fn schema_json() -> Json {
             {"key": "slates", "label": "Show tuning and signal messages in the stream",
              "help": "Players show the channel tuning, a weak signal or the TV taking its tuner in place of a black or frozen picture.",
              "kind": {"type": "bool"}, "default": {"type": "bool", "value": true}, "apply": "on-commit"},
+            {"key": "transcode", "label": "Make H.264 for players that ask",
+             "help": "A player that adds ?transcode=mobile (or heavy, internet540, internet480, internet360 or internet240) to a channel's address gets H.264 from the TV's own video hardware in place of the station's MPEG-2. It gives way within a second when an app needs the hardware: that stream ends, and the player's next request is served as the station sends it. Off: every stream is as the station sends it.",
+             "kind": {"type": "bool"}, "default": {"type": "bool", "value": false}, "apply": "on-commit"},
+            fact("converter", "H.264 converter"),
             fact("networks", "Answers")]},
         {"id": "addresses", "title": "Addresses", "fields": [
             fact("discover", "HDHomeRun (Plex, Jellyfin, Emby, Channels DVR)"),
@@ -467,6 +536,7 @@ fn handler(tx: Sender<Event>, tuner: Arc<Tuner>) -> Handler {
             let _ = tx.send(Event::Settings {
                 name: name_of(&values),
                 slates: slates_of(&values),
+                convert: convert_of(&values),
             });
             let _ = local.say(json!({"t": "settings.result", "txn": txn, "outcome": {"type": "applied", "values": values}}));
         }
@@ -796,5 +866,29 @@ pub(crate) mod tests {
         assert_eq!((d["meter"]["tuned"].clone(), d["meter"]["note"].clone()), (json!(false), json!("The TV has no channel on RF 29")));
         let (_, d) = doc(handle(&tuner, &meter_request("POST", "meter/stop", Json::Null, true), &["meter", "stop"]));
         assert_eq!(d["meter"], Json::Null, "stopped");
+    }
+
+    #[test]
+    fn the_h264_converter_is_off_until_asked_for_and_the_page_says_why_when_it_cannot_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(dir.path());
+        let (plugins, _tuner, threads) = start(&ctx);
+        soon("listed, off, with its words", || entry(&ctx)["state"] == "off");
+        plugins.switch(ID, true, Some(entry(&ctx)["approve"].as_str().unwrap())).unwrap();
+        let converter = || ctx.hub.get(&format!("plugin.{ID}.facts")).map_or(Json::Null, |f| f["facts"]["converter"].clone());
+        soon("on, and the converter off", || converter() == "Off");
+        soon("its page", || ctx.settings.effective(ID).is_some());
+        let set = |on: bool| {
+            let changes = serde_json::from_value(json!([{"key": "transcode", "value": {"type": "bool", "value": on}}])).unwrap();
+            ctx.settings.apply(ID, changes, None).unwrap();
+        };
+        set(true);
+        // a test build carries no child program
+        soon("the page says why there is no converter", || {
+            converter().as_str().is_some_and(|line| line.starts_with("Not available: ") && line.contains("no transcoder program"))
+        });
+        set(false);
+        soon("off again", || converter() == "Off");
+        stop(&ctx, threads);
     }
 }

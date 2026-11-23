@@ -742,6 +742,7 @@ dependencies = [
  "lumatv-privacy",
  "lumatv-saver",
  "lumavoice",
+ "lumaxcode",
  "map",
  "mdns",
  "multilink",

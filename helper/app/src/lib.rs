@@ -23,6 +23,7 @@
 //! | [`onhome`] | On Home: what Home Assistant's LumaShow integration shares with the TV (it dials the TV, which holds no token) as tiles on Home, and the controls of those tiles, narrowed to what the TV may do |
 //! | [`voice`] | voice search: the mic key's words as text for the search box, through Home Assistant's Assist pipeline |
 //! | [`tuner`] | Live TV Tuner: the antenna tuner on the home network as an HDHomeRun with a playlist and the TV's guide (the `lumatuner` engine), a plugin of the helper's own that is off until the owner switches it on in Settings; the TV's own Live TV comes first |
+//! | [`xcode`] | the Live TV Tuner's H.264 for `?transcode=`: the `lumaxcode` engine over the TV's own decoder and encoder, its child program built into the helper, and the gate that closes it while an app needs the video hardware; off until the tuner's setting is on |
 //! | [`profiles`] | local profiles (Nitin, Isabel): each person's Home kept apart from the household's settings, the switch, the PINs, the `profiles` topic; the working copy `theme/` stays what the Home layer reads |
 //! | [`preload`] | keeps the apps the owner switched off from preloading, at each switch-on (webOS forgets the policy) |
 //! | [`ble`], [`ble_proxy`], [`ble_scan`], [`ble_duty`], [`ble_store`] | the TV's ESPHome device: a Home Assistant Bluetooth proxy (ESPHome native API) for presence and BLE sensors, through LG's `bluetooth2` scan with the radio's duty limits, a plugin of the helper's own that is off until the owner switches it on |
@@ -137,6 +138,7 @@ pub mod openapps;
 pub mod updateblock;
 pub mod voice_store;
 pub mod voice_ws;
+pub mod xcode;
 
 /// How the library's tests put a program on disk to run; the integration tests share the file (`tests/support`).
 #[cfg(test)]
