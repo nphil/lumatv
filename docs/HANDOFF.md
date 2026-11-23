@@ -9,9 +9,11 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
-## Profile OLED brightness learning staged, 2026-11-22 (main 454c72e75a)
+## Profile OLED brightness learning staged, 2026-11-22 (main a007cb1a)
 
-The next normal boot can activate helper `75c2b611` → `8c8f6783` and UI `b6e115b3` → `3cde477a`. The boot tool changed from `bdfa2f27` to `c5d33779`; the helper, shell and Marquee kept their process IDs during staging. Activation, live learning and fewer manual corrections have not been verified on the set. Receipt: `cody-data-scratch/18172b987bff/oled-learning-20261122/` (`stage.txt`, `staged-hashes.txt`, `pids-before`, `pids-after`).
+The next normal boot can activate helper `75c2b611` → `4e92fc23` and UI `b6e115b3` → `3cde477a`; the boot tool is `c5d33779`. This set replaced an earlier staged helper `8c8f6783` (main 454c72e7), in which a value left above the limit for 5 s on the way to a lower one raised the profile's limit for good. The helper, shell and Marquee kept their process IDs during both stagings. Activation, live learning and fewer manual corrections have not been verified on the set. Receipts: `cody-data-scratch/18172b987bff/oled-learning-20261122/` and its `v2/`.
+
+The owner's Home wallpaper moved from the default 10 fps to 30 fps (`theme.wallpaperMotion.fps`) at 19:11 EST; measured on 2026-11-21 at 30 fps: GPU 17.8 %, compositor 9.3 % of a core.
 
 ## Picture preferences, Quick Settings and Multi Link installed, 2026-11-22 (main d3d4d6fd)
 
