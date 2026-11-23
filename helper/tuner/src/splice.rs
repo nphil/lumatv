@@ -278,6 +278,31 @@ struct Live {
     leading_b: bool,
     /// Each sound's last PES passed on, for where a slate's silence goes on after it.
     audio_last: Vec<Option<LastSound>>,
+    /// The last slate picture's presentation time, and which streams' first times after the splice are logged (`stamp_line`).
+    slate: u64,
+    logged: [bool; 2 + MAX_AUDIO],
+}
+
+/// A time in 90 kHz ticks as milliseconds, signed: how far a time lies from another.
+fn ms_of(ticks: i64) -> i64 {
+    ticks / 90
+}
+
+/// The log line for the first picture or sound passed on after a splice: its presentation and decoding time on the program's clock (the
+/// station's own in brackets), and how far each lies from the last slate picture's presentation time. The station's times are moved by one
+/// offset, so a step here is the splice's own, not the station's.
+fn stamp_line(what: &str, slate: u64, moved: (Option<u64>, Option<u64>), station: (Option<u64>, Option<u64>)) -> String {
+    let show = |v: Option<u64>| v.map_or_else(|| "-".to_owned(), |v| v.to_string());
+    let step = |v: Option<u64>| v.map_or_else(|| "-".to_owned(), |v| format!("{:+} ms", ms_of(diff(v, slate))));
+    format!(
+        "tuner: splice: first {what} pts {} dts {} (station {} {}), last slate pts {slate}: pts {}, dts {}",
+        show(moved.0),
+        show(moved.1),
+        show(station.0),
+        show(station.1),
+        step(moved.0),
+        step(moved.1)
+    )
 }
 
 /// A sound's last PES: its PTS, its length in bytes, and the time a byte of it holds, from the PES before; and, when its AC-3 frames
@@ -490,7 +515,12 @@ impl Program {
             held: Default::default(),
             leading_b: !closed_gop(&payload),
             audio_last: vec![None; sounds],
+            slate: self.shown,
+            logged: [false; 2 + MAX_AUDIO],
         });
+        crate::sendlog::note_splice();
+        let station = head(first).map(|h| (h.pts.map(|v| v.1), h.dts.map(|v| v.1))).unwrap_or_default();
+        log::info!("tuner: splice: station picture pts {:?} dts {:?}, moved by {offset} ticks (mod 2^33), next slate dts {}", station.0, station.1, self.next_dts);
     }
 
     pub fn is_live(&self) -> bool {
@@ -516,6 +546,7 @@ impl Program {
                 // the PES before it on its PID is whole
                 self.pass(&mut live, s, out);
                 live.dropping[s] = false;
+                let raw = (h.pts.map(|x| x.1), h.dts.map(|x| x.1));
                 let mut stamps = [h.pts, h.dts];
                 for (at, v) in stamps.iter_mut().flatten() {
                     *v = add(*v, live.offset);
@@ -542,6 +573,18 @@ impl Program {
                     let length = usize::from(u16::from_be_bytes([p[at + 4], p[at + 5]]));
                     let bytes = (length > 0).then(|| length.saturating_sub(3 + usize::from(p[at + 8])));
                     live.held[s].stamps = Some(Stamps::Sound { pts, bytes });
+                }
+                if !live.dropping[s] && !live.logged[s] && (pid == VIDEO || pid >= AUDIO) {
+                    let moved = match live.held[s].stamps {
+                        Some(Stamps::Picture { dts, pts }) => Some((pts, dts)),
+                        Some(Stamps::Sound { pts, .. }) => Some((Some(pts), None)),
+                        None => None,
+                    };
+                    if let Some(moved) = moved {
+                        live.logged[s] = true;
+                        let what = if pid == VIDEO { "picture".to_owned() } else { format!("sound {}", pid - AUDIO) };
+                        log::info!("{}", stamp_line(&what, live.slate, moved, raw));
+                    }
                 }
             }
             if let Some(base) = pcr(&p) {
@@ -699,6 +742,15 @@ impl Program {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_first_times_after_a_splice_are_logged_with_their_step_from_the_last_slate_picture() {
+        let line = stamp_line("picture", 900_000, (Some(903_003), Some(900_000 + 3003 - 6006)), (Some(5_000_000), Some(4_996_997)));
+        assert_eq!(line, "tuner: splice: first picture pts 903003 dts 896997 (station 5000000 4996997), last slate pts 900000: pts +33 ms, dts -33 ms");
+        // across the 33-bit wrap the step is still the short way round
+        let wrapped = stamp_line("sound 0", 10, (Some(WRAP - 90), None), (None, None));
+        assert!(wrapped.ends_with("pts -1 ms, dts -"), "{wrapped}");
+    }
+
     use super::*;
 
     const SD: Format = Format { width: 720, height: 480, rate: 4, aspect: 3, progressive: false };

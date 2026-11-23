@@ -4,6 +4,7 @@
 
 use crate::docs;
 use crate::net::Cidr;
+use crate::sendlog::Sent;
 use crate::stream::{Admitted, End, Facade, Failure};
 use parking_lot::Mutex;
 use serde_json::Value;
@@ -321,6 +322,7 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
         ("GET", path) if path.starts_with("/auto/v") => {
             let guide = &path["/auto/v".len()..];
             let asked = Instant::now();
+            let fd = stream.as_raw_fd();
             const HEAD: &str = "HTTP/1.0 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-cache\r\n\r\n";
             let sent = match facade.admit(guide, peer, request.agent.as_deref(), request.transcode.as_deref()) {
                 Err(f) => {
@@ -342,12 +344,22 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
                         "tuner: {peer} streams {guide} after {:.1} s (tune {tune:.1}, tables {tables:.1}, picture {picture:.1})",
                         asked.elapsed().as_secs_f64()
                     );
-                    write!(stream, "{HEAD}").and_then(|()| program.pump(&mut stream, stop))
+                    write!(stream, "{HEAD}").and_then(|()| {
+                        let mut out = Sent::new(&mut stream, fd, facade.clock.clone(), format!("{peer} {guide}"));
+                        let end = program.pump(&mut out, stop);
+                        out.finish();
+                        end
+                    })
                 }
                 Ok(Admitted::Slated(slated)) => {
                     // answered at once: the slate is the first byte, and the channel is tuned while it shows
                     log::info!("tuner: {peer} streams {guide} with slates (taken in {:.2} s)", asked.elapsed().as_secs_f64());
-                    write!(stream, "{HEAD}").and_then(|()| facade.play(slated, &mut stream, stop))
+                    write!(stream, "{HEAD}").and_then(|()| {
+                        let mut out = Sent::new(&mut stream, fd, facade.clock.clone(), format!("{peer} {guide}"));
+                        let end = facade.play(slated, &mut out, stop);
+                        out.finish();
+                        end
+                    })
                 }
             };
             match sent {

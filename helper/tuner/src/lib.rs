@@ -45,6 +45,7 @@ pub mod meter;
 pub mod mpeg2;
 pub mod net;
 pub mod psi;
+mod sendlog;
 mod server;
 pub mod slate;
 pub mod slated;

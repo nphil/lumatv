@@ -11,6 +11,8 @@ LumaGame's top bar follows the mock: its pill is the raised glass's own colour w
 
 LumaGame's Home shows the focused game as a wide capsule of its hero art with tall covers beside it, low on the screen, and the Down state's cards sit lower.
 
+The Live TV tuner's log tells how each client stream is sent: a line every 10 s and at the end (bytes a second, longest gap between writes, bytes still queued in the socket), a warning when a write comes more than a second after the one before it, and, at each slate-to-station splice, the first picture and sound times against the last slate picture and the bytes written in each 100 ms of the next 6 s.
+
 Camera pop-ups alert only when a detection newly starts: a repeat of the same class on the same camera stays quiet for the cool-down (default now 10 min, set in the Cameras plugin page), and a source that keeps reporting it (a stuck sensor) restarts the window each time. Other classes still alert, `other` (visit) never does, and every event is still listed.
 
 Audio passthrough arms for a player in a webOS app jail: the helper recognises the player's `/dev/lg/aren0` by its device number, since a jailed player's descriptor reads under `/var/palm/jail/<app>/` from the helper and was counted as no renderer (Marquee's TrueHD arm was refused with "holds 0 /dev/lg/aren0 descriptors"). The renderer-closed wait on release matches the same way.
