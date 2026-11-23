@@ -114,6 +114,9 @@ pub struct Paint<'a> {
     pub art: bool,
     /// The box hints are set in: the safe area of the screen, or the layer that is open.
     pub anchor: Frame,
+    /// What the content painted from here lies above: 0 on the page; a part that opens a sheet (`layer::section`, `drawer::open`)
+    /// raises it to the sheet's z, so the rows put in its slot lie on the sheet.
+    pub content_z: i32,
     scopes: Vec<Scope>,
 }
 // Keep drawing coordinates and token choices explicit, like the underlying toolkit.
@@ -135,6 +138,7 @@ impl<'a> Paint<'a> {
             scroll_positions: std::collections::BTreeMap::new(),
             art: false,
             anchor: Frame::new(x, y, W - 2.0 * x, H - 2.0 * y),
+            content_z: 0,
             scopes: Vec::new(),
         }
     }

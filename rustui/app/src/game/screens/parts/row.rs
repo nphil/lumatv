@@ -1,18 +1,19 @@
 //! A labelled row with its control. [`row`] is the older page's row; [`link`], [`value`], [`switch`] and [`stepper`] are the rows of the
 //! rework: a leading glyph or picture, a name over an optional line of detail, and one control at the right.
 //!
-//! Node ids of the rework's rows: `id` the glyph's tile, `id + 1` the glyph or the picture, `id + 2` the name, `id + 3` the detail,
-//! `id + 4` the value (a stepper's pill), `id + 5` the mark, the chevron or a stepper's content, `id + 7` to `id + 9` a switch, and
-//! `id + 10` and `id + 11` the focus treatment. `id + 12` is left to the caller (the rail's wash under its current place). A row
-//! registers no hit: the page that places it knows what it opens.
+//! A rework row is two layers: under, the glyph's tile or the picture (a stepper's pill, a switch's track); over, one text layer with
+//! the glyph, the name, the detail and the control's words and marks. Focus adds the wash under both and puts the landing light in the
+//! text layer. Node ids: `id` the glyph's tile, `id + 1` the picture, `id + 2` the text layer, `id + 4` a stepper's pill, `id + 7` a
+//! switch's track, `id + 10` the focus wash. `id + 12` is left to the caller (the rail's wash under its current place). A row
+//! registers no hit: the page that places it knows what it opens. Rows lie `p.content_z` above their own z, on the sheet they are in.
 use crate::game::screens::{
-    paint::{Fill, Paint},
+    paint::{Fill, Mark, Paint, Word},
     parts::focus::{self, Kind},
 };
 use crate::game::{model::Focus, uplink::BITRATE_MAX_MBPS};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use std::path::Path;
-use ui::{components::{Align, Icon, ellipsise}, geometry::Frame, lucent::palette::{Mode, PaletteRole as Role}};
+use ui::{components::{Align, Form, Icon, ellipsise}, geometry::Frame, lucent::palette::{Mode, PaletteRole as Role}};
 
 #[derive(Clone, Copy)]
 pub enum Control<'a> {
@@ -180,6 +181,10 @@ const STEPPER_H: f32 = 52.0;
 const STEPPER_PAD: f32 = 14.0;
 const STEPPER_GAP: f32 = 14.0;
 const STEPPER_ARROW: f32 = 26.0;
+/// A switch's track, and how far its knob sits in from the track's edge.
+const TOGGLE_W: f32 = 82.0;
+const TOGGLE_H: f32 = 48.0;
+const KNOB_INSET: f32 = 6.0;
 const Z: i32 = 12;
 /// A value or a stepper takes at most this share of the row's inner width, so the name keeps the rest.
 const CONTROL_SHARE: f32 = 0.45;
@@ -203,111 +208,151 @@ fn control_room(frame: Frame) -> f32 {
     ((frame.w - 2.0 * PAD_X) * CONTROL_SHARE).floor()
 }
 
-/// The leading item and the words of `line`, with `trail_w` kept free at the right for the control. The words read in ink once the
-/// row is lit: the wash lowers the contrast of the quieter colour.
-pub(super) fn body(p: &mut Paint<'_>, id: u64, frame: Frame, line: &Line<'_>, trail_w: f32, focused: bool) {
-    let mut x = frame.x + PAD_X;
+/// What a control puts in its row's text layer: its words and marks, placed in the row's frame, and the width it keeps at the right.
+pub(super) struct Trail {
+    pub words: Vec<Word>,
+    pub marks: Vec<Mark>,
+    pub w: f32,
+}
+
+impl Trail {
+    pub const NONE: Self = Self { words: Vec::new(), marks: Vec::new(), w: 0.0 };
+}
+
+/// The row of `line` with `trail` at its right, lit when `focused`: the wash under it, the light in its text layer, and the growth.
+/// Everything but the tile or the picture is the one text layer; the words read in ink once the row is lit, as the wash lowers the
+/// contrast of the quieter colour.
+pub(super) fn body(p: &mut Paint<'_>, id: u64, frame: Frame, line: &Line<'_>, trail: Trail, focused: bool) {
+    let from = p.plan.nodes.len();
+    let z = Z + p.content_z;
+    if focused {
+        let wash = p.tokens.states.focus_wash[usize::from(p.mode == Mode::Light)];
+        // The wash carries the raised edge and the active shadow: the row's own layers are drawn at rest.
+        p.surface(id + 10, frame, Fill::Tint(wash), Radius::Row, false, true, false, z - 1);
+    }
+    let Trail { mut words, mut marks, w: trail_w } = trail;
+    let mut x = PAD_X;
     let lead_w = lead_width(p, line.lead);
     match line.lead {
         Leading::None => {}
         Leading::Glyph(icon) => {
-            let tile = Frame::new(x, frame.y + (frame.h - lead_w) / 2.0, lead_w, lead_w);
-            p.surface(id, tile, Fill::Glass, Radius::Control, false, false, false, Z);
+            let top = (frame.h - lead_w) / 2.0;
+            p.surface(id, Frame::new(frame.x + x, frame.y + top, lead_w, lead_w), Fill::Glass, Radius::Control, false, false, false, z);
             let side = 30.0 * p.scale;
-            let mark = p.mark(icon, side, (lead_w - side) / 2.0, (lead_w - side) / 2.0, Role::Ink, false);
-            p.words(id + 1, tile, vec![], vec![mark], Z + 1);
+            marks.push(p.mark(icon, side, x + (lead_w - side) / 2.0, top + (lead_w - side) / 2.0, Role::Ink, false));
         }
         Leading::Picture(path) => {
             let radius = p.tokens.radius(Radius::Control);
-            p.image(id + 1, path.to_path_buf(), Frame::new(x, frame.y + (frame.h - PICTURE) / 2.0, PICTURE, PICTURE), radius, false, None, Z);
+            p.image(id + 1, path.to_path_buf(), Frame::new(frame.x + x, frame.y + (frame.h - PICTURE) / 2.0, PICTURE, PICTURE), radius, false, None, z);
         }
     }
     if lead_w > 0.0 {
         x += lead_w + GAP;
     }
-    let room = (frame.x + frame.w - PAD_X - if trail_w > 0.0 { trail_w + GAP } else { 0.0 } - x).max(0.0);
+    let room = (frame.w - PAD_X - if trail_w > 0.0 { trail_w + GAP } else { 0.0 } - x).max(0.0);
     let name_h = p.line(Type::Body);
     let sub_h = line.sub.map_or(0.0, |_| SUB_GAP + p.line(Type::Caption));
-    let y = frame.y + (frame.h - name_h - sub_h) / 2.0;
+    let y = (frame.h - name_h - sub_h) / 2.0;
     let ty = p.bold(Type::Body);
     let name = clip(p, line.name, ty, room);
-    let mut word = p.word(name, Type::Body, p.ink(Role::Ink, false), 0.0, 0.0, room);
+    let mut word = p.word(name, Type::Body, p.ink(Role::Ink, false), x, y, room);
     word.ty = ty;
-    p.words(id + 2, Frame::new(x, y, room, name_h), vec![word], vec![], Z + 1);
+    let mut all = vec![word];
     if let Some(sub) = line.sub {
         let ty = p.ty(Type::Caption);
         let text = clip(p, sub, ty, room);
-        let word = p.word(text, Type::Caption, p.ink(if focused { Role::Ink } else { Role::Ink2 }, false), 0.0, 0.0, room);
-        p.words(id + 3, Frame::new(x, y + name_h + SUB_GAP, room, p.line(Type::Caption)), vec![word], vec![], Z + 1);
+        all.push(p.word(text, Type::Caption, p.ink(if focused { Role::Ink } else { Role::Ink2 }, false), x, y + name_h + SUB_GAP, room));
+    }
+    all.append(&mut words);
+    if focused {
+        let light = focus::landing(p, frame, Kind::Row);
+        let form = Form::Round { w: light.w.round() as u32, h: light.h.round().max(1.0) as u32, radius: (light.h / 2.0).round() as u32 };
+        marks.push(Mark { form, colour: p.ink(Role::Ink, false), x: light.x - frame.x, y: light.y - frame.y });
+    }
+    p.words(id + 2, frame, all, marks, z + 1);
+    if focused && !p.reduced() {
+        p.raise(from, frame, p.tokens.focus.row_scale, 0.0);
     }
 }
 
-/// A mark `side` square ending at `right`, centred on the row; its colour is `role`.
-fn mark_at(p: &mut Paint<'_>, id: u64, frame: Frame, right: f32, icon: Icon, role: Role) {
+/// A mark `side` square ending `right` in from the row's right edge, centred on the row; its colour is `role`.
+fn mark_at(p: &Paint<'_>, frame: Frame, right: f32, icon: Icon, role: Role) -> Mark {
     let side = 28.0 * p.scale;
-    let mark = p.mark(icon, side, 0.0, 0.0, role, false);
-    p.words(id, Frame::new(right - side, frame.y + (frame.h - side) / 2.0, side, side), vec![], vec![mark], Z + 1);
+    p.mark(icon, side, frame.w - right - side, (frame.h - side) / 2.0, role, false)
 }
 
 /// A row that opens somewhere: a chevron at the right.
 pub fn link(p: &mut Paint<'_>, id: u64, frame: Frame, line: &Line<'_>, focused: bool) {
-    let from = p.plan.nodes.len();
-    let side = 28.0 * p.scale;
-    body(p, id, frame, line, side, focused);
-    mark_at(p, id + 5, frame, frame.x + frame.w - PAD_X, Icon::ChevronRight, if focused { Role::Ink } else { Role::Ink2 });
-    focus::treat(p, from, id + 10, frame, Kind::Row, focused);
+    let chevron = mark_at(p, frame, PAD_X, Icon::ChevronRight, if focused { Role::Ink } else { Role::Ink2 });
+    body(p, id, frame, line, Trail { words: Vec::new(), marks: vec![chevron], w: 28.0 * p.scale }, focused);
 }
 
 /// A row that shows a value at the right, and after it `mark` (a status icon and its colour) when there is one.
 pub fn value(p: &mut Paint<'_>, id: u64, frame: Frame, line: &Line<'_>, value: &str, mark: Option<(Icon, Role)>, focused: bool) {
-    let from = p.plan.nodes.len();
     let side = 28.0 * p.scale;
     let mark_w = if mark.is_some() { side } else { 0.0 };
     let ty = p.ty(Type::Body);
     let text = clip(p, value, ty, control_room(frame) - mark_w - if mark.is_some() { MARK_GAP } else { 0.0 });
     let text_w = if text.is_empty() { 0.0 } else { p.width(&text, Type::Body) };
     let gap = if text_w > 0.0 && mark.is_some() { MARK_GAP } else { 0.0 };
-    body(p, id, frame, line, text_w + gap + mark_w, focused);
-    let mut right = frame.x + frame.w - PAD_X;
+    let mut trail = Trail { words: Vec::new(), marks: Vec::new(), w: text_w + gap + mark_w };
+    let mut right = PAD_X;
     if let Some((icon, role)) = mark {
-        mark_at(p, id + 5, frame, right, icon, role);
-        right -= side + gap;
+        trail.marks.push(mark_at(p, frame, right, icon, role));
+        right += side + gap;
     }
     if text_w > 0.0 {
-        let word = p.word(text, Type::Body, p.ink(if focused { Role::Ink } else { Role::Ink2 }, false), 0.0, 0.0, text_w);
-        p.words(id + 4, Frame::new(right - text_w, frame.y + (frame.h - p.line(Type::Body)) / 2.0, text_w, p.line(Type::Body)), vec![word], vec![], Z + 1);
+        let ink = p.ink(if focused { Role::Ink } else { Role::Ink2 }, false);
+        trail.words.push(p.word(text, Type::Body, ink, frame.w - right - text_w, (frame.h - p.line(Type::Body)) / 2.0, text_w));
     }
-    focus::treat(p, from, id + 10, frame, Kind::Row, focused);
+    body(p, id, frame, line, trail, focused);
 }
 
-/// A row with an on-off switch at the right.
+/// A row with an on-off switch at the right: the track under the row's text layer, the knob and the tick in it.
 pub fn switch(p: &mut Paint<'_>, id: u64, frame: Frame, line: &Line<'_>, on: bool, focused: bool) {
+    let track = Frame::new(frame.x + frame.w - PAD_X - TOGGLE_W, frame.y + (frame.h - TOGGLE_H) / 2.0, TOGGLE_W, TOGGLE_H);
+    let (x, y) = (track.x - frame.x, track.y - frame.y);
+    let knob = TOGGLE_H - 2.0 * KNOB_INSET;
+    let mut marks = vec![Mark {
+        form: Form::Disc(knob as u32),
+        colour: p.ink(if on { Role::AccentInk } else { Role::Ink2 }, false),
+        x: x + if on { TOGGLE_W - KNOB_INSET - knob } else { KNOB_INSET },
+        y: y + KNOB_INSET,
+    }];
+    if on {
+        marks.push(p.mark(Icon::Tick, 24.0, x + 46.0, y + 12.0, Role::Accent, false));
+    }
+    body(p, id, frame, line, Trail { words: Vec::new(), marks, w: TOGGLE_W }, focused);
+    under(p, id + 7, track, if on { Fill::Accent } else { Fill::Track }, frame, focused);
+}
+
+/// The control's own surface under the row's text layer (a switch's track, a stepper's pill), grown with the row when it is lit.
+fn under(p: &mut Paint<'_>, id: u64, at: Frame, fill: Fill, frame: Frame, focused: bool) {
     let from = p.plan.nodes.len();
-    body(p, id, frame, line, 82.0, focused);
-    p.toggle(id + 7, frame.x + frame.w - PAD_X - 82.0, frame.y + (frame.h - 48.0) / 2.0, on, false, Z + 1);
-    focus::treat(p, from, id + 10, frame, Kind::Row, focused);
+    p.surface(id, at, fill, Radius::Pill, false, false, false, Z + p.content_z);
+    if focused && !p.reduced() {
+        p.raise(from, frame, p.tokens.focus.row_scale, 0.0);
+    }
 }
 
 /// A row that steps through choices: a pill at the right with `value` between a left and a right chevron.
 pub fn stepper(p: &mut Paint<'_>, id: u64, frame: Frame, line: &Line<'_>, value: &str, focused: bool) {
-    let from = p.plan.nodes.len();
     let ty = p.bold(Type::Label);
     let chrome = 2.0 * (STEPPER_PAD + STEPPER_ARROW + STEPPER_GAP);
     let text = clip(p, value, ty, control_room(frame) - chrome);
     let text_w = p.fonts.measure(&text, ty).width.ceil();
     let pill = Frame::new(frame.x + frame.w - PAD_X - chrome - text_w, frame.y + (frame.h - STEPPER_H) / 2.0, chrome + text_w, STEPPER_H);
-    body(p, id, frame, line, pill.w, focused);
-    p.surface(id + 4, pill, Fill::Glass, Radius::Pill, false, false, false, Z);
     let quiet = if focused { Role::Ink } else { Role::Ink2 };
-    let arrow_y = (STEPPER_H - STEPPER_ARROW) / 2.0;
+    let (x, y) = (pill.x - frame.x, pill.y - frame.y);
+    let arrow_y = y + (STEPPER_H - STEPPER_ARROW) / 2.0;
     let marks = vec![
-        p.mark(Icon::Back, STEPPER_ARROW, STEPPER_PAD, arrow_y, quiet, false),
-        p.mark(Icon::ChevronRight, STEPPER_ARROW, pill.w - STEPPER_PAD - STEPPER_ARROW, arrow_y, quiet, false),
+        p.mark(Icon::Back, STEPPER_ARROW, x + STEPPER_PAD, arrow_y, quiet, false),
+        p.mark(Icon::ChevronRight, STEPPER_ARROW, x + pill.w - STEPPER_PAD - STEPPER_ARROW, arrow_y, quiet, false),
     ];
-    let mut word = p.word(text, Type::Label, p.ink(Role::Ink, false), STEPPER_PAD + STEPPER_ARROW + STEPPER_GAP, (STEPPER_H - p.line(Type::Label)) / 2.0, text_w);
+    let mut word = p.word(text, Type::Label, p.ink(Role::Ink, false), x + STEPPER_PAD + STEPPER_ARROW + STEPPER_GAP, y + (STEPPER_H - p.line(Type::Label)) / 2.0, text_w);
     word.ty = ty;
-    p.words(id + 5, pill, vec![word], marks, Z + 1);
-    focus::treat(p, from, id + 10, frame, Kind::Row, focused);
+    body(p, id, frame, line, Trail { words: vec![word], marks, w: pill.w }, focused);
+    under(p, id + 4, pill, Fill::Glass, frame, focused);
 }
 
 #[cfg(test)]
@@ -323,10 +368,28 @@ mod tests {
     fn node(p: &Paint<'_>, id: u64) -> Option<Frame> {
         p.plan.nodes.iter().find(|n| n.id == id).map(|n| n.frame)
     }
-    fn words(p: &Paint<'_>, id: u64) -> Vec<String> {
-        match &p.plan.nodes.iter().find(|n| n.id == id).unwrap_or_else(|| panic!("node {id}")).body {
-            Body::Text { words, .. } => words.iter().map(|w| w.text.clone()).collect(),
-            _ => panic!("node {id} is not text"),
+    /// The row's text layer: its words and its marks, placed in the row.
+    fn text(p: &Paint<'_>) -> (Vec<Word>, Vec<Mark>) {
+        match &p.plan.nodes.iter().find(|n| n.id == 502).expect("the text layer").body {
+            Body::Text { words, marks } => (words.clone(), marks.clone()),
+            _ => panic!("502 is not text"),
+        }
+    }
+    fn right(mark: &Mark) -> f32 {
+        mark.x + mark.form.size().0 as f32
+    }
+
+    #[test]
+    fn every_row_is_two_layers_at_rest_and_focus_adds_only_the_wash() {
+        let rows: [fn(&mut Paint<'_>, bool); 4] = [
+            |p, lit| link(p, 500, FRAME, &line("A", Some("B")), lit),
+            |p, lit| value(p, 500, FRAME, &line("A", None), "Ready", Some((Icon::Tick, Role::Positive)), lit),
+            |p, lit| switch(p, 500, FRAME, &Line { lead: Leading::None, name: "A", sub: None }, true, lit),
+            |p, lit| link(p, 500, FRAME, &Line { lead: Leading::Picture(Path::new("/nowhere.jpg")), name: "A", sub: None }, lit),
+        ];
+        for (i, row) in rows.iter().enumerate() {
+            assert_eq!(painted(|_| {}, |p| { row(p, false); p.plan.nodes.len() }), 2, "row {i} at rest");
+            assert_eq!(painted(|_| {}, |p| { row(p, true); p.plan.nodes.len() }), 3, "row {i} lit");
         }
     }
 
@@ -337,18 +400,22 @@ mod tests {
             let tile = node(p, 500).unwrap();
             assert_eq!((tile.x, tile.w, tile.h), (FRAME.x + 28.0, 32.0 * p.scale + 20.0, 32.0 * p.scale + 20.0));
             assert_eq!(tile.y + tile.h / 2.0, FRAME.y + FRAME.h / 2.0);
-            let (name, sub) = (node(p, 502).unwrap(), node(p, 503).unwrap());
-            assert_eq!(name.x, tile.x + tile.w + 22.0);
+            assert_eq!(node(p, 502).unwrap().x, FRAME.x);
+            let (words, marks) = text(p);
+            let (name, sub) = (&words[0], &words[1]);
+            assert_eq!(name.x, tile.x - FRAME.x + tile.w + 22.0);
             assert!(sub.y >= name.y + p.line(Type::Body) + 2.0);
-            let chevron = node(p, 505).unwrap();
-            assert_eq!(chevron.x + chevron.w, FRAME.x + FRAME.w - 28.0);
+            assert_eq!(right(&marks[0]), FRAME.w - 28.0, "the chevron");
             assert!(p.plan.hits.is_empty());
             assert!(node(p, 510).is_none(), "nothing is lit at rest");
         });
         painted(|_| {}, |p| {
             link(p, 500, FRAME, &line("Appearance", None), true);
-            assert!(node(p, 510).is_some() && node(p, 511).is_some());
-            assert!(node(p, 503).is_none());
+            let (words, marks) = text(p);
+            assert_eq!(words.len(), 1);
+            let light = focus::landing(p, FRAME, Kind::Row);
+            assert!(marks.iter().any(|m| matches!(m.form, Form::Round { .. }) && m.y == light.y - FRAME.y), "the light is in the text layer");
+            assert!(p.plan.nodes.iter().find(|n| n.id == 510).unwrap().z < p.plan.nodes.iter().find(|n| n.id == 500).unwrap().z, "the wash lies under");
         });
     }
 
@@ -358,20 +425,19 @@ mod tests {
             let long = "a value far too long to fit in the share of the row that a value may take ".repeat(3);
             let name = "A setting with a name that is also far too long to fit beside the value ".repeat(3);
             value(p, 500, FRAME, &line(&name, None), &long, Some((Icon::Tick, Role::Positive)), false);
-            let text = node(p, 504).unwrap();
-            let mark = node(p, 505).unwrap();
-            assert!(text.w <= ((FRAME.w - 56.0) * 0.45).floor());
-            assert_eq!(mark.x + mark.w, FRAME.x + FRAME.w - 28.0);
-            assert_eq!(text.x + text.w, mark.x - 12.0);
-            assert!(words(p, 504)[0].ends_with('…'));
-            let name_node = node(p, 502).unwrap();
-            assert!(name_node.x + name_node.w + 22.0 <= text.x);
-            assert!(words(p, 502)[0].ends_with('…'));
+            let (words, marks) = text(p);
+            let (name, value, mark) = (&words[0], &words[1], &marks[0]);
+            assert!(value.w <= ((FRAME.w - 56.0) * 0.45).floor());
+            assert_eq!(right(mark), FRAME.w - 28.0);
+            assert_eq!(value.x + value.w, mark.x - 12.0);
+            assert!(value.text.ends_with('…') && name.text.ends_with('…'));
+            assert!(name.x + name.w + 22.0 <= value.x);
         });
         painted(|_| {}, |p| {
             value(p, 500, FRAME, &Line { lead: Leading::None, name: "Name", sub: None }, "", None, false);
-            assert!(node(p, 504).is_none() && node(p, 505).is_none());
-            assert_eq!(node(p, 502).unwrap().x, FRAME.x + 28.0);
+            let (words, marks) = text(p);
+            assert_eq!((words.len(), marks.len()), (1, 0));
+            assert_eq!(words[0].x, 28.0);
         });
     }
 
@@ -381,7 +447,10 @@ mod tests {
             switch(p, 500, FRAME, &line("Stats", None), true, false);
             let toggle = node(p, 507).unwrap();
             assert_eq!((toggle.x + toggle.w, toggle.w, toggle.h), (FRAME.x + FRAME.w - 28.0, 82.0, 48.0));
-            assert!(node(p, 509).is_some(), "on: its tick");
+            let (_, marks) = text(p);
+            let knob = marks.iter().find(|m| matches!(m.form, Form::Disc(36))).expect("the knob");
+            assert_eq!(knob.x + 36.0, toggle.x - FRAME.x + 82.0 - 6.0, "on: the knob at the right");
+            assert!(marks.iter().any(|m| m.form == Form::Icon(Icon::Tick, 24)), "on: its tick");
         });
     }
 
@@ -391,12 +460,11 @@ mod tests {
             stepper(p, 500, FRAME, &line("Frame rate", None), "120 fps", false);
             let pill = node(p, 504).unwrap();
             assert_eq!((pill.h, pill.x + pill.w), (52.0, FRAME.x + FRAME.w - 28.0));
-            assert_eq!(words(p, 505), ["120 fps"]);
-            match &p.plan.nodes.iter().find(|n| n.id == 505).unwrap().body {
-                Body::Text { marks, .. } => assert_eq!(marks.len(), 2),
-                _ => unreachable!(),
-            }
-            assert!(node(p, 502).unwrap().x + node(p, 502).unwrap().w + 22.0 <= pill.x);
+            let (words, marks) = text(p);
+            assert_eq!(words[1].text, "120 fps");
+            let arrows = marks.iter().filter(|m| matches!(m.form, Form::Icon(Icon::Back | Icon::ChevronRight, _))).count();
+            assert_eq!(arrows, 2);
+            assert!(words[0].x + words[0].w + 22.0 <= pill.x - FRAME.x);
         });
     }
 }

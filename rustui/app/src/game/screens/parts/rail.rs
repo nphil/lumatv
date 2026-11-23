@@ -6,10 +6,7 @@
 use crate::game::model::{Focus, nav::Hints};
 use crate::game::screens::{
     paint::{Fill, H, Paint, W},
-    parts::{
-        focus::{self, Kind},
-        row::{self, Leading, Line},
-    },
+    parts::row::{self, Leading, Line, Trail},
 };
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{components::{Icon, ellipsise}, geometry::Frame, lucent::palette::PaletteRole as Role};
@@ -71,12 +68,14 @@ pub fn shell(p: &mut Paint<'_>, spec: &RailSpec<'_>) -> Frame {
         let id = 110 + i as u64 * PLACE_STRIDE;
         let frame = Frame::new(rail.x + PAD, rail.y + PAD + i as f32 * pitch, rail.w - 2.0 * PAD, height);
         let focused = p.focused(Focus::Rail(i));
-        let from = p.plan.nodes.len();
+        row::body(p, id, frame, &Line { lead: Leading::Glyph(place.icon), name: place.name, sub: place.state }, Trail::NONE, focused);
         if i == spec.current {
+            let at = p.plan.nodes.len();
             p.surface(id + 12, frame, Fill::Tint(p.tokens.states.selected_wash), Radius::Row, false, false, false, Z + 1);
+            if focused && !p.reduced() {
+                p.raise(at, frame, p.tokens.focus.row_scale, 0.0);
+            }
         }
-        row::body(p, id, frame, &Line { lead: Leading::Glyph(place.icon), name: place.name, sub: place.state }, 0.0, focused);
-        focus::treat(p, from, id + 10, frame, Kind::Row, focused);
         p.hit(Focus::Rail(i), frame);
     }
 
