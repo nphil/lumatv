@@ -3,7 +3,7 @@ use super::{
     paint::{Body, Fill, H, Node, PAGE_EXTENT, Paint, SHEET_GROUP, ScrollGroup, W},
 };
 use compositor_protocol::{Edges, Rect};
-use crate::game::{helper::LeadjoyState, model::{Focus, Key, OverlayAction, Page, Section, Sheet, Sort}};
+use crate::game::{helper::LeadjoyState, model::{Focus, Key, Layer, Page, launch::OverlayAction, library::Sort, settings::Place}};
 use lumagame_core::ipc::AuthState;
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{
@@ -13,7 +13,7 @@ use ui::{
 };
 
 fn curtain(p: &mut Paint<'_>) {
-    let colour = if p.model.view.sheet == Some(Sheet::EndSession) {
+    let colour = if p.model.view.sheet == Some(Layer::EndSession) {
         let mut colour = p.straight(Role::Canvas, false);
         colour.a = 247;
         colour.premultiply(0.0)
@@ -33,18 +33,18 @@ pub fn sheet(p: &mut Paint<'_>) {
     };
     curtain(p);
     match sheet {
-        Sheet::Chooser => chooser(p),
-        Sheet::Sort => list(p, "Sort by", Sort::ALL.iter().map(|s| s.name().into()).collect()),
-        Sheet::Genre => {
+        Layer::Chooser => chooser(p),
+        Layer::Sort => list(p, "Sort by", Sort::ALL.iter().map(|s| s.name().into()).collect()),
+        Layer::Genre => {
             let mut names = vec!["All genres".into()];
             names.extend(p.model.genres());
             list(p, "Genre", names);
         }
-        Sheet::Theme => themes(p),
-        Sheet::Auth => auth(p),
-        Sheet::EndSession => end_session(p),
-        Sheet::AddHost | Sheet::EditText => edit_text(p),
-        Sheet::Delete => delete(p),
+        Layer::Theme => themes(p),
+        Layer::Auth => auth(p),
+        Layer::EndSession => end_session(p),
+        Layer::AddHost | Layer::EditText => edit_text(p),
+        Layer::Delete => delete(p),
     }
 }
 fn chooser(p: &mut Paint<'_>) {
@@ -378,8 +378,8 @@ fn delete(p: &mut Paint<'_>) {
     p.button(8040, Focus::SheetAction(1), "Delete", Some(Icon::Close), x + w + 16.0, y, false, false, 34);
 }
 fn edit_text(p: &mut Paint<'_>) {
-    let editing = p.model.view.sheet == Some(Sheet::EditText);
-    let diagnostics = editing && p.model.view.page == Page::Settings && p.model.view.section == Section::Diagnostics;
+    let editing = p.model.view.sheet == Some(Layer::EditText);
+    let diagnostics = editing && p.model.view.page == Page::Settings && p.model.view.place == Place::Diagnostics;
     let secret = diagnostics && p.model.view.edit_field == Some(4);
     let label = if diagnostics {
         match p.model.view.edit_field { Some(2) => "Server URL", Some(3) => "Topic", Some(4) => "Write token", _ => "Edit setting" }

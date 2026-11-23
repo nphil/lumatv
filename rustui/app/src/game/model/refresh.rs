@@ -344,3 +344,91 @@ impl Model {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use crate::game::model::{tests::*, *};
+    #[test]
+    fn a_refresh_counts_new_and_removed_games_keeps_the_focused_game_and_clears_its_notice() {
+        use lumagame_core::activity::Activity;
+        let (mut m, account) = refreshing_steam();
+        m.view.page = Page::Library;
+        m.view.focus = Focus::Grid(1);
+        m.rebuild_navigation();
+        let held = m.filtered[1];
+        assert_eq!(m.games()[..].iter().find(|g| g.id == held).map(|g| g.title.as_str()), Some("Delta"));
+
+        let mut out = Vec::new();
+        m.refresh_libraries(None, &mut out);
+        assert!(matches!(sent(&out)[..], [Request::Action { .. }, Request::Library { cursor: None, .. }]));
+        assert!(matches!(m.refresh_line(), Some(RefreshLine::Working { seconds: None, .. })), "no seconds while it is quick");
+        let mut again = Vec::new();
+        m.refresh_libraries(None, &mut again);
+        assert!(again.is_empty(), "pressing it while it runs changes nothing");
+
+        let records = [("a0", "Alpha"), ("0", "Beta"), ("2", "Delta")].iter().map(|(i, t)| entry(i, t, ipc::Role::Game, &[&format!("steam:{i}")], Activity::default())).collect();
+        engine_says(&mut m, "steam", ipc::Event::Library { target: account, entries: records, next: None });
+        assert_eq!(m.refresh_line(), Some(RefreshLine::Done { text: "1 new game, 1 removed.".into(), problem: false }));
+        assert_eq!(m.view.focus, Focus::Grid(m.filtered.iter().position(|id| m.game(*id).unwrap().title == "Delta").unwrap()), "the focus follows its game");
+
+        m.step(Input::Tick { now_ms: 11_999, unix_s: 0 });
+        assert!(m.refresh_line().is_some());
+        m.step(Input::Tick { now_ms: 12_000, unix_s: 0 });
+        assert_eq!(m.refresh_line(), None, "the result clears itself");
+    }
+    #[test]
+    fn a_refresh_that_finds_nothing_says_so_and_a_slow_one_counts_seconds() {
+        let (mut m, account) = refreshing_steam();
+        let mut out = Vec::new();
+        m.refresh_libraries(None, &mut out);
+        m.step(Input::Tick { now_ms: 4_000, unix_s: 0 });
+        assert!(matches!(m.refresh_line(), Some(RefreshLine::Working { seconds: Some(4), .. })));
+        let same = ["Beta", "Gamma", "Delta"].iter().enumerate().map(|(i, t)| entry(&format!("{i}"), t, ipc::Role::Game, &[&format!("steam:{i}")], Default::default())).collect();
+        engine_says(&mut m, "steam", ipc::Event::Library { target: account, entries: same, next: None });
+        assert_eq!(m.refresh_line(), Some(RefreshLine::Done { text: "Up to date.".into(), problem: false }));
+    }
+    #[test]
+    fn a_refresh_names_a_network_or_sign_in_failure_in_plain_words() {
+        let (mut m, _) = refreshing_steam();
+        for (code, text) in [(ipc::ErrorCode::Network, "Can't reach Steam. Check the network."), (ipc::ErrorCode::SignIn, "Steam needs you to sign in again.")] {
+            m.refresh_libraries(None, &mut Vec::new());
+            engine_says(&mut m, "steam", ipc::Event::Error { code, message: "x".into() });
+            assert_eq!(m.refresh_line(), Some(RefreshLine::Done { text: text.into(), problem: true }));
+            assert!(!m.refreshing());
+        }
+        let mut nothing = Model::new(State::default(), Listing::default(), vec![manifest("pc", "PC", EngineKind::Host)]);
+        nothing.refresh_libraries(None, &mut Vec::new());
+        assert!(matches!(nothing.refresh_line(), Some(RefreshLine::Done { problem: true, .. })), "no account: it says to sign in");
+    }
+    #[test]
+    fn a_cloud_refresh_waits_for_the_engines_store_check_then_loads_the_library() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gfn", "GeForce NOW", EngineKind::Cloud)]);
+        describe(&mut m, "gfn", vec![lumagame_core::engine::AuthMethod::Qr], &[Feature::StoreSync]);
+        let account = TargetId::new("me").unwrap();
+        engine_says(&mut m, "gfn", ipc::Event::Targets { targets: vec![linked("me")] });
+        engine_says(&mut m, "gfn", ipc::Event::Library { target: account.clone(), entries: Vec::new(), next: None });
+
+        let mut out = Vec::new();
+        m.refresh_libraries(Some(EngineId::new("gfn").unwrap()), &mut out);
+        assert!(matches!(sent(&out)[..], [Request::Action { .. }]), "the library waits for the stores' answer");
+        engine_says(&mut m, "gfn", ipc::Event::Refresh { step: Some("Checking Steam".into()), note: None });
+        assert_eq!(m.refresh_line(), Some(RefreshLine::Working { text: "Checking Steam".into(), seconds: None }));
+        let asked = engine_says(&mut m, "gfn", ipc::Event::Refresh { step: None, note: Some("Epic has not answered.".into()) });
+        assert!(matches!(sent(&asked)[..], [Request::Library { cursor: None, .. }]));
+        let found = vec![entry("g1", "Fortnite", ipc::Role::Game, &[], Default::default())];
+        engine_says(&mut m, "gfn", ipc::Event::Library { target: account, entries: found, next: None });
+        assert_eq!(m.refresh_line(), Some(RefreshLine::Done { text: "1 new game. Epic has not answered.".into(), problem: true }));
+    }
+    #[test]
+    fn coming_back_after_half_an_hour_refreshes_quietly_and_a_short_absence_does_not() {
+        let (mut m, _) = refreshing_steam();
+        m.step(Input::Tick { now_ms: 400_000, unix_s: 0 });
+        m.step(Input::Foreground(false));
+        m.step(Input::Tick { now_ms: 400_000 + 600_000, unix_s: 0 });
+        assert!(sent(&m.step(Input::Foreground(true))).is_empty(), "ten minutes away is not enough");
+        m.step(Input::Foreground(false));
+        m.step(Input::Tick { now_ms: 1_000_000 + 1_800_000, unix_s: 0 });
+        let out = m.step(Input::Foreground(true));
+        assert!(matches!(sent(&out)[..], [Request::Library { cursor: None, .. }]));
+        assert_eq!(m.refresh_line(), None, "a quiet refresh shows nothing");
+    }
+}

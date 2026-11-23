@@ -176,7 +176,7 @@ impl<'a> Paint<'a> {
         use crate::game::model::Page;
         let focus = if self.model.view.sheet.is_some() { None } else { self.plan.hits.iter().find(|(id, _)| *id == self.model.view.focus).map(|(_, f)| *f) };
         let scrollable = |id: u64| match self.model.view.page {
-            Page::Home | Page::Hub | Page::Integration | Page::Lab | Page::GameSir | Page::Leadjoy => id >= 100,
+            Page::Home | Page::Hub | Page::Accounts | Page::Lab | Page::GameSir | Page::Leadjoy => id >= 100,
             Page::Settings => id >= 200,
             Page::Library | Page::Search => id >= 1000,
             _ => false,

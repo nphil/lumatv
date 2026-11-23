@@ -2,7 +2,7 @@ use super::{
     pages::nav,
     paint::{Fill, Paint, W},
 };
-use crate::game::model::{Focus, Section};
+use crate::game::model::{Focus, settings::Place};
 use crate::game::helper::GameSirState;
 use crate::game::uplink::BITRATE_MAX_MBPS;
 use lumagame_core::{
@@ -21,17 +21,17 @@ fn rail(p: &mut Paint<'_>) -> f32 {
     let icons = [Icon::Palette, Icon::Cards, Icon::Puzzle, Icon::Apps, Icon::Info, Icon::Info];
     let side = 36.0 * p.scale;
     let mut w = 420.0f32;
-    for section in Section::ALL {
+    for section in Place::ALL {
         w = w.max(p.width(section.name(), Type::Body) + side + 80.0);
     }
     w = w.min(640.0);
     p.text(100, "Settings", Frame::new(p.x + 28.0, 170.0, w - 56.0, p.line(Type::Title)), Type::Title, Role::Ink, false, 10);
     let top = 170.0 + p.line(Type::Title) + 24.0;
     let h = 80.0f32.max(p.line(Type::Body) + 24.0);
-    for (i, section) in Section::ALL.into_iter().enumerate() {
+    for (i, section) in Place::ALL.into_iter().enumerate() {
         let f = Frame::new(p.x, top + i as f32 * (h + 4.0), w, h);
         let from = p.plan.nodes.len();
-        if p.model.view.section == section || p.focused(Focus::Rail(i)) {
+        if p.model.view.place == section || p.focused(Focus::Rail(i)) {
             p.surface(110 + i as u64 * 3, f, Fill::Tint(if p.focused(Focus::Rail(i)) { 0.16 } else { 0.09 }), Radius::Row, false, false, false, 10);
         }
         let marks = if i == 3 { Vec::new() } else { vec![p.mark(icons[i], side, 28.0, (h - side) / 2.0, Role::Ink2, false)] };
@@ -62,13 +62,13 @@ pub fn settings(p: &mut Paint<'_>) {
     nav(p, false);
     let x = rail(p);
     let w = W - p.x - x;
-    match p.model.view.section {
-        Section::Appearance => appearance(p, x, w),
-        Section::Streaming => streaming(p, x, w),
-        Section::Integrations => integrations(p, x, w),
-        Section::Controllers => controllers(p, x, w),
-        Section::Diagnostics => diagnostics(p, x, w),
-        Section::About => about(p, x, w),
+    match p.model.view.place {
+        Place::Appearance => appearance(p, x, w),
+        Place::Streaming => streaming(p, x, w),
+        Place::Integrations => integrations(p, x, w),
+        Place::Controllers => controllers(p, x, w),
+        Place::Diagnostics => diagnostics(p, x, w),
+        Place::About => about(p, x, w),
     }
 }
 pub fn theme_card(p: &mut Paint<'_>, id: u64, focus: Focus, index: usize, f: Frame) {

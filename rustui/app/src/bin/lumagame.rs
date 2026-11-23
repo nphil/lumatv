@@ -34,7 +34,7 @@ fn page_name(page: lumatv_rustui::game::model::Page) -> &'static str {
     use lumatv_rustui::game::model::Page;
     match page {
         Page::Home => "home", Page::Library => "library", Page::Search => "search", Page::Hub => "hub",
-        Page::Settings => "settings", Page::Integration => "integration", Page::Launch => "launch",
+        Page::Settings => "settings", Page::Accounts => "integration", Page::Launch => "launch",
         Page::Running => "running", Page::Overlay => "overlay", Page::Media => "media", Page::Lab => "lab",
         Page::GameSir => "gamesir", Page::Leadjoy => "leadjoy",
     }
@@ -536,7 +536,7 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
         }
         let mut inputs = vec![Input::Tick { now_ms, unix_s: unix_seconds() }];
         if let Some(change) = uplink_watch.poll(now_ms, uplink::read) { inputs.push(Input::Uplink(change)); }
-        if shell.model.view.section == lumatv_rustui::game::model::Section::Diagnostics && shell.model.view.page == lumatv_rustui::game::model::Page::Settings {
+        if shell.model.view.place == lumatv_rustui::game::model::Section::Diagnostics && shell.model.view.page == lumatv_rustui::game::model::Page::Settings {
             inputs.push(Input::DiagnosticsStatus(shell.diagnostics.status()));
         }
         if END.load(Ordering::Relaxed) && !signalled { inputs.push(Input::Close); signalled = true; }

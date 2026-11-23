@@ -2,7 +2,7 @@ use super::{
     art::Stage,
     paint::{Fill, H, Paint, W, status_word},
 };
-use crate::game::model::{Density, Focus, HomeItem, HubTab, Key, Page};
+use crate::game::model::{Density, Focus, Key, Page, game::HubTab, home::HomeItem};
 use lumagame_core::{
     catalog::{ArtKind, SaveCompat},
     engine::EngineKind,
@@ -217,7 +217,7 @@ pub fn home(p: &mut Paint<'_>) {
         meta_parts.push(format!("Played {ago}"));
     }
     if let Some((seconds, _)) = m.play_time_of(game.id) {
-        meta_parts.push(format!("{} played", crate::game::model::play_time(seconds)));
+        meta_parts.push(format!("{} played", crate::game::model::game::play_time(seconds)));
     }
     let meta_text = meta_parts.join("  ·  ");
     let meta_h = ui::components::wrap(p.fonts, &meta_text, p.ty(Type::Label), 820.0).len() as f32 * p.line(Type::Label);
@@ -265,7 +265,7 @@ pub fn home(p: &mut Paint<'_>) {
     let body = p.line(Type::Body);
     let caption = p.line(Type::Caption);
     let cover_h = m.prefs.covers.cover_width() * 1.5;
-    let row_height = |row: &crate::game::model::HomeRow| {
+    let row_height = |row: &crate::game::model::home::HomeRow| {
         let tile = if matches!(row.items.first(), Some(HomeItem::Collection(_) | HomeItem::Genre(_))) { 252.0 } else { cover_h };
         body + 18.0 + tile + 26.0 + body + caption + 48.0
     };
@@ -567,7 +567,7 @@ pub fn library(p: &mut Paint<'_>, search: bool) {
     });
 }
 pub fn keyboard(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool, stage: bool) {
-    let diagnostic = p.model.view.page == Page::Settings && p.model.view.section == crate::game::model::Section::Diagnostics && p.model.view.sheet == Some(crate::game::model::Sheet::EditText);
+    let diagnostic = p.model.view.page == Page::Settings && p.model.view.place == crate::game::model::settings::Place::Diagnostics && p.model.view.sheet == Some(crate::game::model::Layer::EditText);
     let letters = match (p.model.view.keyboard_lower, diagnostic) {
         (true, true) => "abcdefghijklmnopqrstuvwxyz0123456789.-:/_",
         (false, true) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/_",
@@ -725,10 +725,10 @@ pub fn hub(p: &mut Paint<'_>) {
             let play_label = format!("Play time on {}", play.as_ref().map_or("this TV".to_string(), |(_, place)| m.place_name(place)));
             let cols = if p.scale > 1.0 { 2 } else { 4 };
             let w = (W - p.x * 2.0 - p.gap * (cols - 1) as f32) / cols as f32;
-            let mut facts = vec![(last_label, Some(m.since_played(game.id).unwrap_or_else(|| "Not played yet".into()))), (play_label, play.map(|(seconds, _)| crate::game::model::play_time(seconds)))];
+            let mut facts = vec![(last_label, Some(m.since_played(game.id).unwrap_or_else(|| "Not played yet".into()))), (play_label, play.map(|(seconds, _)| crate::game::model::game::play_time(seconds)))];
             facts.push(("Player reviews".to_string(), details.and_then(|d| d.hub.review.as_ref()).map(|r| r.label.clone())));
             facts.push(("Achievements".to_string(), achievement_summary(m, game.id, details)));
-            facts.push(("Played in the last 2 weeks".to_string(), m.recent_play(game.id).map(crate::game::model::play_time)));
+            facts.push(("Played in the last 2 weeks".to_string(), m.recent_play(game.id).map(crate::game::model::game::play_time)));
             facts.push(("Metacritic".to_string(), details.and_then(|d| d.hub.metacritic).map(|s| format!("{s} out of 100"))));
             facts.push(("Released".to_string(), details.and_then(|d| d.hub.release.clone())));
             facts.push(("Saves".to_string(), details.and_then(|d| d.cloud_saves).map(|cloud| if cloud { "Cloud saves" } else { "Local saves" }.into())));

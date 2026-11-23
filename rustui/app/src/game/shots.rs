@@ -1,5 +1,6 @@
 //! Explicit `GAME_SHOTS=all` visual acceptance run. Illustrative catalog/history mirrors the HTML mocks, never production data.
 use super::{model::*, screens::GameUi, uplink::{Medium, Uplink}};
+use super::model::{game::media::Media, home::{HomeItem, HomeRow}, settings::Place};
 use super::helper::{GameSirState, LeadjoyState, gamesir_fixture, leadjoy_fixture};
 use compositor_protocol::Event;
 use lumagame_core::{
@@ -399,7 +400,7 @@ fn screens() -> Vec<(String, Model)> {
     m.view.page = Page::Library;
     m.view.focus = Focus::Grid(2);
     add("07-library", m.clone());
-    m.view.sheet = Some(Sheet::Sort);
+    m.view.sheet = Some(Layer::Sort);
     m.view.focus = Focus::SheetRow(0);
     add("07-library-sort", m);
     for (name, tab, light) in
@@ -421,29 +422,29 @@ fn screens() -> Vec<(String, Model)> {
     let mut m = base.clone();
     m.view.page = Page::Hub;
     m.view.selected = Some(id(&m, "Quake"));
-    m.view.sheet = Some(Sheet::Chooser);
+    m.view.sheet = Some(Layer::Chooser);
     m.view.chooser_selected = m.selected_game().unwrap().sources.first().map(|s| s.key());
     m.view.focus = Focus::SheetRow(1);
     add("09-chooser", m.clone());
     m.prefs.text_percent = 200;
     add("32-chooser-text200", m);
     for (name, section, light, scale) in [
-        ("10-integrations", Section::Integrations, false, 100),
-        ("13-settings-appearance", Section::Appearance, false, 100),
-        ("13-settings-appearance-light", Section::Appearance, true, 100),
-        ("14-settings-streaming", Section::Streaming, false, 100),
-        ("14-settings-streaming-limited", Section::Streaming, false, 100),
-        ("14-settings-streaming-wifi", Section::Streaming, false, 100),
-        ("25-settings-controllers", Section::Controllers, false, 100),
-        ("26-settings-about", Section::About, false, 100),
-        ("52-diagnostics-dark", Section::Diagnostics, false, 100),
-        ("53-diagnostics-light", Section::Diagnostics, true, 100),
-        ("33-settings-text200", Section::Streaming, false, 200),
-        ("33-settings-text200-limited", Section::Streaming, false, 200),
+        ("10-integrations", Place::Integrations, false, 100),
+        ("13-settings-appearance", Place::Appearance, false, 100),
+        ("13-settings-appearance-light", Place::Appearance, true, 100),
+        ("14-settings-streaming", Place::Streaming, false, 100),
+        ("14-settings-streaming-limited", Place::Streaming, false, 100),
+        ("14-settings-streaming-wifi", Place::Streaming, false, 100),
+        ("25-settings-controllers", Place::Controllers, false, 100),
+        ("26-settings-about", Place::About, false, 100),
+        ("52-diagnostics-dark", Place::Diagnostics, false, 100),
+        ("53-diagnostics-light", Place::Diagnostics, true, 100),
+        ("33-settings-text200", Place::Streaming, false, 200),
+        ("33-settings-text200-limited", Place::Streaming, false, 200),
     ] {
         let mut m = base.clone();
         m.view.page = Page::Settings;
-        m.view.section = section;
+        m.view.place = section;
         m.prefs.light = light;
         m.prefs.text_percent = scale;
         m.prefs.fps = 120;
@@ -457,13 +458,13 @@ fn screens() -> Vec<(String, Model)> {
             m.uplink = Some(Uplink { interface: "wlan0".into(), medium: Medium::Wifi, mbit: None });
         }
         m.diagnostics.level = crate::game::diagnostics::Level::Debug;
-        m.view.focus = if section == Section::Appearance {
+        m.view.focus = if section == Place::Appearance {
             Focus::Theme(3)
-        } else if section == Section::Integrations {
+        } else if section == Place::Integrations {
             Focus::Integration(1)
-        } else if section == Section::Controllers {
+        } else if section == Place::Controllers {
             Focus::Setting(0)
-        } else if section == Section::Diagnostics {
+        } else if section == Place::Diagnostics {
             Focus::Setting(1)
         } else {
             Focus::Setting(3)
@@ -472,15 +473,15 @@ fn screens() -> Vec<(String, Model)> {
     }
     let mut secret = base.clone();
     secret.view.page = Page::Settings;
-    secret.view.section = Section::Diagnostics;
-    secret.view.sheet = Some(Sheet::EditText);
+    secret.view.place = Place::Diagnostics;
+    secret.view.sheet = Some(Layer::EditText);
     secret.view.edit_field = Some(4);
     secret.view.address = "fixture-token".into();
     secret.view.focus = Focus::Keyboard(0);
     add("54-diagnostics-token-masked", secret);
     let mut long_diagnostics = base.clone();
     long_diagnostics.view.page = Page::Settings;
-    long_diagnostics.view.section = Section::Diagnostics;
+    long_diagnostics.view.place = Place::Diagnostics;
     long_diagnostics.prefs.text_percent = 200;
     long_diagnostics.diagnostics.level = crate::game::diagnostics::Level::Trace;
     long_diagnostics.diagnostics.server = "https://long-server-name.example.invalid/a/long/path/for/remote/diagnostics".into();
@@ -490,7 +491,7 @@ fn screens() -> Vec<(String, Model)> {
     add("55-diagnostics-long-text200-test-focused", long_diagnostics);
     let mut m = base.clone();
     m.view.page = Page::Settings;
-    m.view.sheet = Some(Sheet::Theme);
+    m.view.sheet = Some(Layer::Theme);
     m.view.focus = Focus::Theme(3);
     add("27-theme-picker", m);
     for (name, state, engine) in [
@@ -501,7 +502,7 @@ fn screens() -> Vec<(String, Model)> {
     ] {
         let mut m = base.clone();
         m.view.page = Page::Settings;
-        m.view.section = Section::Integrations;
+        m.view.place = Place::Integrations;
         event(&mut m, engine, ipc::Event::Auth { state });
         add(name, m);
     }
@@ -580,7 +581,7 @@ fn screens() -> Vec<(String, Model)> {
     lab_stream.integrations.iter_mut().find(|e| e.manifest.id.as_str() == "gfn").unwrap()
         .descriptor.as_mut().unwrap().capabilities.features.insert(Feature::RoundTrip);
     lab_stream.view.page = Page::Settings;
-    lab_stream.view.section = Section::Controllers;
+    lab_stream.view.place = Place::Controllers;
     lab_stream.view.focus = Focus::Setting(0);
     activate(&mut lab_stream);
     activate(&mut lab_stream);
@@ -599,7 +600,7 @@ fn screens() -> Vec<(String, Model)> {
     m.view.notice = Some("The connection was interrupted. Check the network, then choose Play to try again.".into());
     add("20-state-failed", m);
     let mut m = base.clone();
-    m.view.page = Page::Integration;
+    m.view.page = Page::Accounts;
     m.view.selected_engine = Some(EngineId::new("gamestream").unwrap());
     if let Some(e) = m.integrations.iter_mut().find(|e| e.manifest.id.as_str() == "gamestream") {
         e.targets[0].reach = ipc::Reach::Offline;
@@ -642,22 +643,22 @@ fn screens() -> Vec<(String, Model)> {
         add(name, m);
     }
     let mut m = base.clone();
-    m.view.page = Page::Integration;
+    m.view.page = Page::Accounts;
     m.view.selected_engine = Some(EngineId::new("gamestream").unwrap());
-    m.view.sheet = Some(Sheet::AddHost);
+    m.view.sheet = Some(Layer::AddHost);
     m.view.focus = Focus::Keyboard(0);
     add("41-add-pc", m);
     let mut m = base.clone();
-    m.view.page = Page::Integration;
+    m.view.page = Page::Accounts;
     m.view.selected_engine = Some(EngineId::new("native").unwrap());
-    m.view.sheet = Some(Sheet::EditText);
+    m.view.sheet = Some(Layer::EditText);
     m.view.focus = Focus::Keyboard(0);
     m.view.address = "/media/games/quake".into();
     add("42-edit-path", m);
     let mut lab = base.clone();
     lab.prefs.reduce_motion = true;
     lab.view.page = Page::Settings;
-    lab.view.section = Section::Controllers;
+    lab.view.place = Place::Controllers;
     lab.view.focus = Focus::Setting(0);
     activate(&mut lab);
     let reports = (0..32).map(|i| (0, lumatv_gfn_pad::RawReport {
@@ -820,7 +821,7 @@ fn screens() -> Vec<(String, Model)> {
             let mut m = m.clone();
             m.prefs.text_percent = 200;
             if m.view.page == Page::Settings && m.view.sheet.is_none() {
-                m.view.focus = Focus::Setting(if m.view.section == Section::Appearance { 5 } else { 0 });
+                m.view.focus = Focus::Setting(if m.view.place == Place::Appearance { 5 } else { 0 });
             }
             m.rebuild_navigation();
             (format!("{name}-text200"), m)
@@ -1015,7 +1016,7 @@ fn native_text_fields_activate_on_release_and_validate_before_saving() {
             fields: vec![Field { key: "path".into(), label: "Game folder".into(), help: None, kind: FieldKind::Text { max_chars: 3, default: String::new() } }],
         }],
     };
-    m.view.page = Page::Integration;
+    m.view.page = Page::Accounts;
     m.view.selected_engine = Some(native);
     m.view.focus = Focus::EngineField(0);
     m.rebuild_navigation();
@@ -1024,11 +1025,11 @@ fn native_text_fields_activate_on_release_and_validate_before_saving() {
     m.step(Input::Key { key: Key::Ok, down: true });
     assert_eq!(m.view.sheet, None);
     m.step(Input::Key { key: Key::Ok, down: false });
-    assert_eq!(m.view.sheet, Some(Sheet::EditText));
+    assert_eq!(m.view.sheet, Some(Layer::EditText));
     m.step(Input::Text("abcd".into()));
     m.view.focus = Focus::SheetAction(0);
     activate(&mut m);
-    assert_eq!(m.view.sheet, Some(Sheet::EditText));
+    assert_eq!(m.view.sheet, Some(Layer::EditText));
     assert_eq!(m.view.notice.as_deref(), Some("Use at most 3 characters."));
     m.view.address = "abc".into();
     activate(&mut m);
@@ -1092,7 +1093,7 @@ fn all_stats_controls_share_one_setting_and_off_stops_frame_capture() {
     assert_eq!(m.prefs.stats.mode,Mode::Full);
     m.view.focus=Focus::Overlay(2);activate(&mut m);
     assert_eq!(m.prefs.stats.mode,Mode::Off);
-    m.view.page=Page::Settings;m.view.section=Section::Streaming;m.view.focus=Focus::Setting(7);
+    m.view.page=Page::Settings;m.view.place=Place::Streaming;m.view.focus=Focus::Setting(7);
     m.step(Input::Key {key:Key::Right,down:true});m.step(Input::Key {key:Key::Right,down:false});
     assert_eq!(m.prefs.stats.mode,Mode::Compact);
     let changed=m.prefs.stats.changed;

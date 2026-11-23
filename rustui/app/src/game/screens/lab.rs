@@ -6,7 +6,7 @@ use super::{
     paint::{Fill, H, LIVE, Paint, W},
     settings::{Control, row},
 };
-use crate::game::model::{Capture, Focus, LabPad, Trip};
+use crate::game::model::{Focus, settings::{Capture, LabPad, Trip}};
 use compositor_protocol::Rect;
 use lumagame_core::ipc::RoundTrip;
 use lumatv_gfn_pad::{Curve, button, lab::EDGES_US, shape};

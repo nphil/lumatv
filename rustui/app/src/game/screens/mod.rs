@@ -518,7 +518,7 @@ fn plan_page(tokens: &Tokens, model: &Model, fonts: &mut ui::Fonts, scroll_posit
         Page::Search => pages::library(&mut p, true),
         Page::Hub => pages::hub(&mut p),
         Page::Settings => settings::settings(&mut p),
-        Page::Integration => settings::integration(&mut p),
+        Page::Accounts => settings::integration(&mut p),
         Page::Launch => launch::launch(&mut p),
         Page::Overlay => sheets::overlay(&mut p),
         Page::Media => sheets::media(&mut p),
