@@ -2,9 +2,8 @@
 //! apply, rumble, a flash test for a slow-motion video and, during a session, the stream's round trip as the engine measures it.
 
 use super::{
-    pages::nav,
     paint::{Fill, H, LIVE, Paint, W},
-    settings::{Control, row},
+    parts::{row::{Control, row}, topbar::nav},
 };
 use crate::game::model::{Focus, settings::{Capture, LabPad, Trip}};
 use compositor_protocol::Rect;

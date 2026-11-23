@@ -1,13 +1,17 @@
 //! Native, retained LumaGame surfaces. Plans change on input or completed artwork, never on an idle video frame.
+mod accounts;
 mod art;
+mod game;
 mod glyph;
+mod home;
 mod lab;
 mod launch;
+mod library;
 mod idle;
-mod pages;
 mod paint;
+mod parts;
+mod quick;
 mod settings;
-mod sheets;
 mod symbols;
 mod stats;
 
@@ -511,17 +515,17 @@ fn draw_qr(layer: &mut ImageLayer, value: &str) -> io::Result<()> {
 fn plan_page(tokens: &Tokens, model: &Model, fonts: &mut ui::Fonts, scroll_positions: BTreeMap<u32, f32>) -> paint::Plan {
     let mut p = Paint::new(tokens, model, fonts);
     p.scroll_positions = scroll_positions;
-    if model.view.page != Page::Running { pages::canvas(&mut p, model.view.page == Page::Launch); }
+    if model.view.page != Page::Running { parts::stage::canvas(&mut p, model.view.page == Page::Launch); }
     match model.view.page {
-        Page::Home => pages::home(&mut p),
-        Page::Library => pages::library(&mut p, false),
-        Page::Search => pages::library(&mut p, true),
-        Page::Hub => pages::hub(&mut p),
+        Page::Home => home::home(&mut p),
+        Page::Library => library::library(&mut p, false),
+        Page::Search => library::library(&mut p, true),
+        Page::Hub => game::hub(&mut p),
         Page::Settings => settings::settings(&mut p),
-        Page::Accounts => settings::integration(&mut p),
+        Page::Accounts => accounts::integration(&mut p),
         Page::Launch => launch::launch(&mut p),
-        Page::Overlay => sheets::overlay(&mut p),
-        Page::Media => sheets::media(&mut p),
+        Page::Overlay => launch::overlay(&mut p),
+        Page::Media => game::media::media(&mut p),
         Page::Lab => lab::lab(&mut p),
         Page::GameSir => settings::gamesir(&mut p),
         Page::Leadjoy => settings::leadjoy(&mut p),
@@ -533,7 +537,7 @@ fn plan_page(tokens: &Tokens, model: &Model, fonts: &mut ui::Fonts, scroll_posit
     if model.view.sheet.is_some() {
         p.plan.hits.clear();
     }
-    sheets::sheet(&mut p);
+    parts::layer::sheet(&mut p);
     for node in &mut p.plan.nodes[sheet_start..] {
         node.z += 100;
     }

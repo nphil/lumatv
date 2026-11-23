@@ -1,63 +1,22 @@
 use super::{
-    pages::nav,
     paint::{Fill, Paint, W},
+    parts::{dialog::{panel, scrolling}, rail::rail, row::{Control, row}, topbar::nav},
 };
-use crate::game::model::{Focus, settings::Place};
-use crate::game::helper::GameSirState;
-use crate::game::uplink::BITRATE_MAX_MBPS;
+use crate::game::helper::{GameSirState, LeadjoyState};
+use crate::game::model::{Focus, Key, settings::Place};
+use compositor_protocol::Rect;
 use lumagame_core::{
-    engine::{Codec, EngineKind, Feature},
-    ipc::{Link, Reach},
+    engine::{Codec, EngineKind},
+    ipc::Link,
     settings::{FieldKind, Value},
 };
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{
-    components::{Align, Form, Icon},
+    components::{Form, Icon},
     geometry::Frame,
-    lucent::palette::{Mode, PaletteRole as Role},
+    lucent::palette::PaletteRole as Role,
 };
 
-fn rail(p: &mut Paint<'_>) -> f32 {
-    let icons = [Icon::Palette, Icon::Cards, Icon::Puzzle, Icon::Apps, Icon::Info, Icon::Info];
-    let side = 36.0 * p.scale;
-    let mut w = 420.0f32;
-    for section in Place::ALL {
-        w = w.max(p.width(section.name(), Type::Body) + side + 80.0);
-    }
-    w = w.min(640.0);
-    p.text(100, "Settings", Frame::new(p.x + 28.0, 170.0, w - 56.0, p.line(Type::Title)), Type::Title, Role::Ink, false, 10);
-    let top = 170.0 + p.line(Type::Title) + 24.0;
-    let h = 80.0f32.max(p.line(Type::Body) + 24.0);
-    for (i, section) in Place::ALL.into_iter().enumerate() {
-        let f = Frame::new(p.x, top + i as f32 * (h + 4.0), w, h);
-        let from = p.plan.nodes.len();
-        if p.model.view.place == section || p.focused(Focus::Rail(i)) {
-            p.surface(110 + i as u64 * 3, f, Fill::Tint(if p.focused(Focus::Rail(i)) { 0.16 } else { 0.09 }), Radius::Row, false, false, false, 10);
-        }
-        let marks = if i == 3 { Vec::new() } else { vec![p.mark(icons[i], side, 28.0, (h - side) / 2.0, Role::Ink2, false)] };
-        p.words(
-            111 + i as u64 * 3,
-            f,
-            vec![p.word(section.name(), Type::Body, p.ink(Role::Ink, false), side + 52.0, (h - p.line(Type::Body)) / 2.0, w - side - 72.0)],
-            marks,
-            11,
-        );
-        if i == 3 {
-            p.symbol(
-                112 + i as u64 * 3,
-                super::symbols::Symbol::Controller,
-                Frame::new(f.x + 28.0, f.y + (h - side) / 2.0, side, side),
-                p.ink(Role::Ink2, false),
-                11,
-            );
-        }
-        if p.focused(Focus::Rail(i)) {
-            p.zoom(from, f, p.tokens.focus.card_scale);
-        }
-        p.hit(Focus::Rail(i), f);
-    }
-    p.x + w + 48.0
-}
 pub fn settings(p: &mut Paint<'_>) {
     nav(p, false);
     let x = rail(p);
@@ -140,141 +99,6 @@ fn appearance(p: &mut Paint<'_>, x: f32, w: f32) {
         Frame::new(x, y, w, 0.0),
     );
     row(p, 450, Focus::Setting(5), "Reduce motion", Some("Focus changes at once, with no lift or fades"), Control::Toggle(m.prefs.reduce_motion), Frame::new(x, y, w, 0.0));
-}
-#[derive(Clone, Copy)]
-pub(super) enum Control<'a> {
-    Value(&'a str),
-    /// A value that changes in place, in tabular figures.
-    Figure(&'a str),
-    Segments(&'a [&'a str], usize),
-    Toggle(bool),
-    Slider(u32),
-    None,
-}
-fn row_metrics(p: &mut Paint<'_>, label: &str, description: Option<&str>, width: f32, control_w: f32, control_h: f32, rows: usize) -> (bool, f32, f32, f32, f32) {
-    let available = width - 52.0;
-    let stack = (p.width(label, Type::Body) + control_w + 80.0 > width || rows > 1) && control_w > 0.0;
-    let text_w = if stack || control_w == 0.0 { available } else { available - control_w - 32.0 };
-    let label_h = ui::components::wrap(p.fonts, label, p.ty(Type::Body), text_w).len().max(1) as f32 * p.line(Type::Body);
-    let desc_h = description.map_or(0.0, |s| ui::components::wrap(p.fonts, s, p.ty(Type::Caption), text_w).len() as f32 * p.line(Type::Caption));
-    let height = if stack { label_h + desc_h + control_h + 40.0 } else { 80.0f32.max(label_h + desc_h + 24.0).max(control_h + 16.0) };
-    (stack, text_w, label_h, desc_h, height)
-}
-
-pub(super) fn row(p: &mut Paint<'_>, id: u64, focus: Focus, label: &str, description: Option<&str>, control: Control<'_>, mut f: Frame) -> f32 {
-    // An empty value would become a text layer with no width.
-    let control = if let Control::Value("") = control { Control::None } else { control };
-    let available = f.w - 52.0;
-    let line = p.line(Type::Body);
-    let sh = p.tokens.target.max(p.line(Type::Label) + 12.0);
-    let widths = if let Control::Segments(options, _) = &control {
-        options.iter().map(|s| (p.width(s, Type::Label) + 44.0).min(available - 8.0)).collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
-    let slider_value = if let Control::Slider(value) = &control { format!("{value} Mb/s") } else { String::new() };
-    let value_w = p.width(&slider_value, Type::Label) + 12.0;
-    let figure = if let Control::Figure(value) = &control { p.figures(value, p.ty(Type::Body), p.ink(Role::Ink2, false), 0.0, 0.0) } else { Default::default() };
-    let control_w = match &control {
-        Control::Value(value) => p.width(value, Type::Body),
-        Control::Figure(_) => figure.1,
-        Control::Segments(..) => widths.iter().sum::<f32>() + 8.0,
-        Control::Toggle(_) => 82.0,
-        Control::Slider(_) => value_w + 284.0,
-        Control::None => 0.0,
-    }
-    .min(available);
-    let mut rows = 1;
-    let mut used = 8.0;
-    for width in &widths {
-        if used + width > control_w && used > 8.0 {
-            rows += 1;
-            used = 8.0;
-        }
-        used += width;
-    }
-    let control_h = if matches!(control, Control::Segments(..)) { rows as f32 * sh + (rows - 1) as f32 * 8.0 } else { sh };
-    let (stack, text_w, label_h, desc_h, height) = row_metrics(p, label, description, f.w, control_w, control_h, rows);
-    f.h = height;
-    let focused = p.focused(focus);
-    let from = p.plan.nodes.len();
-    if focused {
-        p.surface(id, f, Fill::Tint(p.tokens.states.focus_wash[usize::from(p.mode == Mode::Light)]), Radius::Row, false, true, false, 10);
-    }
-    let text_y = if stack { 12.0 } else { (f.h - label_h - desc_h) / 2.0 };
-    p.wrapped(id + 1, label, Frame::new(f.x + 26.0, f.y + text_y, text_w, 0.0), Type::Body, Role::Ink, false, 11);
-    if let Some(description) = description {
-        p.wrapped(id + 18, description, Frame::new(f.x + 26.0, f.y + text_y + label_h, text_w, 0.0), Type::Caption, Role::Ink2, false, 11);
-    }
-    let x = f.x + f.w - control_w - 26.0;
-    let cy = if stack { f.y + label_h + desc_h + 24.0 } else { f.y + (f.h - control_h) / 2.0 };
-    match control {
-        Control::Value(value) => {
-            let mut word = p.word(value, Type::Body, p.ink(Role::Ink2, false), 0.0, 0.0, control_w);
-            word.align = Align::Right;
-            p.words(id + 2, Frame::new(x, if stack { cy } else { f.y + (f.h - line) / 2.0 }, control_w, line), vec![word], vec![], 12);
-        }
-        Control::Figure(_) => {
-            p.words(id + 2, Frame::new(x, if stack { cy } else { f.y + (f.h - line) / 2.0 }, control_w, line), figure.0, vec![], 12);
-        }
-        Control::Toggle(on) => p.toggle(id + 2, x, if stack { cy } else { f.y + (f.h - 48.0) / 2.0 }, on, false, 12),
-        Control::Slider(value) => {
-            let track = Frame::new(x, cy + (control_h - 6.0) / 2.0, (control_w - value_w - 24.0).max(1.0), 6.0);
-            p.solid(id + 2, track, p.ink(Role::TrackOff, false), 3.0, 12);
-            let fill = track.w * value as f32 / BITRATE_MAX_MBPS as f32;
-            p.solid(id + 3, Frame::new(track.x, track.y, fill, 6.0), p.ink(Role::Accent, false), 3.0, 13);
-            p.solid(id + 4, Frame::new(track.x + fill - 10.0, track.y - 7.0, 20.0, 20.0), p.ink(Role::Ink, false), 10.0, 14);
-            p.text(
-                id + 5,
-                &slider_value,
-                Frame::new(x + control_w - value_w, cy + (control_h - p.line(Type::Label)) / 2.0, value_w, p.line(Type::Label)),
-                Type::Label,
-                Role::Ink2,
-                false,
-                12,
-            );
-        }
-        Control::Segments(options, selected) => {
-            let mut sx = x + 4.0;
-            let mut sy = cy;
-            for (i, (label, width)) in options.iter().zip(widths).enumerate() {
-                if sx + width > x + control_w && sx > x + 4.0 {
-                    sx = x + 4.0;
-                    sy += sh + 8.0;
-                }
-                let node = 100_000_000 + id * 256 + i as u64 * 2;
-                p.surface(
-                    node,
-                    Frame::new(sx, sy + 4.0, width, sh - 8.0),
-                    if i == selected { Fill::Accent } else { Fill::Tint(0.05) },
-                    Radius::Pill,
-                    false,
-                    false,
-                    false,
-                    13,
-                );
-                let mut word = p.word(
-                    *label,
-                    Type::Label,
-                    p.ink(if i == selected { Role::AccentInk } else { Role::Ink2 }, false),
-                    0.0,
-                    (sh - p.line(Type::Label)) / 2.0,
-                    width,
-                );
-                word.align = Align::Centre;
-                p.words(node + 1, Frame::new(sx, sy, width, sh), vec![word], vec![], 14);
-                sx += width;
-            }
-        }
-        Control::None => {}
-    }
-    if focused {
-        p.zoom(from, f, p.tokens.focus.card_scale);
-    }
-    if focus != Focus::None {
-        p.hit(focus, f);
-    }
-    f.h + 4.0
 }
 fn streaming(p: &mut Paint<'_>, x: f32, w: f32) {
     let m = p.model;
@@ -545,91 +369,36 @@ fn about(p: &mut Paint<'_>, x: f32, w: f32) {
         y += h + 8.0;
     }
 }
-pub fn integration(p: &mut Paint<'_>) {
-    nav(p, false);
-    let m = p.model;
-    let Some(e) = m.view.selected_engine.as_ref().and_then(|id| m.integration(id)) else {
-        return;
+pub fn themes(p: &mut Paint<'_>) {
+    let f = panel(p, 1728.0, 972.0);
+    p.text(8010, "Choose a theme", Frame::new(f.x + 36.0, f.y + 36.0, f.w - 72.0, p.line(Type::Title)), Type::Title, Role::Ink, false, 32);
+    let cols = if p.scale > 1.0 { 3 } else { 4 };
+    let card_h = if p.scale > 1.0 { 270.0 } else { 212.0 };
+    let w = (f.w - 72.0 - 24.0 * (cols - 1) as f32) / cols as f32;
+    let rows = ((f.h - p.line(Type::Title) - 108.0) / (card_h + 24.0)).floor() as usize;
+    let focus = if let Focus::Theme(i) = p.model.view.focus { i } else { 0 };
+    let first_row = (focus / cols).saturating_sub(rows.saturating_sub(1));
+    let top = f.y + 72.0 + p.line(Type::Title);
+    let count = lumatv_tokens::themes::game_options().len();
+    let view = Rect { x: f.x + 36.0, y: top, w: f.w - 72.0, h: rows as f32 * (card_h + 24.0) - 24.0 };
+    scrolling(p, view, card_h + 24.0, count.div_ceil(cols), first_row, 8.0, |p, row, y| {
+        for i in row * cols..((row + 1) * cols).min(count) {
+            super::settings::theme_card(p, 8100 + i as u64 * 10, Focus::Theme(i), i, Frame::new(f.x + 36.0 + (i % cols) as f32 * (w + 24.0), y, w, card_h));
+        }
+    });
+}
+pub fn delete(p: &mut Paint<'_>) {
+    let field = match &p.model.leadjoy.state {
+        LeadjoyState::Ready(profile) => p.model.view.edit_field.and_then(|i| profile.schema.fields().nth(i)),
+        _ => None,
     };
-    let x = p.x;
-    let w = W - p.x * 2.0;
-    let mut y = 170.0;
-    let enabled = m.enabled(&e.manifest.id);
-    p.text(100, &e.manifest.name, Frame::new(x + 26.0, y, w - 52.0, p.line(Type::Title)), Type::Title, Role::Ink, false, 10);
-    y += p.line(Type::Title) + 24.0;
-    y += row(p, 200, Focus::Setting(0), "Enable integration", Some("Runs only while enabled"), Control::Toggle(enabled), Frame::new(x, y, w, 0.0));
-    if !enabled {
-        return;
-    }
-    if let Some((_, error)) = &e.error {
-        y += p.wrapped(225, error, Frame::new(x + 26.0, y + 16.0, w - 52.0, 0.0), Type::Body, Role::Warning, false, 10) + 32.0;
-    }
-    if let Some(d) = &e.descriptor {
-        if !d.capabilities.auth.is_empty() {
-            y += row(
-                p,
-                230,
-                Focus::Setting(1),
-                if e.manifest.kind == EngineKind::Host { "Pair a PC" } else if e.can_sign_out() { "Switch account" } else { "Sign in" },
-                None,
-                Control::Value("Connect"),
-                Frame::new(x, y, w, 0.0),
-            );
-        }
-        if d.capabilities.has(Feature::ManualHost) {
-            y += row(p, 260, Focus::Setting(2), "Add PC by address", None, Control::Value("Add"), Frame::new(x, y, w, 0.0));
-        }
-    }
-    for (i, target) in e.targets.iter().enumerate() {
-        let state = match (target.link, target.reach) {
-            (Link::Expired, _) => "Sign in again",
-            (Link::Linked, Reach::Online) => "Connected",
-            (_, Reach::Asleep) => "Asleep",
-            (_, Reach::Offline) => "Offline",
-            _ => "Not linked",
-        };
-        y += row(p, 10_000 + i as u64 * 100, Focus::Target(i), &target.name, None, Control::Value(state), Frame::new(x, y, w, 0.0));
-    }
-    if m.can_refresh(e) {
-        let note = match m.refresh_line() {
-            Some(crate::game::model::RefreshLine::Working { text, seconds }) => format!("{text}…{}", seconds.map_or(String::new(), |s| format!("  {s} s"))),
-            Some(crate::game::model::RefreshLine::Done { text, .. }) => text,
-            None => "Checks the account for games added or removed".to_owned(),
-        };
-        y += row(p, 9_500, Focus::Setting(4), "Refresh libraries", Some(&note), Control::Value(if m.refreshing() { "Working" } else { "Refresh" }), Frame::new(x, y, w, 0.0));
-    }
-    if e.can_sign_out() {
-        y += row(p, 9_000, Focus::Setting(3), "Sign out", Some("Removes the saved sign-in from this TV"), Control::Value("Sign out"), Frame::new(x, y, w, 0.0));
-    }
-    for (i, field) in e.schema.fields().enumerate() {
-        let saved = m.state().engines.get(&e.manifest.id).and_then(|e| e.settings.get(&field.key)).cloned().or_else(|| field.kind.default());
-        let label = &field.label;
-        let description = field.help.as_deref();
-        let value = match &saved {
-            Some(Value::Text(v)) => v.clone(),
-            Some(Value::Int(v)) => v.to_string(),
-            Some(Value::Bool(v)) => v.to_string(),
-            None => String::new(),
-        };
-        let choices;
-        let control = match &field.kind {
-            FieldKind::Toggle { .. } => Control::Toggle(saved == Some(Value::Bool(true))),
-            FieldKind::Choice { options, .. } => {
-                choices = options.iter().map(|c| c.label.as_str()).collect::<Vec<_>>();
-                Control::Segments(&choices, options.iter().position(|o| o.id == value).unwrap_or(0))
-            }
-            FieldKind::Action => Control::Value("Open"),
-            FieldKind::Note => Control::None,
-            _ => Control::Value(&value),
-        };
-        y += row(
-            p,
-            100_000 + i as u64 * 100,
-            if field.kind == FieldKind::Note { Focus::None } else { Focus::EngineField(i) },
-            label,
-            description,
-            control,
-            Frame::new(x, y, w, 0.0),
-        );
-    }
+    let (title, body) = field.map_or_else(|| ("Delete".into(), String::new()), |field| (field.label.clone(), field.help.clone().unwrap_or_default()));
+    let f = panel(p, 1080.0, if p.scale > 1.0 { 700.0 } else { 400.0 });
+    let x = f.x + 40.0;
+    p.text(8010, &title, Frame::new(x, f.y + 40.0, f.w - 80.0, p.line(Type::Title) * 2.0), Type::Title, Role::Ink, false, 32);
+    p.wrapped(8020, &body, Frame::new(x, f.y + 78.0 + p.line(Type::Title), f.w - 80.0, 0.0), Type::Body, Role::Ink2, false, 32);
+    let y = f.y + f.h - 104.0;
+    let keep = p.lead(Key::Back, Icon::Back);
+    let w = p.button_lead(8030, Focus::SheetAction(0), "Keep", Some(keep), x, y, true, false, 34);
+    p.button(8040, Focus::SheetAction(1), "Delete", Some(Icon::Close), x + w + 16.0, y, false, false, 34);
 }
