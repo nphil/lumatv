@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 LumaTV Home's dock card responds to focus like the widgets: while the focus is on an app icon the card's glass rises 4 px, grows 3 % and lights on the cards' own spring, and settles back when the focus leaves. The icons stay on whole pixels and the focused icon keeps its own lift.
 
+LumaGame's Activity card puts the newest news title on its own row above the screenshots instead of beside them; it drops the screenshots, not the title, when a large text size leaves no room for both.
+
 LumaGame's menus follow the controller first: the left stick counts as a direction from 43 % of its travel (was 60 %) and lets go at 27 %, so a thumb at the edge no longer chatters; a held direction repeats after 300 ms at 200 ms a step for a nudge up to 100 ms for a full push, quickening by up to 30 % over the next 1.2 s, and easing the stick off slows it at once. The d-pad steps at 100 ms like a full push. Hints show the pad's buttons until the remote is used.
 
 LumaGame moves like LumaTV Home: focus travel, card scale and layers coming in use the compositor's critically damped spring on LumaTV Home's own times (260 ms focus and card, 220 ms layer; the game theme's faster 150/180 ms overrides are gone) instead of a short ease-out, and a press during a move retargets it from where it is.
