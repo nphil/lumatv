@@ -7,7 +7,8 @@ use lumatv_rustui::{card::{FULLSCREEN, MINIMIZED}, game::{helper::{ControllerCli
 use lumatv_rustui::game::helper::{OverlayClient, Sample};
 use lumatv_rustui::game::diagnostics::{Diagnostics, Event as DiagnosticEvent, Level};
 use lumatv_rustui::game::input::Face;
-use lumatv_rustui::game::uplink;
+use lumatv_rustui::game::{uplink, video};
+use lumatv_rustui::game::model::game::media::VideoRect;
 use lumatv_rustui::game::observer::{Observer, engine_word, phase_word};
 use std::{collections::VecDeque, io, net::SocketAddr, os::fd::AsRawFd, os::unix::net::UnixDatagram, path::{Path, PathBuf}, sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering}, mpsc::{self, Receiver, SyncSender}}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 use ui::{SceneOptions, Ui};
@@ -287,6 +288,10 @@ struct Shell {
     stats: OverlayClient, frames_on: bool,
     diagnostics: Diagnostics,
     observer: Observer, events: Vec<DiagnosticEvent>,
+    /// The focused still's card as a player, from the last frame drawn: where a video starts.
+    card: Option<VideoRect>,
+    /// The frame app is playing a video over LumaGame; it holds the keys until Back closes it.
+    video_up: bool,
 }
 impl Shell {
     /// Hands what the observer found to the diagnostics queue, which keeps only what the level asks for.
@@ -317,6 +322,11 @@ impl Shell {
                     _ => {}
                 }
                 self.report();
+            }
+            if self.video_up && matches!(input, Input::Foreground(false) | Input::Close) {
+                // LumaGame is leaving: the player goes with it rather than stay over whatever comes next.
+                self.video_up = false;
+                if let Err(e) = self.launch_app(video::FRAME_APP, video::close()) { eprintln!("lumagame: closing the player: {e}"); }
             }
             commands.extend(self.step(input, now_ms));
         }
@@ -364,8 +374,12 @@ impl Shell {
                     if !url.starts_with("https://") { Err(io::Error::new(io::ErrorKind::InvalidInput, "media must use HTTPS")) }
                     else { self.launch_app("com.webos.app.browser", serde_json::json!({"target":url})) }
                 }
-                // The video-layer slice plays these on their own hardware plane; the owner wants no hand-off to another app meanwhile.
-                Command::PlayVideo { kind, .. } => { eprintln!("lumagame: {kind:?} video asked for; no video layer in this build"); Ok(()) }
+                // The frame app plays it on the main hardware video window over the still's card (`rect` when no card was drawn).
+                Command::PlayVideo { kind, source, rect } => {
+                    let launched = self.launch_app(video::FRAME_APP, video::launch(kind, &source, self.card.unwrap_or(rect)));
+                    self.video_up = launched.is_ok();
+                    launched
+                }
                 Command::OpenControllerSettings => self.launch_app("com.palm.app.settings", serde_json::json!({})),
                 Command::Rumble { slot, low, high } => pads.runtime.rumble(slot, low, high, 500),
                 Command::GameSir(change) => {
@@ -494,7 +508,7 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
     inputs.extend(uplink_watch.poll(0, uplink::read).map(Input::Uplink));
     // Seed wall-clock time before any engine can report Running.
     model.step(Input::Tick { now_ms: 0, unix_s: unix_seconds() });
-    let mut shell = Shell { model, host, store, channel, lease: Lease::new(o.helper)?, controllers: ControllerClient::new(o.helper)?, stats: OverlayClient::new(o.helper)?, frames_on: false, art, art_waiting: VecDeque::new(), details, details_waiting: VecDeque::new(), state_saved: true, media_seq: u64::MAX, diagnostics: diagnostics.clone(), observer: Observer::default(), events: Vec::new() };
+    let mut shell = Shell { model, host, store, channel, lease: Lease::new(o.helper)?, controllers: ControllerClient::new(o.helper)?, stats: OverlayClient::new(o.helper)?, frames_on: false, art, art_waiting: VecDeque::new(), details, details_waiting: VecDeque::new(), state_saved: true, media_seq: u64::MAX, diagnostics: diagnostics.clone(), observer: Observer::default(), events: Vec::new(), card: None, video_up: false };
     let pads = MenuPads::new()?;
     if shell.inputs(inputs, &pads, 0)? { return Ok(()); }
     let began = Instant::now();
@@ -570,6 +584,8 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
                 Event::State(state) => { trace_events |= 2; trace_window_state = Some(state); if let Some(ch) = &mut shell.channel { ch.send(&FromApp::State(state)); } inputs.push(Input::Foreground(state != MINIMIZED)); }
                 Event::Close => { trace_events |= 4; inputs.push(Input::Close); }
                 Event::Key { code, pressed } => if let Some(key) = Key::from_code(code) { inputs.push(Input::Key { key, down: pressed }); },
+                // the keys come back when the player closes (Back, its own end or its dwell)
+                Event::Focus(has) => if has { shell.video_up = false; },
             }
         }
         if let Some(channel) = &mut shell.channel {
@@ -596,6 +612,7 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
             inputs.push(Input::StatsSetting(setting));
             if let Some(display) = display { inputs.push(Input::Display(display)); }
         }
+        shell.card = page.frame_of(shell.model.view.focus).map(|f| video::card(f.x, f.y, f.w, f.h));
         let exiting = shell.inputs(inputs, &pads, now_ms)?;
         let visible = shell.model.wants_frames();
         if shell.diagnostics.enabled() {

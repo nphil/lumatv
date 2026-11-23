@@ -65,6 +65,8 @@ pub enum Event {
     Close,
     /// `wl_keyboard.key`: the Linux input code.
     Key { code: u32, pressed: bool },
+    /// `wl_keyboard.enter` (true) or `leave`: whether the window has the keys (an overlay such as the frame app takes them).
+    Focus(bool),
 }
 
 /// The newest `wl_seat` version asked for: 5 adds `release`, for a seat that goes away; LG's compositor serves 4 (Qt 5.12).
@@ -178,8 +180,8 @@ impl Dispatch<WlKeyboard, u32> for State {
             }
             // The keymap's descriptor is closed with the event: codes are what the app reads.
             wl_keyboard::Event::Keymap { format, size, .. } => eprintln!("window: seat {seat} keymap {format:?}, {size} bytes"),
-            wl_keyboard::Event::Enter { .. } => eprintln!("window: keyboard focus on seat {seat}"),
-            wl_keyboard::Event::Leave { .. } => eprintln!("window: keyboard focus on seat {seat} left"),
+            wl_keyboard::Event::Enter { .. } => state.events.push_back(Event::Focus(true)),
+            wl_keyboard::Event::Leave { .. } => state.events.push_back(Event::Focus(false)),
             _ => {}
         }
     }

@@ -221,7 +221,8 @@ impl Model {
         let item = *self.media_items(id, self.media_group(id)?).get(i)?;
         Some(if item.video.is_some() { "Play" } else { "Open" })
     }
-    /// OK on still `i`: a video plays on its own layer, full screen; a picture opens the viewer.
+    /// OK on still `i`: a video plays on its own layer (full screen here; the shell starts it over the still's card); a picture opens
+    /// the viewer.
     pub(in crate::game::model) fn open_media(&mut self, i: usize, out: &mut Vec<Command>) {
         let Some(id) = self.view.selected else { return };
         let Some(group) = self.media_group(id) else { return };

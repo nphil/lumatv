@@ -168,6 +168,10 @@ impl GameUi {
             }
         }).map(|(focus, _, _)| *focus)
     }
+    /// Where `focus` was last drawn, on the screen.
+    pub fn frame_of(&self, focus: Focus) -> Option<Frame> {
+        self.hits.iter().find(|(f, _, _)| *f == focus).map(|(_, frame, _)| *frame)
+    }
     pub fn art_busy(&self) -> bool {
         self.loader.busy() || self.art.busy() || self.unfinished_text || !self.ui.glyph_text_settled()
     }

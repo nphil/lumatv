@@ -228,10 +228,11 @@ fn run(o: Options) -> io::Result<i32> {
         let mut inputs: Vec<Input> = win
             .events()
             .into_iter()
-            .map(|e| match e {
-                Event::State(s) => Input::State(s),
-                Event::Close => Input::CompositorClose,
-                Event::Key { code, pressed } => Input::Key { code, pressed },
+            .filter_map(|e| match e {
+                Event::State(s) => Some(Input::State(s)),
+                Event::Close => Some(Input::CompositorClose),
+                Event::Key { code, pressed } => Some(Input::Key { code, pressed }),
+                Event::Focus(_) => None,
             })
             .collect();
         if let Some(ch) = channel.as_mut() {
