@@ -11,6 +11,11 @@ pub enum Symbol {
     /// The marking printed on one face button of a pad that is not Xbox-styled, in a 24-unit box the size of the button. `ring` adds the
     /// button's rim, for a button that must not vanish into a dark sheet.
     Face { kind: PadKind, face: Face, ring: bool },
+    /// The start screen's ring: a full circle, the track the arc turns on.
+    Ring,
+    /// An arc of the start screen's ring, `turn` of `of` steps round from the right. Every step is its own image, drawn once, so the
+    /// ring turns by swapping opacity and never by drawing again.
+    Spinner { turn: u8, of: u8 },
 }
 #[derive(Clone, Copy)]
 enum Shape {
@@ -26,6 +31,11 @@ fn segment(x: f32, y: f32, a: f32, b: f32, c: f32, d: f32) -> f32 {
 }
 /// The stroke's half-width on the toolkit's grid.
 const STROKE: f32 = 0.95;
+/// The ring's radius on the 24-unit grid, and half its stroke: 8 px at 92 px across.
+const SPIN_R: f32 = 10.9;
+const SPIN_HALF: f32 = 1.04;
+/// How much of the ring the arc covers.
+const SPIN_SWEEP: f32 = 137.0;
 
 /// A polyline along the ellipse's arc from `from` to `to` degrees (0 is right, 90 is down).
 fn arc(out: &mut Vec<Shape>, cx: f32, cy: f32, rx: f32, ry: f32, from: f32, to: f32) {
@@ -126,6 +136,13 @@ fn shapes(symbol: Symbol) -> (Vec<Shape>, f32) {
             Line(21.0, 12.0, 12.0, 21.0),
         ],
         Symbol::More => &[Dot(4.0, 12.0, 1.4), Dot(12.0, 12.0, 1.4), Dot(20.0, 12.0, 1.4)],
+        Symbol::Ring => return (vec![Ring(12.0, 12.0, SPIN_R, SPIN_HALF)], SPIN_HALF),
+        Symbol::Spinner { turn, of } => {
+            let from = 360.0 * f32::from(turn) / f32::from(of.max(1));
+            let mut s = Vec::new();
+            arc(&mut s, 12.0, 12.0, SPIN_R, SPIN_R, from, from + SPIN_SWEEP);
+            return (s, SPIN_HALF);
+        }
         Symbol::Face { kind, face, ring } => {
             let (mut s, half) = match kind {
                 PadKind::GameSir => (gamesir(face), 0.8),
