@@ -12,7 +12,7 @@ mod quick;
 mod settings;
 
 use super::{model::*, screens::GameUi, uplink::{Medium, Uplink}};
-use super::model::{game::media::Media, home::{HomeItem, HomeRow}, settings::Place};
+use super::model::{game::media::Media, home::{HomeItem, HomeRow}, settings::{Pane, Place}};
 use super::helper::{GameSirState, LeadjoyState, gamesir_fixture, leadjoy_fixture};
 use compositor_protocol::Event;
 use lumagame_core::{
@@ -66,21 +66,21 @@ fn screens() -> Vec<(String, Model)> {
         .filter(|(name, _)| {
             [
                 "51-stats-full-stale",
-                "14-settings-streaming", "15-overlay",
+                "settings-a-picture", "15-overlay",
                 "11-pairing",
                 "12-signin",
                 "28-enter-pin",
                 "29-approval",
                 "16-overlay-end-confirm",
                 "17-state-checking", "18-state-queue", "19-state-starting", "17-state-queue-unknown", "17-state-long-title",
-                "22-state-first-run",
+                "home-a-empty", "settings-a-first-run",
                 "38-search-keyboard",
                 "41-add-pc",
                 "42-edit-path",
-                "13-settings-appearance",
-                "25-settings-controllers",
-                "26-settings-about",
-                "52-diagnostics-dark", "53-diagnostics-light",
+                "settings-a-appearance",
+                "settings-a-controllers",
+                "settings-a-system",
+                "settings-a-diagnostics-light",
                 "43-controller-lab",
                 "43-controller-lab-light",
                 "48-stats-compact-healthy",
@@ -126,7 +126,7 @@ fn screens() -> Vec<(String, Model)> {
             let mut m = m.clone();
             m.prefs.text_percent = 200;
             if m.view.page == Page::Settings && m.view.layers.is_empty() {
-                m.view.focus = Focus::Setting(if m.view.place == Place::Appearance { 5 } else { 0 });
+                m.view.focus = Focus::Setting(if m.view.place == Place::Appearance { 3 } else { 0 });
             }
             m.rebuild_navigation();
             (format!("{name}-text200"), m)

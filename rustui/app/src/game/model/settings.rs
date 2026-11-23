@@ -1,34 +1,172 @@
-//! Settings: the rail and its places, the theme chooser, the controllers' lab and the GameSir and Leadjoy pages.
-use super::nav::Slice;
+//! Settings: five places on a rail, each a list of rows, and the pages a row opens (`Pane`): an account or a PC, adding one, the
+//! themes, the controllers' lab, the GameSir and Leadjoy pages and diagnostics.
+use super::nav::{Hints, Slice};
 use super::*;
 
-/// A controller screen reached from Settings; `View::pane` holds the one that is open. The content slices turn these into sections of
-/// Settings.
+/// A page a Settings row opens in place of its place's list; `View::pane` holds the one that is open, and Back returns to the row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pane {
+    /// An integration, or one PC of it: `View::selected_engine` and `View::selected_target`.
+    Service,
+    Add,
+    Theme,
     Lab,
     GameSir,
     Leadjoy,
+    Diagnostics,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Place {
+    Accounts,
+    Picture,
+    Controllers,
     #[default]
     Appearance,
-    Streaming,
-    Integrations,
-    Controllers,
-    Diagnostics,
-    About,
+    System,
 }
 impl Place {
-    pub const ALL: [Self; 6] = [Self::Appearance, Self::Streaming, Self::Integrations, Self::Controllers, Self::Diagnostics, Self::About];
+    pub const ALL: [Self; 5] = [Self::Accounts, Self::Picture, Self::Controllers, Self::Appearance, Self::System];
     pub fn index(self) -> usize {
         Self::ALL.iter().position(|s| *s == self).unwrap_or(0)
     }
     pub fn name(self) -> &'static str {
-        ["Appearance", "Streaming", "Integrations", "Controllers", "Diagnostics", "About"][self.index()]
+        ["Accounts and PCs", "Picture and stream", "Controllers", "Appearance", "System"][self.index()]
     }
 }
+/// What a row leads with. The screen picks the icon.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Glyph {
+    Cloud,
+    Pc,
+    Tv,
+    Account,
+    Add,
+    Clock,
+    Games,
+    News,
+    Mature,
+    SignOut,
+    Qr,
+    Picture,
+    Motion,
+    Pad,
+    Palette,
+    Light,
+    Text,
+    Gauge,
+    Info,
+    Bug,
+    Setting,
+}
+/// The colour of a status word.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tone {
+    Positive,
+    Info,
+    Warning,
+    Danger,
+    Quiet,
+}
+/// What a row shows at its right.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Shows {
+    /// A chevron: OK opens something.
+    Opens,
+    Value(String),
+    /// A status word and its mark.
+    State(&'static str, Tone),
+    Switch(bool),
+    /// Left and Right step through choices.
+    Stepper(String),
+    Nothing,
+}
+/// What OK, Left and Right on a row do.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Act {
+    None,
+    Pane(Pane),
+    Service(EngineId, Option<TargetId>),
+    ControllerSettings,
+    Pref(Pref),
+    /// A diagnostics row, by its place in the pane: on, level, server, topic, token, clear the token, test.
+    Diag(usize),
+    Link(EngineId, Option<TargetId>),
+    AddHost(EngineId),
+    SignOut,
+    /// A field of the open integration's schema, by its place in the schema.
+    Field(usize),
+    Credit(&'static str),
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pref {
+    Resolution,
+    FrameRate,
+    Hdr,
+    Bitrate,
+    Codec,
+    Pacing,
+    Preferred,
+    Stats,
+    Light,
+    Covers,
+    Text,
+    Motion,
+    Labels,
+    GamePages,
+    MaturePages,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct Item {
+    pub act: Act,
+    pub glyph: Glyph,
+    pub name: String,
+    pub sub: Option<String>,
+    pub shows: Shows,
+    /// Lets something go: its mark reads in the danger colour.
+    pub danger: bool,
+}
+impl Item {
+    pub(super) fn new(act: Act, glyph: Glyph, name: impl Into<String>, shows: Shows) -> Self {
+        Self { act, glyph, name: name.into(), sub: None, shows, danger: false }
+    }
+    pub(super) fn sub(mut self, sub: impl Into<String>) -> Self {
+        self.sub = Some(sub.into());
+        self
+    }
+}
+/// One line of a Settings list. `Focus::Setting(i)` is the `i`th entry; groups and notes take no focus.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Entry {
+    Group(String),
+    Note(String),
+    Row(Item),
+}
+/// What the open place or pane shows: its head, a line under it and its list.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Sheet {
+    pub crumb: Option<&'static str>,
+    pub title: String,
+    pub chip: Option<(&'static str, Tone)>,
+    pub lede: Option<String>,
+    pub entries: Vec<Entry>,
+}
+impl Sheet {
+    fn titled(title: impl Into<String>, entries: Vec<Entry>) -> Self {
+        Self { title: title.into(), entries, ..Self::default() }
+    }
+    /// The entries that take focus.
+    pub fn rows(&self) -> Vec<usize> {
+        self.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Row(_))).map(|(i, _)| i).collect()
+    }
+    pub fn item(&self, i: usize) -> Option<&Item> {
+        match self.entries.get(i) {
+            Some(Entry::Row(item)) => Some(item),
+            _ => None,
+        }
+    }
+}
+/// The log levels, as the diagnostics pane names them.
+const LEVELS: [&str; 5] = ["Error", "Warn", "Info", "Debug", "Trace"];
 /// How the shell reads the pads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PadMode {
@@ -109,49 +247,189 @@ impl Slice for Rules {
     fn anchor(m: &Model) -> Option<Focus> {
         m.view.pane.is_none().then(|| Focus::Rail(m.view.place.index()))
     }
+    fn hints(m: &Model) -> Hints {
+        m.settings_hints()
+    }
 }
 impl Model {
-    /// Shows Settings at `place`, focused on its first control.
+    /// Shows Settings at `place`, focused on its rail.
     pub fn open_settings(&mut self, place: Place) {
         self.view.place = place;
-        self.show_page(Page::Settings, if place == Place::Integrations { Focus::Integration(0) } else { Focus::Setting(0) });
+        self.show_page(Page::Settings, Focus::Rail(place.index()));
+    }
+    /// The diagnostics pane is open.
+    pub fn in_diagnostics(&self) -> bool {
+        self.view.page == Page::Settings && self.view.pane == Some(Pane::Diagnostics)
+    }
+    /// The open place or pane: its head and rows.
+    pub fn settings_sheet(&self) -> Sheet {
+        let place = self.view.place;
+        let mut sheet = match self.view.pane {
+            None => match place {
+                Place::Accounts => self.accounts_sheet(),
+                Place::Picture => Sheet::titled(place.name(), self.picture_entries()),
+                Place::Controllers => Sheet::titled(place.name(), self.controller_entries()),
+                Place::Appearance => Sheet::titled(place.name(), self.appearance_entries()),
+                Place::System => Sheet::titled(place.name(), self.system_entries()),
+            },
+            Some(Pane::Service) => self.service_sheet(),
+            Some(Pane::Add) => Sheet::titled("Add an account or PC", self.add_entries()),
+            Some(Pane::Theme) => Sheet::titled("Theme", Vec::new()),
+            Some(Pane::Lab) => Sheet::titled("Controller lab", Vec::new()),
+            Some(Pane::GameSir) => Sheet::titled("GameSir Cyclone 2", Vec::new()),
+            Some(Pane::Leadjoy) => Sheet::titled("Leadjoy Xeno", Vec::new()),
+            Some(Pane::Diagnostics) => Sheet::titled("Diagnostics", self.diagnostics_entries()),
+        };
+        if self.view.pane.is_some() {
+            sheet.crumb = Some(place.name());
+        }
+        sheet
+    }
+    /// Each place's state, under its name on the rail.
+    pub fn rail_states(&self) -> [String; 5] {
+        let targets: Vec<&Target> = self.integrations.iter().filter(|e| self.enabled(&e.manifest.id)).flat_map(|e| e.targets.iter()).collect();
+        let offline = targets.iter().filter(|t| t.reach == ipc::Reach::Offline).count();
+        let accounts = if offline > 0 {
+            format!("{offline} offline")
+        } else if self.attention().is_some() {
+            "Needs attention".into()
+        } else if targets.is_empty() {
+            "Nothing linked yet".into()
+        } else {
+            "All ready".into()
+        };
+        [
+            accounts,
+            format!("{}, {} fps", self.resolution_name(), self.prefs.fps),
+            self.prefs.button_labels.name().into(),
+            self.theme_name().into(),
+            format!("Version {}", env!("CARGO_PKG_VERSION")),
+        ]
+    }
+    fn resolution_name(&self) -> String {
+        if self.prefs.height == 2160 { "4K".into() } else { format!("{}p", self.prefs.height) }
+    }
+    fn theme_name(&self) -> &'static str {
+        lumatv_tokens::themes::game_options().iter().find(|f| f.id == self.prefs.family).map_or("Rosé Pine", |f| f.name)
+    }
+    /// The theme pane's columns.
+    pub fn theme_columns(&self) -> usize {
+        if self.prefs.text_percent > 100 { 3 } else { 4 }
+    }
+    fn picture_entries(&self) -> Vec<Entry> {
+        let p = &self.prefs;
+        let codec = match p.codec {
+            Some(Codec::H264) => "H.264",
+            Some(Codec::H265) => "HEVC",
+            Some(Codec::Av1) => "AV1",
+            _ => "Automatic",
+        };
+        let mut codec = Item::new(Act::Pref(Pref::Codec), Glyph::Setting, "Codec", Shows::Stepper(codec.into()));
+        if p.fps > 60 {
+            codec = codec.sub("AV1 is available at 60 fps");
+        }
+        let mut bitrate = Item::new(Act::Pref(Pref::Bitrate), Glyph::Gauge, "Bitrate", Shows::Stepper(format!("{} Mb/s", p.bitrate_mbps)));
+        // The stepper keeps the viewer's choice; what the TV's port lets through is said under it.
+        if let Some(note) = self.uplink.as_ref().and_then(|u| u.note(p.bitrate_mbps)) {
+            bitrate = bitrate.sub(note);
+        }
+        let preferred = self.state().profile().user.preferred_engine.as_ref().map_or("Ask each time", |id| self.engine_name(id)).to_owned();
+        vec![
+            Entry::Row(Item::new(Act::Pref(Pref::Resolution), Glyph::Picture, "Resolution", Shows::Stepper(self.resolution_name()))),
+            Entry::Row(Item::new(Act::Pref(Pref::FrameRate), Glyph::Motion, "Frame rate", Shows::Stepper(format!("{} fps", p.fps)))),
+            Entry::Row(Item::new(Act::Pref(Pref::Hdr), Glyph::Light, "HDR", Shows::Switch(p.hdr))),
+            Entry::Row(bitrate),
+            Entry::Row(codec),
+            Entry::Row(Item::new(Act::Pref(Pref::Pacing), Glyph::Clock, "Frame pacing", Shows::Stepper(if p.smooth_pacing { "Smooth" } else { "Lowest latency" }.into()))),
+            Entry::Group("Playing".into()),
+            Entry::Row(Item::new(Act::Pref(Pref::Preferred), Glyph::Games, "Preferred way to play", Shows::Stepper(preferred))),
+            Entry::Row(Item::new(Act::Pref(Pref::Stats), Glyph::Gauge, "Stats while playing", Shows::Stepper(["Off", "Compact", "Full"][p.stats.mode.index()].into()))),
+        ]
+    }
+    fn controller_entries(&self) -> Vec<Entry> {
+        vec![
+            Entry::Row(Item::new(Act::Pane(Pane::Lab), Glyph::Pad, "Controller lab", Shows::Opens).sub("Buttons, sticks, rumble and timing")),
+            Entry::Row(Item::new(Act::ControllerSettings, Glyph::Setting, "TV controller settings", Shows::Opens).sub("Pair a Bluetooth controller")),
+            Entry::Row(Item::new(Act::Pane(Pane::GameSir), Glyph::Pad, "GameSir Cyclone 2", Shows::Opens).sub("Settings stored on the controller")),
+            Entry::Row(Item::new(Act::Pane(Pane::Leadjoy), Glyph::Pad, "Leadjoy Xeno", Shows::Opens).sub("Controller settings and logo lighting")),
+            Entry::Row(
+                Item::new(Act::Pref(Pref::Labels), Glyph::Text, "Button labels", Shows::Stepper(self.prefs.button_labels.name().into()))
+                    .sub("The markings hints show on face buttons"),
+            ),
+        ]
+    }
+    fn appearance_entries(&self) -> Vec<Entry> {
+        let p = &self.prefs;
+        vec![
+            Entry::Row(Item::new(Act::Pane(Pane::Theme), Glyph::Palette, "Theme", Shows::Opens).sub(self.theme_name())),
+            Entry::Row(Item::new(Act::Pref(Pref::Light), Glyph::Light, "Light", Shows::Switch(p.light))),
+            Entry::Row(Item::new(Act::Pref(Pref::Covers), Glyph::Games, "Cover size", Shows::Stepper(["Compact", "Standard", "Large"][p.covers.index()].into()))),
+            Entry::Row(Item::new(Act::Pref(Pref::Text), Glyph::Text, "Text size", Shows::Stepper(format!("{}%", p.text_percent)))),
+            Entry::Row(Item::new(Act::Pref(Pref::Motion), Glyph::Motion, "Reduce motion", Shows::Switch(p.reduce_motion)).sub("Focus changes at once, with no lift or fades")),
+        ]
+    }
+    fn system_entries(&self) -> Vec<Entry> {
+        let credit = |name: &str, text: &str, url| Entry::Row(Item::new(Act::Credit(url), Glyph::Info, name, Shows::Opens).sub(text));
+        vec![
+            Entry::Row(Item::new(Act::Pane(Pane::Diagnostics), Glyph::Bug, "Diagnostics", Shows::Opens).sub(self.diagnostics_word())),
+            Entry::Group("About".into()),
+            Entry::Row(Item::new(Act::None, Glyph::Info, "Version", Shows::Value(env!("CARGO_PKG_VERSION").into()))),
+            credit("Steam", lumagame_meta::STEAM_CREDIT, "https://store.steampowered.com"),
+            credit("SteamGridDB", lumagame_meta::SGDB_CREDIT, "https://steamgriddb.com"),
+            credit("IGDB", lumagame_meta::IGDB_CREDIT, "https://igdb.com"),
+        ]
+    }
+    fn diagnostics_word(&self) -> &'static str {
+        use crate::game::diagnostics::Status;
+        match self.diagnostics_status {
+            Status::Off => "Off",
+            Status::NotConfigured => "Add an HTTPS server and topic",
+            Status::Waiting => "Ready",
+            Status::Sending => "Sending",
+            Status::Sent => "Last send succeeded",
+            Status::Error => "Send failed",
+        }
+    }
+    fn diagnostics_entries(&self) -> Vec<Entry> {
+        let d = &self.diagnostics;
+        // Short words: a long one would be cut off at large text sizes.
+        let note = ["Failures only", "Plus degraded streams", "Plus session and TV state", "Plus pacing and decode stats", "Plus fine timing detail"][d.level.index()];
+        let text = |v: &str| Shows::Value(if v.is_empty() { "Add".into() } else { v.into() });
+        vec![
+            Entry::Row(Item::new(Act::Diag(0), Glyph::Bug, "Remote diagnostics", Shows::Switch(d.enabled)).sub(format!("{} · Off stops sending; delivered messages remain", self.diagnostics_word()))),
+            Entry::Row(Item::new(Act::Diag(1), Glyph::Text, "Log level", Shows::Stepper(LEVELS[d.level.index()].into())).sub(note)),
+            Entry::Row(Item::new(Act::Diag(2), Glyph::Setting, "Server URL", text(&d.server))),
+            Entry::Row(Item::new(Act::Diag(3), Glyph::Setting, "Topic", text(&d.topic))),
+            Entry::Row(Item::new(Act::Diag(4), Glyph::Setting, "Write token", Shows::Value(if d.token.is_empty() { "Add" } else { "Set" }.into()))),
+            Entry::Row(Item::new(Act::Diag(5), Glyph::SignOut, "Clear write token", Shows::Nothing)),
+            Entry::Row(Item::new(Act::Diag(6), Glyph::Info, "Test diagnostics", Shows::Value("Send".into()))),
+        ]
     }
     fn settings_grid(&self, layer: Option<Layer>) -> Vec<Vec<Focus>> {
         let mut rows: Vec<Vec<Focus>> = Vec::new();
-        match (layer, self.view.page, self.view.pane) {
-            (Some(Layer::Theme), ..) => {
-                let count = lumatv_tokens::themes::game_options().len();
-                let cols = if self.prefs.text_percent > 100 { 3 } else { 4 };
-                for i in (0..count).step_by(cols) {
-                    rows.push((i..(i + cols).min(count)).map(Focus::Theme).collect());
-                }
-            }
-            (Some(Layer::Delete), ..) => rows.push(vec![Focus::SheetAction(0), Focus::SheetAction(1)]),
-            (Some(_), ..) => {}
-            (None, Page::Settings, None) => {
-                if self.view.place == Place::Appearance {
-                    rows.push((1..=if self.prefs.text_percent > 100 { 2 } else { 4 }).map(Focus::Theme).collect());
-                }
-                let count = match self.view.place {
-                    Place::Appearance => 6,
-                    Place::Streaming => 8,
-                    Place::Integrations => self.integrations.len(),
-                    Place::Controllers => 5,
-                    Place::Diagnostics => 7,
-                    Place::About => 3,
-                };
-                for i in 0..count.max(Place::ALL.len()) {
+        match (layer, self.view.pane) {
+            (Some(Layer::Delete), _) => rows.push(vec![Focus::SheetAction(0), Focus::SheetAction(1)]),
+            (Some(_), _) => {}
+            (None, None) => {
+                let entries = self.settings_sheet().rows();
+                for r in 0..entries.len().max(Place::ALL.len()) {
                     let mut row = Vec::new();
-                    if i < Place::ALL.len() {
-                        row.push(Focus::Rail(i));
+                    if r < Place::ALL.len() {
+                        row.push(Focus::Rail(r));
                     }
-                    if i < count {
-                        row.push(if self.view.place == Place::Integrations { Focus::Integration(i) } else { Focus::Setting(i) });
+                    if let Some(&i) = entries.get(r) {
+                        row.push(Focus::Setting(i));
                     }
                     rows.push(row);
                 }
             }
-            (None, Page::Settings, Some(Pane::Lab)) => {
+            (None, Some(Pane::Theme)) => {
+                let (count, cols) = (lumatv_tokens::themes::game_options().len(), self.theme_columns());
+                for i in (0..count).step_by(cols) {
+                    rows.push((i..(i + cols).min(count)).map(Focus::Theme).collect());
+                }
+            }
+            (None, Some(Pane::Lab)) => {
                 if !self.session_active() {
                     if self.prefs.text_percent > 100 { rows.extend([vec![Focus::Lab(0), Focus::Lab(1)], vec![Focus::Lab(2), Focus::Lab(3)]]); } else { rows.push((0..4).map(Focus::Lab).collect()); }
                     if self.lab.pad().is_some() {
@@ -165,56 +443,46 @@ impl Model {
                 }
                 rows.extend((0..3).map(|i| vec![Focus::Setting(i)]));
             }
-            (None, Page::Settings, Some(Pane::GameSir)) => {
+            (None, Some(Pane::GameSir)) => {
                 let count = if matches!(self.gamesir.state, GameSirState::Ready(_)) { 8 } else { 1 };
                 rows.extend((0..count).map(|i| vec![Focus::Setting(i)]));
             }
-            (None, Page::Settings, Some(Pane::Leadjoy)) => {
+            (None, Some(Pane::Leadjoy)) => {
                 rows.push(vec![Focus::Setting(0)]);
                 if let LeadjoyState::Ready(profile) = &self.leadjoy.state {
                     rows.extend(profile.schema.fields().enumerate().filter(|(_, field)| !matches!(field.kind, FieldKind::Note))
                         .map(|(i, _)| vec![Focus::Setting(i + 1)]));
                 }
             }
-            (None, ..) => {}
+            (None, Some(_)) => rows.extend(self.settings_sheet().rows().into_iter().map(|i| vec![Focus::Setting(i)])),
         }
         rows
     }
-    /// The Settings page's rail and pane link to each other explicitly: the rail's right goes to the pane's first control, and
-    /// every pane control's left returns to the place it belongs to.
+    /// The row Right from the rail reaches: the one the place last had, else its first.
+    fn settings_entry_row(&self, entries: &[usize]) -> Option<usize> {
+        let kept = self.view.settings_rows[self.view.place.index()];
+        if entries.contains(&kept) { Some(kept) } else { entries.first().copied() }
+    }
+    /// The rail and the place's rows link to each other explicitly: Up and Down on the rail step the places, Right enters the place at
+    /// the row it had, and every row's Left returns to its place.
     pub(super) fn settings_links(&mut self) {
-        let count = self.navigation.iter().filter(|n| matches!(n.id, Focus::Setting(_) | Focus::Integration(_))).count();
-        let pane = |i| if self.view.place == Place::Integrations { Focus::Integration(i) } else { Focus::Setting(i) };
-        let section = self.view.place.index();
+        let entries = self.settings_sheet().rows();
+        let into = self.settings_entry_row(&entries);
+        let place = self.view.place.index();
         for n in &mut self.navigation {
             match n.id {
                 Focus::Rail(i) => {
                     n.left = None;
-                    n.right = if self.view.place == Place::Appearance {
-                        Some(Focus::Theme(1))
-                    } else if count > 0 {
-                        Some(pane(0))
-                    } else {
-                        None
-                    };
-                    n.up = Some(if i == 0 { Focus::Nav(3) } else { Focus::Rail(i - 1) });
+                    n.right = into.map(Focus::Setting);
+                    n.up = i.checked_sub(1).map(Focus::Rail);
                     n.down = (i + 1 < Place::ALL.len()).then_some(Focus::Rail(i + 1));
                 }
-                Focus::Setting(i) | Focus::Integration(i) => {
-                    n.left = Some(Focus::Rail(section));
+                Focus::Setting(i) => {
+                    let at = entries.iter().position(|&j| j == i);
+                    n.left = Some(Focus::Rail(place));
                     n.right = None;
-                    n.up = Some(if i > 0 {
-                        pane(i - 1)
-                    } else if self.view.place == Place::Appearance {
-                        Focus::Theme(1)
-                    } else {
-                        Focus::Nav(3)
-                    });
-                    n.down = (i + 1 < count).then_some(pane(i + 1));
-                }
-                Focus::Theme(_) => {
-                    n.up = Some(Focus::Nav(3));
-                    n.down = Some(Focus::Setting(0));
+                    n.up = at.and_then(|a| a.checked_sub(1)).map(|a| Focus::Setting(entries[a]));
+                    n.down = at.and_then(|a| entries.get(a + 1)).map(|&j| Focus::Setting(j));
                 }
                 _ => {}
             }
@@ -224,53 +492,16 @@ impl Model {
         match f {
             Focus::Rail(i) => {
                 self.view.place = Place::ALL[i];
-                self.view.focus = if self.view.place == Place::Integrations { Focus::Integration(0) } else { Focus::Setting(0) };
+                if let Some(row) = self.settings_entry_row(&self.settings_sheet().rows()) {
+                    self.set_focus(Focus::Setting(row));
+                }
+            }
+            Focus::Setting(_) if matches!(self.view.pane, Some(Pane::Lab | Pane::GameSir | Pane::Leadjoy)) => {
+                self.adjust(true, out);
             }
             Focus::Setting(i) => {
-                if self.view.pane.is_some() {
-                    self.adjust(true, out);
-                } else if self.view.place == Place::Appearance && i == 0 {
-                    self.push_layer(Layer::Theme, Focus::Theme(0));
-                } else if self.view.place == Place::Controllers {
-                    if i == 0 {
-                        self.lab = Lab::default();
-                        let focus = if !self.session_active() {
-                            Focus::Lab(0)
-                        } else if self.round_trip_engine().is_some() {
-                            Focus::Lab(4)
-                        } else {
-                            Focus::Setting(0)
-                        };
-                        self.show_pane(Pane::Lab, focus);
-                    } else if i == 1 {
-                        out.push(Command::OpenControllerSettings);
-                    } else if i == 2 {
-                        self.show_pane(Pane::GameSir, Focus::Setting(0));
-                        self.read_gamesir(out);
-                    } else if i == 4 {
-                        self.prefs.button_labels = Labels::ALL[(self.prefs.button_labels.index() + 1) % Labels::ALL.len()];
-                        self.save_prefs(out);
-                    } else {
-                        self.show_pane(Pane::Leadjoy, Focus::Setting(0));
-                        self.read_leadjoy(out);
-                    }
-                } else if self.view.place == Place::Diagnostics {
-                    match i {
-                        0 => { self.diagnostics.enabled = !self.diagnostics.enabled; out.push(Command::Diagnostics(self.diagnostics.clone())); self.stats_request(out); }
-                        1 => { self.diagnostics.level = DiagnosticsLevel::ALL[(self.diagnostics.level.index() + 1) % DiagnosticsLevel::ALL.len()]; out.push(Command::Diagnostics(self.diagnostics.clone())); }
-                        2..=4 => {
-                            self.view.edit_field = Some(i);
-                            self.view.address = match i { 2 => self.diagnostics.server.clone(), 3 => self.diagnostics.topic.clone(), _ => String::new() };
-                            self.push_layer(Layer::EditText, Focus::Keyboard(0));
-                        }
-                        5 => { self.diagnostics.token.clear(); out.push(Command::Diagnostics(self.diagnostics.clone())); }
-                        6 => out.push(Command::DiagnosticTest),
-                        _ => {}
-                    }
-                } else if self.view.place == Place::About {
-                    out.push(Command::PlayMedia { url: ["https://store.steampowered.com", "https://steamgriddb.com", "https://igdb.com"][i.min(2)].into() });
-                } else {
-                    self.adjust(true, out);
+                if let Some(item) = self.settings_sheet().item(i).cloned() {
+                    self.settings_act(item.act, out);
                 }
             }
             Focus::Lab(i) => self.lab_action(i, out),
@@ -278,11 +509,8 @@ impl Model {
                 let families = lumatv_tokens::themes::game_catalog();
                 self.prefs.family = if i == 0 { "match-lumatv".into() } else { families.get(i - 1).map_or("rose-pine", |f| f.id).into() };
                 self.save_prefs(out);
-                if !self.view.layers.is_empty() {
-                    self.pop_layer();
-                }
+                self.go_back(out);
             }
-            Focus::Integration(i) => self.open_integration(i),
             Focus::SheetAction(i) if self.view.top() == Some(Layer::Delete) => {
                 if i == 1 { self.delete_leadjoy(out); }
                 self.pop_layer();
@@ -290,96 +518,233 @@ impl Model {
             _ => {}
         }
     }
+    fn settings_act(&mut self, act: Act, out: &mut Vec<Command>) {
+        match act {
+            Act::None => {}
+            Act::Pane(pane) => self.open_pane(pane, out),
+            Act::Service(engine, target) => self.open_service(engine, target, out),
+            Act::ControllerSettings => out.push(Command::OpenControllerSettings),
+            Act::Pref(pref) => {
+                self.set_pref(pref, None, out);
+            }
+            Act::Diag(row) => self.diagnostics_action(row, out),
+            Act::Link(engine, target) => self.begin_link(engine, target, out),
+            Act::AddHost(engine) => {
+                self.view.selected_engine = Some(engine);
+                self.view.address.clear();
+                self.push_layer(Layer::AddHost, Focus::Keyboard(0));
+            }
+            Act::SignOut => self.push_layer(Layer::SignOut, Focus::SheetAction(0)),
+            Act::Field(i) => self.change_engine_field(i, true, out),
+            Act::Credit(url) => out.push(Command::PlayMedia { url: url.into() }),
+        }
+    }
+    fn open_pane(&mut self, pane: Pane, out: &mut Vec<Command>) {
+        match pane {
+            Pane::Lab => {
+                self.lab = Lab::default();
+                let focus = if !self.session_active() {
+                    Focus::Lab(0)
+                } else if self.round_trip_engine().is_some() {
+                    Focus::Lab(4)
+                } else {
+                    Focus::Setting(0)
+                };
+                self.show_pane(pane, focus);
+            }
+            Pane::GameSir => {
+                self.show_pane(pane, Focus::Setting(0));
+                self.read_gamesir(out);
+            }
+            Pane::Leadjoy => {
+                self.show_pane(pane, Focus::Setting(0));
+                self.read_leadjoy(out);
+            }
+            Pane::Theme => {
+                let i = lumatv_tokens::themes::game_options().iter().position(|o| o.id == self.prefs.family).unwrap_or(0);
+                self.show_pane(pane, Focus::Theme(i));
+            }
+            Pane::Service | Pane::Add | Pane::Diagnostics => self.show_pane(pane, Focus::Setting(0)),
+        }
+    }
+    fn diagnostics_action(&mut self, row: usize, out: &mut Vec<Command>) {
+        match row {
+            0 => {
+                self.diagnostics.enabled = !self.diagnostics.enabled;
+                out.push(Command::Diagnostics(self.diagnostics.clone()));
+                self.stats_request(out);
+            }
+            1 => {
+                self.diagnostics.level = DiagnosticsLevel::ALL[(self.diagnostics.level.index() + 1) % DiagnosticsLevel::ALL.len()];
+                out.push(Command::Diagnostics(self.diagnostics.clone()));
+            }
+            2..=4 => {
+                self.view.edit_field = Some(row);
+                self.view.address = match row { 2 => self.diagnostics.server.clone(), 3 => self.diagnostics.topic.clone(), _ => String::new() };
+                self.push_layer(Layer::EditText, Focus::Keyboard(0));
+            }
+            5 => {
+                self.diagnostics.token.clear();
+                out.push(Command::Diagnostics(self.diagnostics.clone()));
+            }
+            6 => out.push(Command::DiagnosticTest),
+            _ => {}
+        }
+    }
+    /// Left and Right on a row: a value steps, and true says it changed. Left on a pane's row that holds no value returns to the row
+    /// that opened the pane.
     fn settings_adjust(&mut self, f: Focus, right: bool, out: &mut Vec<Command>) -> bool {
         let Focus::Setting(row) = f else {
             return false;
         };
-        if self.view.pane == Some(Pane::GameSir) {
-            return self.adjust_gamesir(row, right, out);
-        }
-        if self.view.pane == Some(Pane::Leadjoy) { return self.adjust_leadjoy(row, right, out); }
-        let step = |index: usize, len: usize| if right { (index + 1).min(len - 1) } else { index.saturating_sub(1) };
-        if self.view.pane == Some(Pane::Lab) {
-            let nudge = |v: u8, max: u8| if right { (v + 1).min(max) } else { v.saturating_sub(1) };
-            let curves = [Curve::Linear, Curve::Precise, Curve::Quick];
-            match row {
-                0 => self.prefs.deadzone = nudge(self.prefs.deadzone, DEADZONE_MAX),
-                1 => self.prefs.anti_deadzone = nudge(self.prefs.anti_deadzone, ANTI_DEADZONE_MAX),
-                2 => self.prefs.stick_curve = curves[step(curves.iter().position(|c| *c == self.prefs.stick_curve).unwrap_or(0), curves.len())],
-                _ => return false,
+        match self.view.pane {
+            Some(Pane::GameSir) => return self.adjust_gamesir(row, right, out),
+            Some(Pane::Leadjoy) => return self.adjust_leadjoy(row, right, out),
+            Some(Pane::Lab) => {
+                let nudge = |v: u8, max: u8| if right { (v + 1).min(max) } else { v.saturating_sub(1) };
+                let curves = [Curve::Linear, Curve::Precise, Curve::Quick];
+                match row {
+                    0 => self.prefs.deadzone = nudge(self.prefs.deadzone, DEADZONE_MAX),
+                    1 => self.prefs.anti_deadzone = nudge(self.prefs.anti_deadzone, ANTI_DEADZONE_MAX),
+                    2 => {
+                        let at = curves.iter().position(|c| *c == self.prefs.stick_curve).unwrap_or(0);
+                        self.prefs.stick_curve = curves[if right { (at + 1).min(curves.len() - 1) } else { at.saturating_sub(1) }];
+                    }
+                    _ => return false,
+                }
+                self.save_prefs(out);
+                self.push_common(out);
+                return true;
             }
-            self.save_prefs(out);
-            self.push_common(out);
+            _ => {}
+        }
+        let Some(item) = self.settings_sheet().item(row).cloned() else {
+            return false;
+        };
+        if matches!(item.shows, Shows::Switch(_) | Shows::Stepper(_)) {
+            return match item.act {
+                Act::Pref(pref) => self.set_pref(pref, Some(right), out),
+                Act::Diag(row) => self.diagnostics_step(row, right, out),
+                Act::Field(i) => {
+                    self.change_engine_field(i, right, out);
+                    true
+                }
+                _ => false,
+            };
+        }
+        if self.view.pane.is_some() && !right {
+            self.go_back(out);
             return true;
         }
-        match self.view.place {
-            Place::Appearance => match row {
-                0 => return false,
-                1 => self.prefs.light = !self.prefs.light,
-                2 => self.prefs.hero = Density::ALL[step(self.prefs.hero.index(), 3)],
-                3 => self.prefs.covers = Density::ALL[step(self.prefs.covers.index(), 3)],
-                4 => self.prefs.text_percent = [100, 150, 200][step(usize::from((self.prefs.text_percent - 100) / 50), 3)],
-                5 => self.prefs.reduce_motion = !self.prefs.reduce_motion,
-                _ => return false,
-            },
-            Place::Streaming => match row {
-                0 => {
-                    let heights = [720, 1080, 1440, 2160];
-                    let i = step(heights.iter().position(|h| *h == self.prefs.height).unwrap_or(3), 4);
-                    self.prefs.height = heights[i];
-                    self.prefs.width = [1280, 1920, 2560, 3840][i];
-                }
-                1 => {
-                    self.prefs.fps = if right { 120 } else { 60 };
-                    if self.prefs.fps > 60 && self.prefs.codec == Some(Codec::Av1) {
-                        self.prefs.codec = None;
-                    }
-                }
-                2 => self.prefs.hdr = !self.prefs.hdr,
-                3 => {
-                    let (min, max, step) = (uplink::BITRATE_MIN_MBPS, uplink::BITRATE_MAX_MBPS, uplink::BITRATE_STEP_MBPS);
-                    self.prefs.bitrate_mbps = if right { (self.prefs.bitrate_mbps + step).min(max) } else { self.prefs.bitrate_mbps.saturating_sub(step).max(min) };
-                }
-                4 => {
-                    let mut codecs = vec![None, Some(Codec::H265)];
-                    if self.prefs.fps <= 60 {
-                        codecs.push(Some(Codec::Av1));
-                    }
-                    codecs.push(Some(Codec::H264));
-                    self.prefs.codec = codecs[step(codecs.iter().position(|c| *c == self.prefs.codec).unwrap_or(0), codecs.len())];
-                }
-                5 => self.prefs.smooth_pacing = step(usize::from(!self.prefs.smooth_pacing), 2) == 0,
-                6 => {
-                    let mut ids = vec![None];
-                    ids.extend(self.integrations.iter().filter(|e| self.enabled(&e.manifest.id)).map(|e| Some(e.manifest.id.clone())));
-                    let at = ids.iter().position(|id| *id == self.state.profile().user.preferred_engine).unwrap_or(0);
-                    self.state.profile_mut().user.preferred_engine = ids[step(at, ids.len())].clone();
-                }
-                7 => {
-                    self.set_stats(StatsMode::ALL[step(self.prefs.stats.mode.index(), 3)], out);
-                    return true;
-                }
-                _ => return false,
-            },
-            Place::Controllers => match row {
-                4 => self.prefs.button_labels = Labels::ALL[step(self.prefs.button_labels.index(), Labels::ALL.len())],
-                _ => return false,
-            },
-            Place::Diagnostics => match row {
-                1 => {
-                    self.diagnostics.level = DiagnosticsLevel::ALL[step(self.diagnostics.level.index(), DiagnosticsLevel::ALL.len())];
-                    out.push(Command::Diagnostics(self.diagnostics.clone()));
-                    return true;
-                }
-                _ => return false,
-            },
+        false
+    }
+    fn diagnostics_step(&mut self, row: usize, right: bool, out: &mut Vec<Command>) -> bool {
+        let before = (self.diagnostics.enabled, self.diagnostics.level);
+        match row {
+            0 => self.diagnostics.enabled = right,
+            1 => {
+                let i = self.diagnostics.level.index();
+                self.diagnostics.level = DiagnosticsLevel::ALL[if right { (i + 1).min(DiagnosticsLevel::ALL.len() - 1) } else { i.saturating_sub(1) }];
+            }
             _ => return false,
         }
+        if before == (self.diagnostics.enabled, self.diagnostics.level) {
+            return false;
+        }
+        out.push(Command::Diagnostics(self.diagnostics.clone()));
+        self.stats_request(out);
+        true
+    }
+    /// Steps a preference: `dir` Some(right) stops at either end, None (OK) goes round. True when it changed.
+    fn set_pref(&mut self, pref: Pref, dir: Option<bool>, out: &mut Vec<Command>) -> bool {
+        let step = |i: usize, len: usize| match dir {
+            None => (i + 1) % len,
+            Some(true) => (i + 1).min(len - 1),
+            Some(false) => i.saturating_sub(1),
+        };
+        let flip = |v: bool| dir.unwrap_or(!v);
+        let before = (self.prefs.json(), self.state().profile().user.preferred_engine.clone());
+        let p = &mut self.prefs;
+        match pref {
+            Pref::Resolution => {
+                let heights = [720, 1080, 1440, 2160];
+                let i = step(heights.iter().position(|h| *h == p.height).unwrap_or(3), 4);
+                p.height = heights[i];
+                p.width = [1280, 1920, 2560, 3840][i];
+            }
+            Pref::FrameRate => {
+                p.fps = [60, 120][step(usize::from(p.fps > 60), 2)];
+                if p.fps > 60 && p.codec == Some(Codec::Av1) {
+                    p.codec = None;
+                }
+            }
+            Pref::Hdr => p.hdr = flip(p.hdr),
+            Pref::Bitrate => {
+                let (min, max, by) = (uplink::BITRATE_MIN_MBPS, uplink::BITRATE_MAX_MBPS, uplink::BITRATE_STEP_MBPS);
+                p.bitrate_mbps = match dir {
+                    Some(false) => p.bitrate_mbps.saturating_sub(by).max(min),
+                    None if p.bitrate_mbps >= max => min,
+                    _ => (p.bitrate_mbps + by).min(max),
+                };
+            }
+            Pref::Codec => {
+                let mut codecs = vec![None, Some(Codec::H265)];
+                if p.fps <= 60 {
+                    codecs.push(Some(Codec::Av1));
+                }
+                codecs.push(Some(Codec::H264));
+                p.codec = codecs[step(codecs.iter().position(|c| *c == p.codec).unwrap_or(0), codecs.len())];
+            }
+            Pref::Pacing => p.smooth_pacing = step(usize::from(!p.smooth_pacing), 2) == 0,
+            Pref::Preferred => {
+                let mut ids = vec![None];
+                ids.extend(self.integrations.iter().filter(|e| self.enabled(&e.manifest.id)).map(|e| Some(e.manifest.id.clone())));
+                let at = ids.iter().position(|id| *id == self.state.profile().user.preferred_engine).unwrap_or(0);
+                self.state.profile_mut().user.preferred_engine = ids[step(at, ids.len())].clone();
+            }
+            Pref::Stats => {
+                let (was, mode) = (p.stats.mode, StatsMode::ALL[step(p.stats.mode.index(), 3)]);
+                self.set_stats(mode, out);
+                return mode != was;
+            }
+            Pref::Light => p.light = flip(p.light),
+            Pref::Covers => p.covers = Density::ALL[step(p.covers.index(), 3)],
+            Pref::Text => p.text_percent = [100, 150, 200][step(usize::from((p.text_percent - 100) / 50), 3)],
+            Pref::Motion => p.reduce_motion = flip(p.reduce_motion),
+            Pref::Labels => p.button_labels = Labels::ALL[step(p.button_labels.index(), Labels::ALL.len())],
+            Pref::GamePages => p.game_pages = flip(p.game_pages),
+            Pref::MaturePages => p.mature_pages = flip(p.mature_pages),
+        }
+        if (self.prefs.json(), self.state().profile().user.preferred_engine.clone()) == before {
+            return false;
+        }
         self.save_prefs(out);
-        if self.view.place == Place::Streaming {
+        if matches!(pref, Pref::Resolution | Pref::FrameRate | Pref::Hdr | Pref::Bitrate | Pref::Codec | Pref::Pacing | Pref::Preferred) {
             self.push_common(out);
         }
         true
+    }
+    fn settings_hints(&self) -> Hints {
+        if self.view.top() == Some(Layer::Delete) {
+            return Hints(vec![(Key::Ok, "Choose"), (Key::Back, "Keep")]);
+        }
+        let ok = match self.view.focus {
+            Focus::Rail(_) => Some("Open"),
+            Focus::Theme(_) => Some("Choose"),
+            Focus::Lab(_) => Some("Start"),
+            Focus::Setting(_) if matches!(self.view.pane, Some(Pane::Lab | Pane::GameSir | Pane::Leadjoy)) => Some("Change"),
+            Focus::Setting(i) => self.settings_sheet().item(i).and_then(|item| match (&item.shows, &item.act) {
+                (_, Act::None) => None,
+                (Shows::Switch(on), _) => Some(if *on { "Turn off" } else { "Turn on" }),
+                (Shows::Stepper(_), _) => Some("Change"),
+                (_, Act::SignOut) => Some(if self.view.selected_target.is_some() { "Remove" } else { "Sign out" }),
+                _ => Some("Open"),
+            }),
+            _ => None,
+        };
+        let mut hints: Vec<(Key, &'static str)> = ok.map(|word| (Key::Ok, word)).into_iter().collect();
+        hints.push((Key::Back, "Back"));
+        Hints(hints)
     }
     /// The diagnostics place's text fields: the server, the topic and the token.
     pub(super) fn save_diagnostics_text(&mut self, out: &mut Vec<Command>) {
@@ -638,7 +1003,7 @@ mod tests {
     fn stream_settings_limit_av1_and_bitrate_without_changing_other_fields() {
         let mut m = Model::new(State::default(), Listing::default(), vec![]);
         m.view.page = Page::Settings;
-        m.view.place = Place::Streaming;
+        m.view.place = Place::Picture;
         m.prefs.codec = Some(Codec::Av1);
         m.view.focus = Focus::Setting(1);
         key(&mut m, Key::Right);
@@ -653,7 +1018,7 @@ mod tests {
     fn frame_pacing_reaches_the_engines_and_survives_a_restart() {
         let mut m = Model::new(State::default(), Listing::default(), vec![]);
         m.view.page = Page::Settings;
-        m.view.place = Place::Streaming;
+        m.view.place = Place::Picture;
         m.view.focus = Focus::Setting(5);
         assert!(m.prefs.smooth_pacing);
         key(&mut m, Key::Right);
@@ -665,7 +1030,7 @@ mod tests {
     fn the_log_level_row_steps_between_levels_and_the_shell_hears_each_choice() {
         let mut m = Model::new(State::default(), Listing::default(), vec![]);
         m.view.page = Page::Settings;
-        m.view.place = Place::Diagnostics;
+        (m.view.place, m.view.pane) = (Place::System, Some(Pane::Diagnostics));
         m.view.focus = Focus::Setting(1);
         let heard = |m: &mut Model, key: Key| {
             let mut commands = m.step(Input::Key { key, down: true });
@@ -675,18 +1040,27 @@ mod tests {
         assert_eq!(m.diagnostics.level, DiagnosticsLevel::Info);
         assert_eq!(heard(&mut m, Key::Right), Some(DiagnosticsLevel::Debug));
         assert_eq!(heard(&mut m, Key::Right), Some(DiagnosticsLevel::Trace));
-        assert_eq!(heard(&mut m, Key::Right), Some(DiagnosticsLevel::Trace), "no step past the last");
+        assert_eq!(heard(&mut m, Key::Right), None, "no step past the last");
         assert_eq!(heard(&mut m, Key::Ok), Some(DiagnosticsLevel::Error), "OK goes round");
     }
     #[test]
-    fn integrations_of_one_kind_sit_under_one_heading() {
-        let m = Model::new(
-            State::default(),
-            Listing::default(),
-            vec![manifest("gamestream", "Sunshine", EngineKind::Host), manifest("gfn", "GeForce NOW", EngineKind::Cloud), manifest("punktfunk", "Punktfunk", EngineKind::Host)],
-        );
-        let order: Vec<_> = m.integrations.iter().map(|e| e.manifest.id.as_str()).collect();
-        assert_eq!(order, ["gfn", "gamestream", "punktfunk"]);
+    fn steam_page_switches_are_saved_and_mature_pages_start_off() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("steam", "Steam", EngineKind::Account)]);
+        describe(&mut m, "steam", vec![lumagame_core::engine::AuthMethod::Qr], &[]);
+        engine_says(&mut m, "steam", ipc::Event::Targets { targets: vec![linked("main")] });
+        m.open_settings(Place::Accounts);
+        m.open_service(EngineId::new("steam").unwrap(), None, &mut Vec::new());
+        let sheet = m.settings_sheet();
+        let row = |pref| sheet.rows().into_iter().find(|&i| sheet.item(i).unwrap().act == Act::Pref(pref)).unwrap();
+        assert!(m.prefs.game_pages && !m.prefs.mature_pages);
+        m.view.focus = Focus::Setting(row(Pref::GamePages));
+        m.rebuild_navigation();
+        key(&mut m, Key::Ok);
+        m.view.focus = Focus::Setting(row(Pref::MaturePages));
+        key(&mut m, Key::Right);
+        let saved = Preferences::read(&m.prefs.json());
+        assert!(!saved.game_pages && saved.mature_pages);
+        assert!(key(&mut m, Key::Right).is_empty(), "a switch already on stays on");
     }
     mod lab_tests {
         use super::*;
@@ -734,7 +1108,7 @@ mod tests {
             assert_eq!(m.pad_mode(), PadMode::Captured);
             m.step(Input::Key { key: Key::Back, down: false });
             assert_eq!(m.pad_mode(), PadMode::Lab);
-            m.view.push(Layer::Theme, m.view.focus);
+            m.view.push(Layer::Delete, m.view.focus);
             assert_eq!(m.pad_mode(), PadMode::Menu);
             m.view.clear_layers();
             m.step(Input::Foreground(false));
@@ -1036,19 +1410,25 @@ mod tests {
 mod settings_navigation_tests {
     use super::*;
     #[test]
-    fn rails_reach_their_own_pane_and_long_panes_keep_their_column() {
+    fn the_rail_steps_places_and_each_place_returns_to_its_row() {
         let mut m = Model::new(State::default(), Listing::default(), Vec::new());
-        m.view.page = Page::Settings;
-        m.view.place = Place::Controllers;
-        m.view.focus = Focus::Rail(3);
+        m.open_settings(Place::Picture);
         m.rebuild_navigation();
-        m.step(Input::Key { key: Key::Right, down: true });
+        let press = |m: &mut Model, key: Key| {
+            m.step(Input::Key { key, down: true });
+            m.step(Input::Key { key, down: false });
+        };
+        press(&mut m, Key::Right);
         assert_eq!(m.view.focus, Focus::Setting(0));
-        assert_eq!(m.view.place, Place::Controllers);
-        m.view.place = Place::Appearance;
-        m.view.focus = Focus::Setting(5);
-        m.rebuild_navigation();
-        m.step(Input::Key { key: Key::Up, down: true });
-        assert_eq!(m.view.focus, Focus::Setting(4));
+        press(&mut m, Key::Down);
+        press(&mut m, Key::Down);
+        assert_eq!(m.view.focus, Focus::Setting(2));
+        press(&mut m, Key::Back);
+        assert_eq!(m.view.focus, Focus::Rail(1));
+        press(&mut m, Key::Down);
+        assert_eq!((m.view.focus, m.view.place), (Focus::Rail(2), Place::Controllers));
+        press(&mut m, Key::Up);
+        press(&mut m, Key::Right);
+        assert_eq!((m.view.place, m.view.focus), (Place::Picture, Focus::Setting(2)));
     }
 }

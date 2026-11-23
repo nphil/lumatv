@@ -3,7 +3,7 @@
 
 use super::{
     paint::{Fill, H, LIVE, Paint, W},
-    parts::{row::{Control, row}, topbar::{self, Here}},
+    parts::row::{Control, row},
 };
 use crate::game::model::{Focus, settings::{Capture, LabPad, Trip}};
 use compositor_protocol::Rect;
@@ -40,30 +40,27 @@ const BAR_H: f32 = 12.0;
 const HISTOGRAM_H: f32 = 112.0;
 const CURVES: [Curve; 3] = [Curve::Linear, Curve::Precise, Curve::Quick];
 
-pub fn lab(p: &mut Paint<'_>) {
-    let m = p.model;
-    if m.lab.capture == Some(Capture::Flash) {
-        flash(p);
-        return;
+/// A capture that takes the whole screen, when one runs: the flash test or the button test.
+pub fn capture(p: &mut Paint<'_>) -> bool {
+    match p.model.lab.capture {
+        Some(Capture::Flash) => flash(p),
+        Some(Capture::Buttons) => button_test(p),
+        None => return false,
     }
-    if m.lab.capture == Some(Capture::Buttons) {
-        button_test(p);
-        return;
-    }
-    let attention = topbar::needs_attention(p);
-    topbar::bar(p, Here::Elsewhere, attention);
-    let (x, w) = (p.x, W - p.x * 2.0);
-    let mut y = 170.0;
-    p.text(100, "Controller lab", Frame::new(x + 26.0, y, w - 52.0, p.line(Type::Title)), Type::Title, Role::Ink, false, 10);
-    y += p.line(Type::Title) + 24.0;
-    let session = m.session_active();
-    y = if session {
-        stream(p, x, w, y)
+    true
+}
+
+/// The lab inside the Settings pane's content frame `c`.
+pub fn lab(p: &mut Paint<'_>, c: Frame) {
+    let (x, w) = (c.x, c.w);
+    let session = p.model.session_active();
+    let y = if session {
+        stream(p, x, w, c.y)
     } else {
-        let top = actions(p, x, w, y);
+        let top = actions(p, x, w, c.y);
         pad(p, x, w, top)
     };
-    y = sticks(p, x, w, y + 40.0);
+    let y = sticks(p, x, w, y + 40.0);
     if !session {
         p.wrapped(
             995,
@@ -312,7 +309,8 @@ fn timing(p: &mut Paint<'_>, pad: &LabPad, x: f32, mut y: f32, w: f32) -> f32 {
     words.push(p.word("reports/s · intervals in ms", Type::Body, p.ink(Role::Ink2, false), width + 12.0, p.line(Type::Title) - p.line(Type::Body), w - width - 12.0));
     p.words(2002, Frame::new(x, y, w, th), words, vec![], 11);
     y += th + 16.0;
-    let cols = 3;
+    // Inside the Settings pane at 200% text a third column is narrower than its longest label.
+    let cols = if p.width("99th percentile", Type::Caption) > w / 3.0 - 16.0 { 2 } else { 3 };
     let cw = w / cols as f32;
     let (body, caption) = (p.line(Type::Body), p.line(Type::Caption));
     let cells = [
@@ -567,7 +565,7 @@ mod tests {
                 for focus in [Focus::Lab(5), Focus::Lab(6), Focus::Lab(7), Focus::Setting(0), Focus::Setting(1), Focus::Setting(2)] {
                     m.view.focus = focus;
                     let mut p = Paint::new(&tokens, &m, &mut fonts);
-                    lab(&mut p);
+                    super::super::settings::settings(&mut p);
                     p.fit_focus();
                     let (_, frame) = p.plan.hits.iter().find(|(id, _)| *id == focus).unwrap();
                     assert!(frame.y >= 150.0 && frame.y + frame.h <= H - p.y + 1.0, "unreachable {percent}% {focus:?}: {frame:?}");
@@ -577,7 +575,7 @@ mod tests {
                     m.lab.capture = Some(capture);
                     m.view.focus = Focus::Lab(0);
                     let mut p = Paint::new(&tokens, &m, &mut fonts);
-                    lab(&mut p);
+                    super::super::settings::settings(&mut p);
                     super::super::paint::assert_readable(&p.plan, p.fonts, true);
                 }
                 m.lab.capture = None;
@@ -591,12 +589,13 @@ mod tests {
                     for focus in rows {
                         m.view.focus = focus;
                         let mut p = Paint::new(&tokens, &m, &mut fonts);
-                        if state.is_none() { super::super::settings::gamesir(&mut p); } else { super::super::settings::leadjoy(&mut p); }
+                        super::super::settings::settings(&mut p);
                         p.fit_focus();
                         let (_, frame) = p.plan.hits.iter().find(|(id, _)| *id == focus).unwrap();
                         assert!(frame.y >= 150.0 && frame.y + frame.h <= H - p.y + 1.0, "unreachable {percent}% {focus:?}: {frame:?}");
-                        let end = p.plan.nodes.iter().map(|n| n.frame.y + n.frame.h).fold(0.0, f32::max);
-                        assert!(focus != last || end <= H - p.y + 1.0, "closing note cut off at {percent}%: {end}");
+                        let group = p.plan.groups.iter().find(|g| g.id == super::super::paint::PAGE_GROUP).unwrap();
+                        let end = p.plan.nodes.iter().filter(|n| group.nodes.contains(&n.id)).map(|n| n.frame.y + n.frame.h).fold(0.0, f32::max);
+                        assert!(focus != last || end <= group.clip.y + group.clip.h + 1.0, "closing note cut off at {percent}%: {end}");
                         super::super::paint::assert_readable(&p.plan, p.fonts, false);
                     }
                 }

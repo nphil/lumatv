@@ -145,7 +145,7 @@ fn all_stats_controls_share_one_setting_and_off_stops_frame_capture() {
     assert_eq!(m.prefs.stats.mode,Mode::Full);
     m.view.focus=Focus::Overlay(2);activate(&mut m);
     assert_eq!(m.prefs.stats.mode,Mode::Off);
-    m.view.clear_layers();m.view.page=Page::Settings;m.view.place=Place::Streaming;m.view.focus=Focus::Setting(7);
+    m.view.clear_layers();m.view.page=Page::Settings;m.view.place=Place::Picture;m.view.focus=Focus::Setting(8);
     m.step(Input::Key {key:Key::Right,down:true});m.step(Input::Key {key:Key::Right,down:false});
     assert_eq!(m.prefs.stats.mode,Mode::Compact);
     let changed=m.prefs.stats.changed;

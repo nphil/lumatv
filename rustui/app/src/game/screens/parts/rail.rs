@@ -1,10 +1,9 @@
-//! The Settings rail: [`rail`] is the older page's list of sections; [`shell`] is the rework's two sheets, a rail of places beside a
-//! pane.
+//! The Settings shell: two sheets, a rail of places beside a pane.
 //!
 //! Node ids of the shell: 100 the title with its back chevron, 101 the rail's sheet, 102 the pane's, 103 and 104 the crumb, 105 the
 //! pane's heading, 106 and 107 the state chip, and from 110 each place's 13 ids (see [`row`](super::row): the place's wash is its
 //! `id + 12`), six places at most, so that all stay under 200. The shell registers `Focus::Rail(i)` for each place.
-use crate::game::model::{Focus, nav::Hints, settings::Place as Section};
+use crate::game::model::{Focus, nav::Hints};
 use crate::game::screens::{
     paint::{Fill, H, Paint, W},
     parts::{
@@ -65,10 +64,12 @@ pub fn shell(p: &mut Paint<'_>, spec: &RailSpec<'_>) -> Frame {
     p.surface(101, rail, Fill::Sheet, Radius::Sheet, false, false, false, Z);
     p.surface(102, pane, Fill::Sheet, Radius::Sheet, false, false, false, Z);
 
-    let pitch = p.tokens.row + 4.0;
+    // A place's state line sits under its name, so at 200% text the pair outgrows the row token.
+    let height = p.tokens.row.max(p.line(Type::Body) + 2.0 + p.line(Type::Caption) + 24.0);
+    let pitch = height + 4.0;
     for (i, place) in spec.places.iter().take(PLACES).enumerate() {
         let id = 110 + i as u64 * PLACE_STRIDE;
-        let frame = Frame::new(rail.x + PAD, rail.y + PAD + i as f32 * pitch, rail.w - 2.0 * PAD, p.tokens.row);
+        let frame = Frame::new(rail.x + PAD, rail.y + PAD + i as f32 * pitch, rail.w - 2.0 * PAD, height);
         let focused = p.focused(Focus::Rail(i));
         let from = p.plan.nodes.len();
         if i == spec.current {
@@ -123,48 +124,6 @@ fn head(p: &mut Paint<'_>, spec: &RailSpec<'_>, pane: Frame) -> Frame {
 
     let top = y + head_h + 18.0;
     Frame::new(pane.x + PAD, top, pane.w - 2.0 * PAD, (pane.y + pane.h - PAD - top).max(0.0))
-}
-
-pub fn rail(p: &mut Paint<'_>) -> f32 {
-    let icons = [Icon::Palette, Icon::Cards, Icon::Puzzle, Icon::Apps, Icon::Info, Icon::Info];
-    let side = 36.0 * p.scale;
-    let mut w = 420.0f32;
-    for section in Section::ALL {
-        w = w.max(p.width(section.name(), Type::Body) + side + 80.0);
-    }
-    w = w.min(640.0);
-    p.text(100, "Settings", Frame::new(p.x + 28.0, 170.0, w - 56.0, p.line(Type::Title)), Type::Title, Role::Ink, false, 10);
-    let top = 170.0 + p.line(Type::Title) + 24.0;
-    let h = 80.0f32.max(p.line(Type::Body) + 24.0);
-    for (i, section) in Section::ALL.into_iter().enumerate() {
-        let f = Frame::new(p.x, top + i as f32 * (h + 4.0), w, h);
-        let from = p.plan.nodes.len();
-        if p.model.view.place == section || p.focused(Focus::Rail(i)) {
-            p.surface(110 + i as u64 * 3, f, Fill::Tint(if p.focused(Focus::Rail(i)) { 0.16 } else { 0.09 }), Radius::Row, false, false, false, 10);
-        }
-        let marks = if i == 3 { Vec::new() } else { vec![p.mark(icons[i], side, 28.0, (h - side) / 2.0, Role::Ink2, false)] };
-        p.words(
-            111 + i as u64 * 3,
-            f,
-            vec![p.word(section.name(), Type::Body, p.ink(Role::Ink, false), side + 52.0, (h - p.line(Type::Body)) / 2.0, w - side - 72.0)],
-            marks,
-            11,
-        );
-        if i == 3 {
-            p.symbol(
-                112 + i as u64 * 3,
-                crate::game::screens::symbols::Symbol::Controller,
-                Frame::new(f.x + 28.0, f.y + (h - side) / 2.0, side, side),
-                p.ink(Role::Ink2, false),
-                11,
-            );
-        }
-        if p.focused(Focus::Rail(i)) {
-            p.zoom(from, f, p.tokens.focus.card_scale);
-        }
-        p.hit(Focus::Rail(i), f);
-    }
-    p.x + w + 48.0
 }
 
 #[cfg(test)]

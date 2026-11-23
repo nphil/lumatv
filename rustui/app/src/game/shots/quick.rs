@@ -100,7 +100,7 @@ fn each_menu_row_does_what_it_says() {
 
     m.view.focus = Focus::SheetRow(1);
     press(&mut m, Key::Ok);
-    assert_eq!((m.view.page, m.view.place, m.view.top()), (Page::Settings, Place::Integrations, None));
+    assert_eq!((m.view.page, m.view.place, m.view.top()), (Page::Settings, Place::Accounts, None));
     press(&mut m, Key::Back);
     press(&mut m, Key::Back);
     assert_eq!((m.view.page, m.view.focus), (Page::Home, Focus::Hero(0)), "the way back is the page's own focus");

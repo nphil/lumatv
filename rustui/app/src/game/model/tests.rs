@@ -64,7 +64,9 @@ pub(crate) fn with_steam(mut m: Model, shot: SteamShot) -> Model {
     let at = m.integrations.iter().rposition(|e| e.manifest.kind == EngineKind::Host).map_or(0, |i| i + 1);
     let integration = Integration { manifest: manifest("steam", "Steam", EngineKind::Account), descriptor: None, schema: SettingsSchema::default(), targets: Vec::new(), error: None };
     m.integrations.insert(at, integration);
-    m.view.page = Page::Accounts;
+    m.view.page = Page::Settings;
+    m.view.place = settings::Place::Accounts;
+    m.view.pane = Some(settings::Pane::Service);
     m.view.selected_engine = Some(EngineId::new("steam").unwrap());
     m.view.focus = Focus::Setting(0);
     describe(&mut m, "steam", vec![lumagame_core::engine::AuthMethod::Qr], &[]);
@@ -105,8 +107,7 @@ pub(crate) fn with_steam(mut m: Model, shot: SteamShot) -> Model {
             target.name = "Nitin".into();
             engine_says(&mut m, "steam", ipc::Event::Targets { targets: vec![target] });
             engine_says(&mut m, "steam", ipc::Event::Library { target: TargetId::new(account).unwrap(), entries: records, next: None });
-            m.view.page = Page::Accounts;
-            m.view.focus = Focus::Setting(1);
+            m.view.focus = Focus::Setting(0);
         }
     }
     m

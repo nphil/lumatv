@@ -262,7 +262,7 @@ impl Model {
                         self.view.hub_tab = 0;
                         self.view.focus = Focus::HubAction(0);
                     } else {
-                        self.open_settings(Place::Integrations);
+                        self.open_settings(Place::Accounts);
                     }
                 }
             }
@@ -351,7 +351,7 @@ impl Model {
         match self.resolution(game) {
             Resolution::Launch { key, .. } => self.start(game, key, false, out),
             Resolution::Choose { .. } => self.open_chooser(),
-            Resolution::Nothing => self.open_settings(Place::Integrations),
+            Resolution::Nothing => self.open_settings(Place::Accounts),
         }
     }
 }

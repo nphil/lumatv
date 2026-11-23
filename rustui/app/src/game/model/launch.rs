@@ -94,7 +94,7 @@ impl Model {
                 let action = self.overlay_actions().nth(i);
                 match action {
                     Some(OverlayAction::Resume) => self.resume(out),
-                    Some(OverlayAction::Settings) => self.open_settings(Place::Streaming),
+                    Some(OverlayAction::Settings) => self.open_settings(Place::Picture),
                     Some(OverlayAction::Stats) => self.set_stats(self.prefs.stats.mode.next(), out),
                     Some(OverlayAction::SteamOverlay) => self.open_steam_overlay(out),
                     Some(OverlayAction::EndSession) => self.push_layer(Layer::EndSession, Focus::SheetAction(0)),

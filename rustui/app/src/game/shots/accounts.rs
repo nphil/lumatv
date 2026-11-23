@@ -1,4 +1,4 @@
-//! Integration pages, linking, first run and text-entry shots.
+//! Accounts and PCs, linking, the empty Home and text-entry shots.
 use super::*;
 
 pub(super) fn linking(base: &Model, add: &mut impl FnMut(&str, Model)) {
@@ -10,33 +10,35 @@ pub(super) fn linking(base: &Model, add: &mut impl FnMut(&str, Model)) {
     ] {
         let mut m = base.clone();
         m.view.page = Page::Settings;
-        m.view.place = Place::Integrations;
+        m.view.place = Place::Accounts;
         event(&mut m, engine, ipc::Event::Auth { state });
         add(name, m);
     }
 }
 pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
     let mut m = base.clone();
-    m.view.page = Page::Accounts;
-    m.view.selected_engine = Some(EngineId::new("gamestream").unwrap());
     if let Some(e) = m.integrations.iter_mut().find(|e| e.manifest.id.as_str() == "gamestream") {
         e.targets[0].reach = ipc::Reach::Offline;
     }
+    m.open_settings(Place::Accounts);
     m.view.focus = Focus::Setting(0);
-    add("21-state-offline-pc", m);
+    add("settings-a-accounts-offline-pc", m);
     let mut m = Model::new(State::default(), Listing::default(), base.integrations.iter().map(|e| e.manifest.clone()).collect());
-    m.view.focus = Focus::FirstRun(0);
-    add("22-state-first-run", m);
+    m.view.focus = Focus::Hero(0);
+    add("home-a-empty", m.clone());
+    m.open_settings(Place::Accounts);
+    m.view.focus = Focus::Setting(0);
+    add("settings-a-first-run", m);
 }
 pub(super) fn editing(base: &Model, add: &mut impl FnMut(&str, Model)) {
     let mut m = base.clone();
-    m.view.page = Page::Accounts;
+    (m.view.page, m.view.place, m.view.pane) = (Page::Settings, Place::Accounts, Some(Pane::Service));
     m.view.selected_engine = Some(EngineId::new("gamestream").unwrap());
     m.view.push(Layer::AddHost, m.view.focus);
     m.view.focus = Focus::Keyboard(0);
     add("41-add-pc", m);
     let mut m = base.clone();
-    m.view.page = Page::Accounts;
+    (m.view.page, m.view.place, m.view.pane) = (Page::Settings, Place::Accounts, Some(Pane::Service));
     m.view.selected_engine = Some(EngineId::new("native").unwrap());
     m.view.push(Layer::EditText, m.view.focus);
     m.view.focus = Focus::Keyboard(0);
@@ -92,9 +94,9 @@ fn native_text_fields_activate_on_release_and_validate_before_saving() {
             fields: vec![Field { key: "path".into(), label: "Game folder".into(), help: None, kind: FieldKind::Text { max_chars: 3, default: String::new() } }],
         }],
     };
-    m.view.page = Page::Accounts;
+    (m.view.page, m.view.place, m.view.pane) = (Page::Settings, Place::Accounts, Some(Pane::Service));
     m.view.selected_engine = Some(native);
-    m.view.focus = Focus::EngineField(0);
+    m.view.focus = Focus::Setting(1);
     m.rebuild_navigation();
     m.step(Input::Key { key: Key::Right, down: true });
     assert_eq!(m.view.top(), None);
@@ -110,5 +112,5 @@ fn native_text_fields_activate_on_release_and_validate_before_saving() {
     m.view.address = "abc".into();
     activate(&mut m);
     assert_eq!(m.view.top(), None);
-    assert_eq!(m.view.focus, Focus::EngineField(0));
+    assert_eq!(m.view.focus, Focus::Setting(1));
 }

@@ -2,23 +2,24 @@
 use super::*;
 
 pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
-    for (name, section, light, scale) in [
-        ("10-integrations", Place::Integrations, false, 100),
-        ("13-settings-appearance", Place::Appearance, false, 100),
-        ("13-settings-appearance-light", Place::Appearance, true, 100),
-        ("14-settings-streaming", Place::Streaming, false, 100),
-        ("14-settings-streaming-limited", Place::Streaming, false, 100),
-        ("14-settings-streaming-wifi", Place::Streaming, false, 100),
-        ("25-settings-controllers", Place::Controllers, false, 100),
-        ("26-settings-about", Place::About, false, 100),
-        ("52-diagnostics-dark", Place::Diagnostics, false, 100),
-        ("53-diagnostics-light", Place::Diagnostics, true, 100),
-        ("33-settings-text200", Place::Streaming, false, 200),
-        ("33-settings-text200-limited", Place::Streaming, false, 200),
+    for (name, place, pane, focus, light, scale) in [
+        ("settings-a-rail", Place::Accounts, None, Focus::Rail(0), false, 100),
+        ("settings-a-rail-light", Place::Accounts, None, Focus::Rail(0), true, 100),
+        ("settings-a-rail-text200", Place::Accounts, None, Focus::Rail(0), false, 200),
+        ("settings-a-picture", Place::Picture, None, Focus::Setting(3), false, 100),
+        ("settings-a-picture-limited", Place::Picture, None, Focus::Setting(3), false, 100),
+        ("settings-a-picture-wifi", Place::Picture, None, Focus::Setting(3), false, 100),
+        ("settings-a-picture-text200-limited", Place::Picture, None, Focus::Setting(3), false, 200),
+        ("settings-a-controllers", Place::Controllers, None, Focus::Setting(0), false, 100),
+        ("settings-a-appearance", Place::Appearance, None, Focus::Setting(1), false, 100),
+        ("settings-a-theme", Place::Appearance, Some(Pane::Theme), Focus::Theme(3), false, 100),
+        ("settings-a-system", Place::System, None, Focus::Setting(0), false, 100),
+        ("settings-a-diagnostics", Place::System, Some(Pane::Diagnostics), Focus::Setting(1), false, 100),
+        ("settings-a-diagnostics-light", Place::System, Some(Pane::Diagnostics), Focus::Setting(1), true, 100),
     ] {
         let mut m = base.clone();
         m.view.page = Page::Settings;
-        m.view.place = section;
+        (m.view.place, m.view.pane, m.view.focus) = (place, pane, focus);
         m.prefs.light = light;
         m.prefs.text_percent = scale;
         m.prefs.fps = 120;
@@ -32,42 +33,40 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
             m.uplink = Some(Uplink { interface: "wlan0".into(), medium: Medium::Wifi, mbit: None });
         }
         m.diagnostics.level = crate::game::diagnostics::Level::Debug;
-        m.view.focus = if section == Place::Appearance {
-            Focus::Theme(3)
-        } else if section == Place::Integrations {
-            Focus::Integration(1)
-        } else if section == Place::Controllers {
-            Focus::Setting(0)
-        } else if section == Place::Diagnostics {
-            Focus::Setting(1)
-        } else {
-            Focus::Setting(3)
-        };
         add(name, m);
     }
     let mut secret = base.clone();
     secret.view.page = Page::Settings;
-    secret.view.place = Place::Diagnostics;
+    (secret.view.place, secret.view.pane) = (Place::System, Some(Pane::Diagnostics));
     secret.view.push(Layer::EditText, secret.view.focus);
     secret.view.edit_field = Some(4);
     secret.view.address = "fixture-token".into();
     secret.view.focus = Focus::Keyboard(0);
-    add("54-diagnostics-token-masked", secret);
+    add("settings-a-diagnostics-token", secret);
     let mut long_diagnostics = base.clone();
     long_diagnostics.view.page = Page::Settings;
-    long_diagnostics.view.place = Place::Diagnostics;
+    (long_diagnostics.view.place, long_diagnostics.view.pane) = (Place::System, Some(Pane::Diagnostics));
     long_diagnostics.prefs.text_percent = 200;
     long_diagnostics.diagnostics.level = crate::game::diagnostics::Level::Trace;
     long_diagnostics.diagnostics.server = "https://long-server-name.example.invalid/a/long/path/for/remote/diagnostics".into();
     long_diagnostics.diagnostics.topic = "long_diagnostics_topic_name_for_a_large_text_settings_screen_123".into();
     long_diagnostics.view.focus = Focus::Setting(6);
     long_diagnostics.rebuild_navigation();
-    add("55-diagnostics-long-text200-test-focused", long_diagnostics);
-    let mut m = base.clone();
-    m.view.page = Page::Settings;
-    m.view.push(Layer::Theme, m.view.focus);
-    m.view.focus = Focus::Theme(3);
-    add("27-theme-picker", m);
+    add("settings-a-diagnostics-text200", long_diagnostics);
+}
+/// The rail stepping through all five places, then into Appearance's theme pane and back out.
+pub(super) fn walks() -> Vec<super::budget::Walk> {
+    use super::budget::{Step, Walk, taps};
+    let mut base = fixture();
+    base.open_settings(Place::Accounts);
+    base.rebuild_navigation();
+    let mut script = taps(&[(Key::Down, 150), (Key::Down, 150), (Key::Down, 150), (Key::Down, 150)]);
+    script.push(Step::Expect("the rail on System", |model, _| model.view.place == Place::System));
+    script.extend(taps(&[(Key::Up, 150), (Key::Right, 150), (Key::Ok, 300)]));
+    script.push(Step::Expect("the theme pane open", |model, _| model.view.pane == Some(Pane::Theme)));
+    script.extend(taps(&[(Key::Right, 150), (Key::Back, 300), (Key::Back, 300)]));
+    script.push(Step::Expect("focus back on the rail", |model, _| model.view.focus == Focus::Rail(3)));
+    vec![Walk { name: "settings-rail-walk".into(), base, script }]
 }
 pub(super) fn families(base: &Model, add: &mut impl FnMut(&str, Model)) {
     for (name, family, light, page) in [
@@ -120,7 +119,7 @@ pub(super) fn controllers(base: &Model, add: &mut impl FnMut(&str, Model)) {
     ] {
         let mut m = base.clone();
         m.prefs.reduce_motion = true;
-        (m.view.page, m.view.pane) = (Page::Settings, Some(crate::game::model::settings::Pane::GameSir));
+        (m.view.page, m.view.place, m.view.pane) = (Page::Settings, Place::Controllers, Some(Pane::GameSir));
         m.view.focus = Focus::Setting(0);
         m.step(Input::GameSir(Ok(state)));
         add(name, m.clone());
@@ -140,7 +139,7 @@ pub(super) fn controllers(base: &Model, add: &mut impl FnMut(&str, Model)) {
         ("47-leadjoy-unsupported", LeadjoyState::Unsupported { device: "Other".into(), firmware: "1".into() }), ("47-leadjoy-ready", leadjoy_fixture("general"))] {
         let mut m = base.clone();
         m.prefs.reduce_motion = true;
-        (m.view.page, m.view.pane) = (Page::Settings, Some(crate::game::model::settings::Pane::Leadjoy));
+        (m.view.page, m.view.place, m.view.pane) = (Page::Settings, Place::Controllers, Some(Pane::Leadjoy));
         m.view.focus = Focus::Setting(0);
         m.step(Input::Leadjoy(Ok(state)));
         add(name, m.clone());

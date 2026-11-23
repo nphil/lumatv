@@ -351,10 +351,8 @@ pub enum Page {
     Library,
     // game
     Game,
-    // settings: the controller pages are `View::pane`
+    // settings: the places' own pages (an account, a PC, the controller lab) are `View::pane`
     Settings,
-    // accounts
-    Accounts,
     // launch: the in-stream menu is a layer over `Running`
     Launch,
     Running,
@@ -369,12 +367,12 @@ pub enum Layer {
     // library
     Sort,
     Genre,
-    // settings
-    Theme,
     /// Confirms a controller setting that removes something, such as a macro.
     Delete,
     // accounts
     Auth,
+    /// Asks before an account signs out or a PC is removed.
+    SignOut,
     // launch
     /// The in-stream menu, over the stream.
     StreamMenu,
@@ -404,7 +402,6 @@ pub enum Focus {
     // home
     Hero(usize),
     Home(usize, usize),
-    FirstRun(usize),
     // library
     Filter(usize),
     Grid(usize),
@@ -420,16 +417,12 @@ pub enum Focus {
     Item(usize),
     Media(usize),
     Remember,
-    // settings (`Setting` is also a row of an integration's page)
+    // settings: `Setting` is a row of the open place or pane, counted over its groups and notes too
     Rail(usize),
     Setting(usize),
     Theme(usize),
     /// The controller lab's actions: test buttons, rumble left, rumble right, flash test, measure the stream.
     Lab(usize),
-    // accounts
-    Integration(usize),
-    Target(usize),
-    EngineField(usize),
     // any layer's rows and buttons
     SheetRow(usize),
     SheetAction(usize),
@@ -447,9 +440,9 @@ pub struct Integration {
     pub error: Option<(ipc::ErrorCode, String)>,
 }
 impl Integration {
-    /// An account integration with an account linked has a "Sign out" row on its page.
+    /// An integration with an account or a PC linked can let it go: the engine forgets it ("Sign out", "Remove this PC").
     pub fn can_sign_out(&self) -> bool {
-        self.manifest.kind == EngineKind::Account && !self.targets.is_empty()
+        self.manifest.kind != EngineKind::Native && !self.targets.is_empty()
     }
 }
 #[derive(Clone, Debug)]
@@ -478,6 +471,10 @@ pub struct View {
     pub chooser_selected: Option<SourceKey>,
     pub remember: bool,
     pub selected_engine: Option<EngineId>,
+    /// The PC of `selected_engine` whose page is open.
+    pub selected_target: Option<TargetId>,
+    /// The row each Settings place last had focus on.
+    pub settings_rows: [usize; 5],
     pub notice: Option<String>,
     pub auth: Option<LinkFlow>,
     pub stream: Option<StreamInfo>,
@@ -510,6 +507,8 @@ impl Default for View {
             chooser_selected: None,
             remember: false,
             selected_engine: None,
+            selected_target: None,
+            settings_rows: [0; 5],
             notice: None,
             auth: None,
             stream: None,
@@ -1118,7 +1117,7 @@ impl Model {
         match (self.view.page, self.view.search) {
             (Page::Library, false) => 1,
             (Page::Library, true) => 2,
-            (Page::Settings | Page::Accounts, _) => 3,
+            (Page::Settings, _) => 3,
             _ => 0,
         }
     }
@@ -1157,6 +1156,7 @@ impl Model {
             Focus::Hero(_) => self.view.home_row = 0,
             Focus::Grid(i) => self.view.first_grid_row = i / self.prefs.covers.columns(),
             Focus::Rail(i) => self.view.place = settings::Place::ALL[i],
+            Focus::Setting(i) if self.view.page == Page::Settings && self.view.pane.is_none() => self.view.settings_rows[self.view.place.index()] = i,
             Focus::HubAction(_) => self.view.hub_tab = 0,
             _ => {}
         }
@@ -1246,9 +1246,9 @@ impl Model {
                 | Layer::Viewer
                 | Layer::Sort
                 | Layer::Genre
-                | Layer::Theme
                 | Layer::Delete
                 | Layer::Auth
+                | Layer::SignOut
                 | Layer::StreamMenu
                 | Layer::EndSession
                 | Layer::AddHost
@@ -1352,18 +1352,7 @@ impl Model {
                 return true;
             }
         }
-        let editable = match self.view.focus {
-            Focus::EngineField(i) => self
-                .view
-                .selected_engine
-                .as_ref()
-                .and_then(|id| self.integration(id))
-                .and_then(|e| e.schema.fields().nth(i))
-                .is_some_and(|f| matches!(f.kind, FieldKind::Toggle { .. } | FieldKind::Choice { .. } | FieldKind::Number { .. })),
-            Focus::Setting(i) => self.view.page != Page::Accounts || i == 0,
-            _ => true,
-        };
-        if editable && matches!(key, Key::Left | Key::Right) && self.adjust(key == Key::Right, out) {
+        if matches!(key, Key::Left | Key::Right) && self.adjust(key == Key::Right, out) {
             return true;
         }
         let Some(n) = self.navigation.iter().find(|n| n.id == self.view.focus) else {
@@ -1490,7 +1479,7 @@ impl Model {
     /// Closes the top layer the way that layer needs: a sign-in under way is called off, the stream resumes.
     fn close_layer(&mut self, layer: Layer, out: &mut Vec<Command>) {
         match layer {
-            Layer::EditText if self.view.page == Page::Settings && self.view.place == settings::Place::Diagnostics => self.view.address.clear(),
+            Layer::EditText if self.in_diagnostics() => self.view.address.clear(),
             Layer::Auth => {
                 if let Some(a) = self.view.auth.take() {
                     Self::send(out, &a.engine, Request::AuthCancel);
@@ -1524,21 +1513,14 @@ impl Model {
                     Self::send(out, &id, Request::Settings { values: saved.settings.clone() });
                 }
                 let auth = descriptor.capabilities.auth.first().copied();
-                if self.view.page == Page::Accounts && self.view.selected_engine.as_ref() == Some(&id) {
-                    if let Focus::EngineField(index) = self.view.focus {
-                        let new_index = self.integration(&id).and_then(|e| e.schema.fields().nth(index))
-                            .and_then(|old| schema.fields().position(|field| field.key == old.key && field.kind != FieldKind::Note));
-                        let focus = new_index.map_or(Focus::Nav(3), Focus::EngineField);
-                        if focus != self.view.focus {
-                            self.view.focus = focus;
-                            self.pressed = None;
-                        }
-                    }
-                }
+                let field = self.focused_field(&id);
                 if let Some(e) = self.integrations.iter_mut().find(|e| e.manifest.id == id) {
                     e.descriptor = Some(descriptor);
                     e.schema = schema;
                     e.error = None;
+                }
+                if let Some(key) = field {
+                    self.refocus_field(&key, out);
                 }
                 Self::send(out, &id, Request::Targets);
                 if let (Some(a), Some(method)) = (self.view.auth.as_ref().filter(|a| a.engine == id && a.state.is_none()), auth) {
@@ -1767,7 +1749,7 @@ impl Model {
         if let Some(layer) = self.view.top() {
             rows = Owner::of_layer(layer).rows(self, Some(layer));
         } else {
-            if self.view.pane.is_none() && matches!(self.view.page, Page::Home | Page::Library | Page::Settings | Page::Accounts) {
+            if self.view.pane.is_none() && matches!(self.view.page, Page::Home | Page::Library) {
                 rows.push((0..4).map(Focus::Nav).collect());
             }
             rows.extend(Owner::of_page(self.view.page).rows(self, None));

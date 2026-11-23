@@ -5,12 +5,20 @@ use lumagame_core::catalog::ArtKind;
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{components::Icon, geometry::Frame, lucent::palette::{Mode, PaletteRole as Role}};
 use crate::game::screens::parts::{stage::*, topbar::{self, Here, refresh_note}};
-use super::accounts::first_run;
+
+/// Home with no games yet: one line and the way to Accounts and PCs.
+fn empty(p: &mut Paint<'_>) {
+    let attention = topbar::needs_attention(p);
+    topbar::bar(p, Here::Home, attention);
+    let y = H / 2.0 - 80.0;
+    let h = p.wrapped(200, "Games appear here after a service or a PC is linked.", Frame::new(p.x, y, W - p.x * 2.0, 0.0), Type::Title, Role::Ink, false, 10);
+    p.button(210, Focus::Hero(0), "Add accounts and PCs", Some(Icon::Plus), p.x, y + h + 32.0, true, false, 12);
+}
 
 pub fn home(p: &mut Paint<'_>) {
     let m = p.model;
     if m.games().is_empty() {
-        first_run(p);
+        empty(p);
         return;
     }
     let Some(game) = m.view.featured.and_then(|id| m.game(id)) else {

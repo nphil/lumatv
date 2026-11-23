@@ -6,7 +6,6 @@ use ui::ImageLayer;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Symbol {
     Library,
-    Controller,
     Heart,
     More,
     /// The marking printed on one face button of a pad that is not Xbox-styled, in a 24-unit box the size of the button. `ring` adds the
@@ -113,22 +112,6 @@ fn shapes(symbol: Symbol) -> (Vec<Shape>, f32) {
             Line(20.0, 19.0, 23.0, 18.0),
             Line(23.0, 18.0, 19.0, 2.0),
             Line(19.0, 2.0, 16.0, 3.0),
-        ],
-        Symbol::Controller => &[
-            Line(6.0, 6.0, 18.0, 6.0),
-            Line(18.0, 6.0, 20.0, 8.0),
-            Line(20.0, 8.0, 22.0, 17.0),
-            Line(22.0, 17.0, 20.0, 20.0),
-            Line(20.0, 20.0, 15.0, 16.0),
-            Line(15.0, 16.0, 9.0, 16.0),
-            Line(9.0, 16.0, 4.0, 20.0),
-            Line(4.0, 20.0, 2.0, 17.0),
-            Line(2.0, 17.0, 4.0, 8.0),
-            Line(4.0, 8.0, 6.0, 6.0),
-            Line(5.0, 11.0, 10.0, 11.0),
-            Line(7.5, 8.5, 7.5, 13.5),
-            Dot(16.0, 10.0, 0.8),
-            Dot(19.0, 13.0, 0.8),
         ],
         Symbol::Heart => &[
             Line(12.0, 21.0, 3.0, 12.0),

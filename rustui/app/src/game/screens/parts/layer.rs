@@ -7,14 +7,14 @@ use crate::game::model::{Layer, library::Sort};
 use crate::game::screens::parts::{SHEET_Z, dialog::*, keyboard::*, motion::Enter};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{geometry::Frame, lucent::palette::PaletteRole as Role};
-use crate::game::screens::{accounts::auth, quick::quick, game::chooser, launch::end_session, library::list, settings::{delete, themes}};
+use crate::game::screens::{accounts::{auth, sign_out}, quick::quick, game::chooser, launch::end_session, library::list, settings::delete};
 
 pub fn sheet(p: &mut Paint<'_>) {
     let Some(sheet) = p.model.view.top().filter(|layer| layer.is_sheet()) else {
         return;
     };
-    // The quick menu's drawer keeps the page in view beside it.
-    if !matches!(sheet, Layer::Quick | Layer::QuickSettings) {
+    // The quick menu's drawer keeps the page in view beside it, and a dialog brings its own backdrop.
+    if !matches!(sheet, Layer::Quick | Layer::QuickSettings | Layer::Auth | Layer::SignOut | Layer::Delete) {
         curtain(p);
     }
     match sheet {
@@ -25,7 +25,7 @@ pub fn sheet(p: &mut Paint<'_>) {
             names.extend(p.model.genres());
             list(p, "Genre", names);
         }
-        Layer::Theme => themes(p),
+        Layer::SignOut => sign_out(p),
         Layer::Auth => auth(p),
         Layer::EndSession => end_session(p),
         Layer::AddHost | Layer::EditText => edit_text(p),

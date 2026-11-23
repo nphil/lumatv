@@ -1,153 +1,35 @@
-//! An integration's page, the first-run list of integrations, and linking: sign-in, QR and PIN.
-use crate::game::screens::paint::{Body, Fill, Node, Paint, W};
+//! Linking (sign-in, QR and PIN) and the question asked before signing out or removing a PC. The Accounts and PCs place itself is a
+//! Settings list.
+use crate::game::screens::paint::{Body, Fill, H, Node, Paint, W};
 use crate::game::model::{Focus, Key};
-use lumagame_core::{engine::{EngineKind, Feature}, ipc::{AuthState, Link, Reach}, settings::{FieldKind, Value}};
+use lumagame_core::ipc::AuthState;
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{components::{Align, Icon}, geometry::Frame, lucent::palette::PaletteRole as Role};
-use crate::game::screens::parts::{dialog::*, keyboard::*, row::*, topbar::{self, Here}};
+use crate::game::screens::parts::{Side, dialog::*, hints, keyboard::*};
 
-pub fn first_run(p: &mut Paint<'_>) {
-    let attention = topbar::needs_attention(p);
-    topbar::bar(p, Here::Elsewhere, attention);
-    let title = "Add a way to play";
-    let y = if p.scale > 1.0 { 220.0 } else { 300.0 };
-    let title_h = p.wrapped(100, title, Frame::new(p.x, y, W - p.x * 2.0, 0.0), Type::Display, Role::Ink, false, 10);
-    let sub = "Connect a service or a PC. Games appear here after a library is linked.";
-    let sub_h = p.wrapped(101, sub, Frame::new(p.x, y + title_h + 12.0, W - p.x * 2.0, 0.0), Type::Body, Role::Ink2, false, 10);
-    let top = y + title_h + sub_h + 68.0;
-    let cols = if p.scale > 1.0 { 2 } else { 4 };
-    let w = (W - p.x * 2.0 - p.gap * (cols - 1) as f32) / cols as f32;
-    let focus = if let Focus::FirstRun(i) = p.model.view.focus { i } else { 0 };
-    let start = focus / cols * cols;
-    for (i, e) in p.model.integrations.iter().enumerate().skip(start).take(cols) {
-        let f = Frame::new(p.x + (i - start) as f32 * (w + p.gap), top, w, 320.0);
-        let from = p.plan.nodes.len();
-        p.surface(200 + i as u64 * 10, f, Fill::Glass, Radius::Card, false, p.focused(Focus::FirstRun(i)), false, 10);
-        let icon = match e.manifest.kind {
-            EngineKind::Cloud => Icon::CloudOutline,
-            EngineKind::Host => Icon::Tiles,
-            EngineKind::Account => Icon::Person,
-            _ => Icon::Package,
-        };
-        p.words(201 + i as u64 * 10, f, vec![], vec![p.mark(icon, 64.0, 28.0, 28.0, Role::Ink, false)], 11);
-        let used = p.wrapped(202 + i as u64 * 10, &e.manifest.name, Frame::new(f.x + 28.0, f.y + 116.0, w - 56.0, 0.0), Type::Body, Role::Ink, false, 11);
-        p.text(
-            203 + i as u64 * 10,
-            if e.manifest.kind == EngineKind::Host {
-                "Pair a PC"
-            } else if e.manifest.kind == EngineKind::Native {
-                "Choose apps"
-            } else {
-                "Sign in"
-            },
-            Frame::new(f.x + 28.0, f.y + 132.0 + used, w - 56.0, p.line(Type::Caption)),
-            Type::Caption,
-            Role::Ink2,
-            false,
-            11,
-        );
-        if p.focused(Focus::FirstRun(i)) {
-            p.zoom(from, f, p.tokens.focus.card_scale);
-        }
-        p.hit(Focus::FirstRun(i), f);
-    }
-    if p.model.integrations.is_empty() {
-        p.text(200, "No integrations are installed", Frame::new(p.x, top, 1400.0, p.line(Type::Body)), Type::Body, Role::Ink2, false, 10);
-    }
-}
-pub fn integration(p: &mut Paint<'_>) {
-    let attention = topbar::needs_attention(p);
-    topbar::bar(p, Here::Elsewhere, attention);
+/// Asks before the open integration signs out or the open PC is removed; Cancel is where focus starts.
+pub fn sign_out(p: &mut Paint<'_>) {
     let m = p.model;
     let Some(e) = m.view.selected_engine.as_ref().and_then(|id| m.integration(id)) else {
         return;
     };
-    let x = p.x;
-    let w = W - p.x * 2.0;
-    let mut y = 170.0;
-    let enabled = m.enabled(&e.manifest.id);
-    p.text(100, &e.manifest.name, Frame::new(x + 26.0, y, w - 52.0, p.line(Type::Title)), Type::Title, Role::Ink, false, 10);
-    y += p.line(Type::Title) + 24.0;
-    y += row(p, 200, Focus::Setting(0), "Enable integration", Some("Runs only while enabled"), Control::Toggle(enabled), Frame::new(x, y, w, 0.0));
-    if !enabled {
-        return;
-    }
-    if let Some((_, error)) = &e.error {
-        y += p.wrapped(225, error, Frame::new(x + 26.0, y + 16.0, w - 52.0, 0.0), Type::Body, Role::Warning, false, 10) + 32.0;
-    }
-    if let Some(d) = &e.descriptor {
-        if !d.capabilities.auth.is_empty() {
-            y += row(
-                p,
-                230,
-                Focus::Setting(1),
-                if e.manifest.kind == EngineKind::Host { "Pair a PC" } else if e.can_sign_out() { "Switch account" } else { "Sign in" },
-                None,
-                Control::Value("Connect"),
-                Frame::new(x, y, w, 0.0),
-            );
-        }
-        if d.capabilities.has(Feature::ManualHost) {
-            y += row(p, 260, Focus::Setting(2), "Add PC by address", None, Control::Value("Add"), Frame::new(x, y, w, 0.0));
-        }
-    }
-    for (i, target) in e.targets.iter().enumerate() {
-        let state = match (target.link, target.reach) {
-            (Link::Expired, _) => "Sign in again",
-            (Link::Linked, Reach::Online) => "Connected",
-            (_, Reach::Asleep) => "Asleep",
-            (_, Reach::Offline) => "Offline",
-            _ => "Not linked",
-        };
-        y += row(p, 10_000 + i as u64 * 100, Focus::Target(i), &target.name, None, Control::Value(state), Frame::new(x, y, w, 0.0));
-    }
-    if m.can_refresh(e) {
-        let note = match m.refresh_line() {
-            Some(crate::game::model::RefreshLine::Working { text, seconds }) => format!("{text}…{}", seconds.map_or(String::new(), |s| format!("  {s} s"))),
-            Some(crate::game::model::RefreshLine::Done { text, .. }) => text,
-            None => "Checks the account for games added or removed".to_owned(),
-        };
-        y += row(p, 9_500, Focus::Setting(4), "Refresh libraries", Some(&note), Control::Value(if m.refreshing() { "Working" } else { "Refresh" }), Frame::new(x, y, w, 0.0));
-    }
-    if e.can_sign_out() {
-        y += row(p, 9_000, Focus::Setting(3), "Sign out", Some("Removes the saved sign-in from this TV"), Control::Value("Sign out"), Frame::new(x, y, w, 0.0));
-    }
-    for (i, field) in e.schema.fields().enumerate() {
-        let saved = m.state().engines.get(&e.manifest.id).and_then(|e| e.settings.get(&field.key)).cloned().or_else(|| field.kind.default());
-        let label = &field.label;
-        let description = field.help.as_deref();
-        let value = match &saved {
-            Some(Value::Text(v)) => v.clone(),
-            Some(Value::Int(v)) => v.to_string(),
-            Some(Value::Bool(v)) => v.to_string(),
-            None => String::new(),
-        };
-        let choices;
-        let control = match &field.kind {
-            FieldKind::Toggle { .. } => Control::Toggle(saved == Some(Value::Bool(true))),
-            FieldKind::Choice { options, .. } => {
-                choices = options.iter().map(|c| c.label.as_str()).collect::<Vec<_>>();
-                Control::Segments(&choices, options.iter().position(|o| o.id == value).unwrap_or(0))
-            }
-            FieldKind::Action => Control::Value("Open"),
-            FieldKind::Note => Control::None,
-            _ => Control::Value(&value),
-        };
-        y += row(
-            p,
-            100_000 + i as u64 * 100,
-            if field.kind == FieldKind::Note { Focus::None } else { Focus::EngineField(i) },
-            label,
-            description,
-            control,
-            Frame::new(x, y, w, 0.0),
-        );
-    }
+    let pc = m.view.selected_target.as_ref().and_then(|t| e.targets.iter().find(|x| x.id == *t));
+    let (title, body, act) = match pc {
+        Some(pc) => (format!("Remove {}?", pc.name), "Its games leave the library until the PC is paired again.".to_owned(), "Remove"),
+        None => (format!("Sign out of {}?", e.manifest.name), "The sign-in is removed from this TV, with what it added to games.".to_owned(), "Sign out"),
+    };
+    let actions = [
+        Action { label: "Cancel", icon: Some(Icon::Back), focus: Focus::SheetAction(0) },
+        Action { label: act, icon: Some(Icon::Power), focus: Focus::SheetAction(1) },
+    ];
+    modal(p, &title, &body, &actions, 0);
+    hints::bar(p, &m.hints(), Side::Right, m.hints_dim);
 }
 pub fn auth(p: &mut Paint<'_>) {
     let Some(flow) = &p.model.view.auth else {
         return;
     };
+    veil(p, 8000, Frame::new(0.0, 0.0, W, H), true);
     let name = p.model.engine_name(&flow.engine);
     match &flow.state {
         Some(AuthState::DeviceCode { url, code, qr, .. }) => {

@@ -160,7 +160,6 @@ impl Owner {
             Page::Library => Self::Library,
             Page::Game => Self::Game,
             Page::Settings => Self::Settings,
-            Page::Accounts => Self::Accounts,
             Page::Launch | Page::Running => Self::Launch,
         }
     }
@@ -169,8 +168,8 @@ impl Owner {
             Layer::Chooser => Self::Game,
             Layer::Viewer => Self::Media,
             Layer::Sort | Layer::Genre => Self::Library,
-            Layer::Theme | Layer::Delete => Self::Settings,
-            Layer::Auth => Self::Accounts,
+            Layer::Delete => Self::Settings,
+            Layer::Auth | Layer::SignOut => Self::Accounts,
             Layer::StreamMenu | Layer::EndSession => Self::Launch,
             Layer::AddHost | Layer::EditText => Self::Text,
             Layer::Quick | Layer::QuickSettings => Self::Quick,
@@ -268,7 +267,7 @@ mod tests {
     #[test]
     fn the_menu_key_is_allowed_on_pages_and_never_over_a_layer_or_a_stream() {
         let mut m = home();
-        for page in [Page::Home, Page::Library, Page::Game, Page::Settings, Page::Accounts] {
+        for page in [Page::Home, Page::Library, Page::Game, Page::Settings] {
             m.view.page = page;
             assert!(m.menu_allowed(), "{page:?}");
         }
@@ -278,7 +277,7 @@ mod tests {
         }
         m.view.page = Page::Home;
         use Layer::*;
-        for layer in [Chooser, Viewer, Sort, Genre, Theme, Delete, Auth, StreamMenu, EndSession, AddHost, EditText, Quick, QuickSettings] {
+        for layer in [Chooser, Viewer, Sort, Genre, Delete, Auth, SignOut, StreamMenu, EndSession, AddHost, EditText, Quick, QuickSettings] {
             m.view.push(layer, Focus::None);
             assert!(!m.menu_allowed(), "{layer:?}");
             m.view.pop();

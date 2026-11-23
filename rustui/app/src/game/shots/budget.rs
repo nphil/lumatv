@@ -227,6 +227,7 @@ fn registry() -> Vec<Walk> {
     let mut walks = art_walks();
     walks.extend(screen_walks());
     walks.extend(super::quick::walks());
+    walks.extend(super::settings::walks());
     walks
 }
 

@@ -1,14 +1,13 @@
 //! The on-screen keyboard and the text entry it drives: search, the PIN, a host's address and the text fields of Settings and
 //! the integrations.
 use super::nav::Slice;
-use super::settings::Place;
 use super::*;
 
 pub struct Rules;
 impl Slice for Rules {
     fn rows(m: &Model, layer: Option<Layer>) -> Vec<Vec<Focus>> {
         let mut rows: Vec<Vec<Focus>> = Vec::new();
-        let count = if layer == Some(Layer::EditText) && m.view.page == Page::Settings && m.view.place == Place::Diagnostics { 45 } else { 44 };
+        let count = if layer == Some(Layer::EditText) && m.in_diagnostics() { 45 } else { 44 };
         for i in (0..count).step_by(10) {
             rows.push((i..(i + 10).min(count)).map(Focus::Keyboard).collect());
         }
@@ -40,7 +39,7 @@ impl Model {
     fn save_text(&mut self, out: &mut Vec<Command>) {
         if self.view.pane == Some(settings::Pane::Leadjoy) {
             self.save_leadjoy_text(out);
-        } else if self.view.page == Page::Settings && self.view.place == Place::Diagnostics {
+        } else if self.in_diagnostics() {
             self.save_diagnostics_text(out);
         } else {
             self.save_engine_text(out);
@@ -48,7 +47,7 @@ impl Model {
     }
     pub(super) fn keyboard(&mut self, i: usize, out: &mut Vec<Command>) {
         let numeric = self.view.top() == Some(Layer::Auth);
-        let diagnostic = self.view.page == Page::Settings && self.view.place == Place::Diagnostics && self.view.top() == Some(Layer::EditText);
+        let diagnostic = self.in_diagnostics() && self.view.top() == Some(Layer::EditText);
         let chars = if numeric {
             "1234567890"
         } else {

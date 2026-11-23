@@ -197,8 +197,8 @@ impl<'a> Paint<'a> {
         let focus = if view.top().is_some_and(Layer::is_sheet) { None } else { self.plan.hits.iter().find(|(id, _)| *id == view.focus).map(|(_, f)| *f) };
         let scrollable = |id: u64| match (view.page, view.pane) {
             (Page::Game, _) if view.top() == Some(Layer::Viewer) => false,
-            (Page::Settings, None) => id >= 200,
-            (Page::Home | Page::Game | Page::Accounts | Page::Settings, _) => id >= 100,
+            (Page::Home | Page::Game, _) => id >= 100,
+            (Page::Settings, _) => false,
             (Page::Library, _) => id >= 1000,
             _ => false,
         };

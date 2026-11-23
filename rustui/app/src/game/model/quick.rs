@@ -213,7 +213,7 @@ impl Model {
                     // The page opens after the menu closes, so the way back returns to the page's own focus.
                     Item::Accounts => {
                         self.close_quick();
-                        self.open_settings(Place::Integrations);
+                        self.open_settings(Place::Accounts);
                     }
                     Item::Settings => self.push_layer(Layer::QuickSettings, Focus::SheetRow(0)),
                     Item::GamePage => {

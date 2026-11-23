@@ -84,6 +84,10 @@ fn plural(count: usize, one: &str, many: &str) -> String {
 }
 
 impl Model {
+    /// When `engine`'s library last finished loading, by the app's clock.
+    pub fn fetched_at(&self, engine: &EngineId) -> Option<u64> {
+        self.refresher.fetched.get(engine).copied()
+    }
     /// The progress or the result to show, if any.
     pub fn refresh_line(&self) -> Option<Line> {
         if let Some(run) = &self.refresher.run {

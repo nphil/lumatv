@@ -43,7 +43,7 @@ impl Slice for Rules {
 impl Model {
     fn home_grid(&self) -> Vec<Vec<Focus>> {
         if self.games.is_empty() {
-            return vec![(0..self.integrations.len()).map(Focus::FirstRun).collect()];
+            return vec![vec![Focus::Hero(0)]];
         }
         let mut rows: Vec<Vec<Focus>> = Vec::new();
         if self.prefs.text_percent > 100 { rows.extend([vec![Focus::Hero(0)], vec![Focus::Hero(1)], vec![Focus::Hero(2)]]); } else { rows.push(vec![Focus::Hero(0), Focus::Hero(1), Focus::Hero(2)]); }
@@ -54,6 +54,7 @@ impl Model {
     }
     fn home_activate(&mut self, f: Focus, out: &mut Vec<Command>) {
         match f {
+            Focus::Hero(0) if self.games.is_empty() => self.open_settings(settings::Place::Accounts),
             Focus::Hero(0) => {
                 if let Some(id) = self.view.featured {
                     self.view.selected = Some(id);
@@ -80,7 +81,6 @@ impl Model {
                 }
                 _ => {}
             },
-            Focus::FirstRun(i) => self.open_integration(i),
             _ => {}
         }
     }
