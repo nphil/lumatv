@@ -1,6 +1,6 @@
 //! The task manager's chrome (`docs/research/task-manager.md`): what is drawn over the apps' pictures. The pictures are the compositor's, drawn
 //! under the shell's layers where `Switcher::layout` says; here are the frame of each card (the lit glass of the one in focus, the veil on the
-//! others), its icon and name, what is happening to it, an icon on a tile for an app with no picture, the header strip of the TV's numbers
+//! others), its icon and name, what is happening to it, an icon on a tile for an app with no picture, the header of the TV's numbers on small glass pills
 //! across the top, the two buttons below the cards, the System sheet and the confirmations.
 //!
 //! The model decides what is where and who has the focus; this follows it. A card's chrome is made once per app and moves in place (the
@@ -140,19 +140,16 @@ struct Metrics {
     stacked: bool,
     btn_h: f32,
     action_y: f32,
-    /// The header strip of numbers: its top and height, one line of small type.
-    head_y: f32,
-    head_h: f32,
     /// The area between the header and the buttons that the row of cards and the empty state are centred in.
     zone_top: f32,
     zone_bottom: f32,
 }
 
-fn metrics(kit: &mut Kit) -> Metrics {
+fn metrics(kit: &mut Kit, rows: usize) -> Metrics {
     let (s2, s3, s4, s7, s8) = (kit.space(2), kit.space(3), kit.space(4), kit.space(7), kit.space(8));
     let btn_h = Button::height(kit);
     let action_y = 1080.0 - EDGE_Y - btn_h;
-    let head_h = kit.line(TypeRole::Caption).ceil();
+    let head_h = head_height(kit, rows).ceil();
     let stacked = kit.line(TypeRole::Body) > ICON;
     // the state words wrap to a second line where the card is narrower than they are, which only large text makes it
     let words_h = 2.0 * kit.line(TypeRole::Body) + if stacked { 2.0 } else { 1.0 } * kit.line(TypeRole::Caption);
@@ -162,7 +159,7 @@ fn metrics(kit: &mut Kit) -> Metrics {
     let top = (zone_top + ((zone_bottom - zone_top - cards_h) / 2.0).max(0.0)).round();
     let rest_w = geo::W * geo::REST;
     let name_w = if stacked { rest_w } else { rest_w - ICON - s3 };
-    Metrics { top, foot_h, name_w, stacked, btn_h, action_y, head_y: EDGE_Y, head_h, zone_top, zone_bottom }
+    Metrics { top, foot_h, name_w, stacked, btn_h, action_y, zone_top, zone_bottom }
 }
 
 /// The width of the "No preview" line on a tile: the resting picture less its margins.
@@ -415,29 +412,92 @@ fn veil_colour(kit: &Kit) -> Rgba {
     faded(kit.tokens.extra(kit.mode).scrim_hide, if kit.mode == Mode::Light { 0.47 } else { 0.41 })
 }
 
+/// From this temperature (°C) the thermometer's accent leaves the muted ink for the theme's warning colour, and from `TEMP_HOT` for its danger
+/// colour. A TV that idles in the 50s and plays in the 60s is calm; the SoC throttles in the 80s.
+const TEMP_WARM: f32 = 65.0;
+const TEMP_HOT: f32 = 80.0;
+/// The thermometer's scale: empty at `TEMP_FROM`, full at `TEMP_TO` (°C).
+const TEMP_FROM: f32 = 30.0;
+const TEMP_TO: f32 = 90.0;
+/// The TV has three cores: that is what the CPU's bars are made for until the first sample says.
+const BLANK_CORES: usize = 3;
+/// The cells of the memory's segmented bar.
+const SEGMENTS: usize = 5;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Kind {
-    Cpu,
-    Mem,
-    Gpu,
-    Temp,
+enum Heat {
+    Calm,
+    Warm,
+    Hot,
 }
 
-/// Which numbers the strip has (the strip is made again when this changes) and how wide the biggest memory figure is.
-#[derive(Clone, Debug, PartialEq)]
-struct Shape4 {
-    cores: usize,
-    gpu: bool,
-    temp: bool,
-    mem: String,
-}
-
-impl Shape4 {
-    fn of(s: Option<&Stats>) -> Self {
-        let mem = s.and_then(|s| s.mem).map_or_else(|| "9.9".to_string(), |m| gb(m.total_kb));
-        // the TV has three cores: that is what the bars are made for until the first sample says
-        Self { cores: s.map_or(3, |s| s.cpu.len()), gpu: s.is_some_and(|s| s.gpu.is_some()), temp: s.is_some_and(|s| s.temp_c.is_some()), mem }
+fn heat(c: f32) -> Heat {
+    if c >= TEMP_HOT {
+        Heat::Hot
+    } else if c >= TEMP_WARM {
+        Heat::Warm
+    } else {
+        Heat::Calm
     }
+}
+
+/// The flat picture a pill carries, drawn from rounded rectangles only: a bar for each CPU core, a segmented bar, a ring with a disc that
+/// grows inside it, a thermometer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Graphic {
+    CoreBars,
+    Segments,
+    Disc,
+    Thermometer,
+}
+
+/// One sample of a pill's source: its number as words (in full and, where the room is short, shortened) and the levels its picture shows
+/// (percent, one for each core; for the thermometer °C).
+struct Gauge {
+    text: String,
+    short: String,
+    levels: Vec<f32>,
+}
+
+/// One pill of the header. A new reading is one entry in `PILLS`: the layout, the glass, the theme and the update all follow from it.
+#[derive(Clone, Copy)]
+struct PillSpec {
+    id: &'static str,
+    label: &'static str,
+    graphic: Graphic,
+    /// The widest its number gets, in full and shortened (a number's box never changes with its digits).
+    widest: (&'static str, &'static str),
+    /// What the `stats` topic says for it; `None` when the compositor does not read that.
+    read: fn(&Stats) -> Option<Gauge>,
+}
+
+const PILLS: [PillSpec; 4] = [
+    PillSpec { id: "CPU", label: "CPU", graphic: Graphic::CoreBars, widest: ("100%", "100%"), read: read_cpu },
+    PillSpec { id: "Memory", label: "Memory", graphic: Graphic::Segments, widest: ("9.9 / 9.9 GB", "9.9 GB"), read: read_mem },
+    PillSpec { id: "GPU", label: "GPU", graphic: Graphic::Disc, widest: ("100%", "100%"), read: read_gpu },
+    PillSpec { id: "Temp", label: "Temp", graphic: Graphic::Thermometer, widest: ("100 \u{b0}C", "100 \u{b0}C"), read: read_temp },
+];
+
+fn read_cpu(s: &Stats) -> Option<Gauge> {
+    let text = format!("{:.0}%", average(&s.cpu)?);
+    Some(Gauge { short: text.clone(), text, levels: s.cpu.clone() })
+}
+
+fn read_mem(s: &Stats) -> Option<Gauge> {
+    let m = s.mem?;
+    Some(Gauge { text: format!("{} / {} GB", gb(m.used_kb()), gb(m.total_kb)), short: format!("{} GB", gb(m.used_kb())), levels: vec![100.0 * m.used_kb() as f32 / m.total_kb.max(1) as f32] })
+}
+
+fn read_gpu(s: &Stats) -> Option<Gauge> {
+    let g = s.gpu?;
+    let text = format!("{g:.0}%");
+    Some(Gauge { short: text.clone(), text, levels: vec![g] })
+}
+
+fn read_temp(s: &Stats) -> Option<Gauge> {
+    let c = s.temp_c?;
+    let text = format!("{c:.0} \u{b0}C");
+    Some(Gauge { short: text.clone(), text, levels: vec![c] })
 }
 
 fn gb(kb: u64) -> String {
@@ -448,105 +508,346 @@ fn average(cpu: &[f32]) -> Option<f32> {
     (!cpu.is_empty()).then(|| cpu.iter().sum::<f32>() / cpu.len() as f32)
 }
 
-/// One reading in the header: its label and number and, for the CPU, a bar for each core.
-struct Reading {
-    kind: Kind,
+fn scaled(kit: &Kit, n: usize) -> f32 {
+    (kit.space(n) * kit.text_scale).round()
+}
+
+/// A pill is one line of small type with a little air round it.
+fn pill_h(kit: &Kit) -> f32 {
+    (kit.line(TypeRole::Caption) + 2.0 * scaled(kit, 1)).ceil()
+}
+
+/// The header's height for `rows` rows of pills (none: nothing).
+fn head_height(kit: &Kit, rows: usize) -> f32 {
+    rows as f32 * pill_h(kit) + rows.saturating_sub(1) as f32 * scaled(kit, 2)
+}
+
+/// Which pills there are (the pills are made again when this changes) and how wide their numbers get: the digits of a number do not count,
+/// so the header only changes with the sample when a reading appears or disappears or grows a digit. Before the first sample every pill is
+/// made, with dashes: the room they need is there from the start.
+#[derive(Clone, Debug, PartialEq)]
+struct PillShape {
+    spec: usize,
+    long: String,
+    short: String,
+    /// The cells of a bar graphic.
+    n: usize,
+}
+
+fn shape_of(specs: &[PillSpec], s: Option<&Stats>) -> Vec<PillShape> {
+    let cells = |sp: &PillSpec, n: usize| if sp.graphic == Graphic::CoreBars { n } else { 1 };
+    specs
+        .iter()
+        .enumerate()
+        .filter_map(|(spec, sp)| match s {
+            None => Some(PillShape { spec, long: sp.widest.0.into(), short: sp.widest.1.into(), n: cells(sp, BLANK_CORES) }),
+            Some(s) => (sp.read)(s).map(|g| PillShape { spec, long: digits8(&g.text), short: digits8(&g.short), n: cells(sp, g.levels.len()) }),
+        })
+        .collect()
+}
+
+fn digits8(s: &str) -> String {
+    s.chars().map(|c| if c.is_ascii_digit() { '8' } else { c }).collect()
+}
+
+/// How wide a pill's picture is.
+fn gfx_w(kind: Graphic, n: usize, bw: f32, bg: f32, gh: f32) -> f32 {
+    let (seg, bulb) = (2.0 * bw, (bw * 1.75).round());
+    match kind {
+        Graphic::CoreBars => n as f32 * bw + n.saturating_sub(1) as f32 * bg,
+        Graphic::Segments => SEGMENTS as f32 * seg + (SEGMENTS - 1) as f32 * bg,
+        Graphic::Disc => gh,
+        Graphic::Thermometer => bulb,
+    }
+}
+
+/// Pills in rows, each as far along as it fits: the indices of each row.
+fn pack(widths: &[f32], gap: f32) -> Vec<Vec<usize>> {
+    let mut rows: Vec<Vec<usize>> = Vec::new();
+    let mut used = 0.0;
+    for (i, w) in widths.iter().enumerate() {
+        match rows.last_mut() {
+            Some(r) if used + gap + w <= HEAD_W => {
+                r.push(i);
+                used += gap + w;
+            }
+            _ => {
+                rows.push(vec![i]);
+                used = *w;
+            }
+        }
+    }
+    rows
+}
+
+/// Where one pill and what is in it stand.
+#[derive(Clone, Debug)]
+struct Item {
+    spec: usize,
     frame: Frame,
+    /// Its picture's kind, cells and box, when it has one.
+    gfx: Option<(Graphic, usize, Frame)>,
+    label: Frame,
+    value: Frame,
+    long: bool,
+}
+
+/// The header laid out: every pill with its place, one or two rows.
+#[derive(Clone, Debug)]
+struct Plan {
+    shape: Vec<PillShape>,
+    rows: usize,
+    items: Vec<Item>,
+}
+
+/// Lays the pills out left to right with even gaps inside the safe margins. Where a row is too long the numbers lose what is secondary
+/// first (the memory its total), then the pills wrap onto a second row, and last the pictures go; there are never more than two rows.
+fn plan(kit: &mut Kit, specs: &[PillSpec], shape: Vec<PillShape>) -> Plan {
+    let ink2 = kit.ui.look.ink2();
+    let style = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
+    let (ph, bw, bg) = (pill_h(kit), scaled(kit, 2), scaled(kit, 1));
+    let (pad, gap, inner, sep, row_gap) = (scaled(kit, 5), scaled(kit, 4), scaled(kit, 2), scaled(kit, 3), scaled(kit, 2));
+    let gh = ph - 3.0 * bg;
+    let line = kit.line(TypeRole::Caption);
+    // each pill's label width, widest number in full and shortened, and picture width
+    let mut parts = Vec::new();
+    for p in &shape {
+        let sp = &specs[p.spec];
+        let lw = width_of(kit, style, sp.label);
+        let vl = widest(kit, style, &[sp.widest.0, &p.long, "\u{2014}"]);
+        let vs = widest(kit, style, &[sp.widest.1, &p.short, "\u{2014}"]);
+        parts.push((lw, vl, vs, gfx_w(sp.graphic, p.n, bw, bg, gh)));
+    }
+    let widths = |long: bool, gfx: bool| -> Vec<f32> { parts.iter().map(|(lw, vl, vs, gw)| (2.0 * pad + if gfx { gw + sep } else { 0.0 } + lw + inner + if long { *vl } else { *vs }).ceil()).collect() };
+    let tries = [(true, true, 1), (false, true, 1), (false, true, 2), (false, false, 2)];
+    let (long, gfx, rows) = tries
+        .into_iter()
+        .find_map(|(long, gfx, most)| {
+            let rows = pack(&widths(long, gfx), gap);
+            (rows.len() <= most).then_some((long, gfx, rows))
+        })
+        .unwrap_or_else(|| (false, false, pack(&widths(false, false), gap)));
+    let w = widths(long, gfx);
+    let mut items = Vec::new();
+    for (r, row) in rows.iter().enumerate() {
+        let y = EDGE_Y + r as f32 * (ph + row_gap);
+        let mut x = EDGE_X;
+        for &i in row {
+            let sp = &specs[shape[i].spec];
+            let (lw, vl, vs, gw) = parts[i];
+            let text_y = y + ((ph - line) / 2.0).round();
+            let mut cx = x + pad;
+            let pic = gfx.then(|| {
+                let f = Frame::new(cx, y + ((ph - gh) / 2.0).round(), gw, gh);
+                cx += gw + sep;
+                (sp.graphic, shape[i].n, f)
+            });
+            let label = Frame::new(cx, text_y, lw, line);
+            cx += lw + inner;
+            let value = Frame::new(cx, text_y, if long { vl } else { vs }, line);
+            items.push(Item { spec: shape[i].spec, frame: Frame::new(x, y, w[i], ph), gfx: pic, label, value, long });
+            x += w[i] + gap;
+        }
+    }
+    Plan { shape, rows: rows.len(), items }
+}
+
+/// The colours the header takes from the live theme: the glass and edge of a pill, the muted ink of its words and lit cells, the dim of an
+/// unlit cell, and the two accents the thermometer rises into.
+#[derive(Clone, Copy, Debug)]
+struct Tones {
+    glass: Rgba,
+    edge: Rgba,
+    ink: Rgba,
+    track: Rgba,
+    lit: Rgba,
+    warm: Rgba,
+    hot: Rgba,
+}
+
+impl Tones {
+    fn of(kit: &Kit) -> Self {
+        let look = &kit.ui.look;
+        Self {
+            glass: look.colour(PaletteRole::Glass),
+            edge: edge(kit),
+            ink: look.ink2(),
+            track: faded(look.theme.materials.track_off, 0.85),
+            lit: faded(look.ink2(), 0.9),
+            warm: look.colour(PaletteRole::Warning),
+            hot: look.colour(PaletteRole::Danger),
+        }
+    }
+
+    fn of_heat(&self, h: Heat) -> Rgba {
+        match h {
+            Heat::Calm => self.lit,
+            Heat::Warm => self.warm,
+            Heat::Hot => self.hot,
+        }
+    }
+}
+
+/// A pill's picture: its dim cells under its lit ones, and what each of the lit shows of the last levels.
+struct Gfx {
+    kind: Graphic,
+    at: Frame,
+    bw: f32,
+    bg: f32,
+    tones: Tones,
+    _tracks: Vec<ShapeLayer>,
+    lits: Vec<ShapeLayer>,
+    /// The thermometer's accent as last drawn.
+    heat: Option<Heat>,
+}
+
+impl Gfx {
+    /// `bars` is the width of a bar and the gap between two cells.
+    fn new(kit: &Kit, z: i32, kind: Graphic, n: usize, at: Frame, bars: (f32, f32), tones: Tones) -> Self {
+        let (bw, bg) = bars;
+        let (mut tracks, mut lits) = (Vec::new(), Vec::new());
+        // a dim cell and the lit one over it; the two may stand in different boxes (the disc is smaller than its ring)
+        let mut cell = |dim_at: Frame, dim: Shape, lit_at: Frame, lit: Shape| {
+            tracks.push(plate::shape(&kit.ui, dim_at, z + 3, dim));
+            let l = plate::shape(&kit.ui, lit_at, z + 4, lit);
+            l.set(Props { opacity: 0.0, ..Props::at(lit_at.x, lit_at.y) });
+            lits.push(l);
+        };
+        let round = |f: Frame, c: Rgba| plate::solid(c, (f.w.min(f.h) / 2.0).floor());
+        match kind {
+            Graphic::CoreBars => {
+                for i in 0..n {
+                    let f = Frame::new(at.x + i as f32 * (bw + bg), at.y, bw, at.h);
+                    cell(f, round(f, tones.track), f, round(f, tones.lit));
+                }
+            }
+            Graphic::Segments => {
+                let cw = 2.0 * bw;
+                for i in 0..SEGMENTS {
+                    let f = Frame::new(at.x + i as f32 * (cw + bg), at.y + ((at.h - bw) / 2.0).round(), cw, bw);
+                    cell(f, round(f, tones.track), f, round(f, tones.lit));
+                }
+            }
+            Graphic::Disc => {
+                let inner = Self::disc(at, bg);
+                cell(at, plate::ring(tones.track, (at.w / 2.0).floor(), Self::ring_w(bg)), inner, round(inner, tones.lit));
+            }
+            Graphic::Thermometer => {
+                let (tube, bulb) = Self::thermometer(at, bw);
+                cell(tube, round(tube, tones.track), tube, round(tube, tones.lit));
+                cell(bulb, round(bulb, tones.track), bulb, round(bulb, tones.lit));
+            }
+        }
+        Self { kind, at, bw, bg, tones, _tracks: tracks, lits, heat: None }
+    }
+
+    fn ring_w(bg: f32) -> f32 {
+        (bg / 2.0).max(1.0)
+    }
+
+    /// The disc that grows inside the ring, at its full size, with a gap of one ring's width between.
+    fn disc(at: Frame, bg: f32) -> Frame {
+        let inset = 2.0 * Self::ring_w(bg);
+        Frame::new(at.x + inset, at.y + inset, at.w - 2.0 * inset, at.h - 2.0 * inset)
+    }
+
+    /// The thermometer's tube and bulb in its box: the bulb at the foot, the tube rising from its middle.
+    fn thermometer(at: Frame, bw: f32) -> (Frame, Frame) {
+        let bulb = at.w;
+        (Frame::new(at.x + ((bulb - bw) / 2.0).round(), at.y, bw, at.h - (bulb / 2.0).round()), Frame::new(at.x, at.y + at.h - bulb, bulb, bulb))
+    }
+
+    /// Shows `levels` (none: nothing lit).
+    fn set(&mut self, kit: &Kit, levels: Option<&[f32]>, first: bool) {
+        let level = levels.and_then(|l| l.first()).copied();
+        match self.kind {
+            Graphic::CoreBars => {
+                for (i, lit) in self.lits.iter().enumerate() {
+                    let pct = levels.and_then(|l| l.get(i)).copied();
+                    let x = self.at.x + i as f32 * (self.bw + self.bg);
+                    let h = pct.map_or(0.0, |p| (self.at.h * p.clamp(0.0, 100.0) / 100.0).clamp(2.0, self.at.h));
+                    glide_to(kit, lit, Props { opacity: if pct.is_some() { 1.0 } else { 0.0 }, clip: Some(Rect { x, y: self.at.y + self.at.h - h, w: self.bw, h }), ..Props::at(x, self.at.y) }, first);
+                }
+            }
+            Graphic::Segments => {
+                let cw = 2.0 * self.bw;
+                let lit_n = level.map_or(0, |p| (p.clamp(0.0, 100.0) / 100.0 * SEGMENTS as f32).round() as usize);
+                for (i, lit) in self.lits.iter().enumerate() {
+                    let (x, y) = (self.at.x + i as f32 * (cw + self.bg), self.at.y + ((self.at.h - self.bw) / 2.0).round());
+                    glide_to(kit, lit, Props { opacity: if i < lit_n { 1.0 } else { 0.0 }, ..Props::at(x, y) }, first);
+                }
+            }
+            Graphic::Disc => {
+                let d = Self::disc(self.at, self.bg);
+                // the disc's area follows the level
+                let scale = level.map_or(0.0, |p| (p.clamp(0.0, 100.0) / 100.0).sqrt().max(0.15));
+                glide_to(kit, &self.lits[0], Props { opacity: if level.is_some() { 1.0 } else { 0.0 }, scale, ..Props::at(d.x, d.y) }, first);
+            }
+            Graphic::Thermometer => {
+                let (tube, bulb) = Self::thermometer(self.at, self.bw);
+                if let Some(c) = level {
+                    let h = heat(c);
+                    if self.heat != Some(h) {
+                        let col = self.tones.of_heat(h);
+                        self.lits[0].reshape(plate::solid(col, (tube.w / 2.0).floor()));
+                        self.lits[1].reshape(plate::solid(col, (bulb.w / 2.0).floor()));
+                        self.heat = Some(h);
+                    }
+                    let rise = ((c - TEMP_FROM) / (TEMP_TO - TEMP_FROM)).clamp(0.0, 1.0);
+                    let lit_h = (tube.h * rise).clamp(2.0, tube.h);
+                    glide_to(kit, &self.lits[0], Props { clip: Some(Rect { x: tube.x, y: tube.y + tube.h - lit_h, w: tube.w, h: lit_h }), ..Props::at(tube.x, tube.y) }, first);
+                    glide_to(kit, &self.lits[1], Props::at(bulb.x, bulb.y), first);
+                } else {
+                    for (lit, f) in self.lits.iter().zip([tube, bulb]) {
+                        glide_to(kit, lit, Props { opacity: 0.0, ..Props::at(f.x, f.y) }, first);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One pill on the screen: the glass, its picture, its label and its number.
+struct Pill {
+    spec: usize,
+    frame: Frame,
+    long: bool,
+    _glass: ShapeLayer,
     label: Words,
     value: Words,
-    bars: Bars,
-    _tracks: Vec<ShapeLayer>,
-    fills: Vec<ShapeLayer>,
+    gfx: Option<Gfx>,
 }
 
-/// Where a CPU core's bars stand: the left of the first, its top, the size of one and the gap between two.
-#[derive(Clone, Copy)]
-struct Bars {
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
-    gap: f32,
-}
-
-/// The strip of numbers across the top of the task manager: one line of muted small type, no plate, a reading after another with even
-/// gaps between the safe margins. Where the line is too long for the width the memory loses its total, then the CPU its bars, so
-/// nothing ever overlaps.
+/// The header across the top of the task manager: the TV's numbers, each on a small glass pill with a flat picture, in one row or two
+/// (`plan`). The pills are the only static elements: muted ink, the accent only where the temperature asks for it, no motion but the
+/// numbers changing once a second.
 struct Strip {
-    shape: Shape4,
-    frame: Frame,
-    mem_short: bool,
-    readings: Vec<Reading>,
+    shape: Vec<PillShape>,
+    rows: usize,
+    tones: Tones,
+    pills: Vec<Pill>,
     shown: Option<Option<Stats>>,
 }
 
 impl Strip {
-    fn new(kit: &mut Kit, root: &Group, z: i32, m: &Metrics, shape: Shape4) -> std::io::Result<Self> {
+    fn new(kit: &mut Kit, root: &Group, z: i32, plan: &Plan) -> std::io::Result<Self> {
         let scene = kit.ui.scene.clone();
-        let ink2 = kit.ui.look.ink2();
-        let scaled = |kit: &Kit, n: usize| (kit.space(n) * kit.text_scale).round();
-        let (label_gap, bar_w, bar_gap, least_gap) = (scaled(kit, 2), scaled(kit, 2), scaled(kit, 1), scaled(kit, 7));
-        let bar_h = (m.head_h - 2.0 * bar_gap).max(bar_w);
-        let style = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
-        let mut kinds = vec![(Kind::Cpu, "CPU", "100%"), (Kind::Mem, "Memory", ""), (Kind::Gpu, "GPU", "100%"), (Kind::Temp, "Temp", "100 \u{b0}C")];
-        kinds.retain(|(k, ..)| match k {
-            Kind::Gpu => shape.gpu,
-            Kind::Temp => shape.temp,
-            Kind::Cpu | Kind::Mem => true,
-        });
-        let mem_long = format!("{0} / {0} GB", shape.mem);
-        let mem_short = format!("{} GB", shape.mem);
-        // each reading's label width and the widest its number gets (long, short): a number's box never changes with its digits
-        let mut measured = Vec::new();
-        for (k, label, widest_value) in &kinds {
-            let lw = width_of(kit, style, label);
-            let vw = |kit: &mut Kit, v: &str| widest(kit, style, &[v, "\u{2014}"]);
-            let (long, short) = if *k == Kind::Mem { (vw(kit, &mem_long), vw(kit, &mem_short)) } else { let v = vw(kit, widest_value); (v, v) };
-            measured.push((*k, *label, lw, long, short));
-        }
-        let bars_w = |n: usize| n as f32 * bar_w + n.saturating_sub(1) as f32 * bar_gap;
-        let mut level = 0;
-        let (widths, gap) = loop {
-            let widths: Vec<f32> = measured
-                .iter()
-                .map(|(k, _, lw, long, short)| {
-                    let vw = if level > 0 && *k == Kind::Mem { *short } else { *long };
-                    lw + label_gap + vw + if *k == Kind::Cpu && level < 2 && shape.cores > 0 { label_gap + bars_w(shape.cores) } else { 0.0 }
-                })
-                .collect();
-            let gap = ((HEAD_W - widths.iter().sum::<f32>()) / (widths.len() - 1) as f32).floor();
-            if gap >= least_gap || level == 2 {
-                break (widths, gap);
-            }
-            level += 1;
-        };
-        let (track, fill) = (faded(kit.ui.look.theme.materials.track_off, 0.6), faded(ink2, 0.5));
-        let line = kit.line(TypeRole::Caption);
-        let text_y = m.head_y + ((m.head_h - line) / 2.0).round();
-        let mut readings = Vec::new();
-        let mut x = EDGE_X;
-        for ((kind, label, lw, long, short), w) in measured.into_iter().zip(widths) {
-            let vw = if level > 0 && kind == Kind::Mem { short } else { long };
-            let x0 = x.round();
-            let n = if kind == Kind::Cpu && level < 2 { shape.cores } else { 0 };
-            let bars = Bars { x: x0 + lw + label_gap + vw + label_gap, y: m.head_y + ((m.head_h - bar_h) / 2.0).round(), w: bar_w, h: bar_h, gap: bar_gap };
-            let (tracks, fills, label_w, value_w) = scene.adopting_view(root, || -> std::io::Result<_> {
-                let (mut tracks, mut fills) = (Vec::new(), Vec::new());
-                for b in 0..n {
-                    let f = Frame::new(bars.x + b as f32 * (bars.w + bars.gap), bars.y, bars.w, bars.h);
-                    tracks.push(plate::shape(&kit.ui, f, z + 3, plate::solid(track, (bars.w / 2.0).floor())));
-                    let lit = plate::shape(&kit.ui, f, z + 4, plate::solid(fill, (bars.w / 2.0).floor()));
-                    lit.set(Props { opacity: 0.0, ..Props::at(f.x, f.y) });
-                    fills.push(lit);
-                }
-                let label_w = Words::new(kit, x0, text_y, lw, z + 4, &[WordLine::new(label, TypeRole::Caption, ink2)])?;
-                let value_w = Words::new(kit, x0 + lw + label_gap, text_y, vw, z + 4, &[WordLine::new("\u{2014}", TypeRole::Caption, ink2)])?;
-                Ok((tracks, fills, label_w, value_w))
+        let tones = Tones::of(kit);
+        let (bw, bg) = (scaled(kit, 2), scaled(kit, 1));
+        let mut pills = Vec::new();
+        for it in &plan.items {
+            let sp = &PILLS[it.spec];
+            let radius = kit.tokens.radius(Radius::Pill).min((it.frame.h / 2.0).floor());
+            let pill = scene.adopting_view(root, || -> std::io::Result<_> {
+                let glass = plate::shape(&kit.ui, it.frame, z + 2, Shape { corner_radius: radius, fill: Fill::Solid(tones.glass), border_width: 1.0, border: tones.edge });
+                let gfx = it.gfx.map(|(kind, n, at)| Gfx::new(kit, z, kind, n, at, (bw, bg), tones));
+                let label = Words::new(kit, it.label.x, it.label.y, it.label.w, z + 4, &[WordLine::new(sp.label, TypeRole::Caption, tones.ink)])?;
+                let value = Words::new(kit, it.value.x, it.value.y, it.value.w, z + 4, &[WordLine::new("\u{2014}", TypeRole::Caption, tones.ink)])?;
+                Ok(Pill { spec: it.spec, frame: it.frame, long: it.long, _glass: glass, label, value, gfx })
             })?;
-            readings.push(Reading { kind, frame: Frame::new(x0, m.head_y, w, m.head_h), label: label_w, value: value_w, bars, _tracks: tracks, fills });
-            x += w + gap;
+            pills.push(pill);
         }
-        Ok(Self { shape, frame: Frame::new(EDGE_X, m.head_y, HEAD_W, m.head_h), mem_short: level > 0, readings, shown: None })
+        Ok(Self { shape: plan.shape.clone(), rows: plan.rows, tones, pills, shown: None })
     }
 
     /// The numbers as the last sample says them (a dash before there is one: nothing is made up).
@@ -556,26 +857,12 @@ impl Strip {
         }
         let first = self.shown.is_none();
         self.shown = Some(s.cloned());
-        let dash = "\u{2014}".to_string();
-        for r in &mut self.readings {
-            match r.kind {
-                Kind::Cpu => {
-                    let avg = s.and_then(|s| average(&s.cpu));
-                    r.value.set(kit, 0, &avg.map_or(dash.clone(), |a| format!("{a:.0}%")));
-                    let b = r.bars;
-                    for (i, fill) in r.fills.iter().enumerate() {
-                        let pct = s.and_then(|s| s.cpu.get(i)).copied();
-                        let x = b.x + i as f32 * (b.w + b.gap);
-                        let h = pct.map_or(0.0, |p| (b.h * p.clamp(0.0, 100.0) / 100.0).clamp(2.0, b.h));
-                        glide_to(kit, fill, Props { opacity: if pct.is_some() { 1.0 } else { 0.0 }, clip: Some(Rect { x, y: b.y + b.h - h, w: b.w, h }), ..Props::at(x, b.y) }, first);
-                    }
-                }
-                Kind::Mem => {
-                    let text = s.and_then(|s| s.mem).map(|m| if self.mem_short { format!("{} GB", gb(m.used_kb())) } else { format!("{} / {} GB", gb(m.used_kb()), gb(m.total_kb)) });
-                    r.value.set(kit, 0, &text.unwrap_or(dash.clone()));
-                }
-                Kind::Gpu => r.value.set(kit, 0, &s.and_then(|s| s.gpu).map_or(dash.clone(), |g| format!("{g:.0}%"))),
-                Kind::Temp => r.value.set(kit, 0, &s.and_then(|s| s.temp_c).map_or(dash.clone(), |c| format!("{c:.0} \u{b0}C"))),
+        for p in &mut self.pills {
+            let gauge = s.and_then(|s| (PILLS[p.spec].read)(s));
+            let text = gauge.as_ref().map_or("\u{2014}", |g| if p.long { &g.text } else { &g.short });
+            p.value.set(kit, 0, text);
+            if let Some(g) = p.gfx.as_mut() {
+                g.set(kit, gauge.as_ref().map(|g| g.levels.as_slice()), first);
             }
         }
     }
@@ -782,7 +1069,7 @@ fn hint_pill(kit: &mut Kit, root: &Group, z: i32, m: &Metrics, which: Hints) -> 
 
 /// What is made for one look (theme, mode, text size) and what is shown on it.
 struct Built {
-    look: (u64, f32),
+    look: (u64, f32, usize),
     base: usize,
     used: usize,
     next: u32,
@@ -815,7 +1102,7 @@ fn lower_button(kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, m: &Me
 }
 
 impl Built {
-    fn new(kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, look: (u64, f32), m: &Metrics) -> std::io::Result<Self> {
+    fn new(kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, look: (u64, f32, usize), m: &Metrics) -> std::io::Result<Self> {
         let base = kit.room().layers;
         let close = lower_button(kit, engine, root, z, m, ID_CLOSE, 96.0, "Close all", "x")?;
         let system = lower_button(kit, engine, root, z, m, ID_SYSTEM, 96.0 + close.frame().w + kit.space(5), "System", "monitor-cog")?;
@@ -847,7 +1134,7 @@ impl Built {
 
     /// Brings what is drawn to what the model says; the scopes that are modal over the stage's (the sheet, the confirmation) come back.
     #[allow(clippy::too_many_arguments)]
-    fn update(&mut self, kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, m: &Metrics, v: &View, now_ns: u64) -> std::io::Result<Vec<Scope>> {
+    fn update(&mut self, kit: &mut Kit, engine: &mut Engine, root: &Group, z: i32, m: &Metrics, plan: &Plan, v: &View, now_ns: u64) -> std::io::Result<Vec<Scope>> {
         let at_once = !self.settled;
         let total = v.entries.len();
         let listed = total.min(MAX_CARDS);
@@ -896,9 +1183,8 @@ impl Built {
         } else {
             self.bar = None;
         }
-        let shape = Shape4::of(v.stats.as_ref());
-        if self.strip.as_ref().is_none_or(|s| s.shape != shape) {
-            self.strip = Some(Strip::new(kit, root, z, m, shape)?);
+        if self.strip.as_ref().is_none_or(|s| s.shape != plan.shape) {
+            self.strip = Some(Strip::new(kit, root, z, plan)?);
         }
         if let Some(s) = self.strip.as_mut() {
             s.show(kit, v.stats.as_ref());
@@ -1026,7 +1312,10 @@ pub struct SwitcherSurface {
     built: Option<Built>,
     /// The scopes made modal over the stage's own, bottom first.
     modals: Vec<Scope>,
-    metrics: Option<((u64, f32), Metrics)>,
+    metrics: Option<((u64, f32, usize), Metrics)>,
+    /// The header laid out for the look and the readings there are, and how many rows of pills it came to (the cards' room depends on it).
+    plan: Option<((u64, f32), Plan)>,
+    rows: usize,
     /// The card a press began on and where, for a drag up.
     press: Option<(Id, f32)>,
     dragged: bool,
@@ -1035,7 +1324,7 @@ pub struct SwitcherSurface {
 
 impl SwitcherSurface {
     pub fn new(z: i32) -> Self {
-        Self { stage: Stage::new(z, SCOPE), built: None, modals: Vec::new(), metrics: None, press: None, dragged: false, outside: Dim::default() }
+        Self { stage: Stage::new(z, SCOPE), built: None, modals: Vec::new(), metrics: None, plan: None, rows: 1, press: None, dragged: false, outside: Dim::default() }
     }
 
     pub fn is_up(&self) -> bool {
@@ -1043,11 +1332,11 @@ impl SwitcherSurface {
     }
 
     fn metrics(&mut self, kit: &mut Kit) -> Metrics {
-        let look = (kit.generation(), kit.text_scale);
+        let look = (kit.generation(), kit.text_scale, self.rows);
         match self.metrics {
             Some((l, m)) if l == look => m,
             _ => {
-                let m = metrics(kit);
+                let m = metrics(kit, self.rows);
                 self.metrics = Some((look, m));
                 m
             }
@@ -1077,8 +1366,14 @@ impl SwitcherSurface {
             self.drop_built(engine);
         }
         self.stage.ensure(kit, phase, Arrive::Fade, false)?;
+        let shape = shape_of(&PILLS, v.stats.as_ref());
+        let head_look = (kit.generation(), kit.text_scale);
+        if self.plan.as_ref().is_none_or(|(l, p)| *l != head_look || p.shape != shape) {
+            self.plan = Some((head_look, plan(kit, &PILLS, shape)));
+        }
+        self.rows = self.plan.as_ref().map_or(0, |(_, p)| p.rows);
         let m = self.metrics(kit);
-        let look = (kit.generation(), kit.text_scale);
+        let look = (head_look.0, head_look.1, self.rows);
         if self.built.as_ref().is_none_or(|b| b.look != look) {
             self.drop_built(engine);
             self.stage.backdrop(engine, ID_BACKDROP, REGION_LOWER);
@@ -1086,8 +1381,8 @@ impl SwitcherSurface {
             self.stage.refocus();
         }
         let mut modal = Vec::new();
-        if up && let Some(b) = self.built.as_mut() {
-            modal = b.update(kit, engine, self.stage.group(), self.stage.z(), &m, v, now_ns)?;
+        if up && let (Some(b), Some((_, p))) = (self.built.as_mut(), self.plan.as_ref()) {
+            modal = b.update(kit, engine, self.stage.group(), self.stage.z(), &m, p, v, now_ns)?;
             if kit.ui.scene.take_overflow() {
                 return Err(std::io::Error::other("the scene is full: the task manager could not be drawn whole"));
             }
@@ -1238,7 +1533,17 @@ impl SwitcherSurface {
             "focus": focus,
             "close": b.close_on.then(|| f(b.close.frame())),
             "system": f(b.system.frame()),
-            "strip": b.strip.as_ref().map(|s| json!({"frame": f(s.frame), "tiles": s.readings.iter().map(|t| format!("{:?}", t.kind)).collect::<Vec<_>>(), "frames": s.readings.iter().map(|t| f(t.frame)).collect::<Vec<_>>(), "values": s.readings.iter().map(|t| t.value.text(0)).collect::<Vec<_>>()})),
+            "strip": b.strip.as_ref().map(|s| {
+                let c = |c: Rgba| json!([c.0, c.1, c.2, c.3]);
+                json!({
+                    "rows": s.rows,
+                    "tiles": s.pills.iter().map(|p| PILLS[p.spec].id).collect::<Vec<_>>(),
+                    "frames": s.pills.iter().map(|p| f(p.frame)).collect::<Vec<_>>(),
+                    "values": s.pills.iter().map(|p| p.value.text(0)).collect::<Vec<_>>(),
+                    "heat": s.pills.iter().filter_map(|p| p.gfx.as_ref().and_then(|g| g.heat)).next().map(|h| format!("{h:?}")),
+                    "glass": c(s.tones.glass), "edge": c(s.tones.edge), "ink": c(s.tones.ink), "lit": c(s.tones.lit), "warm": c(s.tones.warm), "hot": c(s.tones.hot),
+                })
+            }),
             "sheet": sheet,
             "ask": ask,
             "empty": b.empty.is_some(),
@@ -1289,9 +1594,10 @@ impl SwitcherSurface {
             words.feed_lint(kit, lint, "no apps", Some(dim), (0.0, 0.0));
         }
         if let Some(s) = &b.strip {
-            for t in &s.readings {
-                t.label.feed_lint(kit, lint, "stat label", Some(dim), (0.0, 0.0));
-                t.value.feed_lint(kit, lint, "stat value", Some(dim), (0.0, 0.0));
+            for (i, p) in s.pills.iter().enumerate() {
+                let pill = lint.panel_on(&format!("stat pill {i}"), p.frame, s.tones.glass, true, dim);
+                p.label.feed_lint(kit, lint, "stat label", Some(pill), (0.0, 0.0));
+                p.value.feed_lint(kit, lint, "stat value", Some(pill), (0.0, 0.0));
             }
         }
         if b.close_on {
@@ -1502,48 +1808,126 @@ mod tests {
     }
 
     #[test]
-    fn the_strip_has_a_dash_before_the_first_sample_and_a_tile_for_gpu_and_temperature_only_when_they_are_read() {
+    fn the_pills_are_all_there_with_dashes_before_the_first_sample_and_gpu_and_temperature_only_when_they_are_read() {
         let mut u = Up::new(ui::lucent::palette::Mode::Dark, 1.0, five());
-        assert_eq!(u.geo()["strip"]["values"], json!(["\u{2014}", "\u{2014}"]), "no sample yet: dashes, not zeros");
+        assert_eq!(u.geo()["strip"]["tiles"], json!(["CPU", "Memory", "GPU", "Temp"]), "no sample yet: every pill, so the room for them is there");
+        assert_eq!(u.geo()["strip"]["values"], json!(vec!["\u{2014}"; 4]), "no sample yet: dashes, not zeros");
         u.push_stats(stats(false, false));
-        assert_eq!(u.geo()["strip"]["tiles"], json!(["Cpu", "Mem"]));
+        assert_eq!(u.geo()["strip"]["tiles"], json!(["CPU", "Memory"]));
         assert_eq!(u.geo()["strip"]["values"][1], "1.7 / 2.9 GB");
         u.push_stats(stats(false, true));
-        assert_eq!(u.geo()["strip"]["tiles"], json!(["Cpu", "Mem", "Gpu", "Temp"]));
+        assert_eq!(u.geo()["strip"]["tiles"], json!(["CPU", "Memory", "GPU", "Temp"]));
         assert_eq!(u.geo()["strip"]["values"][3], "61 \u{b0}C");
     }
 
     #[test]
-    fn the_numbers_are_one_line_across_the_top_inside_the_margins_and_the_cards_are_centred_in_the_room_below() {
+    fn the_pills_stand_inside_the_margins_in_at_most_two_rows_and_the_cards_are_centred_in_the_room_below() {
         use ui::lucent::palette::Mode;
         let rect = |v: &Value| Frame::new(v["x"].as_f64().unwrap() as f32, v["y"].as_f64().unwrap() as f32, v["w"].as_f64().unwrap() as f32, v["h"].as_f64().unwrap() as f32);
-        for scale in [1.0, 2.0] {
-            let mut u = Up::new(Mode::Dark, scale, five());
-            let mut s = stats(false, true);
-            s["cpu"] = json!([12.0, 80.0, 40.0]);
-            u.push_stats(s);
-            let m = metrics(&mut u.kit);
-            let g = u.geo();
-            let items: Vec<Frame> = g["strip"]["frames"].as_array().unwrap().iter().map(rect).collect();
-            assert_eq!(items.len(), 4, "CPU, memory, GPU and temperature at {scale}");
-            for (i, f) in items.iter().enumerate() {
-                assert!(f.x >= 96.0 && f.x + f.w <= 1824.0, "item {i} inside the side margins at {scale}: {f:?}");
-                assert!(f.y >= 54.0 && f.y + f.h <= m.zone_top, "item {i} is on the top row, above the cards' room at {scale}: {f:?}");
-                assert_eq!((f.y, f.h), (items[0].y, items[0].h), "item {i} is on the same line at {scale}");
-                if i > 0 {
-                    assert!(f.x > items[i - 1].x + items[i - 1].w, "item {i} does not touch the one before at {scale}");
+        let apart = |a: &Frame, b: &Frame| a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+        for mode in [Mode::Dark, Mode::Light] {
+            for scale in [1.0, 2.0] {
+                let mut u = Up::new(mode, scale, five());
+                let mut s = stats(false, true);
+                s["cpu"] = json!([12.0, 80.0, 40.0]);
+                u.push_stats(s);
+                let g = u.geo();
+                let rows = g["strip"]["rows"].as_u64().unwrap() as usize;
+                let m = u.s.metrics(&mut u.kit);
+                let pills: Vec<Frame> = g["strip"]["frames"].as_array().unwrap().iter().map(rect).collect();
+                assert_eq!(pills.len(), 4, "CPU, memory, GPU and temperature at {mode:?} {scale}");
+                assert!((1..=2).contains(&rows), "one or two rows at {mode:?} {scale}: {rows}");
+                if scale == 1.0 {
+                    assert_eq!(rows, 1, "at normal text the four fit one row");
                 }
+                let mut ys: Vec<f32> = pills.iter().map(|f| f.y).collect();
+                ys.dedup();
+                assert_eq!(ys.len(), rows, "the rows are the distinct lines at {mode:?} {scale}");
+                for (i, f) in pills.iter().enumerate() {
+                    assert!(f.x >= 96.0 && f.x + f.w <= 1824.0, "pill {i} inside the side margins at {mode:?} {scale}: {f:?}");
+                    assert!(f.y >= 54.0 && f.y + f.h <= m.zone_top, "pill {i} is above the cards' room at {mode:?} {scale}: {f:?}");
+                    for (j, o) in pills.iter().enumerate().skip(i + 1) {
+                        assert!(apart(f, o), "pills {i} and {j} do not touch at {mode:?} {scale}");
+                    }
+                }
+                let cards: Vec<Frame> = g["cards"].as_array().unwrap().iter().map(|c| rect(&c["frame"])).filter(|f| f.w > 0.0).collect();
+                let foot = geo::H + u.kit.space(4) + m.foot_h;
+                for (i, c) in cards.iter().enumerate() {
+                    assert!(c.y >= m.top && c.y >= m.zone_top && c.y + c.h <= m.top + geo::H, "card {i} is in the row, in the room below the pills at {mode:?} {scale}");
+                    assert!(pills.iter().all(|f| apart(f, c)), "card {i} touches no pill at {mode:?} {scale}");
+                }
+                let system = rect(&g["system"]);
+                assert!(m.top + foot <= m.zone_bottom && m.zone_bottom <= system.y, "the cards and their words end above the buttons at {mode:?} {scale}");
+                let (above, below) = (m.top - m.zone_top, m.zone_bottom - (m.top + foot));
+                assert!((below - above).abs() <= u.kit.space(8) + u.kit.space(2) + 1.0, "the row is centred in the room, the page mark's space aside, at {mode:?} {scale}");
             }
-            let cards = g["cards"].as_array().unwrap().iter().map(|c| rect(&c["frame"])).filter(|f| f.w > 0.0);
-            let foot = geo::H + u.kit.space(4) + m.foot_h;
-            for (i, c) in cards.enumerate() {
-                assert!(c.y >= m.top && c.y >= m.zone_top && c.y + c.h <= m.top + geo::H, "card {i} is in the row, in the room below the strip at {scale}");
-                assert!(items.iter().all(|f| f.y + f.h <= c.y), "card {i} is under every item at {scale}");
-            }
-            let system = rect(&g["system"]);
-            assert!(m.top + foot <= m.zone_bottom && m.zone_bottom <= system.y, "the cards and their words end above the buttons at {scale}");
-            let (above, below) = (m.top - m.zone_top, m.zone_bottom - (m.top + foot));
-            assert!((below - above).abs() <= u.kit.space(8) + u.kit.space(2) + 1.0, "the row is centred in the room, the page mark's space aside, at {scale}");
+        }
+    }
+
+    fn test_stats() -> Stats {
+        Stats { cpu: vec![12.0, 80.0, 40.0], mem: Some(crate::panels::switcher::Mem { total_kb: 3_000_000, avail_kb: 1_200_000 }), gpu: Some(35.0), temp_c: Some(61.0), refresher: false }
+    }
+
+    #[test]
+    fn a_new_registry_entry_is_one_more_pill_and_the_pills_flow_on_with_nothing_else_changed() {
+        fn read_uptime(_: &Stats) -> Option<Gauge> {
+            Some(Gauge { text: "12 h".into(), short: "12 h".into(), levels: vec![50.0] })
+        }
+        let extra = PillSpec { id: "Uptime", label: "Uptime", graphic: Graphic::Segments, widest: ("99 h", "99 h"), read: read_uptime };
+        let (_h, mut kit) = testkit::kit_in(ui::lucent::palette::Mode::Dark, 1.0);
+        let s = test_stats();
+        let one = plan(&mut kit, &PILLS, shape_of(&PILLS, Some(&s)));
+        let mut more = PILLS.to_vec();
+        more.push(extra);
+        let two = plan(&mut kit, &more, shape_of(&more, Some(&s)));
+        assert_eq!(two.items.len(), one.items.len() + 1, "one entry, one pill");
+        assert_eq!(two.items.last().map(|i| i.spec), Some(4));
+        for (a, b) in one.items.iter().zip(&two.items) {
+            assert_eq!(a.frame, b.frame, "the pills before it stay where they were");
+        }
+        let (before, last) = (one.items.last().unwrap().frame, two.items.last().unwrap().frame);
+        assert!(last.x >= before.x + before.w, "it comes after the others on the row");
+        for _ in 0..7 {
+            more.push(extra);
+        }
+        let many = plan(&mut kit, &more, shape_of(&more, Some(&s)));
+        assert_eq!(many.items.len(), 12);
+        assert_eq!(many.rows, 2, "too many for a row: a second, never a third");
+        assert!(many.items.iter().all(|i| i.frame.x >= 96.0 && i.frame.x + i.frame.w <= 1824.0), "all inside the margins");
+    }
+
+    #[test]
+    fn pill_colours_come_from_the_theme_and_differ_between_dark_and_light() {
+        use ui::lucent::palette::Mode;
+        let geo_of = |mode: Mode| {
+            let mut u = Up::new(mode, 1.0, five());
+            u.push_stats(stats(false, true));
+            let g = u.geo();
+            let look = &u.kit.ui.look;
+            let c = |c: compositor_protocol::Rgba| json!([c.0, c.1, c.2, c.3]);
+            let s = &g["strip"];
+            assert_eq!(s["glass"], c(look.colour(PaletteRole::Glass)), "the pill is the theme's glass at {mode:?}");
+            assert_eq!(s["edge"], c(look.colour(PaletteRole::Edge)), "its edge is the theme's edge at {mode:?}");
+            assert_eq!(s["ink"], c(look.ink2()), "its words are the theme's muted ink at {mode:?}");
+            assert_eq!(s["warm"], c(look.colour(PaletteRole::Warning)));
+            assert_eq!(s["hot"], c(look.colour(PaletteRole::Danger)));
+            s.clone()
+        };
+        let (dark, light) = (geo_of(Mode::Dark), geo_of(Mode::Light));
+        for k in ["glass", "edge", "ink", "lit"] {
+            assert_ne!(dark[k], light[k], "{k} follows the mode");
+        }
+    }
+
+    #[test]
+    fn the_thermometer_is_muted_until_65_warm_until_80_and_then_danger() {
+        assert_eq!([heat(30.0), heat(64.9), heat(65.0), heat(79.9), heat(80.0), heat(95.0)], [Heat::Calm, Heat::Calm, Heat::Warm, Heat::Warm, Heat::Hot, Heat::Hot]);
+        let mut u = Up::new(ui::lucent::palette::Mode::Dark, 1.0, five());
+        for (c, want) in [(61, "Calm"), (70, "Warm"), (85, "Hot"), (55, "Calm")] {
+            let mut s = stats(false, true);
+            s["tempC"] = json!(c);
+            u.push_stats(s);
+            assert_eq!(u.geo()["strip"]["heat"], want, "{c} °C");
         }
     }
 
