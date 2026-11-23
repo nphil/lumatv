@@ -23,7 +23,7 @@ use crate::mpeg2::Format;
 use crate::psi::{self, PACKET};
 use crate::slate::{Look, Says, Slate};
 use crate::splice::{Layout, Program, Routes};
-use crate::stream::{End, Facade, Failure, Found, Lease, Over, Refusal, Signal, Tap, Unfound, program};
+use crate::stream::{End, Facade, Failure, Found, Lease, Over, Refusal, Signal, Start, Tap, Unfound, Verify, plain_pids, program};
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime};
@@ -233,8 +233,8 @@ fn progress(step: usize, within: Duration) -> f32 {
 /// the lease lets the next request have it.
 struct Play<'a> {
     tap: Option<Box<dyn Tap>>,
-    /// The PIDs routed as soon as the tuner locked ([`Facade::route_early`]).
-    early: Option<Vec<u16>>,
+    /// What the cached tables of the channel routed as soon as the tuner locked, and the live ones still being checked against them.
+    start: Start,
     facade: &'a Facade,
     entry: Entry,
     look: Look,
@@ -271,7 +271,7 @@ impl Facade {
         self.tuning.streaming(&entry);
         let mut play = Play {
             tap: None,
-            early: None,
+            start: Start::default(),
             facade: self,
             show: Show {
                 program: Program::new(tsid, layout, &format),
@@ -298,11 +298,11 @@ impl Facade {
         };
         let end = match play.run(out, stop) {
             Ok(Ran::Plain { tap, found, tuned }) => {
-                let Play { entry, lease, over, asked, early, .. } = play;
+                let Play { entry, lease, over, asked, start, .. } = play;
                 // the stream says what it streams again once its picture has come
                 drop(over);
                 log::info!("tuner: {}'s picture is not MPEG-2: it streams without slates", entry.guide);
-                return match self.route(&entry, tap, found, lease, (asked, tuned), early) {
+                return match self.route(&entry, tap, found, lease, (asked, tuned), start) {
                     Ok(mut stream) => stream.pump(out, stop),
                     Err(failure) => {
                         self.not_found(&entry.guide, &failure);
@@ -410,7 +410,10 @@ impl Play<'_> {
             Err(why) => return self.last(Says::Failed, End::Failed(why), out).map(Ran::Over),
         };
         let tuned = self.now();
-        self.early = f.route_early(&self.entry.guide, tap.as_mut());
+        // a channel known from a stream or a check starts from its cached tables: its program is routed at once, as the slate would need it
+        let mut cached = f.cached_start(&self.entry, tap.as_mut(), |found| {
+            Some(Layout::of(&found.pmt).filter(|(l, _)| l.video_type == 0x02).map_or_else(|| plain_pids(found), |(_, routes)| routes.pids()))
+        });
         self.tuning(1, tuned);
         self.tick(out)?;
         // The tables, as a stream without slates reads them, a second at a time so the slate goes on between tries. A table read whole that
@@ -420,6 +423,10 @@ impl Play<'_> {
         let mut last_signal = tuned;
         let mut sections = Vec::new();
         let found = loop {
+            if let Some((found, start)) = cached.take() {
+                self.start = start;
+                break found;
+            }
             if let Some(end) = self.given_up(stop) {
                 return Ok(Ran::Over(end));
             }
@@ -452,6 +459,7 @@ impl Play<'_> {
             }
             self.tick(out)?;
         };
+        f.tuning.learned(&self.entry.guide, &found);
         if psi::protected(&found.pmt, Some(&found.channel)) {
             return self.last(Says::Protected, End::Failed(Failure::Protected), out).map(Ran::Over);
         }
@@ -465,7 +473,7 @@ impl Play<'_> {
             }
             return self.last(Says::Failed, End::Failed(Failure::Hardware("the picture is not MPEG-2".to_owned())), out).map(Ran::Over);
         };
-        if let Err(why) = f.route_found(&self.entry.guide, tap.as_mut(), self.early.as_deref(), &routes.pids()) {
+        if let Err(why) = Facade::route_found(tap.as_mut(), self.start.early.as_deref(), &routes.pids()) {
             return self.last(Says::Failed, End::Failed(why), out).map(Ran::Over);
         }
         self.tap = Some(tap);
@@ -473,7 +481,7 @@ impl Play<'_> {
     }
 
     /// The program is routed: the programme in turns with the slate until the end. `tuned` is when the tuner locked.
-    fn stream(&mut self, layout: Layout, routes: Routes, tsid: u16, tuned: Duration, out: &mut dyn Write, stop: &AtomicBool) -> io::Result<End> {
+    fn stream(&mut self, mut layout: Layout, mut routes: Routes, mut tsid: u16, tuned: Duration, out: &mut dyn Write, stop: &AtomicBool) -> io::Result<End> {
         let f = self.facade;
         let lim = &f.limits;
         let routed = self.now();
@@ -494,6 +502,29 @@ impl Play<'_> {
                 return Ok(end);
             }
             let now = self.now();
+            let tap = self.tap.as_mut().expect("routed").as_mut();
+            if let Some(new) = Verify::check(&mut self.start.verify, tap, &f.tuning, now)
+                && self.pictured.is_none()
+            {
+                // the program turned out to be another before the first splice: it is routed again, or the stream ends for the next to start right
+                match Layout::of(&new.pmt).filter(|(l, _)| l.video_type == 0x02 && !psi::protected(&new.pmt, Some(&new.channel))) {
+                    Some((next_layout, next_routes)) => {
+                        if next_routes.pids() != routes.pids()
+                            && let Err(why) = tap.start(&next_routes.pids())
+                        {
+                            return self.last(Says::Failed, End::Failed(why), out);
+                        }
+                        (layout, routes, tsid) = (next_layout, next_routes, new.pat.tsid);
+                        watch = Watch::new(routes.video, now);
+                        heard = false;
+                        first_packet = None;
+                    }
+                    None => {
+                        let failure = Failure::Hardware("the channel's program changed".to_owned());
+                        return self.last(Says::Failed, End::Failed(failure), out);
+                    }
+                }
+            }
             if now.saturating_sub(last_owner) >= lim.owner_every {
                 last_owner = now;
                 let taken = f.hw.in_use().or_else(|| self.tap.as_mut().and_then(|t| t.taken()));
@@ -584,6 +615,9 @@ impl Play<'_> {
                         let waited = now.saturating_sub(since);
                         let limit = if self.pictured.is_some() { lim.give_up } else { lim.give_up_tuning };
                         if waited >= limit {
+                            if self.pictured.is_none() && self.start.verify.is_some() {
+                                f.tuning.unlearn(&self.entry.guide);
+                            }
                             let failure = if self.pictured.is_some() {
                                 Failure::WeakSignal(format!("the picture stopped ({})", self.entry.guide))
                             } else {
@@ -657,6 +691,7 @@ impl Play<'_> {
 pub(crate) mod tests {
     use super::*;
     use crate::docs::Identity;
+    use crate::health::Tables;
     use crate::slate::tests::look;
     use crate::psi::tests::pmt;
     use crate::splice::{AUDIO, PMT, VIDEO, head, write_stamp};
@@ -747,6 +782,21 @@ pub(crate) mod tests {
                 _ => None,
             }
         }
+
+        fn want(&mut self, _pid: u16, _table_id: u8, _number: u8) {}
+
+        fn arrived(&mut self, pid: u16, table_id: u8, number: u8) -> Option<Vec<u8>> {
+            let s = &self.0;
+            let section = match (pid, table_id) {
+                (psi::PID_PSIP, psi::TID_TVCT) => s.mux.tvct.get(usize::from(number)).cloned(),
+                (psi::PID_PAT, psi::TID_PAT) => Some(s.mux.pat.clone()),
+                (pid, psi::TID_PMT) => s.mux.pmts.get(&pid).cloned(),
+                _ => None,
+            };
+            section.filter(|_| s.now() >= s.tables_from)
+        }
+
+        fn forget(&mut self) {}
 
         fn start(&mut self, pids: &[u16]) -> Result<(), Failure> {
             self.0.started.lock().push(pids.to_vec());
@@ -1026,13 +1076,30 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_channel_is_routed_as_its_last_stream_was_as_soon_as_it_is_tuned() {
+    fn a_channel_is_routed_from_its_cached_tables_as_soon_as_it_is_tuned_and_only_once_while_they_hold() {
         let time = Time::default();
         let script = Script::new(&time, stops_at_two());
         let f = facade(&script, quick());
-        f.tuning.routed("2.4", &[0x61]);
-        play(&f);
-        assert_eq!(*script.started.lock(), [vec![0x61], vec![0x61, 0x64]], "and again once its tables show its program moved");
+        f.tuning.noted("2.4", cached(script.mux.pmts[&0x60].clone()));
+        let (out, _) = play(&f);
+        assert!(pictures(&out).iter().any(|p| p.0), "the programme came");
+        assert_eq!(*script.started.lock(), [vec![0x61, 0x64]]);
+    }
+
+    #[test]
+    fn a_program_that_moved_since_it_was_cached_is_routed_again_before_the_first_picture() {
+        let time = Time::default();
+        let script = Script::new(&time, stops_at_two());
+        let f = facade(&script, quick());
+        f.tuning.noted("2.4", cached(pmt(4, 0x62, &[], &[(0x02, 0x62, &[]), (0x81, 0x64, &[])])));
+        let (out, _) = play(&f);
+        assert!(pictures(&out).iter().any(|p| p.0), "the programme came");
+        assert_eq!(*script.started.lock(), [vec![0x62, 0x64], vec![0x61, 0x64]]);
+        assert_eq!(f.tuning.known()["2.4"].tables.as_ref().map(|t| t.pmt.clone()), Some(script.mux.pmts[&0x60].clone()));
+    }
+
+    fn cached(pmt: Vec<u8>) -> Tables {
+        Tables { tsid: 739, program: 4, access_controlled: false, pmt_pid: 0x60, pmt }
     }
 
     #[test]

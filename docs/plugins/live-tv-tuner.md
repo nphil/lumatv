@@ -104,6 +104,28 @@ the section decoder: the app in front keeps its picture and sound (Netflix in 4K
 last channel stays as it was. With Always Ready off, a TV switched off sleeps and nothing answers; the plugin's page says so.
 A conversion is the exception: it also takes a video decoder and the encoder, and gives them up when an app other than Home needs them.
 
+## Channel change
+
+A stream is on its way as soon as the channel is tuned, from what the last stream of the channel found:
+
+- Each channel's PAT/PMT (as the program's own PMT section, with its multiplex id, program number, access flag and PMT PID) is kept in
+  `tuner/channels.json` (a PMT is kept only up to 1 KiB, so the file stays about the lineup's size) and learned for every channel of a
+  multiplex by the reception check. A tune routes the channel's PIDs from them at once, without waiting for any table.
+- The live virtual channel table, PAT and PMT are asked for meanwhile, one section filter at a time, and compared with the cache. A
+  program that moved before the first byte is routed again and goes out as the live tables say; one that moved later is corrected for
+  the next request and the stream is not broken. A cached program that brings no picture is forgotten and the tune is read the long way.
+- The pipeline a stream leaves is kept for 1 s with its demux, and a channel on the same RF channel is read on it without playing it
+  again or waiting for the lock (a lock query only). A channel on another RF channel is played on the same pipeline.
+
+The rest of a channel change is the station's: the stream starts at the first whole key frame (its sequence header and the I picture
+with it), gathered from the moment the PIDs are routed, and that is as soon as a decoder can show a picture. Sending from a partial
+GOP gives a player pictures it cannot decode; it would only show grey or green. A player should show the first picture it decodes
+(a small `probesize` and `analyzeduration`, or `avformat_find_stream_info` bounded to what the first key frame holds) and open again
+when a stream ends.
+
+Examined and not done: reading the lock from `/proc` (the luna query it replaces takes 15 to 25 ms), caching the TV's own use of the
+tuner (the check is what keeps Live TV first), a luna connection kept open (not measured).
+
 ## Settings
 
 The page has the switch, where the tuner stands (idle, streaming a channel, busy while the TV's own Live TV has it, checking reception

@@ -249,8 +249,26 @@ struct Inner {
     cfg: WebosConfig,
     bus: Arc<dyn Luna>,
     seed: Mutex<Option<[u8; 16]>>,
-    /// The pipeline the last stream let go of, and when: the next tune plays on it ([`SPARE_FOR`]).
-    spare: Mutex<Option<(String, Instant)>>,
+    /// The pipeline the last stream let go of: the next tune plays on it ([`SPARE_FOR`]).
+    spare: Mutex<Option<Spare>>,
+}
+
+/// A stream's pipeline kept playing for the next tune, with the RF channel it is on and the demux its stream read with (the channel's
+/// input is still this tuner's, nothing routed): a channel on the same RF channel needs neither a retune nor a lock wait.
+struct Spare {
+    pipeline: String,
+    at: Instant,
+    rf: Option<u8>,
+    dvb: Option<Dvb>,
+}
+
+impl Spare {
+    fn parked(pipeline: String, rf: Option<u8>, mut dvb: Option<Dvb>) -> Self {
+        if let Some(dvb) = dvb.as_mut() {
+            dvb.idle();
+        }
+        Self { pipeline, at: Instant::now(), rf, dvb }
+    }
 }
 
 impl Tv {
@@ -330,11 +348,11 @@ impl Inner {
     }
 
     /// Keeps a stream's pipeline, still playing, for the next tune; one not taken within [`SPARE_FOR`] is let go of.
-    fn park(self: &Arc<Self>, id: String) {
-        let at = Instant::now();
-        let older = self.spare.lock().replace((id, at));
-        if let Some((older, _)) = older {
-            self.let_go(&older);
+    fn park(self: &Arc<Self>, spare: Spare) {
+        let at = spare.at;
+        let older = self.spare.lock().replace(spare);
+        if let Some(older) = older {
+            self.let_go_spare(older);
         }
         let inner = self.clone();
         thread::spawn(move || {
@@ -343,34 +361,55 @@ impl Inner {
         });
     }
 
+    /// Lets go of the demux, then the pipeline.
+    fn let_go_spare(&self, spare: Spare) {
+        drop(spare.dvb);
+        self.let_go(&spare.pipeline);
+    }
+
     /// Lets go of the spare pipeline: whichever it is (`None`), or only the one parked at `at`.
     fn reap(&self, at: Option<Instant>) {
-        let id = {
+        let spare = {
             let mut spare = self.spare.lock();
             match spare.take() {
-                Some((id, parked)) if at.is_none_or(|at| at == parked) => id,
+                Some(s) if at.is_none_or(|at| at == s.at) => s,
                 kept => {
                     *spare = kept;
                     return;
                 }
             }
         };
-        self.let_go(&id);
+        self.let_go_spare(spare);
     }
 
-    /// A pipeline playing `channel_id`: the spare while LG still plays on it, else a new one. From here the pipeline is let go of however
-    /// this ends: `Tuned` is the guard.
-    fn playing(self: &Arc<Self>, channel_id: &str) -> Result<Tuned, Failure> {
+    /// A pipeline playing `channel_id`: the spare while LG still plays on it, else a new one; true when the spare is on the channel's RF
+    /// channel with its demux and is still locked, so that nothing was played. From here the pipeline is let go of however this ends:
+    /// `Tuned` is the guard.
+    fn playing(self: &Arc<Self>, channel_id: &str) -> Result<(Tuned, bool), Failure> {
+        let rf = crate::docs::parse_channel_id(channel_id).map(|(rf, _, _)| rf);
         let spare = self.spare.lock().take();
-        if let Some((pipeline, _)) = spare {
-            let tuned = Tuned::on(self, pipeline);
+        if let Some(spare) = spare {
+            let in_place = rf.is_some() && spare.rf == rf && spare.dvb.is_some();
+            let mut tuned = Tuned::on(self, spare.pipeline);
+            tuned.rf = rf;
+            tuned.dvb = spare.dvb;
+            if in_place && self.locked(&tuned.pipeline) {
+                return Ok((tuned, true));
+            }
             if self.play(&tuned.pipeline, channel_id).is_ok() {
-                return Ok(tuned);
+                return Ok((tuned, false));
             }
         }
-        let tuned = Tuned::on(self, self.open_pipeline()?);
+        let mut tuned = Tuned::on(self, self.open_pipeline()?);
+        tuned.rf = rf;
         self.play(&tuned.pipeline, channel_id)?;
-        Ok(tuned)
+        Ok((tuned, false))
+    }
+
+    /// Whether the frontend of pipeline `id` is locked.
+    fn locked(&self, id: &str) -> bool {
+        self.luna(&format!("{BROADCAST}/getSignalStatus"), &json!({"broadcastId": id}))
+            .is_ok_and(|status| status["signal"]["locked"].as_bool() == Some(true))
     }
 
     /// The pipeline's state as LG's broadcast service gives it: [`RENDERING`] while it is the helper's.
@@ -585,16 +624,20 @@ impl Hardware for Tv {
     fn tune(&self, channel_id: &str) -> Result<Box<dyn Tap>, Failure> {
         let inner = &self.inner;
         let seed = inner.seed()?;
-        let mut tuned = inner.playing(channel_id)?;
-        inner.wait_lock(&tuned.pipeline)?;
-        tuned.dvb = Some(Dvb::open(&inner.cfg, seed)?);
+        let (mut tuned, in_place) = inner.playing(channel_id)?;
+        if !in_place {
+            inner.wait_lock(&tuned.pipeline)?;
+        }
+        if tuned.dvb.is_none() {
+            tuned.dvb = Some(Dvb::open(&inner.cfg, seed)?);
+        }
         tuned.keep = true;
         Ok(Box::new(tuned))
     }
 
     /// The meter's pipeline is let go of at once when it stops, not kept.
     fn hold(&self, channel_id: &str) -> Result<Box<dyn Hold>, Failure> {
-        Ok(Box::new(self.inner.playing(channel_id)?))
+        Ok(Box::new(self.inner.playing(channel_id)?.0))
     }
 
     fn release(&self) {
@@ -617,6 +660,8 @@ impl Hold for Tuned {
 struct Tuned {
     inner: Arc<Inner>,
     pipeline: String,
+    /// The RF channel it is tuned to.
+    rf: Option<u8>,
     dvb: Option<Dvb>,
     /// A stream's, locked and with its demux: the next tune can play on its pipeline.
     keep: bool,
@@ -627,6 +672,7 @@ impl Tuned {
         Self {
             inner: inner.clone(),
             pipeline,
+            rf: None,
             dvb: None,
             keep: false,
         }
@@ -635,12 +681,13 @@ impl Tuned {
 
 impl Drop for Tuned {
     fn drop(&mut self) {
-        self.dvb = None;
         // Live TV that has taken the tuner keeps playing through a `stop` and `close` of this pipeline (measured on the set on 2026-11-05).
         let pipeline = std::mem::take(&mut self.pipeline);
+        let dvb = self.dvb.take();
         if self.keep {
-            self.inner.park(pipeline);
+            self.inner.park(Spare::parked(pipeline, self.rf, dvb));
         } else {
+            drop(dvb);
             self.inner.let_go(&pipeline);
         }
     }
@@ -649,6 +696,22 @@ impl Drop for Tuned {
 impl Tap for Tuned {
     fn section(&mut self, pid: u16, table_id: u8, number: u8, wait: Duration) -> Option<Vec<u8>> {
         self.dvb.as_mut()?.section(pid, table_id, number, wait)
+    }
+
+    fn want(&mut self, pid: u16, table_id: u8, number: u8) {
+        if let Some(dvb) = self.dvb.as_mut() {
+            dvb.want(pid, table_id, number);
+        }
+    }
+
+    fn arrived(&mut self, pid: u16, table_id: u8, number: u8) -> Option<Vec<u8>> {
+        self.dvb.as_mut()?.arrived(pid, table_id, number)
+    }
+
+    fn forget(&mut self) {
+        if let Some(dvb) = self.dvb.as_mut() {
+            dvb.wants.clear();
+        }
     }
 
     fn start(&mut self, pids: &[u16]) -> Result<(), Failure> {
@@ -691,6 +754,8 @@ struct Dvb {
     taps: Vec<File>,
     rest: Vec<u8>,
     chunk: Vec<u8>,
+    /// One-shot section filters asked for with `want` and not yet read: (`pid`, `table_id`, `section_number`) and the filter's fd.
+    wants: Vec<((u16, u8, u8), File)>,
 }
 
 impl Dvb {
@@ -716,12 +781,13 @@ impl Dvb {
             taps: Vec::new(),
             rest: Vec::new(),
             chunk: vec![0; UNIT * 512],
+            wants: Vec::new(),
         })
     }
 
-    /// One section of the table, filtered in the demux (the section number is the fifth filter byte), within `wait`.
-    fn section(&mut self, pid: u16, table_id: u8, number: u8, wait: Duration) -> Option<Vec<u8>> {
-        let mut file = node(&self.cfg, "demux", true).ok()?;
+    /// A section filter on the table (the section number is the fifth filter byte), one-shot.
+    fn filter(&self, pid: u16, table_id: u8, number: u8) -> Option<File> {
+        let file = node(&self.cfg, "demux", true).ok()?;
         let mut q = SectionFilter {
             pid,
             filter: [0; 16],
@@ -735,6 +801,12 @@ impl Dvb {
         q.filter[4] = number;
         q.mask[4] = 0xFF;
         ioctl(&file, DMX_SET_FILTER, &mut q).ok()?;
+        Some(file)
+    }
+
+    /// One section of the table, filtered in the demux, within `wait`.
+    fn section(&mut self, pid: u16, table_id: u8, number: u8, wait: Duration) -> Option<Vec<u8>> {
+        let mut file = self.filter(pid, table_id, number)?;
         let end = Instant::now() + wait;
         let mut buf = vec![0u8; 4096];
         while let Some(left) = end.checked_duration_since(Instant::now()) {
@@ -754,6 +826,38 @@ impl Dvb {
             }
         }
         None
+    }
+
+    /// Starts waiting for a section without blocking: [`Dvb::arrived`] takes it once it has come.
+    fn want(&mut self, pid: u16, table_id: u8, number: u8) {
+        if self.wants.iter().all(|(key, _)| *key != (pid, table_id, number))
+            && let Some(file) = self.filter(pid, table_id, number)
+        {
+            self.wants.push(((pid, table_id, number), file));
+        }
+    }
+
+    fn arrived(&mut self, pid: u16, table_id: u8, number: u8) -> Option<Vec<u8>> {
+        let at = self.wants.iter().position(|(key, _)| *key == (pid, table_id, number))?;
+        if !readable(&self.wants[at].1, Duration::ZERO) {
+            return None;
+        }
+        let mut buf = vec![0u8; 4096];
+        match (&self.wants[at].1).read(&mut buf) {
+            Ok(n) if n > 0 => {
+                self.wants.remove(at);
+                Some(buf[..n].to_vec())
+            }
+            _ => None,
+        }
+    }
+
+    /// Stops routing and drops what was read: the tuner and the channel's input stay as they are.
+    fn idle(&mut self) {
+        self.taps.clear();
+        self.dvr = None;
+        self.rest.clear();
+        self.wants.clear();
     }
 
     fn start(&mut self, pids: &[u16]) -> Result<(), Failure> {
@@ -1124,7 +1228,7 @@ mod tests {
         assert!(!record.exists());
         stream(&tv);
         assert_eq!(std::fs::read_to_string(&record).unwrap(), "0000004c-2", "a kept pipeline stays on record");
-        let parked = tv.inner.spare.lock().as_ref().map(|(_, at)| *at).unwrap();
+        let parked = tv.inner.spare.lock().as_ref().map(|s| s.at).unwrap();
         tv.inner.reap(Some(parked + Duration::from_millis(1)));
         assert!(tv.inner.spare.lock().is_some(), "a later park's spare is not this reaper's");
         tv.inner.reap(Some(parked));
@@ -1150,6 +1254,37 @@ mod tests {
                 "close 0000004c-5"
             ]
         );
+    }
+
+    #[test]
+    fn a_channel_on_the_rf_channel_the_spare_is_on_is_read_without_a_retune_and_with_the_demux_it_has() {
+        let (tv, luna, _dir) = tv();
+        let park = |tv: &Tv, pipeline: String| {
+            let mut tuned = Tuned::on(&tv.inner, pipeline);
+            tuned.rf = Some(32);
+            tuned.dvb = Some(Dvb {
+                cfg: tv.inner.cfg.clone(),
+                seed: [0; 16],
+                input: None,
+                dvr: None,
+                taps: Vec::new(),
+                rest: Vec::new(),
+                chunk: Vec::new(),
+                wants: Vec::new(),
+            });
+            tuned.keep = true;
+            drop(tuned);
+        };
+        park(&tv, tv.inner.open_pipeline().unwrap());
+        let (mut tuned, in_place) = tv.inner.playing("1_32_2_4_0_0_0").unwrap();
+        assert!(in_place && tuned.dvb.is_some());
+        assert_eq!(luna.broadcast(), ["open", "getSignalStatus 0000004c-1"], "locked already: nothing played");
+        // another RF channel is played on the same pipeline, and the demux goes with it
+        tuned.keep = true;
+        drop(tuned);
+        let (tuned, in_place) = tv.inner.playing("1_27_5_1_0_0_0").unwrap();
+        assert!(!in_place && tuned.dvb.is_some());
+        assert_eq!(luna.broadcast()[2..], ["playSignaling 0000004c-1 1_27_5_1_0_0_0"]);
     }
 
     // Only the writer child holds the write descriptor; another test's fork cannot inherit it and block exec.

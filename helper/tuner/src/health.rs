@@ -10,7 +10,7 @@ use crate::docs::{self, Entry};
 use crate::mpeg2::Format;
 use crate::psi::{self, PACKET};
 use crate::splice::Layout;
-use crate::stream::{Facade, Failure, Signal, channels_of};
+use crate::stream::{Facade, Failure, Found, Signal, channels_of};
 use crate::Status;
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr};
@@ -78,13 +78,56 @@ pub(crate) struct Seen {
     pub(crate) tsid: u16,
 }
 
+/// A channel's program as its tables said the last time they were read: a stream starts from it at once, routing the PIDs its PMT names,
+/// while the live tables are read again and checked against it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Tables {
+    pub tsid: u16,
+    pub program: u16,
+    /// The virtual channel table said its events may be scrambled.
+    pub access_controlled: bool,
+    pub pmt_pid: u16,
+    /// The program's PMT section as read.
+    pub pmt: Vec<u8>,
+}
+
+impl Tables {
+    pub(crate) fn of(found: &Found) -> Self {
+        Self {
+            tsid: found.pat.tsid,
+            program: found.channel.program,
+            access_controlled: found.channel.access_controlled,
+            pmt_pid: found.pmt_pid,
+            pmt: found.pmt_section.clone(),
+        }
+    }
+
+    /// The program for `entry` as it was read; `None` when the PMT does not parse.
+    pub(crate) fn found(&self, entry: &Entry) -> Option<Found> {
+        Some(Found {
+            channel: psi::Channel {
+                name: String::new(),
+                major: entry.major,
+                minor: entry.minor,
+                program: self.program,
+                access_controlled: self.access_controlled,
+                hidden: false,
+                service_type: 0,
+            },
+            pat: psi::Pat { tsid: self.tsid, programs: vec![(self.program, self.pmt_pid)] },
+            pmt_pid: self.pmt_pid,
+            pmt_section: self.pmt.clone(),
+            pmt: psi::parse_pmt(&self.pmt)?,
+        })
+    }
+}
+
 /// What the tuner remembers of a channel.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Known {
     pub(crate) seen: Option<Seen>,
     pub(crate) health: Option<Health>,
-    /// The PIDs its last stream routed: the next stream routes them as soon as the tuner locks, ahead of its tables.
-    pub(crate) pids: Option<Vec<u16>>,
+    pub(crate) tables: Option<Tables>,
 }
 
 /// A channel as the owner sees it: the lineup's channel, whether it is left out, and how it came in.
@@ -101,6 +144,8 @@ pub struct Reception {
     pub format: Option<Format>,
     pub video: Option<u8>,
     pub sounds: usize,
+    /// Its tables as the last stream or check read them, for [`crate::Tuner::recall`].
+    pub tables: Option<Tables>,
 }
 
 /// The picture packets of one channel while a check listens: its stream type, how many came and how many were lost, by continuity count,
@@ -185,12 +230,14 @@ impl Facade {
         let mut layouts: Vec<Option<(Layout, u16)>> = vec![None; group.len()];
         if let Some((channels, pat)) = &tables {
             for (i, e) in group.iter().enumerate() {
-                let pmt = channels
-                    .iter()
-                    .find(|c| (c.major, c.minor) == (e.major, e.minor))
-                    .and_then(|c| pat.programs.iter().find(|p| p.0 == c.program))
-                    .and_then(|p| tap.section(p.1, psi::TID_PMT, 0, wait))
-                    .and_then(|s| psi::parse_pmt(&s));
+                let channel = channels.iter().find(|c| (c.major, c.minor) == (e.major, e.minor));
+                let entry = channel.and_then(|c| pat.programs.iter().find(|p| p.0 == c.program).map(|p| (c, p.1)));
+                let section = entry.and_then(|(_, pid)| tap.section(pid, psi::TID_PMT, 0, wait));
+                let pmt = section.as_deref().and_then(psi::parse_pmt);
+                let pmt_section = section.as_deref().and_then(|s| psi::checked(s, psi::TID_PMT)).map(<[u8]>::to_vec);
+                if let (Some((channel, pmt_pid)), Some(pmt_section), Some(pmt)) = (entry, pmt_section, pmt.clone()) {
+                    self.tuning.learned(&e.guide, &Found { channel: channel.clone(), pat: pat.clone(), pmt_pid, pmt_section, pmt });
+                }
                 if let Some((layout, routes)) = pmt.as_ref().and_then(Layout::of) {
                     let listened = Listened { stream_type: layout.video_type, got: 0, lost: 0, cc: None, whole: None, format: None };
                     pictures.insert(routes.video, (i, listened));

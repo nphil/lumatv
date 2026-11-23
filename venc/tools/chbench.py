@@ -128,6 +128,7 @@ def main():
         return
     channels, rounds = sys.argv[1].split(","), int(sys.argv[2])
     profile = sys.argv[3] if len(sys.argv) > 3 else "mobile"
+    gap = float(os.environ.get("GAP", "1.2"))
     rows = []
     for r in range(rounds):
         for i, ch in enumerate(channels):
@@ -138,7 +139,7 @@ def main():
                 row["lag"] = round(row["key_start"] - row["first_byte"], 3)
             rows.append(row)
             print(row, flush=True)
-            time.sleep(1.2)
+            time.sleep(gap)
     for mode in ("raw", profile):
         mine = [r for r in rows if r["mode"] == mode and "key_whole" in r]
         if not mine:

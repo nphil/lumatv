@@ -9,7 +9,7 @@
 
 use crate::Status;
 use crate::docs::{self, Entry, Identity};
-use crate::health::{Health, Known, Seen, Verdict, lost_before};
+use crate::health::{Health, Known, Seen, Tables, Verdict, lost_before};
 use crate::mpeg2::Format;
 use crate::psi::{self, PACKET};
 use crate::slate::{Look, Says};
@@ -228,6 +228,13 @@ pub trait Tap: Send {
     fn start(&mut self, pids: &[u16]) -> Result<(), Failure>;
     /// Appends the whole 188-byte packets that arrived within `wait` (none is fine) to `out`.
     fn read(&mut self, out: &mut Vec<u8>, wait: Duration) -> Result<(), Failure>;
+    /// Starts waiting for one section without blocking; [`Tap::arrived`] gives it once it has come. Asking again for one already asked
+    /// for changes nothing.
+    fn want(&mut self, pid: u16, table_id: u8, number: u8);
+    /// The section asked for with [`Tap::want`], if it has come: it is not waited for.
+    fn arrived(&mut self, pid: u16, table_id: u8, number: u8) -> Option<Vec<u8>>;
+    /// Stops waiting for what was asked for with [`Tap::want`].
+    fn forget(&mut self);
     /// Whether the TV has taken the tuner from this tap, and why. Measured on the set: when Live TV opens, LG's own pipeline manager
     /// unrealizes the helper's at once, and the demux goes on giving whatever the frontend is on (the same PIDs on the next multiplex), so
     /// the packets themselves do not say it.
@@ -436,12 +443,34 @@ impl Tuning {
         self.known.lock().get(guide).and_then(|k| k.seen.clone())
     }
 
-    pub(crate) fn routed(&self, guide: &str, pids: &[u16]) {
-        self.known.lock().entry(guide.to_owned()).or_default().pids = Some(pids.to_vec());
+    /// Notes channel `guide`'s program as its tables say; the host is told when that is not what was noted.
+    pub(crate) fn learned(&self, guide: &str, found: &Found) {
+        let tables = Tables::of(found);
+        let changed = {
+            let mut known = self.known.lock();
+            let noted = &mut known.entry(guide.to_owned()).or_default().tables;
+            (noted.as_ref() != Some(&tables)).then(|| *noted = Some(tables)).is_some()
+        };
+        if changed {
+            self.tell();
+        }
     }
 
-    fn last_routed(&self, guide: &str) -> Option<Vec<u16>> {
-        self.known.lock().get(guide).and_then(|k| k.pids.clone())
+    /// Takes in the tables a host kept of channel `guide`.
+    pub(crate) fn noted(&self, guide: &str, tables: Tables) {
+        self.known.lock().entry(guide.to_owned()).or_default().tables = Some(tables);
+    }
+
+    /// Forgets channel `guide`'s tables: they led to no picture.
+    pub(crate) fn unlearn(&self, guide: &str) {
+        let forgot = self.known.lock().get_mut(guide).is_some_and(|k| k.tables.take().is_some());
+        if forgot {
+            self.tell();
+        }
+    }
+
+    fn tables(&self, guide: &str) -> Option<Tables> {
+        self.known.lock().get(guide).and_then(|k| k.tables.clone())
     }
 
     pub(crate) fn known(&self) -> HashMap<String, Known> {
@@ -850,20 +879,23 @@ impl Facade {
         }
     }
 
-    /// Routes the PIDs channel `guide`'s last stream routed as soon as the tuner locks, so its picture gathers while its tables are read:
-    /// the wait for the first whole picture from the routing was 0.76 s of a 3 s channel change (2026-11-11). The PIDs, when routed.
-    pub(crate) fn route_early(&self, guide: &str, tap: &mut dyn Tap) -> Option<Vec<u16>> {
-        let pids = self.tuning.last_routed(guide)?;
+    /// Starts channel `entry` from the tables its last stream (or a check) read, as soon as the tuner has locked: `pids` of its program
+    /// are routed at once, so its picture gathers while the live tables are read and checked against these ([`Verify`]). `None` when
+    /// nothing is known of the channel.
+    pub(crate) fn cached_start(&self, entry: &Entry, tap: &mut dyn Tap, pids: fn(&Found) -> Option<Vec<u16>>) -> Option<(Found, Start)> {
+        let tables = self.tuning.tables(&entry.guide)?;
+        let found = tables.found(entry)?;
+        let pids = pids(&found)?;
         tap.start(&pids).ok()?;
-        Some(pids)
+        let verify = Verify::new(entry.clone(), tables, (self.clock)() + self.limits.section_wait);
+        Some((found, Start { early: Some(pids), verify: Some(verify) }))
     }
 
-    /// Routes channel `guide`'s `pids`, unless they are the ones routed `early`: what came since is kept.
-    pub(crate) fn route_found(&self, guide: &str, tap: &mut dyn Tap, early: Option<&[u16]>, pids: &[u16]) -> Result<(), Failure> {
+    /// Routes `pids`, unless they are the ones routed `early`: what came since is kept.
+    pub(crate) fn route_found(tap: &mut dyn Tap, early: Option<&[u16]>, pids: &[u16]) -> Result<(), Failure> {
         if early != Some(pids) {
             tap.start(pids)?;
         }
-        self.tuning.routed(guide, pids);
         Ok(())
     }
 
@@ -883,10 +915,20 @@ impl Facade {
         let asked = (self.clock)();
         let mut tap = self.hw.tune(&entry.channel_id)?;
         let tuned = (self.clock)();
-        let early = self.route_early(&entry.guide, tap.as_mut());
-        // The tables are read in rounds from the lock on until they name the channel or `section_wait` has passed: a weak multiplex loses
-        // whole sections (on RF 29 on 2026-11-05 they took up to 4.8 s, and at times did not come in 6 s), and the previous multiplex's
-        // could still be on the demux for a moment (not seen on the set: the first PAT after the lock was always the new multiplex's).
+        let (found, start) = match self.cached_start(entry, tap.as_mut(), |f| Some(plain_pids(f))) {
+            Some(cached) => cached,
+            None => (self.read_program(entry, tap.as_mut(), tuned, &given_up)?, Start::default()),
+        };
+        if psi::protected(&found.pmt, Some(&found.channel)) {
+            return Err(Failure::Protected);
+        }
+        self.route(entry, tap, found, lease, (asked, tuned), start)
+    }
+
+    /// Reads `entry`'s tables in rounds from the lock on until they name the channel or `section_wait` has passed: a weak multiplex loses
+    /// whole sections (on RF 29 on 2026-11-05 they took up to 4.8 s, and at times did not come in 6 s), and the previous multiplex's
+    /// could still be on the demux for a moment (not seen on the set: the first PAT after the lock was always the new multiplex's).
+    fn read_program(&self, entry: &Entry, tap: &mut dyn Tap, tuned: Duration, given_up: &dyn Fn() -> Option<Failure>) -> Result<Found, Failure> {
         let mut sections = Vec::new();
         let mut why = Unfound::Missing("no whole channel table");
         let found = loop {
@@ -900,19 +942,18 @@ impl Facade {
             if left.is_zero() {
                 return Err(self.unfound(entry, why));
             }
-            match program(tap.as_mut(), entry, &mut sections, left) {
+            match program(tap, entry, &mut sections, left) {
                 Ok(found) => break found,
                 Err(not) => why = not,
             }
         };
-        if psi::protected(&found.pmt, Some(&found.channel)) {
-            return Err(Failure::Protected);
-        }
-        self.route(entry, tap, found, lease, (asked, tuned), early)
+        self.tuning.learned(&entry.guide, &found);
+        Ok(found)
     }
 
     /// Routes the program `found` on `tap` and waits for its first whole picture: the stream without slates from there. `tuned` is when
-    /// the stream was asked for and when the tuner locked, `early` what was routed then ([`Facade::route_early`]).
+    /// the stream was asked for and when the tuner locked, `begun` what was routed then and the tables still being checked
+    /// ([`Facade::cached_start`]): a program that turns out to be another before the picture is in is routed again.
     pub(crate) fn route(
         &self,
         entry: &Entry,
@@ -920,7 +961,7 @@ impl Facade {
         found: Found,
         lease: Lease,
         (asked, tuned): (Duration, Duration),
-        early: Option<Vec<u16>>,
+        begun: Start,
     ) -> Result<Stream, Failure> {
         let given_up = || {
             lease
@@ -928,40 +969,48 @@ impl Facade {
                 .load(Ordering::Acquire)
                 .then_some(Failure::Busy)
         };
-        let Found { channel, pat, pmt_pid, pmt_section, pmt } = found;
-        let mut pids: Vec<u16> = [pmt_pid, pmt.pcr_pid]
-            .into_iter()
-            .chain(pmt.streams.iter().map(|e| e.pid))
-            .collect();
-        pids.sort_unstable();
-        pids.dedup();
+        let Start { early, mut verify } = begun;
+        let mut found = found;
+        let mut pids = plain_pids(&found);
         // the program's picture tells whether the tuner is still where it was; a program without one is watched by its clock
-        let picture = pmt
-            .streams
-            .iter()
-            .find(|e| matches!(e.stream_type, 0x02 | 0x1B | 0x24))
-            .map(|e| (e.pid, e.stream_type));
-        let watch = picture.map_or(pmt.pcr_pid, |(pid, _)| pid);
-        self.route_found(&entry.guide, tap.as_mut(), early.as_deref(), &pids)?;
-        let routed = (self.clock)();
+        let (mut picture, mut watch) = picture_of(&found.pmt);
+        Self::route_found(tap.as_mut(), early.as_deref(), &pids)?;
+        let mut routed = (self.clock)();
         // The client is told yes once the picture has come through whole, and its stream starts there: a station can list a channel whose
         // PMT names a picture and a sound that carry no packets (16.9 on 2026-11-05), a weak RF channel can bring the picture too broken to
         // start (30.1 the same day, 559 continuity gaps in 12 s), and a player takes either for a stream that has not started yet and keeps
         // asking for it; the pictures before the first whole one only made Plex's transcoder log "Invalid frame dimensions 0x0".
-        let whole = |p: &[u8]| {
-            psi::pid_of_packet(p) == watch
-                && picture.is_none_or(|(_, stream_type)| psi::access_point(p, stream_type))
+        let is_whole = |p: &[u8], watch: u16, picture: Option<(u16, u8)>| {
+            psi::pid_of_packet(p) == watch && picture.is_none_or(|(_, stream_type)| psi::access_point(p, stream_type))
         };
         let mut first = Vec::with_capacity(PACKET * 512);
         let mut seen = 0;
         let start = loop {
-            if let Some(at) = first[seen..].chunks_exact(PACKET).position(whole) {
+            if let Some(new) = Verify::check(&mut verify, tap.as_mut(), &self.tuning, (self.clock)()) {
+                if psi::protected(&new.pmt, Some(&new.channel)) {
+                    return Err(Failure::Protected);
+                }
+                let next = plain_pids(&new);
+                if next != pids {
+                    tap.start(&next)?;
+                    first.clear();
+                    seen = 0;
+                    routed = (self.clock)();
+                }
+                (picture, watch) = picture_of(&new.pmt);
+                pids = next;
+                found = new;
+            }
+            if let Some(at) = first[seen..].chunks_exact(PACKET).position(|p| is_whole(p, watch, picture)) {
                 break seen + at * PACKET;
             }
             if let Some(f) = given_up() {
                 return Err(f);
             }
             if (self.clock)().saturating_sub(routed) >= self.limits.first_picture {
+                if verify.is_some() {
+                    self.tuning.unlearn(&entry.guide);
+                }
                 let pictured = first
                     .chunks_exact(PACKET)
                     .any(|p| psi::pid_of_packet(p) == watch);
@@ -980,6 +1029,7 @@ impl Facade {
         first.drain(..start);
         let pictured = (self.clock)();
         self.tuning.streaming(entry);
+        let Found { channel, pat, pmt_pid, pmt_section, .. } = found;
         Ok(Stream {
             stage: None,
             tap,
@@ -1004,6 +1054,7 @@ impl Facade {
                 then: Status::Idle,
             },
             lease,
+            verify,
         })
     }
 
@@ -1032,6 +1083,143 @@ pub(crate) struct Found {
     pub(crate) pmt_pid: u16,
     pub(crate) pmt_section: Vec<u8>,
     pub(crate) pmt: psi::Pmt,
+}
+
+/// What a stream started from the cached tables of its channel has routed already and is still checking.
+#[derive(Default)]
+pub(crate) struct Start {
+    pub(crate) early: Option<Vec<u16>>,
+    pub(crate) verify: Option<Verify>,
+}
+
+/// The PIDs a stream without slates routes for the program: the PMT's, the clock and every stream.
+pub(crate) fn plain_pids(found: &Found) -> Vec<u16> {
+    let mut pids: Vec<u16> = [found.pmt_pid, found.pmt.pcr_pid].into_iter().chain(found.pmt.streams.iter().map(|e| e.pid)).collect();
+    pids.sort_unstable();
+    pids.dedup();
+    pids
+}
+
+/// The program's picture (its PID and stream type), and the PID that tells whether the tuner is still where it was: the picture's, or the
+/// clock's for a program without one.
+fn picture_of(pmt: &psi::Pmt) -> (Option<(u16, u8)>, u16) {
+    let picture = pmt.streams.iter().find(|e| matches!(e.stream_type, 0x02 | 0x1B | 0x24)).map(|e| (e.pid, e.stream_type));
+    (picture, picture.map_or(pmt.pcr_pid, |(pid, _)| pid))
+}
+
+/// A stream started from its channel's cached tables, reading the live ones meanwhile without waiting ([`Tap::want`]): the sections are
+/// asked for as the stream starts and taken as they come, the same tables [`program`] reads one after another.
+pub(crate) struct Verify {
+    entry: Entry,
+    cached: Tables,
+    /// When it gives up: a multiplex that does not bring its tables whole by then is left noted as it was.
+    until: Duration,
+    channels: Vec<Option<Vec<u8>>>,
+    pat: Vec<Option<Vec<u8>>>,
+}
+
+enum Checked {
+    Waiting,
+    Same,
+    Changed(Box<Found>),
+    GaveUp,
+}
+
+/// Asks for the sections of one table and keeps those that have come in `have` (the first says how many there are).
+fn gather(tap: &mut dyn Tap, pid: u16, table_id: u8, have: &mut Vec<Option<Vec<u8>>>) {
+    if have.is_empty() {
+        tap.want(pid, table_id, 0);
+        if let Some(first) = tap.arrived(pid, table_id, 0)
+            && let Some(last) = first.get(7).copied()
+        {
+            *have = vec![None; usize::from(last) + 1];
+            have[0] = Some(first);
+        }
+    }
+    for (n, section) in (0..=u8::MAX).zip(have.iter_mut()) {
+        if section.is_none() {
+            tap.want(pid, table_id, n);
+            *section = tap.arrived(pid, table_id, n);
+        }
+    }
+}
+
+/// The sections of a table, once all of them are in.
+fn whole(have: &[Option<Vec<u8>>]) -> Option<Vec<&[u8]>> {
+    if have.is_empty() {
+        return None;
+    }
+    have.iter().map(Option::as_deref).collect()
+}
+
+impl Verify {
+    pub(crate) fn new(entry: Entry, cached: Tables, until: Duration) -> Self {
+        Self { entry, cached, until, channels: Vec::new(), pat: Vec::new() }
+    }
+
+    /// Takes what has come of the live tables and compares them with the cached ones, once they name the channel's program whole.
+    fn step(&mut self, tap: &mut dyn Tap, now: Duration) -> Checked {
+        if now >= self.until {
+            return Checked::GaveUp;
+        }
+        gather(tap, psi::PID_PSIP, psi::TID_TVCT, &mut self.channels);
+        gather(tap, psi::PID_PAT, psi::TID_PAT, &mut self.pat);
+        let channel = whole(&self.channels).and_then(|sections| {
+            let all: Option<Vec<Vec<psi::Channel>>> = sections.into_iter().map(psi::parse_tvct).collect();
+            all.and_then(|all| all.into_iter().flatten().find(|c| (c.major, c.minor) == (self.entry.major, self.entry.minor)))
+        });
+        if channel.is_none() && whole(&self.channels).is_some() {
+            // a table read whole without the channel may be the last multiplex's: it is read again
+            self.channels.clear();
+        }
+        let pat = whole(&self.pat).and_then(|sections| {
+            let all: Option<Vec<psi::Pat>> = sections.into_iter().map(psi::parse_pat).collect();
+            all.and_then(|all| {
+                let tsid = all.first()?.tsid;
+                Some(psi::Pat { tsid, programs: all.into_iter().flat_map(|p| p.programs).collect() })
+            })
+        });
+        if pat.is_none() && whole(&self.pat).is_some() {
+            self.pat.clear();
+        }
+        let (Some(channel), Some(pat)) = (channel, pat) else {
+            return Checked::Waiting;
+        };
+        let Some(pmt_pid) = pat.programs.iter().find(|p| p.0 == channel.program).map(|p| p.1) else {
+            self.pat.clear();
+            return Checked::Waiting;
+        };
+        tap.want(pmt_pid, psi::TID_PMT, 0);
+        let Some(pmt_section) = tap.arrived(pmt_pid, psi::TID_PMT, 0).and_then(|s| psi::checked(&s, psi::TID_PMT).map(<[u8]>::to_vec)) else {
+            return Checked::Waiting;
+        };
+        let Some(pmt) = psi::parse_pmt(&pmt_section) else {
+            return Checked::Waiting;
+        };
+        let found = Found { channel, pat, pmt_pid, pmt_section, pmt };
+        if Tables::of(&found) == self.cached {
+            Checked::Same
+        } else {
+            Checked::Changed(Box::new(found))
+        }
+    }
+
+    /// Steps the check in `slot` and ends it when it has an answer or gave up. The live program, when it is not the cached one (it is
+    /// noted as the channel's from then on).
+    pub(crate) fn check(slot: &mut Option<Self>, tap: &mut dyn Tap, tuning: &Tuning, now: Duration) -> Option<Found> {
+        let verify = slot.as_mut()?;
+        let found = match verify.step(tap, now) {
+            Checked::Waiting => return None,
+            Checked::Changed(found) => Some(*found),
+            Checked::Same | Checked::GaveUp => None,
+        };
+        if let Some(found) = &found {
+            tuning.learned(&verify.entry.guide, found);
+        }
+        *slot = None;
+        tap.forget();
+        found
+    }
 }
 
 /// One round of reading `entry`'s tables within `wait`: its virtual channel (the channel table's sections kept in `sections` across
@@ -1164,6 +1352,8 @@ pub(crate) struct Stream {
     counted: (u64, u64),
     over: Over,
     lease: Lease,
+    /// The cached tables it started from, while the live ones are still being checked against them.
+    verify: Option<Verify>,
 }
 
 impl Stream {
@@ -1273,6 +1463,10 @@ impl Stream {
                     return Ok(End::Preempted(why));
                 }
             }
+            if self.verify.is_some() {
+                // a change in the tables only corrects what is noted for the next stream: this one is going out as it started
+                Verify::check(&mut self.verify, self.tap.as_mut(), &self.over.tuning, now);
+            }
             buf.clear();
             if let Err(f) = self.tap.read(&mut buf, lim.poll) {
                 return Ok(End::Failed(f));
@@ -1339,6 +1533,10 @@ pub(crate) mod tests {
         pub(crate) fn advance(&self, by: Duration) {
             self.0.fetch_add(by.as_millis() as u64, Ordering::Relaxed);
         }
+
+        pub(crate) fn now(&self) -> Duration {
+            Duration::from_millis(self.0.load(Ordering::Relaxed))
+        }
     }
 
     #[derive(Clone)]
@@ -1393,6 +1591,11 @@ pub(crate) mod tests {
         /// Sections (`pid`, `table_id`, `section_number`) the next read of each loses, and every section read.
         lost: Mutex<Vec<(u16, u8, u8)>>,
         reads: Mutex<Vec<(u16, u8, u8)>>,
+        /// Sections asked for with `want` and when each comes, and the ones that have come.
+        wanted: Mutex<Vec<(Section, Duration)>>,
+        arrivals: Mutex<Vec<Section>>,
+        /// What a tap gets to read once these PIDs are routed on it.
+        on_start: Mutex<Vec<(Vec<u16>, Vec<u8>)>>,
         /// What the demodulator says.
         pub(crate) signal: Mutex<Option<Signal>>,
         /// The channels held for the meter, and the TV's last channel.
@@ -1418,10 +1621,32 @@ pub(crate) mod tests {
                 stale: Mutex::default(),
                 lost: Mutex::default(),
                 reads: Mutex::default(),
+                wanted: Mutex::default(),
+                arrivals: Mutex::default(),
+                on_start: Mutex::default(),
                 signal: Mutex::default(),
                 held: Mutex::default(),
                 last: Mutex::default(),
             })
+        }
+    }
+
+    /// A section a tap is asked for: `pid`, `table_id`, `section_number`.
+    type Section = (u16, u8, u8);
+
+    /// The section as the multiplex gives it: the first virtual channel table can be the last multiplex's, and a section can be lost.
+    fn serve(fake: &Fake, pid: u16, table_id: u8, number: u8) -> Option<Vec<u8>> {
+        let mut lost = fake.lost.lock();
+        if let Some(at) = lost.iter().position(|l| *l == (pid, table_id, number)) {
+            lost.remove(at);
+            return None;
+        }
+        let m = &fake.mux;
+        match (pid, table_id) {
+            (psi::PID_PSIP, psi::TID_TVCT) => fake.stale.lock().take().or_else(|| m.tvct.get(usize::from(number)).cloned()),
+            (psi::PID_PAT, psi::TID_PAT) => Some(m.pat.clone()),
+            (pid, psi::TID_PMT) => m.pmts.get(&pid).cloned(),
+            _ => None,
         }
     }
 
@@ -1501,37 +1726,38 @@ pub(crate) mod tests {
     pub(crate) const CLEAN: Signal = Signal { locked: true, mse: Some(22), snr: Some(30.0), errors: Some(0), ber: Some(0) };
 
     impl Tap for FakeTap {
-        /// A table takes a moment to come round; the first virtual channel table can be the last multiplex's, and a section can be lost.
-        fn section(
-            &mut self,
-            pid: u16,
-            table_id: u8,
-            number: u8,
-            _wait: Duration,
-        ) -> Option<Vec<u8>> {
+        /// A table takes a moment to come round.
+        fn section(&mut self, pid: u16, table_id: u8, number: u8, _wait: Duration) -> Option<Vec<u8>> {
             self.fake.time.advance(Duration::from_millis(50));
             self.fake.reads.lock().push((pid, table_id, number));
-            let mut lost = self.fake.lost.lock();
-            if let Some(at) = lost.iter().position(|l| *l == (pid, table_id, number)) {
-                lost.remove(at);
-                return None;
+            serve(&self.fake, pid, table_id, number)
+        }
+
+        fn want(&mut self, pid: u16, table_id: u8, number: u8) {
+            let mut wanted = self.fake.wanted.lock();
+            if wanted.iter().all(|(key, _)| *key != (pid, table_id, number)) {
+                wanted.push(((pid, table_id, number), self.fake.time.now() + Duration::from_millis(50)));
             }
-            let m = &self.fake.mux;
-            match (pid, table_id) {
-                (psi::PID_PSIP, psi::TID_TVCT) => self
-                    .fake
-                    .stale
-                    .lock()
-                    .take()
-                    .or_else(|| m.tvct.get(usize::from(number)).cloned()),
-                (psi::PID_PAT, psi::TID_PAT) => Some(m.pat.clone()),
-                (pid, psi::TID_PMT) => m.pmts.get(&pid).cloned(),
-                _ => None,
-            }
+        }
+
+        fn arrived(&mut self, pid: u16, table_id: u8, number: u8) -> Option<Vec<u8>> {
+            let mut wanted = self.fake.wanted.lock();
+            let at = wanted.iter().position(|(key, due)| *key == (pid, table_id, number) && *due <= self.fake.time.now())?;
+            wanted.remove(at);
+            self.fake.arrivals.lock().push((pid, table_id, number));
+            serve(&self.fake, pid, table_id, number)
+        }
+
+        fn forget(&mut self) {
+            self.fake.wanted.lock().clear();
         }
 
         fn start(&mut self, pids: &[u16]) -> Result<(), Failure> {
             self.fake.started.lock().push(pids.to_vec());
+            let mut on_start = self.fake.on_start.lock();
+            if let Some(at) = on_start.iter().position(|(routed, _)| routed == pids) {
+                self.queue.push_back(on_start.remove(at).1);
+            }
             Ok(())
         }
 
@@ -1779,17 +2005,47 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_channel_is_routed_as_its_last_stream_was_as_soon_as_it_is_tuned_and_again_only_when_its_program_moved() {
+    fn a_channel_is_routed_from_its_cached_tables_as_soon_as_it_is_tuned_while_the_live_ones_are_read_and_checked() {
         let time = Time::default();
         let fake = fake_with(&time, rf32(&[]), on_air());
         let f = facade(&fake, &time);
         drop(f.open("2.4", PLEX).unwrap());
-        assert_eq!(f.tuning.last_routed("2.4"), Some(vec![0x60, 0x61, 0x64]));
-        drop(f.open("2.4", PLEX).unwrap());
-        assert_eq!(fake.started.lock().len(), 2, "routed once: what came while the tables were read is kept");
-        f.tuning.routed("2.4", &[0x60, 0x62]);
-        drop(f.open("2.4", PLEX).unwrap());
-        assert_eq!(fake.started.lock()[2..], [vec![0x60, 0x62], vec![0x60, 0x61, 0x64]]);
+        assert_eq!(*fake.started.lock(), [vec![0x60, 0x61, 0x64]]);
+        let read = fake.reads.lock().len();
+        let mut stream = f.open("2.4", PLEX).unwrap();
+        assert_eq!(fake.reads.lock().len(), read, "no table was waited for");
+        assert_eq!(stream.took[1], Duration::ZERO);
+        stream.pump(&mut Vec::new(), &AtomicBool::new(false)).unwrap();
+        assert_eq!(*fake.arrivals.lock(), [(psi::PID_PSIP, psi::TID_TVCT, 0), (psi::PID_PAT, psi::TID_PAT, 0), (0x60, psi::TID_PMT, 0)]);
+        assert_eq!(fake.started.lock().len(), 2, "routed once on this tune: the tables said the same");
+    }
+
+    #[test]
+    fn a_program_that_moved_since_it_was_cached_is_routed_again_before_its_picture_and_noted_as_it_is() {
+        let time = Time::default();
+        let mux = rf32(&[]);
+        let fake = fake_with(&time, mux.clone(), on_air());
+        let f = facade(&fake, &time);
+        let moved = pmt(4, 0x62, &[], &[(0x02, 0x62, &[]), (0x81, 0x64, &[])]);
+        f.tuning.noted("2.4", Tables { tsid: 739, program: 4, access_controlled: false, pmt_pid: 0x60, pmt: moved });
+        fake.on_start.lock().push((vec![0x60, 0x61, 0x64], picture(0x61, 0)));
+        let stream = f.open("2.4", PLEX).unwrap();
+        assert_eq!(*fake.started.lock(), [vec![0x60, 0x62, 0x64], vec![0x60, 0x61, 0x64]]);
+        assert_eq!(stream.pmt, mux.pmts[&0x60], "the stream goes out as the live tables say");
+        assert_eq!(f.tuning.tables("2.4").map(|t| t.pmt), Some(mux.pmts[&0x60].clone()));
+    }
+
+    #[test]
+    fn a_cached_program_that_brings_no_picture_and_that_the_multiplex_does_not_list_is_forgotten() {
+        let time = Time::default();
+        let mut mux = rf32(&[]);
+        mux.tvct = vec![tvct(739, &[("WSB-HD", 2, 1, 1, false)])];
+        let fake = fake_with(&time, mux, vec![packet(0x61, 0)]);
+        let f = facade(&fake, &time);
+        let gone = pmt(4, 0x61, &[], &[(0x02, 0x61, &[]), (0x81, 0x64, &[])]);
+        f.tuning.noted("2.4", Tables { tsid: 739, program: 4, access_controlled: false, pmt_pid: 0x60, pmt: gone });
+        assert!(f.open("2.4", PLEX).is_err());
+        assert_eq!(f.tuning.tables("2.4"), None);
     }
 
     #[test]

@@ -4,7 +4,7 @@
 //! start so that a channel's first slate is already its shape.
 
 use lumatuner::mpeg2::Format;
-use lumatuner::{Health, Reception, Signal, Tuner, Verdict};
+use lumatuner::{Health, Reception, Signal, Tables, Tuner, Verdict};
 use serde_json::{Map, Value as Json, json};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -37,7 +37,7 @@ impl Kept {
         for (guide, kept) in &self.channels {
             let sounds = kept["sounds"].as_u64().map_or(1, |n| n as usize);
             let video = kept["video"].as_u64().and_then(|v| u8::try_from(v).ok());
-            tuner.recall(guide, health_of(&kept["health"]), format_of(&kept["format"]), sounds, video);
+            tuner.recall(guide, health_of(&kept["health"]), format_of(&kept["format"]), sounds, video, tables_of(&kept["tables"]));
         }
     }
 
@@ -49,7 +49,7 @@ impl Kept {
         }
         let channels: Map<String, Json> = reception
             .iter()
-            .filter(|r| r.health.is_some() || r.format.is_some() || r.video.is_some())
+            .filter(|r| r.health.is_some() || r.format.is_some() || r.video.is_some() || r.tables.is_some())
             .map(|r| {
                 let mut kept = Map::new();
                 if let Some(h) = &r.health {
@@ -61,6 +61,9 @@ impl Kept {
                 if let Some(v) = r.video {
                     kept.insert("video".to_owned(), json!(v));
                     kept.insert("sounds".to_owned(), json!(r.sounds));
+                }
+                if let Some(t) = r.tables.as_ref().filter(|t| t.pmt.len() <= MAX_PMT) {
+                    kept.insert("tables".to_owned(), tables_json(t));
                 }
                 (r.guide.clone(), Json::Object(kept))
             })
@@ -77,6 +80,25 @@ impl Kept {
         let doc = json!({"v": 1, "hidden": self.hidden, "channels": self.channels});
         crate::hue_store::write_private(path, doc.to_string().as_bytes(), 0o600)
     }
+}
+
+/// The longest PMT kept: a program's PMT is a hundred bytes or so, and the file stays small however the station fills its tables.
+const MAX_PMT: usize = 1024;
+
+fn tables_json(t: &Tables) -> Json {
+    json!({"tsid": t.tsid, "program": t.program, "access": t.access_controlled, "pmtPid": t.pmt_pid, "pmt": t.pmt})
+}
+
+fn tables_of(doc: &Json) -> Option<Tables> {
+    let num = |key: &str| doc[key].as_u64().and_then(|v| u16::try_from(v).ok());
+    let pmt: Vec<u8> = doc["pmt"].as_array()?.iter().map(|b| b.as_u64().and_then(|b| u8::try_from(b).ok())).collect::<Option<_>>()?;
+    (pmt.len() <= MAX_PMT).then_some(Tables {
+        tsid: num("tsid")?,
+        program: num("program")?,
+        access_controlled: doc["access"].as_bool()?,
+        pmt_pid: num("pmtPid")?,
+        pmt,
+    })
 }
 
 fn verdict_word(v: Verdict) -> &'static str {
@@ -221,6 +243,7 @@ mod tests {
             format: None,
             video: None,
             sounds: 0,
+            tables: None,
         }
     }
 
@@ -274,6 +297,8 @@ mod tests {
         seen.format = Some(format);
         seen.video = Some(0x02);
         seen.sounds = 2;
+        let tables = Tables { tsid: 739, program: 1, access_controlled: false, pmt_pid: 0x30, pmt: vec![2, 0xB0, 0x12, 0, 1, 0xC1, 0, 0, 0xE0, 0x31, 0xF0, 0, 4, 0xE0, 0x31, 0xF0, 0] };
+        seen.tables = Some(tables.clone());
         let mut avc = reception("34.4", 34, None);
         avc.video = Some(0x1B);
         assert!(kept.update(&[seen.clone(), avc, reception("2.2", 32, None)]));
@@ -285,6 +310,12 @@ mod tests {
         let doc = &back.channels["2.1"];
         assert_eq!(health_of(&doc["health"]), Some(health));
         assert_eq!((format_of(&doc["format"]), doc["sounds"].as_u64()), (Some(format), Some(2)));
+        assert_eq!(tables_of(&doc["tables"]), Some(tables.clone()));
+        let mut long = seen.clone();
+        long.tables = Some(Tables { pmt: vec![0; MAX_PMT + 1], ..tables });
+        let mut again = Kept::read(&path);
+        again.update(&[long]);
+        assert!(again.channels["2.1"].get("tables").is_none(), "a PMT longer than any real one is not kept");
         assert_eq!((back.channels["34.4"]["video"].as_u64(), format_of(&back.channels["34.4"]["format"])), (Some(0x1B), None), "an H.264 picture is kept as one");
         let mut back = back;
         assert!(back.update(&[reception("2.2", 32, None)]));

@@ -53,7 +53,7 @@ pub mod stream;
 pub mod transcode;
 pub mod webos;
 
-pub use health::{Health, Reception, Verdict};
+pub use health::{Health, Reception, Tables, Verdict};
 pub use meter::Reading;
 pub use net::Cidr;
 pub use slate::{Look, Type};
@@ -300,6 +300,7 @@ impl Tuner {
                     format: seen.filter(|s| s.layout.video_type == 0x02).map(|s| s.format),
                     video: seen.map(|s| s.layout.video_type),
                     sounds: seen.map_or(0, |s| s.layout.audio.len()),
+                    tables: k.and_then(|k| k.tables.clone()),
                     guide: e.guide,
                     name: e.name,
                 }
@@ -309,8 +310,11 @@ impl Tuner {
 
     /// Gives back what a host kept of a channel from [`Tuner::reception`]: its health, its picture's stream type and, for an MPEG-2
     /// picture, its format and how many sounds its program has, which its next slate takes (a picture of another type is streamed
-    /// without slates).
-    pub fn recall(&self, guide: &str, health: Option<Health>, format: Option<Format>, sounds: usize, video: Option<u8>) {
+    /// without slates), and its tables, which its next stream starts from.
+    pub fn recall(&self, guide: &str, health: Option<Health>, format: Option<Format>, sounds: usize, video: Option<u8>, tables: Option<Tables>) {
+        if let Some(tables) = tables {
+            self.tuning.noted(guide, tables);
+        }
         if let Some(health) = health {
             self.tuning.record(guide, health);
         }
