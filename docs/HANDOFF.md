@@ -9,6 +9,18 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## Task manager installed and checked on the set, 2026-11-23 (main d172f28a, helper from 76430ee3)
+
+Installed under the TV lock, old -> new: lumatv-compositor `3cafb86f` -> `3ba09192`, lumatv-ui `542c9806` -> `7635037b` (header strip included), lumatv-sm `26eca8b5` -> `e6de36b8`, tools/lumatv `666d8153` -> `6f982df3`, `lib/x1heapshim.so` `2abb40a6` -> `3ecc4c5b`, helper `09cab7f6` -> `f98d7788` (built from main 76430ee3: audio passthrough device-number match, tuner cache, camera cool-down). The feeder was left as it was (`d9194794`; only a local build hash differed). Compositor, UI and sm applied live with `tv_install.py --now`, the video check passed each time; audio-passthrough and voice-assistant are still in the enabled list after the helper restart (their on/off state was not exercised).
+
+Defects found on the set and fixed on main: the own-app filter matched every `org.nphil.luma*` id, so LumaGame and LumaBrowser had no card and no hook (`a895529e`); the app manager lists a launcher script's pid while the Wayland client is its child, so a stopped app was not seen as hung and Quit left the window behind (`bbc02c55`); quitting the app the task manager was opened over closed it when the next app came forward (`d172f28a`).
+
+Checked on the set: Back held 500 ms does not open it, 700 ms does (codes 158 and 412), a single Back on Home does nothing, a held Back over the open quick panel parks it; the numbers sampler stays at 0 samples while closed and costs about 220 us per sample at 1 sample/s open; a SIGSTOPped LumaBrowser shows "Not responding", Quit ends it (2 of 2 processes) and the card goes, LumaGame's card shows its own picture through the hook, and Quit through the hook ended the LumaGame session cleanly (the UI exited "LumaGame closed", status 0). Frame gate at 120 Hz: `switcher` (task manager open, walked and closed) passed, p90 render 1.90 ms, 0 dropped over 986 flips, 0 over 20 ms, RSS flat; default surfaces with it closed passed except `quick-settings` (first frame 68 and 71 ms against 50, no burst found; the compositor's drop count was 1 then 0); not shown to come from this work. Receipts: gate output and JSON in the agent's scratch, not kept.
+
+Untested: the System sheet actions on the set (Restart LumaTV, LG Home, Restart TV refused during the refresher), the rescue freeze test (SIGSTOP the compositor, Back 3 s and 10 s), `tools/lumatv video-check` with the task manager over playing video, 200 % text, light mode on the set. Worker-only test failures: `frame_syscalls` (seccomp SIGSYS) and `page_alpha` fail on the build worker, not confirmed as environment-only.
+
+Light-mode contrast, owner decision: fix palette-wide, later. Cancel is white on (161,137,189) = 3.08:1 and the danger label (180,99,122) on (243,226,223) = 3.35:1 against a 4.5:1 target; the accent ink in `rustui/lumashow-ui/src/lucent/resolve.rs` (`contrast_ratio` is there) is used by `rustui/ui/src/kit/button.rs`.
+
 ## Task manager header strip, 2026-11-23 (main e5ff3d58)
 
 Installed ui c1f65816592022c8b81fde581fb3152871a8337276f5f7eaad5b4666e4fec2b0 (replaces 501c86c3) by `cutover.sh ui-swap`; compositor untouched. The stats are one muted header line across the top (CPU with a bar per core, Memory, GPU, Temp) and the cards are centred below it. Checked on the set: task manager opened over Marquee and LumaGame, the strip and the cards drawn as in the host scene, closed again (`open` false). Untested: 200 % text on the set, the frame gate.
