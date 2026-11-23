@@ -37,6 +37,28 @@ pub fn parse_pid(v: &Value) -> Option<i32> {
     (pid > 1).then_some(pid)
 }
 
+/// The parent pid, from the text of `/proc/PID/stat` (the field after the state).
+pub fn parse_ppid(text: &str) -> Option<i32> {
+    text[text.rfind(')')? + 1..].split_whitespace().nth(1)?.parse().ok()
+}
+
+/// Whether `pid` is a descendant of one of `roots` (a process is not its own descendant). A Wayland client of an app that the app manager
+/// started through a launcher script is a child of the pid it lists; a web app's client (`WebAppMgr`) is nobody's descendant and is left out.
+pub fn descends_from(pid: i32, roots: &[i32]) -> bool {
+    let mut at = pid;
+    for _ in 0..16 {
+        let Some(parent) = fs::read_to_string(format!("/proc/{at}/stat")).ok().and_then(|t| parse_ppid(&t)) else { return false };
+        if roots.contains(&parent) {
+            return true;
+        }
+        if parent <= 1 {
+            return false;
+        }
+        at = parent;
+    }
+    false
+}
+
 impl Proc {
     /// The process with this pid, as it is now; `None` when there is none.
     pub fn identify(pid: i32) -> Option<Proc> {
@@ -80,6 +102,17 @@ mod tests {
         // a command name with spaces and a closing parenthesis in it
         let odd = "12 (a) b (c)) T 1 12 12 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 555 1 1 1";
         assert_eq!(parse_stat(odd), Some(('T', 555)));
+    }
+
+    #[test]
+    fn a_process_descends_from_its_parent_and_not_from_itself_or_a_stranger() {
+        let me = std::process::id() as i32;
+        // SAFETY: getppid has no arguments and cannot fail.
+        let parent = unsafe { libc::getppid() };
+        assert_eq!(parse_ppid("12 (a) b (c)) T 77 12 12 0"), Some(77));
+        assert!(descends_from(me, &[parent]));
+        assert!(!descends_from(me, &[me]));
+        assert!(!descends_from(me, &[i32::MAX]));
     }
 
     #[test]

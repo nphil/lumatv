@@ -871,8 +871,13 @@ impl State {
 
     /// The window's client process id as LG sends it (a string); "" while the client's credentials are unknown.
     fn window_pid(&self, w: &crate::window::Window) -> String {
-        let pid = self.seat.surfaces.get(&w.surface).and_then(|r| r.client()).and_then(|c| self.clients.get(&c.id())).map(|c| c.pid).unwrap_or(0);
-        if pid == 0 { String::new() } else { pid.to_string() }
+        self.window_client_pid(w).map_or_else(String::new, |pid| pid.to_string())
+    }
+
+    /// The window's client process id; `None` while the client's credentials are unknown.
+    pub(crate) fn window_client_pid(&self, w: &crate::window::Window) -> Option<i32> {
+        let pid = self.seat.surfaces.get(&w.surface).and_then(|r| r.client()).and_then(|c| self.clients.get(&c.id())).map(|c| c.pid)?;
+        (pid > 0).then_some(pid)
     }
 
     fn window_type_name(&self, w: &crate::window::Window) -> String {

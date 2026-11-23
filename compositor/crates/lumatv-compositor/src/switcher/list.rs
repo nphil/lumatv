@@ -6,7 +6,7 @@
 //! while the compositor was up (`seen`): the services the app manager runs for itself never had one and stay out. With no answer (the
 //! bridge is down, or it has not come yet) the windows alone are listed.
 //!
-//! The processes come from the same answer, each with its start time, so that ending one ([`State::kill_app`]) never ends a process that
+//! The processes come from the same answer (and the windows' clients that descend from them), each with its start time, so that ending one ([`State::kill_app`]) never ends a process that
 //! took the number later. An app with a stopped process (`SIGSTOP`, a debugger) is *hung*: it cannot act on a request to quit, so Quit
 //! ends it.
 //!
@@ -21,7 +21,7 @@ use super::{App, Picture, input_app, own_app};
 use crate::luna::{Outbound, ToBridge};
 use crate::State;
 use crate::surface::SurfaceId;
-use crate::taskmgr::procs::Proc;
+use crate::taskmgr::procs::{Proc, descends_from};
 use crate::taskmgr::running::{self, RunningApp};
 use crate::window::{Window, WindowId, WindowType};
 
@@ -203,11 +203,19 @@ impl State {
             self.journal(format!("switcher: the app manager's list could not be read: {payload}"));
             return true;
         };
+        let clients: Vec<(String, i32)> = self.scene.windows().filter_map(|w| Some((w.app_id().to_string(), self.window_client_pid(w)?))).collect();
         let list = &mut self.switcher.list;
         list.listed = apps
             .into_iter()
             .map(|a| {
-                let procs = a.pids.iter().filter_map(|p| Proc::identify(*p)).collect();
+                // the window's client is the app too when it is a child of the listed process (a launcher script runs the real program)
+                let mut pids = a.pids.clone();
+                for (id, pid) in &clients {
+                    if *id == a.id && !pids.contains(pid) && descends_from(*pid, &a.pids) {
+                        pids.push(*pid);
+                    }
+                }
+                let procs = pids.iter().filter_map(|p| Proc::identify(*p)).collect();
                 (a, procs)
             })
             .collect();
