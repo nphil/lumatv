@@ -9,6 +9,14 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+## On-TV transcode: decoder and `xcode` child measured on the set, engine not built, 2026-11-23
+
+Nothing was installed; the TV stayed at Home under the lock and was left as found (`video-check` picture, `failed_units` 7, resets unchanged, no holder). `venc/` gained the decoder session (`vdec.c`, `vdec_abi.h`), the child `lumatv-venc xcode` (`xcode.c`, protocol `xcode_proto.h`), a CPU scaler (`scale.c`), `tools/es2au.py` and the fake decoder in `tests/fake_sys.c`; `venc/test.sh` runs the unit tests, the child over pipes and the process mode. The results are in `docs/research/hw-transcode.md` ("Measured on the set"): 720p60 MPEG-2 to 720p29.97 H.264 at 9 ms a frame and 44.6 dB, 1080i to 1080p at 24.7 ms, 1080i to 720p at 31.5 frames/s flat out, and the interlaced MPEG-2 arrives as top fields.
+
+To do, in order: (1) the engine as a standalone Rust crate (`helper/xcode`: one job at a time on the encoder, live over recording over replay, preemption within 1 s when an app needs the decoder, supervision of the child with kill escalation, events started/paused/resumed/error, `save_last` over a bounded ring) that speaks `xcode_proto.h`. (2) The tuner's `Codec`/`Convert` over it and a plugin setting, off by default, in `helper/app/src/tuner.rs`; send the PES PTS as `pts`. (3) Vectorise `hpass` in `scale.c`, or let 1080 stations take an unscaled 1080p output, before the 720p profile runs all day. (4) The soak on the set: 30 minutes of live transcode with channel switches, an app opened mid-run, the helper killed mid-run, phone playback of `?transcode=mobile`. (5) The capture tap: `REQBUFS` fails with ENOENT.
+
+Not tested: a live antenna feed through the child, AC-3 passthrough, preemption by an app, 1080 decoding while Live TV or Marquee holds decoders, and `cpb` free size with Live TV on. Binaries run: arm64 `lumatv-venc` `e45f175d` and `ea012c5c`, deleted from the set afterwards.
+
 ## Voice helper reinstalled with the echo canceller on, 2026-11-23 (main 37ed9c82)
 
 Helper `4683577c` -> `2db91857` (both copies; only the helper restarted, standby, compositor and UI untouched), built from main `37ed9c82` against LumaShow `3344928f`. The plugin keeps its pairing and enabled state; the microphone opens at buffer 8192 and the canceller is on with reference `hw:1,2` read at 96 kHz, right channel. After the swap `arecord` on `hw:1,0` had run 2:24 with `hw_ptr` advancing 16 kHz, `aud_dsp_reset_count` stayed 0, `GET /v1/panel/refresher` answered `running:false`, and the Home Assistant entity is now `assist_satellite.living_room_lumatv_voice_bdae31_assist_satellite` (state idle; the area prefix was added since the first install).

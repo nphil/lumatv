@@ -33,4 +33,13 @@ unsigned long wd_count(void);
 #define WD_TAP_STOP_MS 10000
 #define WD_POLL_EXTRA_MS 1000
 
+/* The decoder node (vdec.c). Format, control, queue and event calls only touch driver state and return at
+ * once; STREAMON is where the driver takes a decoder channel from the video MCU and a code-picture buffer
+ * from "cpb"; close tears both down. */
+#define WD_V4L2_MS 2000
+#define WD_V4L2_REQBUFS_MS 3000
+#define WD_V4L2_STREAMON_MS 5000
+#define WD_V4L2_STREAMOFF_MS 5000
+#define WD_V4L2_CLOSE_MS 10000
+
 #endif

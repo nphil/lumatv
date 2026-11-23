@@ -220,7 +220,7 @@ Recovery, in order:
 
 Each needs Nitin's OK.
 
-### On-set probe plan (not run)
+### On-set probe plan (P0 to P4 and P5a run on 2026-11-23; results below)
 
 Each slot needs Nitin's OK and the TV lock (`/data/home/Marquee/tools/tv-lock.sh`). Start: Home in front, nothing playing, `/status.json` holder `null`, the receiver muted. Every step is its own process under the `venc/` watchdog (exit 75 names the call) and a budget; `venc/tv_slot.sh` kills at the budget (SIGKILL), and a process still there 5 s later is `WEDGED` (its `/proc/PID/stack` saved) and the slot stops. Nothing is written outside `/tmp`.
 
@@ -235,7 +235,7 @@ Health check, before the first step and after each: `/proc/hma/status` and `CmaF
 | P4 `chain`, 40 s: P3's files through decoder and encoder (720p30 from 720p60 first, then 1080i with a CPU scale) | `DQBUF`, `ENC_ENCODE` by address, the Annex B unit out | the output decodes; bitstream in to unit out under 100 ms at the 95th percentile; the first IDR under 200 ms after the first I picture is queued; the child under 10 % of a core at 720p; no dropped picture | an encode over 500 ms; as P3 |
 | P5 `live`, 60 s cap: the engine and the child, `?transcode=mobile` on 2.1 from a host client, then from Marquee for iPhone | (a) Live TV opened mid-run; (b) a Marquee H.264 stream opened mid-run; (c) the helper killed mid-run; (d) the same with the screen off | the client plays; the PMT says 0x1B; the first key unit within 0.5 s of the I picture; (a), (b): the chain stops within 1 s and the app's picture and sound are unaffected (Nitin at the set); (c): the holders are empty | (a) or (b) not met within 1 s; any `WEDGED` |
 
-Before the slot: the fake `video21` with dma-buf import, the child and the probe binary. The engine side is done and tested on the host.
+Built for the slot and tested on the host: the fake `video21` with dma-buf import (`venc/tests/fake_sys.c`), the decoder session (`venc/vdec.c`), the probes (`lumatv-venc vdec`, `chain`) and the child (`lumatv-venc xcode`). The engine side (the queue, preemption, the tuner's converter) is not built.
 
 ### What needs Nitin
 
@@ -243,3 +243,29 @@ Before the slot: the fake `video21` with dma-buf import, the child and the probe
 2. Slice L0 (the phone's CPU and energy on 1080i MPEG-2 against `mobile` H.264): it says what this is worth, and needs no TV hardware.
 3. The phone apps asking `?transcode=mobile` (Marquee for iPhone and for Android, on LumaTV only); the tuner side is ready behind its gate, with no converter installed yet.
 4. A choice: the TV's own hardware (this plan, a wedge risk, one conversion at a time, only while the TV is idle) or a relay on BeastNAS (the same request, no risk to the TV, one more hop).
+
+### Measured on the set, 2026-11-23
+
+Home in front and nothing playing for every step, under the TV lock. Afterwards `failed_units` (7), `aud_dsp_reset_count` (0) and `ipc_reset_count` (2) were as before, `video-check` found a picture, no process held a device, and only the last-owner label of the `cpb` pool differed. The decoder is `/dev/video21` (`vdec-decoder`), the encoder `/dev/venc`; the child is `lumatv-venc xcode` (`venc/xcode.c`, wire format `venc/xcode_proto.h`) over the session library `venc/vdec.c`.
+
+| Step | Measured |
+|---|---|
+| P1 | bitstream queue H264, MPEG2, HEVC, VP9, AV1 and others; capture NV12 to 1920x1088 |
+| P3 MPEG-2 | 247 pictures/s flat out at 720p60 (4 % of a core); first picture 22 ms (720p60), 71 ms (1080i and 480i), 44 ms (1080p30); progressive pictures equal FFmpeg's (Y 76 to 78 dB) |
+| P3 H.264 | 1080p30, 720p60 and 1080i decode; first picture 73 to 150 ms, about 119 ms from access unit to picture at 1080 (deeper reordering) |
+| P3 interlaced | MPEG-2 1080i and 480i come out as the top field with the other lines interpolated: progressive at the frame rate, half the vertical detail in motion, no combing |
+| P4 child | 720p60 to 720p29.97 at 3.5 Mbit/s: 3566 kbit/s, 9.2 ms to encode, PSNR Y 44.6 dB (lowest frame 40.6 dB), 41 ms mean from access unit to unit paced; 1080i to 1080p29.97 at 6 Mbit/s: 24.7 ms a frame, 128 ms flat out; 480i to 720x480 at 1.5 Mbit/s: 1541 kbit/s, 81 ms paced. The child is 2 to 3 % of a core |
+| P4 scaled | 1080i to 1280x720 at 3.5 Mbit/s with the child's CPU scaler: 3613 kbit/s; flat out 180 frames took 7.9 s with the generic horizontal pass and 5.7 s once it was specialised by tap count (31.5 frames/s, byte-identical output); paced at 29.97 the generic build ended 2 s behind real time, the specialised one was not run paced |
+| P5a | five 720p MPEG-2 decoders at once work (about 10 MB each); three 1080 ones fail at `cpb` (64 MiB) |
+
+Every output decodes in FFmpeg as H.264 High with the level patched from the encoder's 5.1 to 3.0 (480), 3.1 (720p30) or 4.0 (1080p), a key unit every GOP and the rate within 3 % of the target. The binaries run were arm64 `lumatv-venc` `e45f175d` (generic scaler) and `ea012c5c` (specialised); both were deleted from the set afterwards.
+
+Findings the engine has to respect:
+
+- No hardware scaler sits on the decoder or encoder path. The child scales on the CPU (`venc/scale.c`, exact-area box filter) only when the output is smaller than the picture, and only the pictures it keeps. 1080i to 720p leaves about 5 % headroom over 29.97 frames/s, so that profile needs the scaler vectorised (`hpass`) or an unscaled 1080p output (24.7 ms a frame) before it runs all day. 720p and 480 stations need no scaling.
+- The unit carries the `pts` of the access unit its picture came from. The engine sends the PES PTS (display order), not a counter.
+- A stream that changes picture size (a 480i advertisement inside a 1080i programme) ends the child with exit 7; the engine starts a new one for the new format.
+- The display capture tap does not start: `REQBUFS` on it fails with ENOENT (`tapopen -l osd/blended`), so a recorder has only the bitstream input for now.
+- Priority for the engine's queue: live viewer over explicit recording over instant replay; a preempted job is paused with a reason and resumed; the tuner's job is not resumed, the client reconnects.
+
+Not built: the engine (queue, preemption when an app needs the decoder, supervision of the child, a gate fed by LG's pipelines), the tuner's converter over it and the plugin setting that turns it on, the 30-minute soak with channel switches and an app opened mid-run, and phone playback of `?transcode=mobile`.

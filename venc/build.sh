@@ -14,7 +14,7 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 out=$here/build
 mkdir -p "$out/host"
-common="$here/venc.c $here/hma.c $here/vtcap.c $here/annexb.c $here/synth.c $here/pools.c $here/watchdog.c"
+common="$here/venc.c $here/hma.c $here/vtcap.c $here/vdec.c $here/xprobe.c $here/xcode.c $here/scale.c $here/annexb.c $here/synth.c $here/pools.c $here/watchdog.c"
 flags="-O2 -Wall -Wextra -Wno-unused-parameter"
 
 if [ "${1:-}" != "--host-only" ]; then
@@ -26,6 +26,7 @@ fi
 hostflags="-O1 -g -Wall -Wextra -Wno-unused-parameter"
 zig cc -target x86_64-linux-gnu.2.36 $hostflags -o "$out/host/lumatv-venc" "$here/probe.c" $common "$here/tests/fake_sys.c"
 zig cc -target x86_64-linux-gnu.2.36 $hostflags -o "$out/host/venc_test" "$here/tests/venc_test.c" $common "$here/tests/fake_sys.c"
+zig cc -target x86_64-linux-gnu.2.36 $hostflags -o "$out/host/xcode_test" "$here/tests/xcode_test.c" $common "$here/tests/fake_sys.c"
 
 if [ "${1:-}" != "--host-only" ]; then
     for b in arm/lumatv-venc arm64/lumatv-venc; do

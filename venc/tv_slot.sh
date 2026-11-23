@@ -55,13 +55,9 @@ step() { # name, budget seconds, then the probe arguments; stdout+stderr to name
     [ "$rc" = 0 ] || STOP="$n"
     return $rc
 }
-holders() { # who has a device node open
-    for p in /proc/[0-9]*; do
-        for f in "$p"/fd/*; do
-            l=$(readlink "$f" 2>/dev/null) || continue
-            case "$l" in */dev/venc|*/dev/video24|*/dev/video60|*/dev/lg/venc0) echo "$(cat "$p"/comm 2>/dev/null) $(basename "$p") $l";; esac
-        done
-    done
+holders() { # who has a device node open (one ls over every fd link: the shell loop takes 20 s on a loaded set)
+    ls -l /proc/[0-9]*/fd/* 2>/dev/null | grep -E -- '-> (/dev/venc|/dev/video24|/dev/video60|/dev/lg/venc0)$' |
+        sed -E 's#.* /proc/([0-9]+)/fd/[0-9]+ -> (.*)#\1 \2#' | while read -r pid dev; do echo "$(cat "/proc/$pid/comm" 2>/dev/null) $pid $dev"; done
 }
 snapshot() {
     s=$1

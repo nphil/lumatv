@@ -4,6 +4,8 @@
  * the first failure):
  *   lumatv-venc caps                     read-only: the device nodes, /proc/hma/status, nothing opened but files
  *   lumatv-venc vtcaps                   the video tap's capability record (opens /dev/video60 once, no capture)
+ *   lumatv-venc vdeccaps                 the decoder node's formats, sizes and controls (opens /dev/video21 once; no buffers, no streaming)
+ *   lumatv-venc vdec|chain -i F.au       access units through the hardware decoder, and on through the encoder (xprobe.c)
  *   lumatv-venc gate                     open /dev/venc, pass the KADP gate, close
  *   lumatv-venc create [-w -h]           + ENC_CREATE, GET_BUFFER_INFO printed and checked against the pool table, DESTROY
  *   lumatv-venc map    [-w -h]           + mmap of the ES ring, its first bytes read, unmapped
@@ -14,6 +16,7 @@
  *   lumatv-venc vt     [opts] -o out.h264 the screen: video tap -> encoder, no copy (the chosen route)
  *   lumatv-venc serve  [opts] -p PORT    the screen as an H.264 byte stream to one TCP client at a time
  *   lumatv-venc feed   [opts]            NV12 frames on stdin, H.264 access units on stdout: the compositor's screen recorder (feed_proto.h)
+ *   lumatv-venc xcode                    access units on stdin, H.264 units on stdout: the transcode engine's child (xcode_proto.h, xcode.c)
  *
  * /dev/video24 (the V4L2 M2M node) is never used: its mmap maps the kernel page at vmalloc_to_page(<physical
  * address>), so a frame written through it lands in kernel memory; the first slot wedged the kernel that way
@@ -53,9 +56,12 @@
 #include "pools.h"
 #include "synth.h"
 #include "sysops.h"
+#include "vdec.h"
 #include "venc.h"
 #include "vtcap.h"
 #include "watchdog.h"
+#include "xcode.h"
+#include "xprobe.h"
 
 #define SLOW_LIMIT 3 /* encodes slower than VENC_SLOW_MS before a run stops */
 
@@ -84,7 +90,7 @@ struct opts {
 
 static void usage(void)
 {
-    fputs("usage: lumatv-venc caps|vtcaps|gate|create|map|hma|synth|tapopen|vt|serve|feed [-w W] [-h H] [-r FPS] [-b KBPS] [-q QP]\n"
+    fputs("usage: lumatv-venc caps|vtcaps|vdeccaps|gate|create|map|hma|synth|tapopen|vt|serve|feed [-w W] [-h H] [-r FPS] [-b KBPS] [-q QP]\n"
           "       [-g GOP] [-n FRAMES] [-l blended|osd|display|scaler-output] [-d DIVIDE] [-P high|main|baseline]\n"
           "       [--pool NAME] [--cbr] [--nbuf N] [--csv FILE] [--active-file PATH] [-p PORT] [-o OUT.h264 (not feed)]\n",
           stderr);
@@ -305,6 +311,23 @@ static int do_vtcaps(void)
            cap.scale_down_limit_w, cap.scale_down_limit_h, cap.num_video_frame_buffer, cap.max_res.w, cap.max_res.h,
            cap.num_plane, cap.pixel_format);
     return 0;
+}
+
+/* the decoder node, read only: what the driver offers before anything is asked of the video MCU */
+static int do_vdeccaps(void)
+{
+    char err[256] = "";
+    struct vdec d;
+    if (vdec_open(&d, &sysops_real, err, sizeof(err)) < 0) {
+        fprintf(stderr, "vdec: %s\n", err);
+        return 2;
+    }
+    int rc = vdec_report(&d, stdout, err, sizeof(err));
+    if (rc < 0)
+        fprintf(stderr, "vdec: %s\n", err);
+    vdec_close(&d);
+    printf("{\"step\":\"vdeccaps\",\"ok\":%s}\n", rc < 0 ? "false" : "true");
+    return rc < 0 ? 2 : 0;
 }
 
 static void print_bufinfo(const struct venc *v)
@@ -844,6 +867,10 @@ static int do_feed(const struct opts *o)
 
 int main(int argc, char **argv)
 {
+    if (argc >= 2 && !strcmp(argv[1], "xcode"))
+        return xcode_main();
+    if (argc >= 2 && (!strcmp(argv[1], "vdec") || !strcmp(argv[1], "chain")))
+        return xprobe_main(argc, argv);
     struct opts o;
     if (parse(argc, argv, &o) < 0) {
         usage();
@@ -855,6 +882,7 @@ int main(int argc, char **argv)
     wd_install();
     if (!strcmp(o.mode, "caps")) return do_caps();
     if (!strcmp(o.mode, "vtcaps")) return do_vtcaps();
+    if (!strcmp(o.mode, "vdeccaps")) return do_vdeccaps();
     if (!strcmp(o.mode, "gate")) return do_gate();
     if (!strcmp(o.mode, "create")) return do_create(&o, 0);
     if (!strcmp(o.mode, "map")) return do_create(&o, 1);

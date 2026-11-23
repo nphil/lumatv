@@ -1,6 +1,6 @@
 #!/bin/sh
-# Host tests of the encoder path: the unit tests against the fake kernel, then the probe binary itself in
-# its synth, vt and serve modes against the same fake (build.sh builds both). Nothing here touches a device.
+# Host tests of the encoder and decoder paths: the unit tests against the fake kernel, then the probe binary itself in
+# its synth, vt, serve and xcode modes against the same fake (build.sh builds both). Nothing here touches a device.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 b=$here/build/host
@@ -10,6 +10,33 @@ fail() { echo "FAIL: $*"; exit 1; }
 srv=
 
 "$b/venc_test" || fail "unit tests"
+"$b/xcode_test" || fail "xcode unit tests"
+
+# the transcode child as the engine runs it: records on stdin, units on stdout, real pipes, the fake decoder and encoder
+python3 - "$tmp/x.in" <<'EOF' || fail "xcode input"
+import struct, sys
+def rec(magic, flags=0, pts=0, aux=0, payload=b''):
+    return struct.pack('<4sIQII', magic, flags, pts, len(payload), aux) + payload
+out = rec(b'XCFG', payload=struct.pack('<16I', 1, 1, 640, 368, 0, 0, 1, 30, 3500, 0, 0, 0, 0, 0, 0, 0))
+for i in range(5):
+    out += rec(b'XAUN', pts=900 * i, payload=b'FAKE' + struct.pack('<HHI', 640, 368, i))
+open(sys.argv[1], 'wb').write(out)
+EOF
+"$b/lumatv-venc" xcode <"$tmp/x.in" >"$tmp/x.out" 2>"$tmp/x.err" || fail "xcode exited $?: $(cat "$tmp/x.err")"
+python3 - "$tmp/x.out" <<'EOF' || fail "xcode output"
+import struct, sys
+d = open(sys.argv[1], 'rb').read()
+recs = []
+while d:
+    magic, flags, pts, size, aux = struct.unpack('<4sIQII', d[:24])
+    recs.append((magic, flags, pts, d[24:24 + size]))
+    d = d[24 + size:]
+assert recs[0][0] == b'XRDY', recs[0][0]
+outs = [r for r in recs if r[0] == b'XOUT']
+assert [o[2] for o in outs] == [0, 900, 1800, 2700, 3600], [o[2] for o in outs]
+assert outs[0][1] == 1 and all(o[1] == 0 for o in outs[1:])
+assert outs[0][3][7] == 30, outs[0][3][7]  # the SPS says the stream's own level
+EOF
 
 # 0. the small steps, in the slot's order
 "$b/lumatv-venc" gate >"$tmp/g.out" || fail "gate"
