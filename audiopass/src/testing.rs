@@ -23,6 +23,19 @@ pub const PID: u32 = 4242;
 pub const PLAYER_START: u64 = 123_456;
 /// The decoder input the proven player's renderer was granted.
 pub const ADEC: u8 = 1;
+/// The player's app, as SAM lists it.
+pub const APP: &str = "com.beb.plxnative";
+/// The uMS pipeline of the player's Load, and the PCM mix channel it booked: LG plays it through `AMIXER4`.
+pub const PIPELINE: &str = "_f4rXIG4rerDUwJ";
+pub const PORT: u8 = 4;
+
+/// One uMS pipeline: its id, its app and the resources it holds, by name and index.
+#[derive(Clone, Debug)]
+pub struct Pipe {
+    pub id: String,
+    pub app: String,
+    pub resources: Vec<(String, u8)>,
+}
 
 /// How the scripted TV or helper fails from some point on (`Sim::fault`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,6 +70,13 @@ pub struct Sim {
     pub belief_muted: bool,
     /// Other decoder inputs LG has connected to the main output (an HDMI input or an app), by number.
     pub others: Vec<u8>,
+    /// LG's mixer input for a stream (`AMIXER<n>`), connected in audiooutputd and the kernel.
+    pub mixer: Option<u8>,
+    /// audiooutputd lists the mixer input from this time on, which may be a moment after the kernel shows it.
+    pub listed_at: u64,
+    /// SAM's running apps, by id and process.
+    pub apps: Vec<(String, u32)>,
+    pub pipelines: Vec<Pipe>,
     /// Whether LG's HDMI input service answers, and how often it was asked.
     pub hdmi_ok: bool,
     pub hdmi_calls: u32,
@@ -66,6 +86,8 @@ pub struct Sim {
     pub status_ok: bool,
     pub connect_ok: bool,
     pub disconnect_ok: bool,
+    /// Whether a converter takes its command.
+    pub cmd_ok: bool,
     pub words_error: Option<WriteError>,
     /// The graph shows the converter chain from this time on.
     pub graph_at: u64,
@@ -110,7 +132,7 @@ impl Sim {
         format!(
             "[ARC]\nOutputCodec={codec}\nOutputChannel=0\nSet_type=1\nCodec_type=1\nMix_option=1\nUnderflow=51314\n\
              [EARC]\nEArcOnOff={}\nSet_type={}\nCodec_type={}\nChannel_num={}\nSample_rate={}\nMix_option={}\nUnderflow=0\n\
-             [Misc]\nConnectedAdec={}\nConnectedAmixer=5,6,7\nMainAudioOutput=ADEC1\nConnectedMixerPort=0x0\n",
+             [Misc]\nConnectedAdec={}\nConnectedAmixer=5,6,7{}\nMainAudioOutput=ADEC1\nConnectedMixerPort=0x0\n",
             if self.earc_on { "On" } else { "Off" },
             w.set_type,
             w.codec,
@@ -118,6 +140,9 @@ impl Sim {
             w.rate,
             w.mix,
             self.connected_list(),
+            self.mixer
+                .map(|port| format!(",{port}"))
+                .unwrap_or_default(),
         )
     }
 
@@ -143,18 +168,62 @@ impl Sim {
 
     /// audiooutputd's connection list, as `audio/getStatus` prints it.
     fn render_umi(&self) -> String {
-        let entry = |adec: u8, muted: bool| {
-            format!(
-                r#"{{"source":"ADEC{adec}","muted":{muted},"sink":"MAIN","outputMode":"null"}}"#
-            )
+        let entry = |source: String, muted: bool| {
+            format!(r#"{{"source":"{source}","muted":{muted},"sink":"MAIN","outputMode":"null"}}"#)
         };
         let list: Vec<String> = self
-            .adec_connected
-            .then(|| entry(self.adec, self.belief_muted))
+            .mixer
+            .filter(|_| self.now >= self.listed_at)
+            .map(|port| entry(format!("AMIXER{port}"), false))
             .into_iter()
-            .chain(self.others.iter().map(|adec| entry(*adec, false)))
+            .chain(
+                self.adec_connected
+                    .then(|| entry(format!("ADEC{}", self.adec), self.belief_muted)),
+            )
+            .chain(
+                self.others
+                    .iter()
+                    .map(|adec| entry(format!("ADEC{adec}"), false)),
+            )
             .collect();
         format!(r#"{{"returnValue":true,"audio":[{}]}}"#, list.join(","))
+    }
+
+    fn render_running(&self) -> String {
+        let list: Vec<String> = self
+            .apps
+            .iter()
+            .map(|(id, pid)| {
+                format!(
+                    r#"{{"id":"{id}","processid":"{pid}","webprocessid":"","appType":"native"}}"#
+                )
+            })
+            .collect();
+        format!(r#"{{"running":[{}],"returnValue":true}}"#, list.join(","))
+    }
+
+    fn render_pipelines(&self) -> String {
+        if self.pipelines.is_empty() {
+            return r#"{"errorCode":0,"returnValue":true,"errorText":"No Error","data":"pipeline empty"}"#.into();
+        }
+        let list: Vec<String> = self
+            .pipelines
+            .iter()
+            .map(|pipe| {
+                let held: Vec<String> = pipe
+                    .resources
+                    .iter()
+                    .map(|(name, index)| format!(r#"{{"index":{index},"resource":"{name}"}}"#))
+                    .collect();
+                format!(
+                    r#"{{"id":"{}","type":"media","currentAppId":"{}","resource":[{}]}}"#,
+                    pipe.id,
+                    pipe.app,
+                    held.join(",")
+                )
+            })
+            .collect();
+        format!("[{}]", list.join(","))
     }
 
     fn note(&mut self, entry: impl Into<String>) {
@@ -234,6 +303,10 @@ impl FakeHost {
                 adec_mute: true,
                 belief_muted: false,
                 others: Vec::new(),
+                mixer: None,
+                listed_at: 0,
+                apps: vec![(APP.to_owned(), PID)],
+                pipelines: Vec::new(),
                 hdmi_ok: true,
                 hdmi_calls: 0,
                 stuck: Vec::new(),
@@ -241,6 +314,7 @@ impl FakeHost {
                 status_ok: true,
                 connect_ok: true,
                 disconnect_ok: true,
+                cmd_ok: true,
                 words_error: None,
                 graph_at: 0,
                 chain_graph: graph_with(TAIL, CONVERTER),
@@ -263,6 +337,22 @@ impl FakeHost {
 
     pub fn with<R>(&self, f: impl FnOnce(&mut Sim) -> R) -> R {
         f(&mut self.sim.lock().unwrap())
+    }
+
+    /// LG connects its mixer input for the player's Load and mixes the words, as at the Load: `AMIXER4`, for the pipeline that
+    /// holds `PCMMC4`.
+    pub fn lg_mixer(&self) {
+        self.with(|sim| {
+            sim.mixer = Some(PORT);
+            sim.words.mix = 1;
+            if !sim.pipelines.iter().any(|pipe| pipe.id == PIPELINE) {
+                sim.pipelines.push(Pipe {
+                    id: PIPELINE.into(),
+                    app: APP.into(),
+                    resources: vec![("VDEC".into(), 0), ("PCMMC".into(), PORT)],
+                });
+            }
+        });
     }
 
     /// The names of everything that was done, in order.
@@ -324,7 +414,7 @@ impl Host for FakeHost {
                 .and_then(|rest| rest.strip_prefix('/'))
                 .and_then(|rest| rest.strip_suffix("/cmd"))
                 .ok_or_else(not_found)?;
-            if !sim.dirs.contains(&format!("{INSTANCES}/{converter}")) {
+            if !sim.dirs.contains(&format!("{INSTANCES}/{converter}")) || !sim.cmd_ok {
                 return Err(not_found());
             }
             sim.configured.insert(converter.to_owned());
@@ -406,6 +496,25 @@ impl Host for FakeHost {
                 return None;
             }
             let verb = uri.rsplit('/').next().unwrap_or_default();
+            let mixer = payload
+                .split(r#""source":"AMIXER"#)
+                .nth(1)
+                .and_then(|rest| rest.split('"').next()?.parse::<u8>().ok());
+            if let Some(port) = mixer {
+                sim.note(format!("luna {verb} AMIXER{port}"));
+                let done = match verb {
+                    "disconnect" if sim.disconnect_ok && sim.mixer == Some(port) => {
+                        sim.mixer = None;
+                        true
+                    }
+                    "connect" if sim.connect_ok && sim.mixer.is_none() => {
+                        sim.mixer = Some(port);
+                        true
+                    }
+                    _ => false,
+                };
+                return Some(if done { OK } else { NO }.into());
+            }
             // A call that names another decoder input than the granted one finds nothing to act on.
             let ours = payload.contains(&format!(r#""source":"ADEC{}""#, sim.adec));
             match verb {
@@ -414,6 +523,8 @@ impl Host for FakeHost {
                     sim.hdmi_ok.then(|| HDMI_METHODS.to_owned())
                 }
                 "getStatus" => sim.status_ok.then(|| sim.render_umi()),
+                "running" => Some(sim.render_running()),
+                "getActivePipelines" => Some(sim.render_pipelines()),
                 "connect" => {
                     sim.note("luna connect");
                     if !sim.connect_ok || !ours {

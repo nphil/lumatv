@@ -1,5 +1,6 @@
 //! What the route changed, written before it changes anything so that a helper that dies mid-session can put LG's settings back.
 
+use crate::mixer::Taken;
 use crate::sndout::Words;
 
 /// One session's changes. A journal from an earlier boot is stale: the kernel state it describes is gone.
@@ -18,13 +19,15 @@ pub struct Journal {
     /// Whether the session has asked audiooutputd to connect the ADEC. Written before the call, so that a restore after a crash
     /// knows the connection can be the session's.
     pub connected: bool,
+    /// LG's mixer input for the player's own stream, when the session disconnected it. Written before the call.
+    pub mixer: Option<Taken>,
 }
 
 const HEAD: &str = "audiopass-journal 2";
 
 impl Journal {
     pub fn render(&self) -> String {
-        format!(
+        let mut text = format!(
             "{HEAD}\nboot={}\npid={}\nbefore={}\napplied={}\nadec={}\nkernel={}\nconnected={}\n",
             self.boot,
             self.pid,
@@ -33,7 +36,11 @@ impl Journal {
             self.adec,
             self.kernel,
             u8::from(self.connected)
-        )
+        );
+        if let Some(taken) = &self.mixer {
+            text.push_str(&format!("mixer={} {}\n", taken.port, taken.pipeline));
+        }
+        text
     }
 
     pub fn parse(text: &str) -> Option<Self> {
@@ -42,7 +49,7 @@ impl Journal {
             return None;
         }
         let (mut boot, mut pid, mut before, mut applied) = (None, None, None, None);
-        let (mut adec, mut kernel, mut connected) = (None, None, None);
+        let (mut adec, mut kernel, mut connected, mut mixer) = (None, None, None, None);
         for line in lines {
             match line.split_once('=')? {
                 ("boot", v) => boot = Some(v.to_owned()),
@@ -52,6 +59,7 @@ impl Journal {
                 ("adec", v) => adec = v.parse().ok(),
                 ("kernel", v) => kernel = Some(v.to_owned()),
                 ("connected", v) => connected = Some(v == "1"),
+                ("mixer", v) => mixer = Some(Taken::parse(v)?),
                 _ => {}
             }
         }
@@ -63,6 +71,7 @@ impl Journal {
             adec: adec?,
             kernel: kernel?,
             connected: connected?,
+            mixer,
         })
     }
 }
@@ -92,6 +101,7 @@ mod tests {
             adec: 3,
             kernel: "Open=1 Connect=HDMI_PORT2 Start=0 Gain=0x800000 Mute=1".into(),
             connected,
+            mixer: None,
         }
     }
 
@@ -101,11 +111,22 @@ mod tests {
             let journal = sample(connected);
             assert_eq!(Journal::parse(&journal.render()), Some(journal));
         }
+        let mut journal = sample(false);
+        journal.mixer = Some(Taken {
+            port: 4,
+            pipeline: "_f4rXIG4rerDUwJ".into(),
+        });
+        assert!(journal.render().contains("\nmixer=4 _f4rXIG4rerDUwJ\n"));
+        assert_eq!(Journal::parse(&journal.render()), Some(journal));
     }
 
     #[test]
     fn a_journal_is_a_few_hundred_bytes() {
         let mut journal = sample(true);
+        journal.mixer = Some(Taken {
+            port: 4,
+            pipeline: "_".repeat(32),
+        });
         journal.boot = "x".repeat(36);
         journal.pid = u32::MAX;
         assert!(journal.render().len() < 512);
@@ -125,5 +146,7 @@ mod tests {
             Journal::parse(&text.replace(HEAD, "audiopass-journal 1")),
             None
         );
+        assert_eq!(Journal::parse(&format!("{text}mixer=4\n")), None);
+        assert_eq!(Journal::parse(&format!("{text}mixer=9 _f4r\n")), None);
     }
 }

@@ -17,16 +17,20 @@
 //! use; a second time ends the session.
 //!
 //! The ADEC comes from the player, never from an assumption, and a session starts only while audiooutputd and the kernel show
-//! nothing connected and the decoder stopped, so no HDMI input's decoder is touched. The words are only written back while they
-//! still hold what this route wrote. The ADEC is only muted and disconnected while it is not decoding: its `Connect=` reads the
-//! same (`HDMI_PORT2` on ADEC1) before, during and after a session, so it cannot tell LG's connection from ours, but `Start=` stayed 0
-//! through every measured session. An HDMI input that starts decoding on the same ADEC is therefore left as LG has it.
+//! nothing connected and the decoder stopped, so no HDMI input's decoder is touched. The one exception is LG's own mixer input for
+//! the arming player's stream, once LG's records prove it is that and nothing else plays sound ([`crate::mixer`]): the session
+//! disconnects it before anything else, as LG's own stop does, takes it over again whenever LG connects it anew, and gives it back
+//! at the end while that stream still plays. The words are only written back while they still hold what this route wrote. The
+//! ADEC is only muted and disconnected while it is not decoding: its `Connect=` reads the same (`HDMI_PORT2` on ADEC1) before,
+//! during and after a session, so it cannot tell LG's connection from ours, but `Start=` stayed 0 through every measured session.
+//! An HDMI input that starts decoding on the same ADEC is therefore left as LG has it.
 //!
 //! Ending reverses 3 and 2: mute, put the mute back as the session found it once the player has closed its renderer, disconnect,
-//! put the words back. Then the TV is compared with what the session found (audiooutputd's connection list, the kernel's
-//! connected inputs, the ADEC's own kernel line) and LG's input services are checked (no audio task wedged in the sound card's
-//! control lock, the HDMI input service answers a ping); a fault holds the next session off. A helper that is stopping has seconds
-//! (`hurry`): it does not wait for the renderer or compare afterwards, and what it cannot finish stays journalled for the next start.
+//! put the words back, give LG's mixer input back. Then the TV is compared with what the session found (audiooutputd's connection
+//! list, the kernel's connected inputs, the ADEC's own kernel line) and LG's input services are checked (no audio task wedged in
+//! the sound card's control lock, the HDMI input service answers a ping); a fault holds the next session off. A helper that is
+//! stopping has seconds (`hurry`): it does not wait for the renderer or compare afterwards, and what it cannot finish stays
+//! journalled for the next start.
 //! A running session is watched from /proc and the kernel only. The sample a player polls is not published from these steps,
 //! which can wait on LG for seconds, but by threads of the caller's own that read and publish on a fixed tick ([`crate::sample`]).
 //!
@@ -38,6 +42,7 @@ use crate::graph::{self, Chain};
 use crate::health::{self, Health, returned_true};
 use crate::host::{Host, WriteError};
 use crate::journal::Journal;
+use crate::mixer::{self, Taken};
 use crate::sample::{self, Reading};
 use crate::sndout::{self, Adec, Sndout, Words};
 use std::sync::Arc;
@@ -69,6 +74,10 @@ const LOSS_GRACE_MS: u64 = 1000;
 const REARM_GRACE_MS: u64 = 5000;
 /// Between disconnecting the ADEC and putting the words back.
 const SETTLE_MS: u64 = 300;
+/// LG connecting its mixer input for the stream again is taken over again; this many takeovers within [`FIGHT_MS`] of each other
+/// is a fight the route ends.
+const FIGHTS: usize = 3;
+const FIGHT_MS: u64 = 10_000;
 const HEALTH_RETRY_MS: u64 = 1500;
 const ARMED_TICK_MS: u64 = 100;
 const ARMED_HEALTH_MS: u64 = 2000;
@@ -250,6 +259,8 @@ struct Session {
     unmix_due: Option<u64>,
     /// LG put its mixed words back once and the route un-mixed them again.
     reasserted: bool,
+    /// When the route took LG's mixer input over, within the last [`FIGHT_MS`].
+    takes: Vec<u64>,
 }
 
 /// A session's state for the topic and the route endpoint.
@@ -260,6 +271,8 @@ pub struct SessionView {
     pub converter: String,
     /// The decoder input the session connects: the one LG granted the player's renderer.
     pub adec: u8,
+    /// LG's mixer input for the stream (`AMIXER<n>`), when the session took it over.
+    pub mixer: Option<u8>,
     pub phase: Phase,
     pub bypassing: bool,
     pub mixed: bool,
@@ -415,6 +428,14 @@ impl Route {
     /// `connect` or `disconnect` of the ADEC to the main output.
     fn luna_link(&self, verb: &str, adec: u8) -> bool {
         self.luna(verb, &format!(r#"{{"source":"ADEC{adec}","sink":"MAIN"}}"#))
+    }
+
+    /// `connect` or `disconnect` of LG's mixer input to the main output, the disconnect as LG's own audio daemon makes it.
+    fn luna_mixer(&self, verb: &str, taken: &Taken) -> bool {
+        self.luna(
+            verb,
+            &format!(r#"{{"source":"{}","sink":"MAIN"}}"#, taken.source()),
+        )
     }
 
     // ---- readiness ------------------------------------------------------------------------------------------------------
@@ -665,40 +686,50 @@ impl Route {
             });
         }
         self.health_gate()?;
+        // LG connects its mixer input again while it rebuilds the renderer.
+        if rearm {
+            self.retake().map_err(Refusal::now)?;
+        }
         let snd = self.read_sndout();
         self.conditions(snd.as_ref(), rearm)
             .map_err(Refusal::later)?;
-        let words = snd
-            .as_ref()
-            .and_then(|s| s.earc)
-            .ok_or_else(|| Refusal::later("eARC words cannot be read"))?;
+        let Some((snd, words)) = snd.and_then(|s| s.earc.map(|words| (s, words))) else {
+            return Err(Refusal::later("eARC words cannot be read"));
+        };
         let converter = self.converter_for(tail)?;
 
         let journal = match &self.session {
             Some(s) => s.journal.clone(),
-            None => Journal {
-                boot: self.boot_id(),
-                pid,
-                before: words,
-                applied: words.unmixed(),
-                adec,
-                kernel: self.idle_adec(adec)?,
-                connected: false,
-            },
+            None => {
+                let (kernel, mixer) = self.idle_adec(pid, adec, &snd)?;
+                Journal {
+                    boot: self.boot_id(),
+                    pid,
+                    before: words,
+                    applied: words.unmixed(),
+                    adec,
+                    kernel,
+                    connected: false,
+                    mixer,
+                }
+            }
         };
         if !rearm {
             self.save_journal(&journal).map_err(Refusal::now)?;
-        }
-        let drop_journal = |route: &Self| {
-            if !rearm {
-                let _ = route.host.remove(&route.journal_path);
+            if let Some(taken) = &journal.mixer {
+                if let Err(why) = self.take_mixer(taken, words) {
+                    self.abandon(&journal);
+                    return Err(Refusal::later(why));
+                }
             }
-        };
+        }
         if let Err(e) = self
             .host
             .write(&format!("{INSTANCES}/{converter}/cmd"), CONVERTER_COMMAND)
         {
-            drop_journal(self);
+            if !rearm {
+                self.abandon(&journal);
+            }
             return Err(Refusal::later(format!(
                 "cannot configure converter {converter}: {e}"
             )));
@@ -714,9 +745,10 @@ impl Route {
             self.apply_words(journal.applied).map_err(Refusal::now)?;
         }
 
-        let (phase, since, reasserted) = match self.session.take() {
-            Some(old) => (old.phase, old.since, old.reasserted),
-            None => (Phase::Armed, now, false),
+        let (phase, since, reasserted, takes) = match self.session.take() {
+            Some(old) => (old.phase, old.since, old.reasserted, old.takes),
+            None if journal.mixer.is_some() => (Phase::Armed, now, false, vec![now]),
+            None => (Phase::Armed, now, false, Vec::new()),
         };
         self.session = Some(Session {
             pid,
@@ -730,6 +762,7 @@ impl Route {
             bad_since: None,
             unmix_due: due,
             reasserted,
+            takes,
         });
         self.lost = None;
         self.end = None;
@@ -740,8 +773,14 @@ impl Route {
     }
 
     /// The granted ADEC as LG left it, once nothing else is using audio: nothing connected in audiooutputd or the kernel and the
-    /// decoder stopped. Its kernel line is what a restore puts back and is compared with.
-    fn idle_adec(&self, adec: u8) -> Result<String, Refusal> {
+    /// decoder stopped, but for LG's mixer input for the player's own stream, which comes back to be taken over. The ADEC's kernel
+    /// line is what a restore puts back and is compared with.
+    fn idle_adec(
+        &self,
+        pid: u32,
+        adec: u8,
+        snd: &Sndout,
+    ) -> Result<(String, Option<Taken>), Refusal> {
         let kernel = self
             .read_adec(adec)
             .filter(|a| a.connect.is_some() && a.mute.is_some())
@@ -749,16 +788,188 @@ impl Route {
         if kernel.start == Some(true) {
             return Err(Refusal::later(format!("ADEC{adec} is decoding for LG")));
         }
-        match health::connections(&*self.host) {
-            None => Err(Refusal::later(
-                "the audio service's connections cannot be read",
-            )),
-            Some(list) if !list.is_empty() => Err(Refusal::later(format!(
+        let list = health::connections(&*self.host)
+            .ok_or_else(|| Refusal::later("the audio service's connections cannot be read"))?;
+        if list.is_empty() && snd.stream_mixers().is_empty() {
+            return Ok((kernel.render(), None));
+        }
+        if !list.iter().all(|source| source.starts_with("AMIXER")) {
+            return Err(Refusal::later(format!(
                 "LG is routing audio ({}); an HDMI input or an app is playing",
                 list.join(", ")
-            ))),
-            Some(_) => Ok(kernel.render()),
+            )));
         }
+        mixer::prove(&*self.host, pid, snd, None)
+            .map(|taken| (kernel.render(), Some(taken)))
+            .map_err(|why| {
+                Refusal::later(format!(
+                    "LG is routing audio (AMIXER{}), not for this player's stream alone: {why}",
+                    snd.stream_mixers().join(", AMIXER")
+                ))
+            })
+    }
+
+    /// Disconnects LG's mixer input for the player's stream at the arm and waits until it is gone. The words must still read as
+    /// the journal has them: LG's own, with the input connected.
+    fn take_mixer(&self, taken: &Taken, words: Words) -> Result<(), String> {
+        self.drop_mixer(taken)?;
+        match self.read_sndout().and_then(|s| s.earc) {
+            Some(now) if now == words => Ok(()),
+            Some(now) => Err(format!(
+                "LG's eARC words read {now}, not {words}, once {} was disconnected",
+                taken.source()
+            )),
+            None => Err("LG's eARC words cannot be read".into()),
+        }
+    }
+
+    /// Disconnects LG's mixer input, as LG's own stop does, and waits until neither the kernel nor audiooutputd lists it.
+    fn drop_mixer(&self, taken: &Taken) -> Result<(), String> {
+        let source = taken.source();
+        if !self.luna_mixer("disconnect", taken) {
+            return Err(format!("audiooutputd did not disconnect {source}"));
+        }
+        let port = taken.port.to_string();
+        let gone = self.poll(VERIFY_WAIT, |route| {
+            route
+                .read_sndout()
+                .is_some_and(|s| !s.stream_mixers().contains(&port.as_str()))
+        }) && health::connections(&*self.host)
+            .is_some_and(|list| !list.contains(&source));
+        if gone {
+            Ok(())
+        } else {
+            Err(format!("{source} is still connected"))
+        }
+    }
+
+    /// Gives LG's mixer input back while the stream it was taken for still plays: the player's process lives and uMS has its
+    /// pipeline holding the channel. A stream that has ended leaves it disconnected, as LG's own stop does. Says what could not be
+    /// put back.
+    fn return_mixer(&self, taken: &Taken, pid: u32) -> Option<String> {
+        let port = taken.port.to_string();
+        let listed = |route: &Self| {
+            route
+                .read_sndout()
+                .is_some_and(|s| s.stream_mixers().contains(&port.as_str()))
+        };
+        if listed(self) || self.host.start_time(pid).is_none() {
+            return None;
+        }
+        let source = taken.source();
+        match mixer::held(&*self.host, taken) {
+            Some(true) => {}
+            Some(false) => return None,
+            None => {
+                return Some(format!(
+                    "{source} was left disconnected: uMS's pipelines cannot be read"
+                ));
+            }
+        }
+        if !self.luna_mixer("connect", taken) || !self.poll(VERIFY_WAIT, listed) {
+            return Some(format!("{source} would not connect again"));
+        }
+        // The stream can end while the input connects; LG's stop then found it disconnected.
+        if mixer::held(&*self.host, taken) == Some(false) {
+            self.luna_mixer("disconnect", taken);
+        }
+        None
+    }
+
+    /// Undoes a first arm that did not get through: LG's mixer input back, the journal dropped.
+    fn abandon(&mut self, journal: &Journal) {
+        if let Some(taken) = &journal.mixer {
+            self.after = self.return_mixer(taken, journal.pid);
+        }
+        let _ = self.host.remove(&self.journal_path);
+    }
+
+    /// LG connected its mixer input for the stream while the session holds the route. Once proven LG's route for the player's own
+    /// stream it is taken over again, and the words LG mixed with it un-mixed again when the session's own un-mix is done. Nothing
+    /// to do while the kernel lists no stream mixer input.
+    fn retake(&mut self) -> Result<(), String> {
+        let Some(snd) = self.read_sndout().filter(|s| !s.stream_mixers().is_empty()) else {
+            return Ok(());
+        };
+        let s = self.session.as_ref().ok_or("no session")?;
+        let (pid, ours, mut journal) = (
+            s.pid,
+            s.phase.connected().then_some(s.journal.adec),
+            s.journal.clone(),
+        );
+        let mut proof = mixer::prove(&*self.host, pid, &snd, ours).map(Some);
+        // audiooutputd can list a connection a moment after the kernel shows it.
+        if proof.is_err() {
+            self.poll(VERIFY_WAIT, |route| {
+                proof = match route.read_sndout() {
+                    Some(snd) if snd.stream_mixers().is_empty() => Ok(None),
+                    Some(snd) => mixer::prove(&*route.host, pid, &snd, ours).map(Some),
+                    None => Err("LG's sound status cannot be read".into()),
+                };
+                proof.is_ok()
+            });
+        }
+        let proof = proof.map_err(|why| {
+            format!(
+                "LG connected AMIXER{}, not for this player's stream alone: {why}",
+                snd.stream_mixers().join(", AMIXER")
+            )
+        })?;
+        let Some(taken) = proof else {
+            return Ok(());
+        };
+        let now = self.host.now_ms();
+        if let Some(old) = journal.mixer.as_ref().filter(|old| **old != taken) {
+            if mixer::held(&*self.host, old) != Some(false) {
+                return Err(format!(
+                    "LG connected {} while the stream the session took {} for still plays",
+                    taken.source(),
+                    old.source()
+                ));
+            }
+        }
+        let s = self.session.as_mut().ok_or("no session")?;
+        s.takes.retain(|at| now.saturating_sub(*at) < FIGHT_MS);
+        if s.takes.len() >= FIGHTS {
+            return Err(format!(
+                "LG keeps connecting {}: {FIGHTS} takeovers within {} s",
+                taken.source(),
+                FIGHT_MS / 1000
+            ));
+        }
+        s.takes.push(now);
+        if journal.mixer.as_ref() != Some(&taken) {
+            journal.mixer = Some(taken.clone());
+            self.keep_journal(&journal)?;
+        }
+        self.drop_mixer(&taken)?;
+        let words = self
+            .read_sndout()
+            .and_then(|s| s.earc)
+            .ok_or("LG's eARC words cannot be read")?;
+        if words != journal.before && words != journal.applied {
+            if !words.valid() {
+                return Err(format!("LG's eARC words ({words}) are not a known state"));
+            }
+            // The words LG set for its own route are the ones a restore puts back.
+            journal.before = words;
+            journal.applied = words.unmixed();
+            self.keep_journal(&journal)?;
+        }
+        let unmixed = self.session.as_ref().is_some_and(|s| s.unmix_due.is_none());
+        if unmixed && words != journal.applied {
+            self.apply_words(journal.applied)?;
+        }
+        Ok(())
+    }
+
+    /// Saves a changed journal of the running session and keeps it as the session's.
+    fn keep_journal(&mut self, journal: &Journal) -> Result<(), String> {
+        self.save_journal(journal)?;
+        if let Some(s) = &mut self.session {
+            s.journal = journal.clone();
+        }
+        Ok(())
     }
 
     // ---- observing and monitoring ---------------------------------------------------------------------------------------
@@ -777,16 +988,17 @@ impl Route {
 
     /// Un-mixes the eARC words, while they hold LG's own words from the arm and the session's decoder is the only one in use.
     fn unmix(&mut self) -> Result<(), String> {
-        let (journal, connected) = {
-            let s = self.session.as_ref().ok_or("no session")?;
-            (s.journal.clone(), s.phase.connected())
-        };
         if let Some(why) = &self.hung {
             return Err(why.clone());
         }
         if let Health::Wedged(why) = health::tasks(&*self.host) {
             return Err(format!("audio control is stuck: {why}"));
         }
+        self.retake()?;
+        let (journal, connected) = {
+            let s = self.session.as_ref().ok_or("no session")?;
+            (s.journal.clone(), s.phase.connected())
+        };
         match self.read_sndout().and_then(|s| s.earc) {
             Some(words) if words == journal.applied => {}
             Some(words) if words == journal.before => {
@@ -824,6 +1036,9 @@ impl Route {
             .find(|a| !connected || *a != ours)
         {
             return Some(format!("LG connected ADEC{other}"));
+        }
+        if let Some(amixer) = snd.stream_mixers().first() {
+            return Some(format!("LG connected AMIXER{amixer}"));
         }
         match self.read_adec(adec) {
             None => return Some(format!("ADEC{adec} cannot be read")),
@@ -873,6 +1088,16 @@ impl Route {
             }
         }
         self.observe();
+        if self
+            .sndout
+            .as_ref()
+            .is_some_and(|s| !s.stream_mixers().is_empty())
+        {
+            if let Err(why) = self.retake() {
+                return Some((Why::RouteLost, why));
+            }
+            self.observe();
+        }
         let (due, reasserted, before) = {
             let s = self.session.as_ref()?;
             (s.unmix_due, s.reasserted, s.journal.before)
@@ -1116,9 +1341,13 @@ impl Route {
                 }
             }
         }
+        let returned = journal
+            .mixer
+            .as_ref()
+            .and_then(|taken| self.return_mixer(taken, journal.pid));
         let _ = self.host.remove(&self.journal_path);
         if !hurry {
-            self.audit(journal, lg);
+            self.audit(journal, lg, returned);
         }
         Restore::Done
     }
@@ -1134,19 +1363,27 @@ impl Route {
     /// Compares the TV with what the session found: audiooutputd's connection list, the kernel's connected inputs and the ADEC's own
     /// line must read as before, and LG's input services must have come through. Differences are kept for the page; a wedged audio
     /// task or a silent HDMI input service also holds the next session off. When LG's own input has the decoder (`lg`) its
-    /// connection and kernel line are LG's, not differences the route left, so only the note that it was left alone is kept.
-    fn audit(&mut self, journal: &Journal, lg: bool) {
+    /// connection and kernel line are LG's, not differences the route left, so only the note that it was left alone is kept. LG's
+    /// mixer input the session took is LG's either way: back while its stream plays, gone with it otherwise (`returned` says what
+    /// could not be given back).
+    fn audit(&mut self, journal: &Journal, lg: bool, returned: Option<String>) {
         let adec = journal.adec;
-        let mut notes = Vec::new();
+        let mut notes: Vec<String> = returned.into_iter().collect();
         if lg {
             notes.push(format!(
                 "LG started using ADEC{adec} during the session; it was left as LG has it"
             ));
         } else {
+            let mixer = journal.mixer.as_ref().map(Taken::source);
             match health::connections(&*self.host) {
-                Some(list) if list.is_empty() => {}
                 Some(list) => {
-                    notes.push(format!("the audio service still lists {}", list.join(", ")))
+                    let left: Vec<String> = list
+                        .into_iter()
+                        .filter(|s| Some(s) != mixer.as_ref())
+                        .collect();
+                    if !left.is_empty() {
+                        notes.push(format!("the audio service still lists {}", left.join(", ")));
+                    }
                 }
                 None => notes.push("the audio service's connections cannot be read".to_owned()),
             }
@@ -1344,6 +1581,7 @@ impl Route {
             tail: s.tail.clone(),
             converter: s.converter.clone(),
             adec: s.journal.adec,
+            mixer: s.journal.mixer.as_ref().map(|taken| taken.port),
             phase: s.phase,
             bypassing: s.observed.bypassing,
             mixed: s.observed.mixed,

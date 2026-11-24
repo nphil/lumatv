@@ -15,6 +15,7 @@ pub mod graph;
 pub mod health;
 pub mod host;
 pub mod journal;
+pub mod mixer;
 pub mod route;
 pub mod sample;
 pub mod sndout;

@@ -77,6 +77,22 @@ pub struct Sndout {
     pub arc_codec: Option<String>,
     /// `[Misc] ConnectedAdec`: the ADEC inputs wired to the main output, empty when none.
     pub connected_adec: Option<String>,
+    /// `[Misc] ConnectedAmixer`: the mixer inputs wired to the main output, [`LG_MIXERS`] at rest.
+    pub connected_amixer: Option<String>,
+}
+
+/// The mixer inputs the C4 keeps wired to the main output at all times, idle included. A player's PCM sink plays through the mixer
+/// input of the PCM mix channel uMS booked for it (`PCMMC<n>`, n from 0 to 4, plays through `AMIXER<n>`).
+pub const LG_MIXERS: [&str; 3] = ["5", "6", "7"];
+
+fn listed(list: Option<&str>) -> Vec<&str> {
+    list.map(|list| {
+        list.split(',')
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 impl Sndout {
@@ -90,15 +106,15 @@ impl Sndout {
 
     /// The ADEC inputs wired to the main output, by the numbers the kernel lists.
     pub fn connected_adecs(&self) -> Vec<&str> {
-        self.connected_adec
-            .as_deref()
-            .map(|list| {
-                list.split(',')
-                    .map(str::trim)
-                    .filter(|adec| !adec.is_empty())
-                    .collect()
-            })
-            .unwrap_or_default()
+        listed(self.connected_adec.as_deref())
+    }
+
+    /// The mixer inputs wired to the main output beyond [`LG_MIXERS`], by the numbers the kernel lists.
+    pub fn stream_mixers(&self) -> Vec<&str> {
+        listed(self.connected_amixer.as_deref())
+            .into_iter()
+            .filter(|amixer| !LG_MIXERS.contains(amixer))
+            .collect()
     }
 
     pub fn adec_connected(&self, index: u8) -> bool {
@@ -147,6 +163,7 @@ pub fn parse(text: &str) -> Sndout {
             (Section::Earc, "Mix_option") => words[4] = value.parse().ok(),
             (Section::Arc, "OutputCodec") => out.arc_codec = Some(value.to_owned()),
             (Section::Misc, "ConnectedAdec") => out.connected_adec = Some(value.to_owned()),
+            (Section::Misc, "ConnectedAmixer") => out.connected_amixer = Some(value.to_owned()),
             _ => {}
         }
     }
@@ -243,6 +260,10 @@ mod tests {
         assert!(!s.bypassing());
         assert!(s.connected_adecs().is_empty());
         assert_eq!(s.connected_adec.as_deref(), Some(""));
+        assert!(
+            s.stream_mixers().is_empty(),
+            "LG's own mixers are not a stream's"
+        );
     }
 
     #[test]
@@ -250,11 +271,13 @@ mod tests {
         let text = REST
             .replace("OutputCodec=PCM", "OutputCodec=Pass-Through")
             .replace("[EARC]\nEArcOnOff=On\nSet_type=2\nCodec_type=1\nChannel_num=0\nSample_rate=0\nMix_option=1", "[EARC]\nEArcOnOff=On\nSet_type=2\nCodec_type=1\nChannel_num=0\nSample_rate=0\nMix_option=0")
-            .replace("ConnectedAdec=\n", "ConnectedAdec=1\n");
+            .replace("ConnectedAdec=\n", "ConnectedAdec=1\n")
+            .replace("ConnectedAmixer=5,6,7\n", "ConnectedAmixer=5,6,7,4\n");
         let s = parse(&text);
         assert!(s.bypassing());
         assert!(!s.mixed());
         assert!(s.adec_connected(1) && !s.adec_connected(2));
+        assert_eq!(s.stream_mixers(), ["4"]);
         assert_eq!(s.earc.unwrap().unmixed(), s.earc.unwrap());
     }
 

@@ -1,7 +1,9 @@
 use super::*;
 use crate::host::Stuck;
 use crate::sample::{NOT_READ, READING_FRESH_MS, Sample};
-use crate::testing::{ADEC, CONVERTER, FakeHost, Fault, PID, TAIL, graph_with};
+use crate::testing::{
+    ADEC, CONVERTER, FakeHost, Fault, PID, PIPELINE, PORT, Pipe, TAIL, graph_with,
+};
 use std::sync::Mutex;
 
 const JOURNAL: &str = "/data/audio-passthrough/journal";
@@ -361,6 +363,58 @@ fn every_precondition_refuses_before_touching_the_tv() {
                 r.host.with(|s| s.chain_graph.push_str(&format!(" rts_0426001c_0000000000000001_out0 -> srcbin_04270999_0000000000000002_in0;\n srcbin_04270999_0000000000000001_out0 -> lipsync_{TAIL}_0000000000000002_in0;\n")))
             },
             "2 converters",
+            true,
+        ),
+        (
+            "LG's mixer for another app's stream",
+            |r| {
+                r.host.lg_mixer();
+                r.host
+                    .with(|s| s.pipelines[0].app = "youtube.leanback.v4".into());
+            },
+            "youtube.leanback.v4 holds PCMMC4",
+            true,
+        ),
+        (
+            "another app playing beside the player's stream",
+            |r| {
+                r.host.lg_mixer();
+                r.host.with(|s| {
+                    s.pipelines.push(Pipe {
+                        id: "_avc".into(),
+                        app: "com.webos.app.hdmi1".into(),
+                        resources: vec![("MAIN_SOUND".into(), 0)],
+                    })
+                });
+            },
+            "com.webos.app.hdmi1 holds MAIN_SOUND0",
+            true,
+        ),
+        (
+            "the player's process is not the app SAM runs",
+            |r| {
+                r.host.lg_mixer();
+                r.host.with(|s| s.apps[0].1 = PID + 1);
+            },
+            "SAM lists no app as process 4242",
+            true,
+        ),
+        (
+            "the player's stream on another mix channel",
+            |r| {
+                r.host.lg_mixer();
+                r.host.with(|s| s.pipelines[0].resources[1].1 = 3);
+            },
+            "com.beb.plxnative holds no PCMMC4",
+            true,
+        ),
+        (
+            "LG's mixer beside an HDMI input",
+            |r| {
+                r.host.lg_mixer();
+                r.host.with(|s| s.others = vec![2]);
+            },
+            "ADEC2",
             true,
         ),
     ];
@@ -1518,4 +1572,180 @@ fn audiooutputd_going_silent_mid_restore_holds_the_words_until_it_answers() {
     assert_eq!(rig.snap().pending, None);
     assert_words_restored(&rig);
     assert!(!rig.host.with(|s| s.adec_connected));
+}
+
+// ---- LG's mixer input for the player's stream ----------------------------------------------------------------------------
+
+/// A TV on which LG routed the player's Load through its mixer input, as the C4 does before the player arms.
+fn lg_mixing() -> Rig {
+    let rig = Rig::new();
+    rig.host.lg_mixer();
+    rig
+}
+
+fn lg_mixer_connected(rig: &Rig) -> bool {
+    rig.host.with(|sim| sim.mixer == Some(PORT))
+}
+
+#[test]
+fn lgs_mixer_for_the_players_own_stream_is_taken_over_at_the_arm_and_given_back_while_it_plays() {
+    let mut rig = lg_mixing();
+    assert_eq!(rig.arm(), Ok(CONVERTER.to_owned()));
+    assert_eq!(
+        rig.host.log(),
+        [
+            "save",
+            "luna disconnect AMIXER4",
+            "cmd 0427000d",
+            "words 2,1,0,0,0"
+        ]
+    );
+    let taken = Taken {
+        port: PORT,
+        pipeline: PIPELINE.into(),
+    };
+    rig.host.with(|sim| {
+        assert_eq!(
+            Journal::parse(&sim.files[JOURNAL]).unwrap().mixer,
+            Some(taken)
+        );
+    });
+    assert!(!lg_mixer_connected(&rig));
+    rig.run(10_000);
+    assert_eq!(rig.session().phase, Phase::Audible);
+    assert_eq!(rig.session().mixer, Some(PORT));
+    assert_eq!(rig.route.release(PID), Ok(true));
+    assert_restored(&rig, Why::Released);
+    let log = rig.host.log();
+    assert!(
+        last(&log, "words 2,1,0,0,1") < first(&log, "luna connect AMIXER4"),
+        "{log:?}"
+    );
+    assert!(lg_mixer_connected(&rig));
+}
+
+#[test]
+fn lg_connecting_its_mixer_mid_session_is_taken_over_again_and_its_words_are_the_ones_put_back() {
+    let mut rig = Rig::new();
+    rig.host.with(|sim| sim.words.codec = 2);
+    rig.arm().unwrap();
+    rig.run(10_000);
+    let mark = rig.host.log().len();
+    rig.host.lg_mixer();
+    // audiooutputd lists the input a moment after the kernel shows it.
+    rig.host.with(|sim| {
+        sim.words.codec = 1;
+        sim.listed_at = sim.now + 300;
+    });
+    rig.run(500);
+    assert_eq!(
+        rig.host.log()[mark..],
+        ["save", "luna disconnect AMIXER4", "save", "words 2,1,0,0,0"]
+    );
+    assert_eq!(rig.session().phase, Phase::Audible);
+    assert_eq!(rig.session().mixer, Some(PORT));
+    assert_eq!(rig.route.release(PID), Ok(true));
+    assert_restored(&rig, Why::Released);
+    assert!(lg_mixer_connected(&rig));
+}
+
+#[test]
+fn lg_fighting_over_its_mixer_ends_the_session_and_keeps_it() {
+    let mut rig = lg_mixing();
+    rig.arm().unwrap();
+    for _ in 1..FIGHTS {
+        rig.host.lg_mixer();
+        rig.run(500);
+        assert!(rig.snap().session.is_some());
+    }
+    rig.host.lg_mixer();
+    rig.run(500);
+    let end = rig.snap().end.unwrap();
+    assert_eq!(end.why, Why::RouteLost);
+    assert!(
+        end.detail.contains("LG keeps connecting AMIXER4"),
+        "{}",
+        end.detail
+    );
+    assert_eq!(rig.count("luna disconnect AMIXER4"), FIGHTS);
+    assert!(lg_mixer_connected(&rig));
+}
+
+#[test]
+fn a_stream_that_has_ended_leaves_lgs_mixer_disconnected_as_lgs_own_stop_does() {
+    type Ending = (fn(&mut Rig), Why);
+    let endings: [Ending; 2] = [
+        // The player stops its stream, then lets the route go.
+        (
+            |rig| {
+                rig.host.with(|sim| sim.pipelines.clear());
+                assert_eq!(rig.route.release(PID), Ok(true));
+            },
+            Why::Released,
+        ),
+        // The player dies; uMS may still list its pipeline.
+        (
+            |rig| {
+                rig.host.with(|sim| sim.procs.remove(&PID));
+                rig.run(300);
+            },
+            Why::OwnerExited,
+        ),
+    ];
+    for (end, why) in endings {
+        let mut rig = lg_mixing();
+        rig.arm().unwrap();
+        rig.run(10_000);
+        end(&mut rig);
+        assert_restored(&rig, why);
+        assert_eq!(rig.count("luna connect AMIXER4"), 0, "{why:?}");
+        assert!(!lg_mixer_connected(&rig));
+    }
+}
+
+#[test]
+fn switching_the_plugin_off_gives_lgs_mixer_back() {
+    let mut rig = lg_mixing();
+    rig.arm().unwrap();
+    rig.run(10_000);
+    rig.env.enabled = false;
+    rig.run(300);
+    assert_restored(&rig, Why::Disabled);
+    assert!(lg_mixer_connected(&rig));
+}
+
+#[test]
+fn the_next_helper_gives_lgs_mixer_back_from_the_journal() {
+    let mut rig = lg_mixing();
+    rig.arm().unwrap();
+    rig.run(10_000);
+    // The helper dies here; a new one starts on the same TV.
+    let mut next = Route::new(rig.host.clone(), JOURNAL);
+    next.recover().unwrap();
+    assert_adec_restored(&rig);
+    assert_words_restored(&rig);
+    assert!(lg_mixer_connected(&rig));
+}
+
+#[test]
+fn an_arm_that_fails_after_the_takeover_gives_lgs_mixer_back() {
+    let mut rig = lg_mixing();
+    rig.host.with(|sim| sim.cmd_ok = false);
+    let refusal = rig.arm().unwrap_err();
+    assert!(
+        refusal.reason.contains("cannot configure converter"),
+        "{}",
+        refusal.reason
+    );
+    assert_eq!(
+        rig.host.log(),
+        [
+            "save",
+            "luna disconnect AMIXER4",
+            "luna connect AMIXER4",
+            "remove"
+        ]
+    );
+    assert!(lg_mixer_connected(&rig));
+    assert_eq!(rig.snap().session, None);
 }

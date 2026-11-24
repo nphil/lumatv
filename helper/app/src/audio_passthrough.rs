@@ -218,6 +218,7 @@ fn session_json(s: &audiopass::route::SessionView) -> Value {
     json!({
         "pid": s.pid,
         "adec": s.adec,
+        "mixer": s.mixer.map(|port| format!("AMIXER{port}")),
         "tail": s.tail,
         "converter": s.converter,
         "phase": s.phase.name(),
@@ -1047,6 +1048,7 @@ mod tests {
         assert_eq!(session["pid"], PID);
         assert_eq!(session["tail"], TAIL);
         assert_eq!(session["adec"], ADEC);
+        assert_eq!(session["mixer"], Value::Null, "no mixer input was taken");
 
         let (status, body) = rig.call("POST", "release", &format!(r#"{{"pid":{PID}}}"#));
         assert_eq!(status, 200);
