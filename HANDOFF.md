@@ -23,3 +23,6 @@ Installed on the C4: helper 696e735f -> 2998ff4c (payload and bin, live swap, pi
 ## 2026-11-24 helper install (main 5ac499ca)
 
 Installed on the C4 with nothing playing and the passthrough unarmed: helper 2998ff4c -> 9ec753c5 (payload and bin, live swap, pid 4733 -> 10438, compositor untouched); the running exe reads 9ec753c5. After a mixer takeover the ADEC connect now follows the un-mix, since the output codec follows the main input, which stayed AMIXER4 in the 22:59 run. Not yet tried on the set: Pass-Through showing within the 1 s grace after that connect.
+
+## 2026-11-24 helper ARP guard
+Core arp-guard thread sets arp_ignore=1/arp_announce=2 on all and on every interface sharing a subnet (every 5 s); fixes eth0/wlan0 ARP flux. Helper d9d93614 installed (907e9174 before), built on 5ac499ca. Multi Link's 0/0 was only its restore of originals.
