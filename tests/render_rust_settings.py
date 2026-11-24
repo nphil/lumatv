@@ -89,8 +89,8 @@ BUTTONS_SET = {'remote': {'buttons': {'netflix': 'app:plex', 'amazon': 'nothing'
 
 
 class Scene:
-    def __init__(self, name, page, keys=(), routes=None, topics=None, theme=None, lg=None, tab=None, layout=None):
-        self.name, self.page, self.keys = name, page, list(keys)
+    def __init__(self, name, page, keys=(), routes=None, topics=None, theme=None, lg=None, tab=None, layout=None, foreground='com.webos.app.home'):
+        self.name, self.page, self.keys, self.foreground = name, page, list(keys), foreground
         self.routes, self.topics, self.theme, self.lg, self.tab, self.layout = routes or {}, topics or {}, theme, lg, tab, layout
 
     def helper_routes(self):
@@ -117,6 +117,53 @@ SCENES += [
     Scene('appkey', 'remote', lg=with_apps, keys=TO_BUTTONS + ['down', 'ok', 'down', 'down']),
     Scene('button-picker', 'remote', lg=with_apps, theme=BUTTONS_SET, keys=TO_BUTTONS + ['down'] * 5 + ['ok', 'down', 'down', 'down']),
     Scene('number-key', 'remote', lg=with_apps, theme={'remote': {'quickAccess': {'on': True, 'slots': {}}}}, keys=['up', 'up', 'right'] + ['down'] * 10 + ['ok', 'down']),
+]
+
+def game_lg():
+    """HDMI 2 in front with Game Optimizer on, as the OLED65C4 answers its game keys: per-input keys for the dimension asked, the genre keys
+    for the signal in front (FPS), and the descriptions that say which rows LG shows."""
+    values = copy.deepcopy(lgsettings.VALUES)
+    values['other'].update({
+        'gameMode': {'hdmi1': 'off', 'hdmi2': 'on', 'hdmi3': 'off', 'hdmi4': 'off'}, 'gameGenre': 'FPS', 'inputOptimization': 'auto', 'gameOptimization': 'on',
+        'freesync': 'off', 'enableALLM': 'on', 'enableQFT': 'off', 'enable144HzBooster': 'off', 'darkMode': 'off', 'blueLight': 'off',
+        'gameUIColor': 'violet', 'gameScreenRatio': '16:9', 'gameScreenPosition': 'middle', 'enableQuickGame': 'on', 'blackStabilizer': 10,
+        'whiteStabilizer': 10, 'lowLevelAdjustment': 0, 'gameAdjustContrast': 85, 'gameBlackLevel': 50, 'gameSharpness': 10, 'gameColorDepth': 55,
+        'gameSettingModified': {'FPS': True, 'Standard': False},
+        'gameDashboardStatusList': ['fps', 'vrr_aiGameSound_whiteStabilizer', 'blackStabilizer', 'lowLatency']})
+    values['picture'].update({'hdrDynamicToneMapping': 'on', 'eyeComfortMode': 'off', 'pictureMode': 'game'})
+    values['sound'].update({'aigamesound': 'off', 'gameTVEqualizer': 'on', 'gameTVEqualizer10band': [0, 2, 3, 1, 0, -1, 0, 2, 4, 3], 'soundMode': 'game'})
+    descs = copy.deepcopy(lgsettings.DESCS)
+    per_genre = ['gameInput', 'dynamicRange', 'gameGenre']
+    descs.update({
+        'other.gameMode': {'dimension': [], 'ui': {'visible': True, 'active': True}},
+        'other.gameDashboardStatusList': {'dimension': [], 'ui': {'visible': True, 'active': True}},
+        'other.gameSettingModified': {'dimension': ['gameInput'], 'ui': {'visible': True, 'active': True}},
+        'other.freesync': {'dimension': ['gameInput'], 'ui': {'visible': True, 'active': True}},
+        'other.enableQFT': {'dimension': ['gameInput'], 'ui': {'visible': False, 'active': True}},
+        'other.enable144HzBooster': {'dimension': ['gameInput'], 'ui': {'visible': True, 'active': True}},
+        'other.blackStabilizer': {'dimension': per_genre, 'ui': {'visible': True, 'active': True}, 'values': {'range': {'min': 0, 'max': 20, 'interval': 1}}},
+        'other.whiteStabilizer': {'dimension': per_genre, 'ui': {'visible': True, 'active': True}, 'values': {'range': {'min': 0, 'max': 20, 'interval': 1}}},
+        'other.lowLevelAdjustment': {'dimension': per_genre, 'ui': {'visible': True, 'active': True}, 'values': {'range': {'min': -30, 'max': 30, 'interval': 1}}},
+        'other.gameAdjustContrast': {'dimension': per_genre, 'ui': {'visible': True, 'active': True}, 'values': {'range': {'min': 0, 'max': 100, 'interval': 1}}},
+        'other.gameBlackLevel': {'dimension': per_genre, 'ui': {'visible': True, 'active': True}, 'values': {'range': {'min': 0, 'max': 100, 'interval': 1}}},
+        'other.gameSharpness': {'dimension': per_genre, 'ui': {'visible': True, 'active': True}, 'values': {'range': {'min': 0, 'max': 50, 'interval': 1}}},
+        'other.gameColorDepth': {'dimension': per_genre, 'ui': {'visible': True, 'active': True}, 'values': {'range': {'min': 0, 'max': 100, 'interval': 1}}},
+    })
+    answers = dict(ONLINE, **{
+        'service.config/getConfigs': {'returnValue': True, 'configs': {'tv.model.motionProMode': 'OLED Motion', 'tv.model.supportVRR': 'Gsync', 'tv.hw.turnkeyVersion': 'LG'}},
+        'eim/getAllInputStatus': {'returnValue': True, 'devices': [
+            {'appId': 'com.webos.app.hdmi1', 'label': 'Apple TV', 'connected': True}, {'appId': 'com.webos.app.hdmi2', 'label': 'PlayStation 5', 'connected': True},
+            {'appId': 'com.webos.app.hdmi3', 'label': 'HDMI 3', 'connected': False}, {'appId': 'com.webos.app.hdmi4', 'label': 'HDMI 4', 'connected': False}]}})
+    dims = dict(lgsettings.DIMENSIONS, other={'gameInput': 'hdmi2', 'gameGenre': 'FPS', 'dynamicRange': 'sdr'})
+    return lgsettings.LgService(values=values, descs=descs, answers=answers, dimensions=dims)
+
+
+GAME_FRONT = 'com.webos.app.hdmi2'
+SCENES += [
+    Scene('game-optimizer', 'gameopt', lg=game_lg, foreground=GAME_FRONT, keys=['right']),
+    Scene('game-optimizer-picture', 'gameopt', lg=game_lg, foreground=GAME_FRONT, keys=['up', 'right', 'down', 'down']),
+    Scene('game-optimizer-sound', 'gameopt', lg=game_lg, foreground=GAME_FRONT, keys=['up', 'right', 'right', 'down', 'down', 'down']),
+    Scene('game-optimizer-dashboard', 'gameopt', lg=game_lg, foreground=GAME_FRONT, keys=['up', 'right', 'right', 'right', 'down']),
 ]
 
 WIFI_STATUS = {'returnValue': True, 'wired': {'state': 'disconnected'}, 'wifi': {
@@ -372,7 +419,7 @@ def play(scene, mode='dark', scale=1.0, wait=None, shot=None):
             # OK acts on its release (a hold is the help)
             extra += ['--key', '%d:ok:up' % (at + 80)]
     extra += ['--eval', '%d:lint' % (t - 200), '--eval', '%d:state' % (t - 200), '--snap', '%d:%s' % (t, shot)]
-    steps = [(OPEN_AT - 300, lambda c: c.push('foreground', {'app': 'com.webos.app.home', 'home': True})),
+    steps = [(OPEN_AT - 300, lambda c: c.push('foreground', {'app': scene.foreground, 'home': scene.foreground == 'com.webos.app.home'})),
              (OPEN_AT, lambda c: c.push('show', {'kind': 'settings', 'page': scene.page}))]
     helper = host.FakeHelper(scene.helper_routes())
     lg = scene.lg() if callable(scene.lg) else scene.lg or lgsettings.LgService(answers=ONLINE)

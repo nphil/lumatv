@@ -12,6 +12,7 @@ pub mod bluetooth;
 pub mod buttons;
 pub mod cameras;
 pub mod capture;
+pub mod game_optimizer;
 pub mod gaming;
 pub mod guide_data;
 pub mod ha_device;
@@ -54,6 +55,7 @@ pub fn all() -> Vec<Page> {
         picture::page(),
         sound::page(),
         inputs::page(),
+        game_optimizer::page(),
         network::page(),
         ambient::page(),
         home::page(),

@@ -66,10 +66,11 @@ DIMENSIONS = {"picture": {"pictureMode": "filmMaker", "dynamicRange": "sdr", "in
 
 
 class LgService:
-    def __init__(self, values=None, descs=None, answers=None, drop=()):
+    def __init__(self, values=None, descs=None, answers=None, drop=(), dimensions=None):
         self.values = copy.deepcopy(values if values is not None else VALUES)
         self.descs = copy.deepcopy(descs if descs is not None else DESCS)
         self.answers = dict(answers or {})
+        self.dimensions = DIMENSIONS if dimensions is None else dimensions   # what a read without a dimension is answered for, by category
         self.drop = set(drop)          # "category.key" names the TV does not have
         self.writes = []               # (category, settings, app_id, dimension)
         self.calls = []
@@ -86,8 +87,10 @@ class LgService:
             out = {'returnValue': not missing, 'category': cat, 'settings': settings}
             if missing:
                 out['errorKey'] = missing
-            if cat in DIMENSIONS and settings:
-                out['dimension'] = DIMENSIONS[cat]
+            if p.get('dimension') and settings:
+                out['dimension'] = p['dimension']      # a read for a dimension is answered for that one
+            elif cat in self.dimensions and settings:
+                out['dimension'] = self.dimensions[cat]
             return out
         if uri.endswith('/getSystemSettingDesc'):
             cat, keys = p.get('category', ''), p.get('keys', [])

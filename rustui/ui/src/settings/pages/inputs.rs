@@ -6,6 +6,7 @@
 //! `offByUser`, and reads `on` and `onByUser` as on); tuning, the channel manager and the locks are scans and lists the tuner's service
 //! answers, so they stay in LG's channel screen, the last row.
 
+use super::game_optimizer;
 use super::receiver;
 use super::util::{atsc3, atsc3_read, go, inputs, inputs_read};
 use crate::host::inputs::{Switch, receiver_key};
@@ -36,7 +37,7 @@ fn reads(c: &Ctx) -> Vec<Read> {
         inputs_read(),
         Read::lg(
             "other",
-            &["simplinkEnable", "simplinkAutoPowerOn", "qmsVrr", "uhdDeepColor", "444BypassHDMI1", "444BypassHDMI2", "444BypassHDMI3", "444BypassHDMI4", "enableDolbyVisionPC"],
+            &["simplinkEnable", "simplinkAutoPowerOn", "qmsVrr", "uhdDeepColor", "444BypassHDMI1", "444BypassHDMI2", "444BypassHDMI3", "444BypassHDMI4", "enableDolbyVisionPC", "gameMode"],
         ),
         Read::lg("general", &["noSignalScreenSaver"]),
         Read::call("bt", "luna://com.webos.service.config/getConfigs", json!({"configNames": ["system.supportBluetoothFeatures"]})),
@@ -282,7 +283,15 @@ fn rows(c: &Ctx) -> Vec<Row> {
         forget(c),
     ));
     rows.push(history);
-    rows.push(lg_launch("game", "Game Optimizer", "", "com.webos.app.gameoptimizer").tab(2).help("VRR, ALLM and latency per input, in LG's own screen."));
+    rows.push(
+        Row::link("gameopt")
+            .tab(2)
+            .icon("gauge")
+            .label("Game Optimizer")
+            .help("VRR, ALLM, game picture and sound for each HDMI input.")
+            .value(&game_optimizer::summary(c))
+            .does(go("gameopt")),
+    );
     rows
 }
 
@@ -508,8 +517,8 @@ mod tests {
         assert!(matches!(a.answers[1].then.last(), Some(Op::Set(k, v)) if k == "inputs.historyDone" && v == &json!(true)));
         w.local.set("inputs.historyDone", json!(true));
         assert_eq!(by_id(&rows(&w.ctx()), "history").button, "Done");
-        let launch = (by_id(&r, "game").act.as_ref().unwrap())(Arg::Press);
-        assert!(matches!(&launch[..], [Op::Launch { app, .. }] if app == "com.webos.app.gameoptimizer"));
+        let game = (by_id(&r, "gameopt").act.as_ref().unwrap())(Arg::Press);
+        assert!(matches!(&game[..], [Op::Open { page, .. }] if page == "gameopt"));
         let to_bt = (by_id(&r, "bt").act.as_ref().unwrap())(Arg::Press);
         assert!(matches!(&to_bt[..], [Op::Open { page, .. }] if page == "bthid"));
     }
