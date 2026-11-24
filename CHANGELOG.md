@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The Home and Library top bar's profile pill is the avatar alone, the nav pill's height and glass, with no "Menu" label; it still opens the quick menu.
+
 Dolby TrueHD & Atmos passthrough un-mixes LG's eARC words only once the player says its sink has turned `pcm-multi-ch` back on (`POST /v1/audio-passthrough/flowing`), or 1 s after the arm without that word: LG re-applies its words as that property is written, which ended sessions at the second buffer. LG putting its words back once is undone while only the granted decoder is in use; a second time, or any other input in use, ends the session.
 
 LumaTV Settings no longer shows half-made pages. From 100 Hz the first open makes the rail and the page a few layers to a draw and stays transparent until both are whole, then shows all of it on one frame; a page or tab chosen while Settings is up is made whole in one draw (no blank body, no rows arriving one by one). The pages' reads (LG's keys, the helper's owners and topics) are asked one page at a time in the quiet after start, so the first open paints values that are already in. A row's value keeps the widest room it has had, so a value that changes does not re-wrap the label or move the rows below, and the draw of an unchanged view tells the compositor nothing.

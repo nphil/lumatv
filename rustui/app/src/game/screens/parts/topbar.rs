@@ -29,10 +29,9 @@ pub enum Here {
 fn disc_side(p: &Paint<'_>) -> f32 {
     (30.0 * p.scale + 14.0).min(60.0)
 }
-/// The pill that holds the avatar and the word Menu beside it: the pill's padding, the disc, a gap, the word and its end padding. The
-/// word is what tells that the avatar opens the quick menu.
-fn avatar_width(p: &mut Paint<'_>) -> f32 {
-    12.0 + disc_side(p) + 14.0 + label_width(p, "Menu") + 24.0
+/// The pill that holds the avatar alone: the pill's padding twice over the disc. It carries no label.
+fn avatar_width(p: &Paint<'_>) -> f32 {
+    24.0 + disc_side(p)
 }
 /// The width of `text` in the bar's type: the mock sets its labels semibold.
 fn label_width(p: &mut Paint<'_>, text: &str) -> f32 {
@@ -123,7 +122,7 @@ pub fn bar(p: &mut Paint<'_>, here: Here, attention: bool) -> f32 {
 }
 
 /// The avatar: the signed-in Steam account's picture in a disc, or a person in a neutral disc when there is none (signed out, offline or
-/// not fetched yet), with the word Menu beside it.
+/// not fetched yet). No label: the pill is the nav pill's size and glass.
 fn avatar(p: &mut Paint<'_>, current: bool, attention: bool, fill: Fill, cached: bool, h: f32) {
     let w = avatar_width(p);
     let pill = Frame::new(W - p.x - w, p.y, w, h);
@@ -144,10 +143,7 @@ fn avatar(p: &mut Paint<'_>, current: bool, attention: bool, fill: Fill, cached:
             marks.push(p.mark(Icon::Person, side, 6.0 + (d - side) / 2.0, (item.h - side) / 2.0, Role::Ink2, false));
         }
     }
-    let ink = nav_ink(p, false);
-    let mut label = p.word("Menu", Type::Label, ink, 6.0 + d + 14.0, (item.h - p.line(Type::Label)) / 2.0, item.w - d - 20.0);
-    label.ty = p.bold(Type::Label);
-    p.words(32, item, vec![label], marks, 62);
+    p.words(32, item, vec![], marks, 62);
     focus::treat(p, from, 34, item, Kind::Button, p.focused(Focus::Nav(3)));
     if attention {
         // 14 px on the disc's top-right corner, on a ring of the canvas that keeps it apart from the disc.
