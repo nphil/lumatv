@@ -13,20 +13,28 @@ get; it is a conservative one.
 
 ## Where the memory is, all five kept apps closed
 
-Page-kind scan of the zone's frames (`/proc/kpageflags`, `/proc/kpagecgroup`): 676 MB of the 692 are present in the Movable zone.
+Page-kind scan of the zone's frames (`/proc/kpageflags`, `/proc/kpagecgroup`), in MiB (256 pages): the zone holds 173,056 pages, 676 MiB, which
+`CmaTotal` (692,224 kB) and the guard count as 692 MB.
 
-| Kind | MB | Whose |
+| Kind | MiB | Whose |
 |---|---|---|
-| Not on an LRU list (drivers, DMA, kernel) | 297 | 276 are `nr_alloc_cma` (69,091 pages, `CmaDeviceAlloc`): allocated through the CMA allocator by drivers, constant whatever apps run; the other 21 are not attributed |
+| Not on an LRU list (drivers, DMA, kernel) | 297 | 270 are `nr_alloc_cma` (69,091 pages, `CmaDeviceAlloc`): allocated through the CMA allocator by drivers, constant whatever apps run; the other 27 are not attributed |
 | Anonymous, on an LRU | 171 | processes' heaps, movable: `ls-hubd` 72, the compositor (`surface-manager`) 57, the root group 35, `webapp-mgr` 6 |
 | Anonymous, mlocked | 39 | processes' pinned heaps (migratable, not reclaimable) |
-| Free | 168 | what `CmaFree` shows (173-181 at the time of the reads) |
+| Free | 168 | what `CmaFree` shows (173-181 MB in the guard's unit at the time of the reads) |
 | File cache | 1 | |
 
-So of the 510 MB that `CmaFree` does not show with every app closed, 276 are driver allocations that nothing in user space releases, and
-about 210 are the heaps of system services (`ls-hubd`, the compositor, `webapp-mgr`), which stay. Which driver holds the 276 is not
+So of the 508 MiB (the 510 of the guard's unit) that `CmaFree` does not show with every app closed, 270 are driver allocations that nothing in
+user space releases, and about 210 are the heaps of system services (`ls-hubd`, the compositor, `webapp-mgr`), which stay. Which driver holds the 270 is not
 attributed: no `/sys/kernel/debug/cma`, no `page_owner`, and `/proc/hma/<pool>` answers with an I/O error (`/proc/hma/status` lists the pools'
 addresses and sizes only).
+
+Zone map (`/proc/zoneinfo`, `/proc/iomem`): Movable starts at pfn 432,128 (0x69800000) and spans 211,968 pages (828 MiB) of which 173,056 are
+present; the three System RAM ranges at 0x69800000-0x72bfffff, 0x77000000-0x917fffff and 0x96c00000-0x9d3fffff are the zone, and the 152 MiB
+between them are holes. During one `heavy` stream of 11.11 (1080i, `CmaFree` 87 MB before it, so nothing was closed) `nr_alloc_cma` rose from
+69,091 to 78,671 pages (+37.4 MiB) and `nr_free_cma` fell from 21,802 to 12,025 (-38.2 MiB); within 9 s of the stream's end both were back
+(69,091 and 22,037). The converter's chain therefore takes about 37 MiB of contiguous memory while it runs and gives it all back; the guard's
+40 MB (32 MB up to 720 lines) is the right size. Not correlated: which of the pools in `/proc/hma/status` lie in these ranges.
 
 ## What the kept apps hold while they are hidden
 
@@ -80,6 +88,6 @@ Changes that could make closing unnecessary, none built:
 ## Not measured
 
 - A hibernated app's reopen and playback (above), and whether a visible-then-Home app differs from a preloaded one.
-- Which driver holds the 276 MB of `nr_alloc_cma`, and what the converter's chain adds to it while it runs.
+- Which driver holds the 270 MiB of `nr_alloc_cma`, and which of the pools in `/proc/hma/status` lie in the zone.
 - The converter beside a game stream (`docs/plugins/live-tv-tuner.md`, the gate): the game's pipeline owner id, `CmaFree` during the stream and
   whether the chain starts.
