@@ -17,7 +17,7 @@
 # zigbuild --locked --release --target aarch64-unknown-linux-gnu.2.36 -p lumagame-engine-gfn; game/engines/punktfunk/build.sh; game/engines/steam/build.sh;
 # gfx64/fetch-blob.sh and gfx64/build.sh.
 set -eu
-umask 022 # the package keeps the modes the installer gives (0755/0644) whatever the build host's umask is
+umask 022 # the package modes (0755 programs, 0644 the rest) do not depend on the build host's umask or the checkout's file modes
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/.." && pwd)
 id=$(sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$here/package/appinfo.json" | head -1)
@@ -72,6 +72,7 @@ sh "$here/tools/fetch-gamestream.sh" "$data"
 
 chmod 755 "$data/lumagame-main" "$data/run64.sh" "$data/bin64/"* "$data/gfx64/launch.sh" "$data/gfx64/bundle/lib/ld-linux-aarch64.so.1" \
   "$engine/bin/"* "$data/engines/punktfunk/bin/"* "$data/engines/steam/bin/"*
+find "$data" -type f ! -perm -100 -exec chmod 644 {} +
 ( cd "$data" && find . -type f ! -name build-id -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16 ) > "$data/build-id"
 build_id=$(cat "$data/build-id")
 ( cd "$build/data" && tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='1970-01-01 00:00:00 UTC' -czf ../data.tar.gz . )

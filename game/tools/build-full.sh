@@ -6,7 +6,6 @@
 #   command: CARGO_BUILD_JOBS=8 sh game/tools/build-full.sh
 # The result is game/build/org.nphil.lumagame_<version>_all.ipk.
 set -eu
-umask 022 # the package keeps the modes the installer gives (0755/0644) whatever the build host's umask is
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-8}
