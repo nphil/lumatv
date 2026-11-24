@@ -408,3 +408,5 @@ What this gives:
 - For LumaGame: NDL presents 60 fps to the display engine at every stream rate, so the panel is at 120 Hz. A 72 fps stream through a pipe that declares 72 would be shown 2:2 at 144 Hz; whether a 144 fps stream can be declared (smp clamps 144 to 120) is open.
 
 Not tested: 4K clips, HEVC, a rate change inside one stream (step 5), 47.95/71.93 fps, the 1 ms vsync gap, and the same rates under an app instead of Home.
+
+**4K HEVC, same run, 10:24.** A black 3840x2160 HEVC clip through `--pipe smp`: declared 72 fps gives `vFreq 720` and the panel at 144.1 Hz (649 units fed in 9 s, none dropped); 120 fps gives 119.8 Hz; 60 fps gives 120.0 Hz. Declared 144 fps is refused at load (`event 18 601 Resource Allocation Error`, nothing fed), so a 144 fps 4K stream is not reachable by declaring it; the 144 Hz panel is reached with a 72 fps declaration, shown 2:2.

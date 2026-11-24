@@ -34,12 +34,12 @@ watch() { # watch SECONDS LABEL: sample every 100 ms; returns 1 when the picture
 }
 COMP=/var/lib/lumatv/compositor
 ctl() { "$COMP/lib/ld-linux-aarch64.so.1" --library-path "$COMP/lib" "$COMP/bin/lumatv-compositor" ctl --runtime-dir /tmp/xdg "$@"; }
-# The compositor closes a video window nobody claimed (3 s), so each clip claims a small one, as the video check does. Low delay off: with it on
-# the decoder runs free at 60 whatever the clip says (PIPE and LOWDELAY can be set from the environment).
+# The compositor closes a video window nobody claimed (3 s), so each clip claims a small one, as the video check does. Only PIPE=smp shows the
+# display engine the clip's rate: the ES and NDL pipes present 60 fps whatever --fps and LOWDELAY say (2026-11-24). CODEC is h264 unless set.
 play() { # play FPS SECONDS
-  ctl vwin claim ratefollow pip 1280 720 480 270 org.nphil.lumatv.videocheck h264 "$SIZE@$1" > "$OUT/claim-$1.json" 2>&1
-  XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 "$FEEDER" --play "$CLIP" --size "$SIZE" --codec h264 --fps "$1" --seconds "$2" --loop \
-    --pipe "${PIPE:-es}" --low-delay "${LOWDELAY:-0}" -w video -a org.nphil.lumatv.videocheck --ndl-app com.webos.app.home > "$OUT/feeder-$1.log" 2>&1 &
+  ctl vwin claim ratefollow pip 1280 720 480 270 org.nphil.lumatv.videocheck "${CODEC:-h264}" "$SIZE@$1" > "$OUT/claim-$1.json" 2>&1
+  XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 "$FEEDER" --play "$CLIP" --size "$SIZE" --codec "${CODEC:-h264}" --fps "$1" --seconds "$2" --loop \
+    --pipe "${PIPE:-smp}" --low-delay "${LOWDELAY:-0}" -w video -a org.nphil.lumatv.videocheck --ndl-app com.webos.app.home > "$OUT/feeder-$1.log" 2>&1 &
   PID=$!
 }
 stop() { kill "$PID" 2>/dev/null; wait "$PID" 2>/dev/null; ctl vwin release ratefollow > /dev/null 2>&1; }
