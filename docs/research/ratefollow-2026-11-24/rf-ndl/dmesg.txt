@@ -1,0 +1,6 @@
+[10929.690224] de           NOT (02646:02646) _vsc_vp_periodictask     2276: >>>>>>>  timing_changed[0] = 3  <<<<<<<
+[10929.690291] de           NOT (02646:02646) DE_IO_SetFrRate          1006: for 120Hz model : freq = 120 Hz
+[10929.690320] de           NOT (02646:02646) DE_IO_SetFrRate          1068: set_frate fr_rate:120, isForceFreeRun:0
+[10944.046247] de           NOT (02646:02646) _vsc_vp_periodictask     2276: >>>>>>>  timing_changed[0] = 5  <<<<<<<
+[10944.046283] de           NOT (02646:02646) DE_IO_SetFrRate          1006: for 120Hz model : freq = 120 Hz
+[10944.046313] de           NOT (02646:02646) DE_IO_SetFrRate          1068: set_frate fr_rate:120, isForceFreeRun:0

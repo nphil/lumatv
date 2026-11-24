@@ -377,3 +377,34 @@ What each outcome decides:
 - The panel follows off-grid rates (for example 116 Hz at 58 fps) with no mute: rate matching for LumaGame at 2x and 1x inside the followed range, and step 5 decides whether it can move per frame.
 - The panel stays at 120 Hz and repeats or drops frames: the lock range is only the fractional pull (0.1 %), and this route gives nothing beyond the three families.
 - The panel loses lock or mutes: the route is closed for live use; record the range at which it happens.
+
+### Result on the set, 2026-11-24 10:05-10:17 (Home in front, panel at 120 Hz at the start)
+
+Run with `game/vrr-probe/rate_follow.sh`: a black 640x360 H.264 clip in a claimed 480x270 video window, 8 s per rate, `osd_irq` counted over the last 4.5 s of each. Samples and kernel lines: `docs/research/ratefollow-2026-11-24/`.
+
+**Only the starfish pipe carries a clip's rate.** Through the feeder's ES and NDL pipes the display engine sees `vFreq 600` whatever the clip says (25 and 30 fps both, low delay on or off), and the panel stays at 120 Hz. Through `--pipe smp` the engine sees the declared rate, except that 50 to 59 fps arrive as 600 and 144 as 1200.
+
+| Clip rate (smp) | `vFreq` seen | Panel (`osd_irq`) |
+|---|---|---|
+| 24, 26, 27, 28, 29, 30, 36 | as declared | 119.8 to 120.2 Hz |
+| 25 | 250 | 100.0 Hz |
+| 40, 45, 48 | as declared | 120.0 to 120.2 Hz |
+| 50, 52, 54, 56, 57, 58, 59, 60 | 600 | 119.9 to 120.2 Hz |
+| 61, 62, 66, 70 | as declared | 119.9 to 120.1 Hz |
+| 71, 72 | 710, 720 | **144.2, 143.9 Hz** |
+| 73, 75, 80, 90, 96, 110 | as declared | 119.8 to 120.2 Hz |
+| 100 | 1000 | 100.2 Hz |
+| 120, 144 | 1200 | 120.2, 120.5 Hz |
+
+- **The lock does not follow an off-grid rate.** Every rate outside the families is shown at 120 Hz; nothing ran at 104 or 116 Hz. The pull that gives 119.88 Hz for 23.976 fps is the whole of it. A continuously moving source rate is therefore not a route to VRR.
+- **There is a fourth family, 144 Hz, and an app's video reaches it.** A 71 or 72 fps source puts the panel at 144 Hz, and it stays there with no source until the next video's first frame (as 100 and 96 Hz do). The kernel did not ask for it: its lines for that start read `fr 720/10Hz`, `set_frate:60`, `for 120Hz model : freq = 120 Hz`, `isForceFreeRun:0`, the same as for 30 fps. The choice of 144 is made below the kernel, in the DE firmware, from the source rate.
+- **Switch time and mute.** 120 to 144 Hz: the 0.4 s windows read 116, 132, 141, 146 Hz from the first frame, so about 1 s, passing through intermediate rates. 144 to 120 Hz at the next clip: 136 then 120 Hz, about 0.6 s. 120 to 100 and back as measured before. `lvds.black_out` stayed `orignal (0x0)` through every step and `localmute` showed only the start mute every start has (34, then 0 within 0.3 s). Whether the panel itself blinks was not seen: nobody was at the set.
+- **Correction to the source read above.** On this set MEMC type 4 leaves the pulldown flag at 0 (`memc_type : 4 --> _g_curr_pulldown : 0` at each start), so the published `_vsc_check_fr` path does not explain 96 Hz after a Dolby Vision film. Like 144 Hz, that rate is picked below the kernel.
+
+What this gives:
+
+- The reachable output rates are 96, 100, 120 and 144 Hz, each selected by the source rate at a video's first frame, with a switch of about 1 s and no flagged mute. No rate between them.
+- Putting Home back to 120 Hz after a Dolby Vision film needs a source that declares a 120-family rate through the starfish pipe; the ES and NDL pipes always present 60 fps, which is also a 120-family rate, so any of the three does it. No write does.
+- For LumaGame: NDL presents 60 fps to the display engine at every stream rate, so the panel is at 120 Hz. A 72 fps stream through a pipe that declares 72 would be shown 2:2 at 144 Hz; whether a 144 fps stream can be declared (smp clamps 144 to 120) is open.
+
+Not tested: 4K clips, HEVC, a rate change inside one stream (step 5), 47.95/71.93 fps, the 1 ms vsync gap, and the same rates under an app instead of Home.

@@ -1,0 +1,15 @@
+[10846.973087] de           NOT (02695:02695) v4l2_vsc_update_pulldown 2148: memc_type : 4  --> _g_curr_pulldown : 0
+[10846.978219] de           NOT (02646:02646) _vsc_vp_periodictask     2276: >>>>>>>  timing_changed[0] = 5  <<<<<<<
+[10846.978256] de           NOT (02646:02646) DE_IO_SetFrRate          1006: for 120Hz model : freq = 120 Hz
+[10846.978284] de           NOT (02646:02646) DE_IO_SetFrRate          1068: set_frate fr_rate:120, isForceFreeRun:0
+[10856.259023] de           NOT (02695:02695) v4l2_vsc_update_pulldown 2148: memc_type : 0  --> _g_curr_pulldown : 0
+[10861.234206] de           NOT (02646:02646) _vsc_vp_periodictask     2276: >>>>>>>  timing_changed[0] = 5  <<<<<<<
+[10861.234237] de           NOT (02646:02646) DE_IO_SetFrRate          1006: for 120Hz model : freq = 120 Hz
+[10861.234264] de           NOT (02646:02646) DE_IO_SetFrRate          1068: set_frate fr_rate:120, isForceFreeRun:0
+[10861.263139] de           NOT (02695:02695) v4l2_vsc_update_pulldown 2148: memc_type : 4  --> _g_curr_pulldown : 0
+[10870.537780] de           NOT (02695:02695) v4l2_vsc_update_pulldown 2148: memc_type : 0  --> _g_curr_pulldown : 0
+[10875.381722] de           NOT (02646:02646) _vsc_vp_periodictask     2276: >>>>>>>  timing_changed[0] = 5  <<<<<<<
+[10875.381754] de           NOT (02646:02646) DE_IO_SetFrRate          1006: for 120Hz model : freq = 120 Hz
+[10875.381783] de           NOT (02646:02646) DE_IO_SetFrRate          1068: set_frate fr_rate:120, isForceFreeRun:0
+[10875.399002] de           NOT (02695:02695) v4l2_vsc_update_pulldown 2148: memc_type : 4  --> _g_curr_pulldown : 0
+[10884.663785] de           NOT (02695:02695) v4l2_vsc_update_pulldown 2148: memc_type : 0  --> _g_curr_pulldown : 0
