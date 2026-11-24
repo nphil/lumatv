@@ -182,6 +182,10 @@ pub struct Window {
     /// The card was covered by the native Home stub's card (`home_stub`) and stays covered when that card goes, as SAM ends and starts the
     /// stub again: the shell's Home is on the screen for the moments between, not the app under it. Cleared when the card comes to the front.
     pub held_by_home: bool,
+    /// The window's process was started as a hidden preload (SAM's `reason: preload`, `preload.rs`) and has not been launched since: the window is
+    /// answered and mapped like any card's, but never comes to the front (`Scene::raise`, `Scene::set_mapped`), so it is in no frame, has no
+    /// keyboard focus and is under no pointer. Cleared by the app's launch.
+    pub preloaded: bool,
     /// When the window was made. The native Home stub makes its card as it starts, which is when SAM's relaunch guard begins to count
     /// (`home_stub`).
     pub created: Instant,
@@ -232,6 +236,7 @@ impl Window {
             map_serial: 0,
             front: 0,
             held_by_home: false,
+            preloaded: false,
             created: Instant::now(),
             in_group: false,
             has_wl_shell: false,

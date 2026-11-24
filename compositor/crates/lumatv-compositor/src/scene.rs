@@ -868,8 +868,9 @@ impl Scene {
                 self.snapshots.forget(id);
                 self.map_counter += 1;
                 w.map_serial = self.map_counter;
-                // A group member never comes to the front: it is no card (`Window::in_group`).
-                if !w.in_group {
+                // A group member never comes to the front: it is no card (`Window::in_group`). A hidden preload's window maps and stays out of the
+                // front until the app is launched (`Window::preloaded`).
+                if !w.in_group && !w.preloaded {
                     w.front = self.map_counter;
                     w.held_by_home = false;
                 }
@@ -921,11 +922,12 @@ impl Scene {
 
     /// Brings the card `id` to the front: what LG's fullscreen container does for a card that asks for fullscreen,
     /// mapped (a relaunch over another card) or not yet (a preloaded app relaunched). Nothing for a window that is
-    /// not a card.
+    /// not a card, nor for one held as a hidden preload (`Window::preloaded`) until [`Scene::release_preload`].
     pub fn raise(&mut self, id: WindowId) {
         if let Some(w) = self.windows.get_mut(&id)
             && w.kind.is_card()
             && !w.in_group
+            && !w.preloaded
         {
             self.map_counter += 1;
             w.front = self.map_counter;
@@ -934,6 +936,22 @@ impl Scene {
                 w.map_serial = self.map_counter;
             }
         }
+    }
+
+    /// The app `app` is launched: its windows held as hidden preloads stop being held, and are returned in the order they were made. Bringing them
+    /// to the front is the caller's.
+    pub fn release_preload(&mut self, app: &str) -> Vec<WindowId> {
+        let mut released: Vec<WindowId> = self
+            .windows
+            .values_mut()
+            .filter(|w| w.preloaded && w.app_id() == app)
+            .map(|w| {
+                w.preloaded = false;
+                w.id
+            })
+            .collect();
+        released.sort_unstable_by_key(|id| id.0);
+        released
     }
 
     /// Makes the window of `surface`, if it has one, a member of a surface group or not (`wl_webos_surface_group.attach` and `detach`).

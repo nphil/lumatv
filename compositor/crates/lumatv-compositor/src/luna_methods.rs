@@ -940,7 +940,7 @@ impl State {
     }
 
     fn recents(&self) -> Vec<Value> {
-        self.scene.windows().filter(|w| w.kind.is_card() && !w.in_group && w.map_serial > 0).map(|w| json!({"appId": w.app_id(), "title": w.title})).collect()
+        self.scene.windows().filter(|w| w.kind.is_card() && !w.in_group && !w.preloaded && w.map_serial > 0).map(|w| json!({"appId": w.app_id(), "title": w.title})).collect()
     }
 
     /// `closeByAppId`: every window of that app gets `wl_webos_shell_surface.close`; returns how many.

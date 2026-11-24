@@ -43,6 +43,7 @@ impl Dispatch<WlShell, ()> for State {
             if let Some(w) = state.scene.window_mut(wid) {
                 w.has_wl_shell = true;
             }
+            state.hold_preload(wid, client);
             state.note_request(
                 "wl_shell",
                 0,

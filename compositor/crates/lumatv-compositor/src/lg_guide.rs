@@ -61,6 +61,11 @@ impl State {
         self.luna.send(ToBridge::Outbound(Outbound { token, uri: LIFE_EVENTS.into(), payload: json!({"subscribe": true}), subscribe: true }));
     }
 
+    /// Whether SAM's life events are subscribed to: without them nothing would end a hold on a hidden preload (`preload.rs`).
+    pub(crate) fn life_events_open(&self) -> bool {
+        self.luna_state.guide.life.is_some()
+    }
+
     /// A reply to one of the compositor's own calls that is about LG's guide: an event of the life subscription, or the answer to a close. Returns
     /// whether the token was one of these.
     pub(crate) fn lg_guide_event(&mut self, token: u64, payload: &Value) -> bool {
@@ -68,12 +73,14 @@ impl State {
             if payload.get("returnValue").and_then(Value::as_bool) == Some(false) {
                 self.luna_state.guide.life = None;
                 self.journal(format!("lg-guide: SAM refused the life event subscription ({payload}); a launch is answered when its window maps"));
+                self.release_all_preloads("SAM's life events are not coming");
             } else {
                 if launches_guide(payload) {
                     self.lg_guide_launched_at(Instant::now());
                 }
                 self.home_life_event(payload);
                 self.switcher_life_event(payload);
+                self.preload_life_event(payload);
             }
             return true;
         }

@@ -47,6 +47,7 @@ pub mod paneldim;
 #[path = "vendor/pacer.rs"]
 pub mod pacer;
 pub mod pointer;
+pub mod preload;
 pub mod refresh;
 pub mod render;
 pub mod ring;

@@ -120,6 +120,8 @@ pub struct ClientInfo {
     /// The process's command line, read at connect while the process is alive (a client that only binds globals
     /// and leaves is otherwise anonymous: the 7 s client of the 2026-10-25 gate).
     pub cmd: String,
+    /// The process was started as a hidden preload (`preload.rs`), read with the command line: the windows it makes are held until the app is launched.
+    pub preload: bool,
     /// Globals bound, in order: what a client that leaves without a surface was looking for.
     pub bound: Vec<&'static str>,
     /// The cursor standby time this client set through `wl_starfish_pointer` (ms), answered to its `get_mrcu_standby_timer`. Per
@@ -136,6 +138,7 @@ impl ClientInfo {
             uid,
             since: Instant::now(),
             cmd: if pid > 0 { cmdline(pid) } else { String::new() },
+            preload: pid > 0 && crate::preload::started_as_preload(pid),
             bound: Vec::new(),
             mrcu_standby_ms: super::starfish::MRCU_STANDBY_DEFAULT_MS,
             trace: Default::default(),
@@ -250,6 +253,8 @@ pub struct State {
     pub shell_rust: crate::shell_rust::RustShell,
     /// The app switcher (`switcher.rs`).
     pub switcher: crate::switcher::Switcher,
+    /// The apps SAM last launched, for the windows of a preloaded process that was still starting (`preload.rs`).
+    pub launches: crate::preload::Launches,
     /// The owner's switch for the transitions (`transition.rs`): the theme file, and `ctl transitions` over it.
     pub motion: crate::transition::ThemeSwitch,
     pub stats: Stats,
@@ -334,6 +339,7 @@ impl State {
             ime: super::ime::ImeState::default(),
             shell_rust: crate::shell_rust::RustShell::default(),
             switcher: crate::switcher::Switcher::default(),
+            launches: crate::preload::Launches::default(),
             motion,
             stats: Stats::default(),
             check: CheckState::default(),

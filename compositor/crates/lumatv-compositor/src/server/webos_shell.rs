@@ -57,6 +57,7 @@ impl Dispatch<WlWebosShell, ()> for State {
                 if let Some(w) = state.scene.window_mut(wid) {
                     w.has_webos_shell = true;
                 }
+                state.hold_preload(wid, client);
                 state.note_request(
                     "wl_webos_shell",
                     0,
@@ -95,9 +96,10 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
                 // A window attached to a surface group is no card (LG: `__allowedFullscreen`): it never comes to the front, whatever it asks for.
                 let card = state.scene.window(data.window).is_some_and(|w| w.kind.is_card() && !w.in_group);
                 let was_top = state.scene.foreground(&state.surfaces).is_some_and(|w| w.id == data.window);
+                let held = state.scene.window(data.window).is_some_and(|w| w.preloaded);
                 if new == ShellState::Minimized && was_top {
                     state.freeze_app(data.window);
-                } else if new == ShellState::Fullscreen && !was_top {
+                } else if new == ShellState::Fullscreen && !was_top && !held {
                     state.scene.resume_snapshot(data.window, &state.surfaces);
                 }
                 let old = state.scene.window_mut(data.window).map(|w| std::mem::replace(&mut w.state, new));
@@ -114,7 +116,11 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
                 // has it foreground, which SAM learns here: third gate, 2026-10-25), and the card it covers is
                 // minimized; a foreground card that minimizes itself gives the one below back. Either is a new
                 // foreground for the subscribers.
-                if card && new == ShellState::Fullscreen && !was_top {
+                if card && new == ShellState::Fullscreen && !was_top && held {
+                    // A hidden preload that asks for fullscreen as it starts (Marquee, Apple TV) is answered and left where it is.
+                    state.journal(format!("window {}: set_state fullscreen held, a hidden preload is not raised", data.window.0));
+                    sync_exposed(state);
+                } else if card && new == ShellState::Fullscreen && !was_top {
                     state.scene.raise(data.window);
                     state.journal(format!("window {}: raised to the front (set_state fullscreen)", data.window.0));
                     settle_cards(state, None);
@@ -155,6 +161,9 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
                 }
                 if let Some(l) = line {
                     state.journal(l);
+                }
+                if name == "appId" {
+                    state.preload_named(data.window);
                 }
                 if name == "appId" || relayer {
                     state.refresh_policy_sync();
@@ -277,6 +286,9 @@ pub fn window_gone(state: &mut State, was_card: bool) {
 /// does not handle its own relaunch (YouTube: `handlesRelaunch` false) reloads it at its start page; a raise keeps the page and its video.
 /// An app with no card left (the app manager closed it) is launched, which is all there is to do for it. Returns whether a card was raised.
 pub fn front_app(state: &mut State, app: &str) -> bool {
+    if state.release_preload(app, "raised") {
+        return true;
+    }
     let before = state.scene.foreground(&state.surfaces).map(|w| w.surface);
     let card = state
         .scene
@@ -293,11 +305,16 @@ pub fn front_app(state: &mut State, app: &str) -> bool {
     };
     state.scene.raise(wid);
     state.journal(format!("front: {app} (window {}) raised to the front, not launched again", wid.0));
+    fronted(state, before);
+    true
+}
+
+/// After a card was raised: the cards are settled again, and the app manager's foreground list, the keyboard focus and the shell's topics follow.
+pub(crate) fn fronted(state: &mut State, before: Option<SurfaceId>) {
     settle_cards(state, None);
     invalidate_front_change(state, before);
     state.luna_notify();
     super::seat::refocus(state);
-    true
 }
 
 /// `POST /v1/appkey {app, key}`: the Cameras full view pauses the video of the app it is shown over (`pause`) and plays it again on Back
@@ -388,7 +405,11 @@ pub fn sync_exposed(state: &mut State) {
         .filter_map(|w| {
             let wanted = if w.kind == WindowType::Screensaver {
                 w.state != ShellState::Minimized && w.map_serial > 0 && state.surfaces.get(w.surface).is_some_and(|s| s.is_mapped())
-            } else { Some(w.id) == fg };
+            } else {
+                // A hidden preload that asked for fullscreen is exposed until it has drawn its first frame (a Qt window renders only when exposed),
+                // then covered like any card that is not in front.
+                Some(w.id) == fg || (w.preloaded && w.state == ShellState::Fullscreen && w.map_serial == 0)
+            };
             (w.exposed != wanted).then_some((w.id, wanted))
         })
         .collect();

@@ -325,6 +325,7 @@ version = "0.1.0"
 dependencies = [
  "compositor-protocol",
  "drm",
+ "fontdue",
  "libc",
  "log",
  "lumatv-render",
