@@ -396,6 +396,8 @@ impl World {
             opacity: local.opacity * self.opacity,
             clip,
             feather,
+            radius: local.radius * t.scale,
+            round: own.0.filter(|_| local.radius > 0.0),
             visible: local.visible && self.visible,
         }
     }

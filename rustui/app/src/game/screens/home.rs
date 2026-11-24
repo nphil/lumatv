@@ -148,6 +148,9 @@ fn tile(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, x: f32, w: f32) 
         let (w, h) = (node.frame.w * node.props.scale, node.frame.h * node.props.scale);
         let (x, y) = (node.props.x + (node.frame.w - w) / 2.0, node.props.y + (node.frame.h - h) / 2.0);
         node.props.clip = Some(compositor_protocol::Rect { x: x - 1.0, y: y - 1.0, w: w + 2.0, h: h + 2.0 });
+        // The corners of the window are the art's own (a pixel out with it), so that the morph keeps them round: on a compositor that
+        // cannot round a clip they stay square, as the baked ones are all there is at rest.
+        node.props.radius = p.tokens.radius(Radius::Tile) * node.props.scale + 1.0;
     }
     if lit {
         // The lit glass fades in on the tile that takes focus and out on the one that gives it up, rather than appearing at full size.

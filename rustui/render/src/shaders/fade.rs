@@ -16,11 +16,19 @@ use std::ffi::{CStr, CString};
 /// the corner is the product of the axes'. Everything is `highp`: a ramp over twelve pixels at the far end of the panel needs
 /// more than half precision.
 const DECLARATIONS: &str = "
-uniform highp vec4 u_feather[2];
+uniform highp vec4 u_feather[4];
 highp float feather_alpha() {
     highp vec4 t = gl_FragCoord.xxyy * u_feather[0] + u_feather[1];
     highp vec2 m = clamp(min(t.xz, t.yw), 0.0, 1.0);
-    return m.x * m.y;
+    highp float a = m.x * m.y;
+    highp float r = u_feather[3].x;
+    if (r > 0.0) {
+        // The signed distance to a rounded rectangle, in pixels: a pixel whose centre is on the edge is half covered.
+        highp vec2 q = abs(gl_FragCoord.xy - u_feather[2].xy) - (u_feather[2].zw - r);
+        highp float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+        a *= clamp(0.5 - d, 0.0, 1.0);
+    }
+    return a;
 }
 
 ";
@@ -103,12 +111,12 @@ void main() {
         assert!(twin.contains(&plain[main..plain.len() - 1]));
         // The ramp comes in between, and the multiply last.
         assert!(
-            twin.find("uniform highp vec4 u_feather[2];").unwrap()
+            twin.find("uniform highp vec4 u_feather[4];").unwrap()
                 < twin.find("void main()").unwrap()
         );
         assert!(twin.ends_with("    o_color *= feather_alpha();\n}"));
         assert_eq!(twin.matches("void main()").count(), 1);
-        assert_eq!(twin.matches("u_feather").count(), 3);
+        assert_eq!(twin.matches("u_feather").count(), 6);
     }
 
     #[test]

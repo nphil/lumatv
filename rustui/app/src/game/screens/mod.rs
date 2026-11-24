@@ -129,11 +129,12 @@ const BLEND: f32 = 0.22;
 /// How `node`'s picture lies to fill `window` the way a cover fills its box: scaled about its centre by the larger of the two ratios
 /// and centred, so the crop keeps the middle of the art, and clipped to the window. Everything the compositor eases on the way from
 /// one such pose to another (the window, the centre, the scale) is linear in the spring's progress, and the larger of two linear
-/// ratios is never above the line between its ends, so the art covers the window all the way.
+/// ratios is never above the line between its ends, so the art covers the window all the way. The window's corners keep the radius the
+/// node's own has (`Props::radius`), so they stay round while it grows from one shape to the other.
 fn fill(node: &Node, window: Rect, opacity: f32) -> Props {
     let (w, h) = (node.frame.w, node.frame.h);
     let scale = (window.w / w).max(window.h / h);
-    Props { scale, opacity, clip: Some(window), ..Props::at(window.x + (window.w - w) / 2.0, window.y + (window.h - h) / 2.0) }
+    Props { scale, opacity, clip: Some(window), radius: node.props.radius, ..Props::at(window.x + (window.w - w) / 2.0, window.y + (window.h - h) / 2.0) }
 }
 /// The art a tile showed before it changed shape, still drawn under (or over) the tile's own while the morph lands.
 struct Other {

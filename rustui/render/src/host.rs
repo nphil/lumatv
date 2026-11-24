@@ -641,7 +641,7 @@ impl Engine {
             }
             write_frame(
                 &mut ours,
-                &Event::Welcome { version: PROTOCOL_VERSION, panel_width: width, panel_height: height, refresh_hz: hz, smooth_first_full: false },
+                &Event::Welcome { version: PROTOCOL_VERSION, panel_width: width, panel_height: height, refresh_hz: hz, smooth_first_full: false, clip_radius: true },
             )?;
             Ok(ours)
         })?;

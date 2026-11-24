@@ -109,6 +109,11 @@ impl Animation {
         self.to
     }
 
+    /// The same animation ending in corners of `radius` (`Request::ClipRadius`).
+    pub fn rounded(self, radius: f32) -> Self {
+        Self { to: Props { radius, ..self.to }, ..self }
+    }
+
     /// The layer's properties at `now_ns`. `x`, `y`, `scale` and `opacity` follow the curve; the clip and its feather move
     /// between their two ends; `visible` is on for as long as either end shows the layer, so both a fade-in from
     /// hidden and a fade-out to hidden play out.
@@ -126,6 +131,8 @@ impl Animation {
             opacity: lerp(self.from.opacity, self.to.opacity, t),
             clip: lerp_clip(self.from.clip, self.to.clip, t, screen),
             feather: lerp_feather(&self.from, &self.to, t),
+            radius: lerp(self.from.radius, self.to.radius, t),
+            round: None,
             visible: self.from.visible || self.to.visible,
         }
     }
@@ -143,6 +150,15 @@ mod tests {
     };
     const MS: u64 = 1_000_000;
 
+
+    #[test]
+    fn the_corner_radius_eases_with_the_rest_and_lands_exactly() {
+        let a = Animation::new(Props::at(0.0, 0.0), Props::at(10.0, 0.0), 0, 400, Ease::Linear).rounded(20.0);
+        assert_eq!(a.props_at(0, SCREEN).radius, 0.0);
+        assert!((a.props_at(200 * MS, SCREEN).radius - 10.0).abs() < 1e-4);
+        assert_eq!(a.props_at(400 * MS, SCREEN).radius, 20.0);
+        assert_eq!(a.props_at(100 * MS, SCREEN).round, None);
+    }
     #[test]
     fn an_animation_follows_the_shared_curve_it_was_asked_for_at_every_moment() {
         // Position, opacity and scale all take the one evaluation of the curve (`compositor_protocol::motion::ease`): the app

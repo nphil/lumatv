@@ -266,6 +266,8 @@ fn layer_props(layer: &Layer, elapsed_ns: u64) -> Props {
         opacity: lerp(going.from.opacity, going.to.opacity),
         clip: going.to.clip,
         feather: going.to.feather,
+        radius: lerp(going.from.radius, going.to.radius),
+        round: None,
         visible: going.from.visible || going.to.visible,
     }
 }

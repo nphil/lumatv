@@ -13,6 +13,7 @@
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read, Write};
 
+pub mod clip_radius;
 pub mod display;
 pub mod fds;
 pub mod frames;
@@ -220,6 +221,14 @@ pub struct Props {
     /// means nothing.
     pub feather: Edges,
     pub visible: bool,
+    /// How round the corners of `clip` are, in logical pixels (0 is square): not on the wire (see [`Request::ClipRadius`]), so it is 0
+    /// in every `Props` a client sends and the one request that sets it follows the `Set` or `Animate`.
+    #[serde(skip)]
+    pub radius: f32,
+    /// In the screen-space props the compositor draws from: the layer's own clip as the groups above it place it, which `radius`
+    /// (scaled by them) rounds. `clip` there is that clip cut by theirs. Not on the wire, and `None` in the props an app handles.
+    #[serde(skip)]
+    pub round: Option<Rect>,
 }
 
 impl Props {
@@ -231,6 +240,8 @@ impl Props {
             opacity: 1.0,
             clip: None,
             feather: Edges::NONE,
+            radius: 0.0,
+            round: None,
             visible: true,
         }
     }
@@ -828,6 +839,16 @@ pub enum Request {
         after: u64,
         glyphs: Vec<Glyph>,
     },
+    /// Gives the clip of a layer rounded corners of `radius` logical pixels, in the props of the `Set` or `Animate` of the same
+    /// layer that came before it in the batch: a `Set` takes it at once, an `Animate` eases to it with the rest of its end, on the
+    /// same curve and over the same time. A `Set` or `Animate` without one has square corners (the radius is no part of
+    /// [`Props`]'s encoding: a compositor that has not got this request must never be sent it, see
+    /// [`Event::Welcome::clip_radius`]). The corners are those of the layer's own `clip`, not of what a group's clip leaves of it. A
+    /// request with no `Set` or `Animate` of the layer before it in the batch is refused.
+    ClipRadius {
+        id: LayerId,
+        radius: f32,
+    },
 }
 
 /// The glass ideas under test (experiments/s9-glass/RESULTS.md, "Glass ideas"), one bit each in [`Request::Ideas`]'s
@@ -935,6 +956,10 @@ pub enum Event {
         /// measurement, `LUMASHOW_LADDER=off`). Settings offers the level only while it is true: a request for it that
         /// the compositor cannot carry out is refused, never a level that does nothing.
         smooth_first_full: bool,
+        /// Whether this compositor has [`Request::ClipRadius`]. The last field, so that a client built before it, which reads
+        /// the fields it knows and leaves the rest of the frame, still takes the `Welcome`; one built with it takes the frame of a
+        /// compositor without it through [`clip_radius::old_welcome`].
+        clip_radius: bool,
     },
     /// A frame reached the screen. Times are `CLOCK_MONOTONIC` nanoseconds.
     Frame {
@@ -1266,6 +1291,7 @@ mod tests {
                 panel_height: 480,
                 refresh_hz: 59.64,
                 smooth_first_full: true,
+                clip_radius: true,
             },
             Event::Frame {
                 tag: 3,

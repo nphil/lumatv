@@ -2033,7 +2033,7 @@ impl Renderer {
             let feather = props
                 .clip
                 .filter(|_| !skips.feather && !matches!(layer.content, Content::Wallpaper(_)))
-                .and_then(|clip| panel.ramp(clip, props.feather))
+                .and_then(|clip| panel.ramp_rounded(clip, props.feather, props.round.map(|round| (round, props.radius))))
                 .filter(|ramp| !damage::contains(&ramp.solid(), &extent_area));
             jobs.push(Job {
                 layer: index,

@@ -112,6 +112,8 @@ pub fn pose_props(frame: Frame, rest: Rest, about: (f32, f32), pose: Pose) -> Pr
         opacity: rest.opacity * pose.opacity,
         clip: rest.clip,
         feather: rest.feather,
+        radius: 0.0,
+        round: None,
         visible: pose.visible,
     }
 }

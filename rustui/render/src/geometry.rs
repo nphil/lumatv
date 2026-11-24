@@ -118,6 +118,8 @@ pub struct Ramp {
     pub edge: [[f32; 2]; 2],
     /// `width[axis]` is how far in from `[low, high]` the fade reaches; 0 is a hard edge.
     pub width: [[f32; 2]; 2],
+    /// The rounded corners of the layer's own clip: its edges along the panel axes like `edge`, and the radius in panel pixels.
+    pub round: Option<([[f32; 2]; 2], f32)>,
 }
 
 impl Ramp {
@@ -128,7 +130,17 @@ impl Ramp {
         let low = |axis: usize| (self.edge[axis][0] + self.width[axis][0] - 0.5).ceil() as i32;
         let high =
             |axis: usize| (self.edge[axis][1] - self.width[axis][1] - 0.5).floor() as i32 + 1;
-        [low(0), low(1), high(0), high(1)]
+        let [left, top, right, bottom] = [low(0), low(1), high(0), high(1)];
+        // Inside the rounded rectangle inset by the radius no pixel is cut by a corner.
+        match self.round {
+            Some((rect, r)) => [
+                left.max((rect[0][0] + r - 0.5).ceil() as i32),
+                top.max((rect[1][0] + r - 0.5).ceil() as i32),
+                right.min((rect[0][1] - r - 0.5).floor() as i32 + 1),
+                bottom.min((rect[1][1] - r - 0.5).floor() as i32 + 1),
+            ],
+            None => [left, top, right, bottom],
+        }
     }
 }
 
@@ -229,7 +241,13 @@ impl Panel {
     /// The fade of a feathered logical clip as it lies on the panel, whichever way the panel is turned; `None` when there is
     /// nothing to fade (a hard clip, or a clip that is not a number).
     pub fn ramp(&self, clip: Rect, feather: Edges) -> Option<Ramp> {
-        if feather.is_none()
+        self.ramp_rounded(clip, feather, None)
+    }
+
+    /// [`Panel::ramp`] for a clip that may have rounded corners too: `round` is the rectangle they belong to (the layer's own clip,
+    /// which `clip` may be a part of) and their radius, both logical.
+    pub fn ramp_rounded(&self, clip: Rect, feather: Edges, round: Option<(Rect, f32)>) -> Option<Ramp> {
+        if feather.is_none() && round.is_none_or(|(_, radius)| !(radius > 0.0))
             || !feather.is_valid()
             || [clip.x, clip.y, clip.w, clip.h]
                 .iter()
@@ -272,7 +290,15 @@ impl Panel {
         } else {
             [feather.bottom, feather.top]
         };
-        Some(Ramp { edge, width })
+        let round = round.filter(|(r, radius)| radius.is_finite() && *radius > 0.0 && [r.x, r.y, r.w, r.h].iter().all(|v| v.is_finite())).map(|(r, radius)| {
+            let corners = [self.panel_position(r.x, r.y), self.panel_position(r.x + r.w, r.y + r.h)];
+            let mut rect = [[0.0; 2]; 2];
+            for (axis, rect) in rect.iter_mut().enumerate() {
+                *rect = [corners[0][axis].min(corners[1][axis]), corners[0][axis].max(corners[1][axis])];
+            }
+            (rect, radius.min((rect[0][1] - rect[0][0]).min(rect[1][1] - rect[1][0]) / 2.0))
+        });
+        Some(Ramp { edge, width, round })
     }
 
     /// Whether any of the quad's bounding box lies inside `within` (the whole panel when `None`).
@@ -475,6 +501,23 @@ mod tests {
         assert_eq!(p.ramp(rect(f32::NAN, 0.0, 1.0, 1.0), feather), None);
     }
 
+    #[test]
+    fn rounded_corners_make_a_ramp_with_no_feather_and_keep_the_corner_pixels_out_of_its_solid_part() {
+        let clip = rect(100.0, 60.0, 600.0, 300.0);
+        for rotation in ROTATIONS {
+            let p = panel(rotation, 960, 480);
+            assert_eq!(p.ramp_rounded(clip, Edges::NONE, None), None, "{rotation:?}");
+            assert_eq!(p.ramp_rounded(clip, Edges::NONE, Some((clip, 0.0))), None, "{rotation:?}");
+            let ramp = p.ramp_rounded(clip, Edges::NONE, Some((clip, 12.0))).expect("rounded corners");
+            let (rect, radius) = ramp.round.expect("a round");
+            assert_eq!(radius, 12.0);
+            assert_eq!(rect, ramp.edge, "{rotation:?}");
+            let bare = p.ramp(clip, Edges::new(1.0, 1.0, 1.0, 1.0)).unwrap().solid();
+            let solid = p.ramp_rounded(clip, Edges::new(1.0, 1.0, 1.0, 1.0), Some((clip, 12.0))).unwrap().solid();
+            // A layer reaching a corner is not inside the solid part, and the part has shrunk by the radius on every side.
+            assert_eq!([solid[0] - bare[0], solid[1] - bare[1], bare[2] - solid[2], bare[3] - solid[3]], [11, 11, 11, 11], "{rotation:?}");
+        }
+    }
     #[test]
     fn a_fade_leaves_whole_the_pixels_whose_centres_are_a_width_in() {
         let p = panel(Rotation::R0, 960, 480);

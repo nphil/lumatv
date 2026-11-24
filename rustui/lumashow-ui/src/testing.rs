@@ -87,6 +87,7 @@ pub fn harness() -> Harness {
                 panel_height: 960,
                 refresh_hz: 59.64,
                 smooth_first_full: true,
+                clip_radius: true,
             },
         );
         while let Ok(Some(request)) = read_frame::<Request>(&mut compositor, &mut buf) {

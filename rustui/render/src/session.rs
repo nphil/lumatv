@@ -231,6 +231,7 @@ impl Session {
                         panel_height: self.config.panel_height,
                         refresh_hz: self.config.refresh_hz,
                         smooth_first_full: crate::ladder::available(),
+                        clip_radius: true,
                     }))
                 }
                 Request::Hello { version } => Err(Refusal::fatal(format!(
@@ -328,6 +329,21 @@ impl Session {
                     ease,
                     step_ms: step_ms.min(MAX_STEP_MS),
                 });
+                Ok(Done::Nothing)
+            }
+            Request::ClipRadius { id, radius } => {
+                self.known(id)?;
+                let radius = coordinate("clip radius", radius)?.max(0.0);
+                // The radius belongs to the props the batch last gave the layer, and goes with them.
+                let props = self.batch.iter_mut().rev().find_map(|op| match op {
+                    Op::Set { id: of, props } if *of == id => Some(props),
+                    Op::Animate { id: of, to, .. } if *of == id => Some(to),
+                    _ => None,
+                });
+                match props {
+                    Some(props) => props.radius = radius,
+                    None => return Err(Refusal::new(format!("layer {} has no Set or Animate before its ClipRadius in this batch", id.0))),
+                }
                 Ok(Done::Nothing)
             }
             Request::Delete { id } => {
@@ -652,6 +668,8 @@ fn check_props(props: Props) -> Result<Props, String> {
             .map(|clip| check_rect("clip", clip))
             .transpose()?,
         feather: check_feather("clip feather", props.feather, props.clip.is_some())?,
+        radius: coordinate("clip radius", props.radius)?.max(0.0),
+        round: None,
         visible: props.visible,
     })
 }
@@ -1075,6 +1093,7 @@ mod tests {
                 panel_height: 960,
                 refresh_hz: 59.64,
                 smooth_first_full: true,
+                clip_radius: true,
             }]
         );
         assert!(!out.close);
@@ -1142,6 +1161,20 @@ mod tests {
         ));
         // Nothing is left over for the next commit.
         assert!(r.commit(5).ops.is_empty());
+    }
+
+    #[test]
+    fn a_clip_radius_goes_with_the_set_or_animate_before_it_and_is_refused_with_none() {
+        let mut r = rig();
+        r.ok(create_shape(1, 100, 50));
+        assert!(r.error(Request::ClipRadius { id: LayerId(1), radius: 8.0 }).contains("no Set or Animate"));
+        r.ok(Request::Set { id: LayerId(1), props: Props::at(5.0, 6.0) });
+        r.ok(Request::ClipRadius { id: LayerId(1), radius: 8.0 });
+        r.ok(Request::Animate { id: LayerId(1), to: Props::at(9.0, 6.0), duration_ms: 200, ease: Ease::Out, step_ms: 0 });
+        r.ok(Request::ClipRadius { id: LayerId(1), radius: -3.0 });
+        let ops = r.commit(1).ops;
+        assert!(matches!(&ops[1], Op::Set { props, .. } if props.radius == 8.0));
+        assert!(matches!(&ops[2], Op::Animate { to, .. } if to.radius == 0.0));
     }
 
     #[test]

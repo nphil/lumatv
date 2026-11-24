@@ -147,6 +147,8 @@ pub(crate) struct Inner {
     shown_tag: u64,
     /// The compositor said it can draw `SmoothFirst::Full` (`Welcome::smooth_first_full`).
     smooth_first_full: bool,
+    /// The compositor said it has `Request::ClipRadius` (`Welcome::clip_radius`).
+    clip_radius: bool,
 }
 
 impl Inner {
@@ -158,6 +160,14 @@ impl Inner {
             return;
         }
         self.batch.push(request);
+    }
+
+    /// The rounded corners of the clip of the `Set` or `Animate` just pushed for `id`, to a compositor that has the request for
+    /// them; one that has not draws the clip square.
+    pub(crate) fn push_radius(&mut self, id: LayerId, radius: f32) {
+        if radius > 0.0 && self.clip_radius {
+            self.push(Request::ClipRadius { id, radius });
+        }
     }
 
     /// The time the screen will show a request made now: the clock plus the measured lead of a commit.
@@ -291,7 +301,7 @@ fn layer_of(request: &Request) -> Option<LayerId> {
         | Request::Set { id, .. }
         | Request::Animate { id, .. }
         | Request::Delete { id } => Some(*id),
-        Request::Attach { id, .. } | Request::SetGlyphs { id, .. } => Some(*id),
+        Request::Attach { id, .. } | Request::SetGlyphs { id, .. } | Request::ClipRadius { id, .. } => Some(*id),
         Request::Hello { .. }
         | Request::Commit { .. }
         | Request::Stats
@@ -329,6 +339,8 @@ pub struct Welcome {
     pub refresh_hz: f32,
     /// The compositor can draw `SmoothFirst::Full`: Settings offers the level only while this is true.
     pub smooth_first_full: bool,
+    /// The compositor has `Request::ClipRadius`: rounded clips are drawn only while this is true, and are square corners otherwise.
+    pub clip_radius: bool,
 }
 
 /// A build to be held to what the compositor makes of it ([`Scene::watch`], [`Scene::came_through`]).
@@ -414,18 +426,25 @@ impl Scene {
             },
         )?;
         let mut buf = Vec::new();
-        let welcome = match read_frame::<Event>(&mut reader, &mut buf)? {
+        let first = match read_frame::<Event>(&mut reader, &mut buf) {
+            // A compositor built before `Welcome::clip_radius` sends a frame this `Event` cannot read whole.
+            Err(e) if e.kind() == io::ErrorKind::InvalidData => compositor_protocol::clip_radius::old_welcome(&buf),
+            other => other?,
+        };
+        let welcome = match first {
             Some(Event::Welcome {
                 version,
                 panel_width,
                 panel_height,
                 refresh_hz,
                 smooth_first_full,
+                clip_radius,
             }) if version == PROTOCOL_VERSION => Welcome {
                 panel_width,
                 panel_height,
                 refresh_hz,
                 smooth_first_full,
+                clip_radius,
             },
             Some(Event::Error { message }) => {
                 return Err(io::Error::other(format!("compositor refused: {message}")));
@@ -500,6 +519,7 @@ impl Scene {
             refusals: 0,
             shown_tag: 0,
             smooth_first_full: welcome.smooth_first_full,
+            clip_radius: welcome.clip_radius,
         };
         Ok((
             Self {
@@ -1038,10 +1058,9 @@ impl Layer {
     /// Places the layer. Under a group (see `Group::attach`) `props` are in the group's space.
     pub fn set(&self, props: Props) {
         self.props.set(props);
-        self.scene
-            .inner
-            .borrow_mut()
-            .push(Request::Set { id: self.id, props });
+        let mut inner = self.scene.inner.borrow_mut();
+        inner.push(Request::Set { id: self.id, props });
+        inner.push_radius(self.id, props.radius);
     }
 
     /// [`Layer::set`] unless the layer is already at `props` (or on its way there): a surface that places its layers on every draw tells the compositor
@@ -1060,13 +1079,15 @@ impl Layer {
     /// most every `step_ms` and draws the layer where the motion is at that time, instead of at every refresh. 0 is `animate`.
     pub fn animate_stepped(&self, to: Props, duration_ms: u32, ease: Ease, step_ms: u32) {
         self.props.set(to);
-        self.scene.inner.borrow_mut().push(Request::Animate {
+        let mut inner = self.scene.inner.borrow_mut();
+        inner.push(Request::Animate {
             id: self.id,
             to,
             duration_ms,
             ease,
             step_ms,
         });
+        inner.push_radius(self.id, to.radius);
     }
 
     /// The group the layer hangs under, if it does.
@@ -1407,6 +1428,7 @@ pub(crate) mod testing {
                     panel_height: 960,
                     refresh_hz: 59.64,
                     smooth_first_full: true,
+                    clip_radius: true,
                 },
             )
             .unwrap();
@@ -1435,6 +1457,7 @@ pub(crate) mod testing {
                         panel_height: 480,
                         refresh_hz: 59.64,
                         smooth_first_full: can,
+                        clip_radius: true,
                     },
                 )
                 .unwrap();

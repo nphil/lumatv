@@ -15,15 +15,17 @@ use std::cell::Cell;
 
 /// What `u_feather` holds: along each panel axis, for the low edge and the high edge, the ramp as `x * scale + offset`
 /// (0 at the edge, 1 at the fade's width in). Two vectors: the four scales `(low x, high x, low y, high y)`, then the four
-/// offsets in the same order. An edge with no fade has scale 0 and offset 1: the ramp is 1 everywhere.
+/// offsets in the same order. An edge with no fade has scale 0 and offset 1: the ramp is 1 everywhere. Then, for a clip with rounded
+/// corners, the clip's centre and half size, and in the next vector's first place the radius (0 for square corners, which is all
+/// zeros), as the target's pixels see them.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Uniforms(pub [f32; 8]);
+pub struct Uniforms(pub [f32; 16]);
 
 impl Uniforms {
     /// The ramp of a clip as the pixels of a target see it: `factor` target pixels to a panel pixel, the viewport starting at
     /// `origin` target pixels.
     pub fn new(ramp: &Ramp, factor: f32, origin: [i32; 2]) -> Self {
-        let mut u = [0.0; 8];
+        let mut u = [0.0; 16];
         for axis in 0..2 {
             for side in 0..2 {
                 let slot = axis * 2 + side;
@@ -43,6 +45,11 @@ impl Uniforms {
                 u[slot] = scale;
                 u[4 + slot] = offset;
             }
+        }
+        if let Some((rect, radius)) = ramp.round {
+            let centre = |axis: usize| (rect[axis][0] + rect[axis][1]) * 0.5 * factor + origin[axis] as f32;
+            let half = |axis: usize| (rect[axis][1] - rect[axis][0]) * 0.5 * factor;
+            u[8..13].copy_from_slice(&[centre(0), centre(1), half(0), half(1), radius * factor]);
         }
         Self(u)
     }
@@ -65,14 +72,14 @@ impl Uniforms {
 pub struct Slot {
     location: i32,
     /// What was set last. Not a number to begin with, so that the first call always sets.
-    last: Cell<[f32; 8]>,
+    last: Cell<[f32; 16]>,
 }
 
 impl Slot {
     pub fn new(location: i32) -> Self {
         Self {
             location,
-            last: Cell::new([f32::NAN; 8]),
+            last: Cell::new([f32::NAN; 16]),
         }
     }
 

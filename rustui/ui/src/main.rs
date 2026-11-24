@@ -920,7 +920,7 @@ mod readiness_tests {
         assert_eq!(set, 0);
         let server = std::thread::spawn(move || {
             read_frame::<Request>(&mut comp, &mut Vec::new()).unwrap();
-            let welcome = SceneEvent::Welcome { version: PROTOCOL_VERSION, panel_width: 1920, panel_height: 1080, refresh_hz: 120.0, smooth_first_full: true };
+            let welcome = SceneEvent::Welcome { version: PROTOCOL_VERSION, panel_width: 1920, panel_height: 1080, refresh_hz: 120.0, smooth_first_full: true, clip_radius: true };
             write_frame(&mut comp, &welcome).unwrap();
             comp
         });
