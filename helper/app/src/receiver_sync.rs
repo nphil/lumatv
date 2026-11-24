@@ -1,11 +1,11 @@
 //! Tracks LG sound-output notifications across wake and standby, and the receiver output the TV is kept on.
 
+use crate::luna::Feed;
 use crate::receiver::Cmd;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, mpsc::Sender};
 use std::thread::{self, JoinHandle};
 
@@ -144,22 +144,16 @@ impl Intent {
 }
 
 pub struct Subscription {
-    child: Child,
+    feed: Feed,
     reader: Option<JoinHandle<()>>,
     state: Arc<Mutex<State>>,
 }
 
 impl Subscription {
     pub fn start(program: &str, wake: Sender<Cmd>) -> std::io::Result<Self> {
-        let mut child = Command::new(program)
-            .args(["-n", "1000000", URI, PAYLOAD])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?;
-        let Some(out) = child.stdout.take() else {
-            let _ = child.kill();
-            let _ = child.wait();
+        let mut feed = Feed::start(program, URI, PAYLOAD, false)?;
+        let Some(out) = feed.output() else {
+            feed.end();
             return Err(std::io::Error::other("no subscription output"));
         };
         let state = Arc::new(Mutex::new(State::default()));
@@ -190,13 +184,12 @@ impl Subscription {
             }) {
             Ok(reader) => reader,
             Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                feed.end();
                 return Err(e);
             }
         };
         Ok(Self {
-            child,
+            feed,
             reader: Some(reader),
             state,
         })
@@ -209,8 +202,7 @@ impl Subscription {
 
 impl Drop for Subscription {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        self.feed.end();
         if let Some(reader) = self.reader.take() {
             let _ = reader.join();
         }

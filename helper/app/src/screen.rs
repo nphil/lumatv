@@ -25,11 +25,12 @@
 use crate::control::Stop;
 use crate::ctx::Ctx;
 use crate::hub::Hub;
+use crate::luna::Feed;
 use crate::timeutil::now_ms;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread::{self, JoinHandle};
@@ -153,23 +154,17 @@ fn read_once(program: &str) -> Result<String, String> {
 
 /// The subscription child, which lives in a slot the stop hook can also reach, and the reader of its output.
 struct Subscription {
-    slot: Arc<Mutex<Option<Child>>>,
+    slot: Arc<Mutex<Option<Feed>>>,
     rx: mpsc::Receiver<String>,
     reader: Option<JoinHandle<()>>,
 }
 
 impl Subscription {
-    fn start(program: &str, slot: Arc<Mutex<Option<Child>>>) -> Result<Self, String> {
-        let mut child = Command::new(program)
-            .args(["-n", "1000000", POWER_STATE_URI, r#"{"subscribe":true}"#])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
+    fn start(program: &str, slot: Arc<Mutex<Option<Feed>>>) -> Result<Self, String> {
+        let mut feed = Feed::start(program, POWER_STATE_URI, r#"{"subscribe":true}"#, false)
             .map_err(|e| format!("could not run {program}: {e}"))?;
-        let Some(out) = child.stdout.take() else {
-            let _ = child.kill();
-            let _ = child.wait();
+        let Some(out) = feed.output() else {
+            feed.end();
             return Err("no output pipe".to_owned());
         };
         let (tx, rx) = mpsc::channel();
@@ -198,12 +193,11 @@ impl Subscription {
         let reader = match spawned {
             Ok(reader) => reader,
             Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                feed.end();
                 return Err(format!("could not start a reader: {e}"));
             }
         };
-        *slot.lock() = Some(child);
+        *slot.lock() = Some(feed);
         Ok(Self {
             slot,
             rx,
@@ -220,10 +214,9 @@ impl Subscription {
     }
 }
 
-fn end_child(slot: &Mutex<Option<Child>>) {
-    if let Some(mut child) = slot.lock().take() {
-        let _ = child.kill();
-        let _ = child.wait();
+fn end_child(slot: &Mutex<Option<Feed>>) {
+    if let Some(mut feed) = slot.lock().take() {
+        feed.end();
     }
 }
 
@@ -273,7 +266,7 @@ fn watch(ctx: &Ctx, notify: &(dyn Fn() + Send + Sync)) {
     let mut subscribe_after = Instant::now();
     let stop = ctx.stop.clone();
     // The stop hook kills the subscription's child so its reader and the loop below end at once.
-    let slot: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
+    let slot: Arc<Mutex<Option<Feed>>> = Arc::new(Mutex::new(None));
     stop.on_stop({
         let slot = slot.clone();
         move || end_child(&slot)
@@ -324,7 +317,7 @@ fn subscribe_spell(
     program: &str,
     stop: &Stop,
     publisher: &mut Publisher<'_>,
-    slot: &Arc<Mutex<Option<Child>>>,
+    slot: &Arc<Mutex<Option<Feed>>>,
 ) -> Spell {
     let subscription = match Subscription::start(program, slot.clone()) {
         Ok(s) => s,

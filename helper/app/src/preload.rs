@@ -10,6 +10,7 @@ use crate::config::Paths;
 use crate::control::Stop;
 use crate::ctx::Ctx;
 use crate::hub::Hub;
+use crate::luna::Feed;
 use crate::screen;
 use serde::Deserialize;
 use serde_json::json;
@@ -163,23 +164,20 @@ pub fn spawn_service_watch(ctx: &Ctx, channels: std::sync::Arc<crate::lgchannels
     use std::sync::{Arc, Mutex, mpsc};
     let program = ctx.config.luna.send.clone();
     let stop = ctx.stop.clone();
-    let slot = Arc::new(Mutex::new(None::<std::process::Child>));
+    let slot = Arc::new(Mutex::new(None::<Feed>));
     stop.on_stop({
         let slot = slot.clone();
         move || {
-            if let Some(mut child) = slot.lock().unwrap_or_else(|e| e.into_inner()).take() {
-                let _ = child.kill();
-                let _ = child.wait();
+            if let Some(mut feed) = slot.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                feed.end();
             }
         }
     });
     thread::Builder::new().name("preload-service".into()).stack_size(128 * 1024).spawn(move || {
         while !stop.is_set() {
-            let child = Command::new(&program)
-                .args(["-n", "1000000", "luna://com.webos.service.bus/signal/registerServerStatus", r#"{"serviceName":"com.webos.service.preloadmanager","subscribe":true}"#])
-                .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn();
-            if let Ok(mut child) = child {
-                if let Some(out) = child.stdout.take() {
+            let feed = Feed::start(&program, "luna://com.webos.service.bus/signal/registerServerStatus", r#"{"serviceName":"com.webos.service.preloadmanager","subscribe":true}"#, false);
+            if let Ok(mut feed) = feed {
+                if let Some(out) = feed.output() {
                     let (tx, rx) = mpsc::sync_channel(16);
                     let reader = thread::Builder::new().name("preload-status".into()).stack_size(128 * 1024).spawn(move || {
                         let mut pending = String::new();
@@ -196,7 +194,7 @@ pub fn spawn_service_watch(ctx: &Ctx, channels: std::sync::Arc<crate::lgchannels
                         }
                     });
                     if let Ok(reader) = reader {
-                        *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
+                        *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(feed);
                         let mut received = false;
                         let first_deadline = Instant::now() + Duration::from_secs(10);
                         while !stop.is_set() {
@@ -208,18 +206,15 @@ pub fn spawn_service_watch(ctx: &Ctx, channels: std::sync::Arc<crate::lgchannels
                             }
                         }
                         drop(rx);
-                        if let Some(mut child) = slot.lock().unwrap_or_else(|e| e.into_inner()).take() {
-                            let _ = child.kill();
-                            let _ = child.wait();
+                        if let Some(mut feed) = slot.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                            feed.end();
                         }
                         let _ = reader.join();
                     } else {
-                        let _ = child.kill();
-                        let _ = child.wait();
+                        feed.end();
                     }
                 } else {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    feed.end();
                 }
             }
             if stop.sleep(Duration::from_secs(5)) { break; }

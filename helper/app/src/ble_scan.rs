@@ -18,12 +18,13 @@
 //! tested with replies in the shapes LG documents and the set was seen to give; the process side is behind [`Bluetooth`] so the
 //! proxy and its duty control are tested with a fake and `LunaBluetooth` with a fake `luna-send`.
 
+use crate::luna::Feed;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
 use std::os::unix::process::CommandExt;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread::{self, JoinHandle};
@@ -308,7 +309,7 @@ pub trait Bluetooth: Send {
     fn take_dropped(&mut self) -> u64;
 }
 
-type Slot = Arc<Mutex<Option<Child>>>;
+type Slot = Arc<Mutex<Option<Feed>>>;
 
 struct Scan {
     slot: Slot,
@@ -398,9 +399,8 @@ fn armed(program: &str) -> Command {
 }
 
 fn end_child(slot: &Slot) {
-    if let Some(mut child) = slot.lock().take() {
-        let _ = child.kill();
-        let _ = child.wait();
+    if let Some(mut feed) = slot.lock().take() {
+        feed.end();
     }
 }
 
@@ -435,16 +435,10 @@ impl Bluetooth for LunaBluetooth {
             json!({"subscribe": true})
         }
         .to_string();
-        let mut child = armed(&self.program)
-            .args(["-n", "1000000", SCAN_URI, &payload])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
+        let mut feed = Feed::start(&self.program, SCAN_URI, &payload, true)
             .map_err(|e| format!("could not run {}: {e}", self.program))?;
-        let Some(out) = child.stdout.take() else {
-            let _ = child.kill();
-            let _ = child.wait();
+        let Some(out) = feed.output() else {
+            feed.end();
             return Err("no output pipe".to_owned());
         };
         let (tx, rx) = mpsc::sync_channel::<Value>(MAX_QUEUED);
@@ -479,12 +473,11 @@ impl Bluetooth for LunaBluetooth {
         let reader = match spawned {
             Ok(reader) => reader,
             Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                feed.end();
                 return Err(format!("could not start a reader: {e}"));
             }
         };
-        let slot: Slot = Arc::new(Mutex::new(Some(child)));
+        let slot: Slot = Arc::new(Mutex::new(Some(feed)));
         self.scan = Some(Scan {
             slot,
             rx,
@@ -517,7 +510,7 @@ impl Bluetooth for LunaBluetooth {
         // before is above, because the reader sends it all before the end of the output.
         if !scan.ended_told {
             let gone = match scan.slot.lock().as_mut() {
-                Some(child) => child.try_wait().ok().flatten().is_some(),
+                Some(feed) => feed.has_ended(),
                 None => true,
             };
             if gone && scan.reader.as_ref().is_none_or(JoinHandle::is_finished) {

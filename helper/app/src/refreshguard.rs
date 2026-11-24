@@ -33,13 +33,14 @@ use crate::ai::types::{ActionError, AppInfo, ForegroundApp, InputInfo, MediaKey,
 use crate::control::Stop;
 use crate::ctx::Ctx;
 use crate::hub::Hub;
+use crate::luna::Feed;
 use crate::screen;
 use crate::timeutil::now_ms;
 use parking_lot::Mutex;
 use serde_json::{Map, Value, json};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
@@ -745,7 +746,7 @@ pub fn follow(
     guard: Arc<RefreshGuard>,
     program: String,
 ) -> std::io::Result<JoinHandle<()>> {
-    let slot: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
+    let slot: Arc<Mutex<Option<Feed>>> = Arc::new(Mutex::new(None));
     stop.on_stop({
         let slot = slot.clone();
         move || end_child(&slot)
@@ -758,16 +759,10 @@ pub fn follow(
                 if stop.is_set() {
                     return;
                 }
-                let spawned = Command::new(&program)
-                    .args(["-n", "1000000", REFRESHER_URI, r#"{"subscribe":true}"#])
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::null())
-                    .spawn();
-                match spawned {
-                    Ok(mut child) => {
-                        let out = child.stdout.take();
-                        *slot.lock() = Some(child);
+                match Feed::start(&program, REFRESHER_URI, r#"{"subscribe":true}"#, false) {
+                    Ok(mut feed) => {
+                        let out = feed.output();
+                        *slot.lock() = Some(feed);
                         // A stop that came while the child was being made has already run its hook against an empty slot.
                         if stop.is_set() {
                             end_child(&slot);
@@ -787,10 +782,9 @@ pub fn follow(
         })
 }
 
-fn end_child(slot: &Mutex<Option<Child>>) {
-    if let Some(mut child) = slot.lock().take() {
-        let _ = child.kill();
-        let _ = child.wait();
+fn end_child(slot: &Mutex<Option<Feed>>) {
+    if let Some(mut feed) = slot.lock().take() {
+        feed.end();
     }
 }
 

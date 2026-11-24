@@ -1,12 +1,64 @@
-//! `luna-send` as the helper's modules use it: one answer of a call, and a subscription whose replies go to a callback.
+//! `luna-send` as the helper's modules use it: one answer of a call, and subscriptions.
 
 use serde_json::Value;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader, Read};
+use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+
+/// What a subscription's reader reads: the replies as `luna-send` prints them, one JSON text to a line (compact or spread over lines).
+pub type FeedOut = Box<dyn Read + Send>;
+
+/// One subscription (`luna-send -n 1000000 <uri> <payload>`): its replies and the means to end it. The modules that read the replies
+/// themselves hold a `Feed` where they held the `Child`.
+pub struct Feed {
+    child: Child,
+}
+
+impl Feed {
+    /// Starts `program` (a `luna-send`) on `uri` with `payload`. `with_helper` ends the child with the helper: a child that waits for a
+    /// reply that never comes would outlive a restart of it. It is the thread that starts the child, not the process, that the child
+    /// follows, so only a caller that starts it from a thread that lives as long as the child may ask for it.
+    pub fn start(program: &str, uri: &str, payload: &str, with_helper: bool) -> io::Result<Self> {
+        let mut command = Command::new(program);
+        command
+            .args(["-n", "1000000", uri, payload])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        if with_helper {
+            // SAFETY: only `prctl` runs between fork and exec, and it is async-signal-safe.
+            unsafe {
+                command.pre_exec(|| {
+                    if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+        }
+        Ok(Self { child: command.spawn()? })
+    }
+
+    /// The replies, once: a second call has nothing.
+    pub fn output(&mut self) -> Option<FeedOut> {
+        self.child.stdout.take().map(|out| Box::new(out) as FeedOut)
+    }
+
+    /// Whether the subscription ended on its own (the child exited).
+    pub fn has_ended(&mut self) -> bool {
+        self.child.try_wait().ok().flatten().is_some()
+    }
+
+    /// Ends the subscription (its output ends with it) and waits for what ended it.
+    pub fn end(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
 
 /// One answer of a luna call (`luna-send -n 1`), or `None` when it fails or takes longer than 4 s.
 pub fn once(luna: &str, uri: &str, payload: &str) -> Option<Value> {
@@ -51,7 +103,7 @@ pub fn once_as(luna: &str, caller: Option<&str>, uri: &str, payload: &str) -> Op
 /// A luna subscription (`luna-send -n 1000000 ... {"subscribe":true}`): every reply goes to the callback, from a reader thread, until
 /// the subscription ends or is dropped.
 pub struct Follow {
-    child: Child,
+    feed: Feed,
     reader: Option<JoinHandle<()>>,
     alive: Arc<AtomicBool>,
 }
@@ -60,17 +112,11 @@ pub type OnReply = Box<dyn Fn(&Value) + Send>;
 
 impl Follow {
     /// `name` names the reader thread.
-    pub fn start(name: &str, luna: &str, uri: &str, payload: &str, on_reply: OnReply) -> std::io::Result<Self> {
-        let mut child = Command::new(luna)
-            .args(["-n", "1000000", uri, payload])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?;
-        let Some(out) = child.stdout.take() else {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(std::io::Error::other("no subscription output"));
+    pub fn start(name: &str, luna: &str, uri: &str, payload: &str, on_reply: OnReply) -> io::Result<Self> {
+        let mut feed = Feed::start(luna, uri, payload, false)?;
+        let Some(out) = feed.output() else {
+            feed.end();
+            return Err(io::Error::other("no subscription output"));
         };
         let alive = Arc::new(AtomicBool::new(true));
         let flag = alive.clone();
@@ -83,13 +129,12 @@ impl Follow {
             });
         match reader {
             Ok(reader) => Ok(Self {
-                child,
+                feed,
                 reader: Some(reader),
                 alive,
             }),
             Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                feed.end();
                 Err(e)
             }
         }
@@ -102,8 +147,7 @@ impl Follow {
 
 impl Drop for Follow {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        self.feed.end();
         if let Some(reader) = self.reader.take() {
             let _ = reader.join();
         }
