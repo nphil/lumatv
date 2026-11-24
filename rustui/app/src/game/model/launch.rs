@@ -16,6 +16,17 @@ const LAYER_QUIET_MS: u64 = 30_000;
 /// How long after the strip's time is up it still counts as on screen, so that it can leave with its animation.
 const STRIP_EXIT_MS: u64 = 250;
 
+/// How long the confirmation of a clip stays over the stream. It is short on purpose: a line of text is a static bright element.
+const CLIP_NOTE_MS: u64 = 4_000;
+
+/// What became of the last clip the viewer asked for: one sentence over the stream until `until_ms`, on the model's clock.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClipNote {
+    pub text: String,
+    pub saved: bool,
+    until_ms: u64,
+}
+
 /// The far side's idle countdown while it runs: when it ends by the model's clock.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct IdleWarning {
@@ -64,16 +75,19 @@ pub enum StripItem {
     Picture,
     Controller,
     Achievements,
+    /// Only while the engine's recorder is on (`Model::strip_items`).
+    SaveClip,
     End,
 }
 impl StripItem {
-    pub const ALL: [Self; 5] = [Self::Resume, Self::Picture, Self::Controller, Self::Achievements, Self::End];
+    pub const ALL: [Self; 6] = [Self::Resume, Self::Picture, Self::Controller, Self::Achievements, Self::SaveClip, Self::End];
     pub fn label(self) -> &'static str {
         match self {
             Self::Resume => "Resume",
             Self::Picture => "Picture",
             Self::Controller => "Controller",
             Self::Achievements => "Achievements",
+            Self::SaveClip => "Save clip",
             Self::End => "End",
         }
     }
@@ -115,14 +129,14 @@ impl Slice for Rules {
                 Achieved::Words(_) => Vec::new(),
             },
             (Some(Layer::EndConfirm), _) => vec![vec![Focus::SheetAction(0), Focus::SheetAction(1)]],
-            (None, Page::Running) if m.strip_visible() => vec![(0..StripItem::ALL.len()).map(Focus::Strip).collect()],
+            (None, Page::Running) if m.strip_visible() => vec![(0..m.strip_items().len()).map(Focus::Strip).collect()],
             _ => Vec::new(),
         }
     }
     fn activate(m: &mut Model, f: Focus, out: &mut Vec<Command>) {
         match (f, m.view.top()) {
             (Focus::Strip(i), None) => {
-                if let Some(item) = StripItem::ALL.get(i) {
+                if let Some(item) = m.strip_items().get(i) {
                     m.strip_activate(*item, out);
                 }
             }
@@ -293,6 +307,35 @@ impl Model {
     /// The strip or a layer is up over the stream, which is when the engine reports its stats for the figures.
     pub(super) fn over_stream(&self) -> bool {
         self.view.page == Page::Running && (!self.view.layers.is_empty() || self.strip.visible(self.now_ms))
+    }
+    /// The strip's items for this session: the recorder's Save clip is there only while the engine has it on.
+    pub fn strip_items(&self) -> Vec<StripItem> {
+        let recorder = self.recorder_on();
+        StripItem::ALL.into_iter().filter(|item| *item != StripItem::SaveClip || recorder).collect()
+    }
+    /// The running session's engine can keep a recorder and the viewer switched it on, with an address to send clips to.
+    fn recorder_on(&self) -> bool {
+        let Some(s) = &self.session else { return false };
+        let Some(integration) = self.integration(&s.source.engine) else { return false };
+        integration.descriptor.as_ref().is_some_and(|d| d.capabilities.has(Feature::Recorder))
+            && self.state.engines.get(&s.source.engine).is_some_and(|e| lumagame_core::recorder::Settings::from_values(&integration.schema.resolve(&e.settings)).runs())
+    }
+    /// The clip confirmation while it is up over a stream being watched.
+    pub fn clip_note(&self) -> Option<&ClipNote> {
+        let note = self.view.clip.as_ref()?;
+        (self.foreground && self.view.page == Page::Running && self.streaming() && self.now_ms < note.until_ms).then_some(note)
+    }
+    /// The confirmation is up or still fading out, so the stream is not bare yet.
+    pub fn clip_fading(&self) -> bool {
+        self.view.clip.as_ref().is_some_and(|c| self.now_ms < c.until_ms + STRIP_EXIT_MS)
+    }
+    /// The model's clock passed the confirmation's end or the end of its fade since `before_ms`: the page is drawn again.
+    pub(super) fn clip_tick(&self, before_ms: u64) -> bool {
+        self.view.clip.as_ref().is_some_and(|c| [c.until_ms, c.until_ms + STRIP_EXIT_MS].into_iter().any(|at| before_ms < at && self.now_ms >= at))
+    }
+    /// What an event says of a clip: the confirmation is shown for [`CLIP_NOTE_MS`].
+    pub(super) fn clip_told(&mut self, saved: bool, text: String) {
+        self.view.clip = Some(ClipNote { text, saved, until_ms: self.now_ms + CLIP_NOTE_MS });
     }
     /// The seconds the far side's idle countdown has left, while its warning is up over a stream being watched. Counted from the
     /// model's clock, so the prompt needs no event per second.
@@ -488,8 +531,15 @@ impl Model {
                 let dim = (!self.dimmed_at(now_ms)).then(|| (self.run.began_ms.max(self.last_key_ms) + DIM_AFTER_MS).saturating_sub(now_ms));
                 [ring, dim].into_iter().flatten().min()
             }
-            Page::Running if self.view.layers.is_empty() => self.strip.left(now_ms).or_else(|| self.strip.left(now_ms.saturating_sub(STRIP_EXIT_MS))),
-            Page::Running => self.run.quiet.left(now_ms),
+            Page::Running => {
+                let strip = if self.view.layers.is_empty() {
+                    self.strip.left(now_ms).or_else(|| self.strip.left(now_ms.saturating_sub(STRIP_EXIT_MS)))
+                } else {
+                    self.run.quiet.left(now_ms)
+                };
+                let clip = self.view.clip.as_ref().and_then(|c| [c.until_ms, c.until_ms + STRIP_EXIT_MS].into_iter().find(|at| *at > now_ms)).map(|at| at - now_ms);
+                [strip, clip].into_iter().flatten().min()
+            }
             _ => None,
         }
     }
@@ -557,6 +607,12 @@ impl Model {
                     self.request_owned(game, out);
                 }
                 self.open_stream_layer(Layer::Achievements, Focus::SheetRow(0), out);
+            }
+            // The strip closes and the pad goes back to the game first, as for Steam's overlay, so the confirmation is over a stream
+            // that is playing.
+            StripItem::SaveClip => {
+                self.resume(out);
+                out.push(Command::SaveClip(self.session.as_ref().map(|s| (s.source.engine.clone(), s.id))));
             }
             StripItem::End => self.open_stream_layer(Layer::EndConfirm, Focus::SheetAction(0), out),
         }
@@ -732,6 +788,36 @@ mod tests {
         key(&mut m, Key::Right);
         key(&mut m, Key::Right);
         assert!(key(&mut m, Key::Ok).contains(&Command::OpenControllerSettings));
+    }
+    #[test]
+    fn save_clip_is_on_the_strip_only_while_the_recorder_is_on_and_its_confirmation_is_short() {
+        use lumagame_core::settings::{SettingsSchema, Value};
+        let mut m = running();
+        let gfn = EngineId::new("gfn").unwrap();
+        describe(&mut m, "gfn", vec![], &[Feature::EndGame, Feature::Recorder]);
+        m.integrations[0].schema = SettingsSchema { sections: vec![lumagame_core::recorder::section()] };
+        m.step(Input::Overlay);
+        assert_eq!(m.strip_items().len(), 5, "off until the viewer switches it on");
+        let values = &mut m.state.engines.get_mut(&gfn).unwrap().settings;
+        values.insert("recorder".into(), Value::Bool(true));
+        assert_eq!(m.strip_items().len(), 5, "and gives it an address");
+        m.state.engines.get_mut(&gfn).unwrap().settings.insert("recorder-url".into(), Value::Text("http://nas:8765".into()));
+        assert_eq!((m.strip_items().len(), m.strip_items()[4], m.strip_items()[5]), (6, StripItem::SaveClip, StripItem::End));
+        m.view.focus = Focus::Strip(4);
+        let out = key(&mut m, Key::Ok);
+        let session = m.session().unwrap().id;
+        assert_eq!(out.last(), Some(&Command::SaveClip(Some((gfn.clone(), session)))));
+        assert!(!m.strip_visible(), "the strip leaves so the game has the pad");
+
+        tick(&mut m, 10_000);
+        engine_says(&mut m, "gfn", ipc::Event::Clip { session, saved: true, text: "Saved a.mp4".into() });
+        assert_eq!(m.clip_note().map(|n| (n.text.as_str(), n.saved)), Some(("Saved a.mp4", true)));
+        assert!(m.wants_frames());
+        tick(&mut m, 13_999);
+        assert!(m.clip_note().is_some());
+        assert!(tick(&mut m, 14_000).is_empty() && m.clip_note().is_none() && m.wants_frames(), "gone from the screen, fading out");
+        tick(&mut m, 14_300);
+        assert!(!m.clip_fading());
     }
     #[test]
     fn ending_asks_first_and_keep_playing_is_where_focus_starts() {

@@ -187,6 +187,10 @@ impl Engine {
             }
             Request::Action {..}=>self.emit(error(Some(seq),ErrorCode::Unsupported,"Unknown settings action.")),
             Request::SteamOverlay {..}=>self.emit(error(Some(seq),ErrorCode::Unsupported,"This engine does not open Steam's overlay.")),
+            Request::SaveClip {session}=>{
+                let p=self.play.as_ref().filter(|p|p.id==session).context("There is no matching session.")?;
+                if let Err(text)=p.control.save_clip() {self.reply(seq,Event::Clip {session,saved:false,text});}
+            }
             Request::Activity {..}=>self.emit(error(Some(seq),ErrorCode::Unsupported,"This engine sends no idle warning.")),
             Request::Achievements {..}=>self.emit(error(Some(seq),ErrorCode::Unsupported,"This engine has no achievements.")),
             Request::Community {..} | Request::CommunityThread {..}=>self.emit(error(Some(seq),ErrorCode::Unsupported,"This engine has no community pages.")),

@@ -3,6 +3,7 @@ mod feeder_tests;
 use anyhow::{Context, Result, bail, ensure};
 use lumagame_core::{engine::Codec, ids::{ProviderGameId, SessionId}, ipc::{EndReason, Event, FailReason, FromEngine, Hello, RoundTrip, SessionState, Stats, StreamInfo}};
 use lumagame_feeder::{FeederClient, FeederMessage, Hdr, Load, audio, msg, pts_unit};
+use lumagame_recorder::{HttpDestination, RING_CAP, Recorder};
 use lumatv_gfn_pad::PadRuntime;
 use punktfunk_core::{client::NativeClient, packet::{FLAG_SOF,USER_FLAG_RECOVERY_ANCHOR}, quic, PunktfunkError};
 use std::{path::Path, sync::{Arc, Mutex, atomic::{AtomicBool,AtomicU64,Ordering}, mpsc::Sender}, thread, time::{Duration,Instant}};
@@ -10,8 +11,14 @@ use crate::{Notice, input::Pads, library::{Library,DESKTOP}, settings, store::Ho
 pub mod stage;
 
 #[derive(Default)]
-pub struct Control { pub stop:Arc<AtomicBool>, pub end_game:AtomicBool, pub app:AtomicBool, pub stats:AtomicBool, pad_stats:AtomicBool, pub trip:Mutex<RoundTrip> }
+pub struct Control { pub stop:Arc<AtomicBool>, pub end_game:AtomicBool, pub app:AtomicBool, pub stats:AtomicBool, pad_stats:AtomicBool, pub trip:Mutex<RoundTrip>, recorder:Mutex<Option<(Arc<Recorder>,u32)>> }
 impl Control {
+    /// Asks the recorder for a clip; the outcome comes later as a `clip` event, a refusal now.
+    pub fn save_clip(&self)->Result<(),String> {
+        let guard=self.recorder.lock().unwrap();
+        let (recorder,seconds)=guard.as_ref().ok_or("Turn on Save clips and set the receiver address in Settings")?;
+        recorder.save_last(*seconds).map_err(|e|e.to_string())
+    }
     pub fn set_stats(&self,on:bool,pad_timing:bool) {
         self.pad_stats.store(on && pad_timing,Ordering::Release);
         self.stats.store(on,Ordering::Release);
@@ -89,6 +96,7 @@ fn media(id:SessionId,client:Arc<NativeClient>,hello:&Hello,control:&Arc<Control
     let format=client.video_format();
     let info=stream_info(&client,format).map_err(video)?;
     let hdr=client.latest_hdr_meta(Duration::ZERO).map(|m|metadata(m,format.color));
+    if let Some(recorder)=tee(id,hello,control,out) {feeder.set_tee(recorder);}
     feeder.send_load(&load(&info,hdr)).map_err(|e|video(e.into()))?;
     let feeder=Arc::new(Mutex::new(feeder));
     let audio_stop=Arc::new(AtomicBool::new(false));
@@ -117,7 +125,18 @@ fn media(id:SessionId,client:Arc<NativeClient>,hello:&Hello,control:&Arc<Control
     audio_stop.store(true,Ordering::Release);
     let _=audio.join();
     let _=feeder.lock().unwrap().send_unload();
+    *control.recorder.lock().unwrap()=None;
     result
+}
+/// The game recorder for this stream when the viewer turned it on; what becomes of a clip goes to the app as `clip` events.
+fn tee(id:SessionId,hello:&Hello,control:&Control,out:&Sender<Notice>)->Option<Arc<Recorder>> {
+    let rec=settings::recorder(&hello.settings);
+    if !rec.runs() {return None;}
+    let tell={let out=out.clone();move |saved:bool,text:String| {let _=out.send(Notice::Emit(FromEngine::told(Event::Clip {session:id,saved,text})));}};
+    let destination=match HttpDestination::new(&rec.url,&rec.folder) {Ok(d)=>d,Err(why)=>{tell(false,why);return None;}};
+    let recorder=Arc::new(Recorder::new(RING_CAP,"lumagame",Arc::new(destination),move |event| if let Some((saved,text))=event.sentence() {tell(saved,text);}));
+    *control.recorder.lock().unwrap()=Some((Arc::clone(&recorder),rec.seconds));
+    Some(recorder)
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -9,7 +9,7 @@ use lumatv_tokens::{Radius, TypeRole};
 use ui::{components::Form, geometry::Frame, lucent::palette::PaletteRole as Role};
 
 /// Layers of the prompt: below 100, so the page's top-edge cull (it drops what ends above y = 150) leaves them.
-const SURFACE: u64 = 90;
+pub(super) const SURFACE: u64 = 90;
 const WORDS: u64 = 91;
 
 pub fn show(p: &mut Paint<'_>) {

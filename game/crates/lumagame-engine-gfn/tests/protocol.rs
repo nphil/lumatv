@@ -408,6 +408,37 @@ fn steam_overlay_asks_the_running_streamer_for_the_shortcut() {
     assert_eq!(f.reply("streamer.control",json!({"action":"steam-overlay","streamerRunning":true}))["params"],json!({"action":"steam-overlay"}));
 }
 
+fn clips(f:&mut FakeCore) -> Vec<(bool,String)> {
+    f.collect();
+    f.events.iter().filter_map(|e| match &e.event {Event::Clip{session:SessionId(9),saved,text}=>Some((*saved,text.clone())),_=>None}).collect()
+}
+
+#[test]
+fn save_clip_needs_the_recorder_on_and_is_answered_by_the_streamers_clip_line() {
+    use lumagame_core::settings::Value;
+    let mut f=running();
+    f.send(40,Request::SaveClip{session:SessionId(9)});
+    f.collect();assert!(f.requests.is_empty(),"the recorder is off, so the streamer is not asked");
+    assert_eq!(clips(&mut f).len(),1);
+    assert!(!clips(&mut f)[0].0);
+    assert!(f.adapter.runtime_prefs().get("recorder").is_none());
+
+    let mut f=FakeCore::new(true);
+    f.send(4,Request::Settings{values:Values::from([("recorder".into(),Value::Bool(true)),("recorder-url".into(),Value::Text("http://nas:8765".into()))])});
+    f.launch();
+    f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));
+    f.reply("streamer.start",json!({"status":"running"}));
+    assert_eq!(f.adapter.runtime_prefs()["recorder"],json!({"url":"http://nas:8765","folder":"lumagame","seconds":15}));
+    f.send(41,Request::SaveClip{session:SessionId(9)});
+    assert_eq!(f.reply("streamer.control",json!({"action":"save-clip","streamerRunning":true}))["params"],json!({"action":"save-clip"}));
+    f.adapter.pad_line(&json!({"stream":"clip","saved":true,"text":"20260101-120000.mp4"}).to_string());
+    assert_eq!(clips(&mut f),[(true,"20260101-120000.mp4".to_owned())]);
+    f.send(42,Request::SaveClip{session:SessionId(9)});
+    f.reject("streamer.control","unknown_action");
+    assert_eq!(clips(&mut f).len(),2);
+    assert!(!clips(&mut f)[1].0);
+}
+
 #[test]
 fn busy_streamer_is_stopped_before_exactly_one_retry() {
     let mut f=FakeCore::new(true);f.launch();

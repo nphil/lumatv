@@ -412,6 +412,9 @@ dependencies = [
 [[package]]
 name = "lumagame-feeder"
 version = "0.1.0"
+dependencies = [
+ "lumagame-recorder",
+]
 
 [[package]]
 name = "lumagame-meta"
@@ -425,6 +428,10 @@ dependencies = [
  "tempfile",
  "ureq",
 ]
+
+[[package]]
+name = "lumagame-recorder"
+version = "0.1.0"
 
 [[package]]
 name = "lumatv-gfn-pad"

@@ -21,6 +21,7 @@ ureq = { version = "=3.4.2", default-features = false, features = ["rustls-no-pr
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "std"] }
 lumagame-core = { path = "../../crates/lumagame-core" }
 lumagame-feeder = { path = "../../crates/lumagame-feeder" }
+lumagame-recorder = { path = "../../crates/lumagame-recorder" }
 lumatv-gfn-pad = { path = "../../../gfn/engine/crates/lumatv-gfn-pad" }
 punktfunk-core = { git = "https://github.com/punktfunk/punktfunk", rev = "db9d5ac637d9a15178ba8e30da06800d5e981a00", features = ["quic", "ureq-tls"] }
 pf-client-core = { git = "https://github.com/punktfunk/punktfunk", rev = "db9d5ac637d9a15178ba8e30da06800d5e981a00", default-features = false, features = ["discovery"] }

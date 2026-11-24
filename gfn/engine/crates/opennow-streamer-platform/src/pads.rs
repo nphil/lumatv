@@ -271,6 +271,11 @@ impl PadBridge {
         self.bridge.aside(line);
     }
 
+    /// What became of a clip (clip.rs), already a wire line.
+    pub fn stream_clip(&self, line: String) {
+        self.bridge.aside(line);
+    }
+
     pub fn set_paused(&self, paused: bool) {
         self.bridge.paused.store(paused, Ordering::Release);
     }

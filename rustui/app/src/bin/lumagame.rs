@@ -391,6 +391,12 @@ impl Shell {
                     if sent.is_err() { commands.extend(self.step(Input::EngineGone(engine), now_ms)); }
                     sent
                 }
+                Command::SaveClip(None) => Ok(()),
+                Command::SaveClip(Some((engine, session))) => {
+                    let sent = self.host.send(&engine, Request::SaveClip { session });
+                    if sent.is_err() { commands.extend(self.step(Input::EngineGone(engine), now_ms)); }
+                    sent
+                }
                 Command::Enable { .. } => { self.host.sync(self.model.state(), self.model.foreground(), self.model.session_active(), now_ms); Ok(()) }
                 Command::KillEngine(id) => { self.host.kill(&id, now_ms); Ok(()) }
                 Command::SaveState => {

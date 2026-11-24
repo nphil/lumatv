@@ -10,6 +10,7 @@ use catalog::Selection;
 use lumagame_core::engine::{AuthMethod, Capabilities, Codec, Descriptor, EngineKind, Feature, Presentation, TargetKind, VideoCaps};
 use lumagame_core::ids::{EngineId, ProviderGameId, SessionId, TargetId};
 use lumagame_core::ipc::*;
+use lumagame_core::recorder;
 use lumagame_core::settings::{SettingsSchema, Values};
 use serde_json::{Value, json};
 use lumatv_gfn_pad::{PadState, menu::{MenuKey, MenuKeys}};
@@ -23,6 +24,7 @@ const IDLE_GRACE_MS: u64 = 3000;
 
 #[derive(Debug, Clone)]
 enum Purpose {
+    Clip,
     Hello,
     Setting,
     Detect,
@@ -265,6 +267,15 @@ impl Adapter {
             Request::SteamOverlay { session } if self.launch.as_ref().is_some_and(|l| l.id == session && l.running) => {
                 self.enqueue("streamer.control",json!({"action":"steam-overlay"}),Purpose::Pause,seq);
             }
+            // The streamer's recorder holds the last seconds in memory and sends the clip to the receiver; it answers with a `clip` line
+            // on the pad bridge (`clip_line`). Without the setting on and an address there is nothing to ask.
+            Request::SaveClip { session } if self.launch.as_ref().is_some_and(|l| l.id == session && l.running) => {
+                if self.launch.as_ref().is_some_and(|l| recorder::Settings::from_values(&l.values).runs()) {
+                    self.enqueue("streamer.control",json!({"action":"save-clip"}),Purpose::Clip,seq);
+                } else {
+                    self.clip(seq,false,"Turn on Save clips and set the receiver address in Settings");
+                }
+            }
             // The remote's and a keyboard's keys never reach the stream (nor do the pad's while the overlay has it), so the far side's
             // idle policy would count them as no input. The press is sent as the one input the streamer's anti-AFK pulse is (upstream's
             // F13 tap). It answers a press that happened, which the app rate-limits; nothing here sends one on a timer.
@@ -272,7 +283,7 @@ impl Adapter {
                 self.enqueue("streamer.control",json!({"action":"anti-afk-pulse"}),Purpose::Pause,seq);
             }
             Request::Library { .. } | Request::Check { .. } | Request::Forget { .. } | Request::Stop { .. } | Request::Route { .. } | Request::Stats { .. }
-            | Request::RoundTrip { .. } | Request::SteamOverlay { .. } | Request::Activity { .. } => {
+            | Request::RoundTrip { .. } | Request::SteamOverlay { .. } | Request::SaveClip { .. } | Request::Activity { .. } => {
                 self.error(seq,ErrorCode::BadRequest,"The target or session is not current");
             }
             _ => self.error(seq,ErrorCode::Unsupported,"This operation is not supported by GeForce NOW"),
@@ -281,6 +292,17 @@ impl Adapter {
 
     fn matches_target(&self, target: &TargetId) -> bool { self.target.as_ref().is_some_and(|t| &t.id == target) }
     fn targets(&mut self, seq: Option<u64>) { self.emit(seq,Event::Targets { targets:self.target.iter().cloned().collect() }); }
+    /// Tells the app what became of a clip (`Event::Clip`) for the running launch; with no launch there is nobody to tell.
+    fn clip(&mut self, seq: Option<u64>, saved: bool, text: &str) {
+        let Some(session) = self.launch.as_ref().map(|l| l.id) else { return };
+        self.emit(seq,Event::Clip { session,saved,text:text.chars().take(200).collect() });
+    }
+    /// The streamer's recorder finished a clip (`{"stream":"clip","saved":bool,"text":...}` on the pad bridge); a recording's start and
+    /// stop come the same way.
+    fn clip_line(&mut self, v: &Value) {
+        let (Some(saved),Some(text)) = (v["saved"].as_bool(),v["text"].as_str()) else { return };
+        if self.launch.as_ref().is_some_and(|l| l.running && !l.stopping) { self.clip(None,saved,text); }
+    }
     /// One datagram from the streamer's pad bridge (`LUMATV_GFN_PAD_SIDE`). The PS button asks for the overlay, as it does on every
     /// engine; while the overlay has the pads their reports become its menu keys. The streamer's own telemetry and its end arrive the
     /// same way.
@@ -290,6 +312,7 @@ impl Adapter {
         if v["stream"] == "idle" { self.idle_warning(&v); return; }
         if v["stream"] == "ended" { self.stream_ended(&v); return; }
         if v["stream"] == "colour" { self.stream_colour(&v); return; }
+        if v["stream"] == "clip" { self.clip_line(&v); return; }
         let Some(l) = self.launch.as_mut().filter(|l| l.running && !l.stopping) else { return };
         let session = l.id;
         match v["pad"].as_str() {
@@ -640,7 +663,7 @@ impl Adapter {
                 } else { self.finish(SessionState::Ended { reason:EndReason::Suspended }); }
             }
             Purpose::StopSeat => self.finish(SessionState::Ended { reason:EndReason::Stopped }),
-            Purpose::Pause | Purpose::Ended { .. } | Purpose::SyncAck => {}
+            Purpose::Pause | Purpose::Clip | Purpose::Ended { .. } | Purpose::SyncAck => {}
             Purpose::SyncList => self.refresh_listed(r),
             Purpose::SyncStart { provider } | Purpose::SyncPoll { provider } => self.refresh_progress(&provider,r),
         }
@@ -726,6 +749,7 @@ impl Adapter {
                 self.enqueue("streamer.stop",json!({"reason":"the session request failed"}),Purpose::Pause,None);
             }
             Purpose::Hello | Purpose::Detect | Purpose::Setting => self.core_gone("GeForce NOW could not initialize the core and streamer"),
+            Purpose::Clip => self.clip(job.seq,false,"The streamer could not save the clip"),
             _ => match refresh::classify(code) {
                 Some((kind,message)) => self.error(job.seq,kind,message),
                 None => self.error(job.seq,ErrorCode::Internal,format!("GeForce NOW refused {} ({code})",job.method)),
@@ -904,7 +928,7 @@ pub fn descriptor() -> Descriptor {
     Descriptor { id:EngineId::new("gfn").unwrap(),version:env!("CARGO_PKG_VERSION").into(),capabilities:Capabilities {
         kind:EngineKind::Cloud,targets:TargetKind::Account,auth:vec![AuthMethod::DeviceCode],presentation:Presentation::Feeder,
         features:BTreeSet::from([Feature::Readiness,Feature::Queue,Feature::EndGame,Feature::Stats,Feature::RoundTrip,Feature::Rumble,Feature::OverlayKeys,
-            Feature::SteamOverlay,Feature::StoreSync]),
+            Feature::SteamOverlay,Feature::StoreSync,Feature::Recorder]),
         video:Some(VideoCaps { codecs:vec![Codec::H265,Codec::Av1,Codec::H264],width:3840,height:2160,fps:120,hdr10:true }),
     } }
 }

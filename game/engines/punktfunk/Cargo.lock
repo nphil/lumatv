@@ -866,6 +866,7 @@ dependencies = [
  "libc",
  "lumagame-core",
  "lumagame-feeder",
+ "lumagame-recorder",
  "lumatv-gfn-pad",
  "pf-client-core",
  "punktfunk-core",
@@ -880,6 +881,13 @@ dependencies = [
 
 [[package]]
 name = "lumagame-feeder"
+version = "0.1.0"
+dependencies = [
+ "lumagame-recorder",
+]
+
+[[package]]
+name = "lumagame-recorder"
 version = "0.1.0"
 
 [[package]]

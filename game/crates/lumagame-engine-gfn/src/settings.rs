@@ -1,4 +1,5 @@
 use lumagame_core::engine::Codec;
+use lumagame_core::recorder;
 use lumagame_core::ipc::{Display, StreamInfo};
 use lumagame_core::settings::{SettingsSchema, Values};
 use serde_json::{Value, json};
@@ -17,7 +18,7 @@ pub fn schema(prefs: &Value) -> SettingsSchema {
     let tier = prefs["tier"].as_str().and_then(|s| TIERS.iter().find(|t| t.0 == s)).unwrap_or(&TIERS[0]);
     let bitrate = prefs["bitrateMbps"].as_i64().map_or(80, |n| (n.saturating_add(2) / 5 * 5).clamp(5, 150));
     let deadzone = prefs["deadzone"].as_i64().map_or(8, |n| n.clamp(0, 20));
-    serde_json::from_value(json!({"sections": [{"title": "Stream", "fields": [
+    let mut schema: SettingsSchema = serde_json::from_value(json!({"sections": [{"title": "Stream", "fields": [
         {"key":"width","label":"Width","type":"number","min":1280,"max":3840,"step":640,"unit":"px","default":tier.1},
         {"key":"height","label":"Height","type":"number","min":720,"max":2160,"step":360,"unit":"px","default":tier.2},
         {"key":"fps","label":"Frame rate","type":"number","min":60,"max":120,"step":60,"unit":"fps","default":tier.3},
@@ -40,7 +41,9 @@ pub fn schema(prefs: &Value) -> SettingsSchema {
             {"id":"linear","label":"Linear"},{"id":"precise","label":"Precise"},{"id":"quick","label":"Quick"}]},
         {"key":"show-stats","label":"Show stats","type":"toggle","default":prefs["showStats"].as_bool().unwrap_or(false)},
         {"key":"sign-out","label":"Sign out","type":"action"}
-    ]}]})).expect("the GFN schema is valid data")
+    ]}]})).expect("the GFN schema is valid data");
+    schema.sections.push(recorder::section());
+    schema
 }
 
 pub fn profile(values: &Values, display: &Display) -> StreamInfo {
@@ -113,8 +116,14 @@ pub fn runtime_prefs(values: &Values) -> Value {
         Some(lumagame_core::settings::Value::Text(c)) => c.clone(),
         _ => String::from(default),
     };
-    json!({"deadzone": integer(values, "deadzone", 8), "antiDeadzone": integer(values, "anti-deadzone", 0),
-        "curve": text("stick-curve", "linear"), "framePacing": text("frame-pacing", "smooth")})
+    let mut prefs = json!({"deadzone": integer(values, "deadzone", 8), "antiDeadzone": integer(values, "anti-deadzone", 0),
+        "curve": text("stick-curve", "linear"), "framePacing": text("frame-pacing", "smooth")});
+    // Present only while the recorder is on and has an address: the streamer starts a recorder exactly when it finds this.
+    let rec = recorder::Settings::from_values(values);
+    if rec.runs() {
+        prefs["recorder"] = json!({"url": rec.url, "folder": rec.folder, "seconds": rec.seconds});
+    }
+    prefs
 }
 
 #[cfg(test)]

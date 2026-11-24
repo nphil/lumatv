@@ -132,6 +132,17 @@ pub(crate) fn describe(m: &mut Model, id: &str, auth: Vec<lumagame_core::engine:
         },
     });
 }
+/// The engine has the recorder, and the viewer switched it on with an address to send clips to.
+pub(crate) fn recorder_on(m: &mut Model, engine: &str) {
+    use lumagame_core::settings::{SettingsSchema, Value};
+    let id = EngineId::new(engine).unwrap();
+    let e = m.integrations.iter_mut().find(|e| e.manifest.id == id).unwrap();
+    e.descriptor.as_mut().unwrap().capabilities.features.insert(Feature::Recorder);
+    e.schema = SettingsSchema { sections: vec![lumagame_core::recorder::section()] };
+    let settings = &mut m.state.engines.entry(id).or_default().settings;
+    settings.insert("recorder".into(), Value::Bool(true));
+    settings.insert("recorder-url".into(), Value::Text("http://nas:8765".into()));
+}
 pub(crate) fn entry(id: &str, title: &str, role: ipc::Role, external: &[&str], activity: lumagame_core::activity::Activity) -> ipc::LibraryEntry {
     ipc::LibraryEntry {
         id: lumagame_core::ids::ProviderGameId::new(id).unwrap(),

@@ -1,6 +1,7 @@
-//! Recording and replay as the engine's signatures want them. Both need the encoded units kept in this process; the TV build keeps
-//! nothing (the pipeline owns the frames and there is no screenshot path), so a subscription is refused with a message the UI can
-//! show, and these functions are never reached with a receiver or a snapshot. They answer the same way if they are.
+//! Recording and replay as the engine's signatures want them. Both need the encoded units delivered to the engine; the TV build
+//! hands them to nothing but the feeder (the pipeline owns the frames and there is no screenshot path), so a subscription is refused
+//! with a message the UI can show, and these functions are never reached with a receiver or a snapshot. They answer the same way if
+//! they are. The game recorder (clip.rs) keeps its own copy of the encoded stream inside the feeder client instead.
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;

@@ -1,5 +1,5 @@
 use anyhow::{Result, ensure};
-use lumagame_core::{engine::{AuthMethod, Capabilities, Codec, Descriptor, EngineKind, Feature, Presentation, TargetKind, VideoCaps}, ids::EngineId, ipc::Display, settings::{SettingsSchema, Value, Values}};
+use lumagame_core::{engine::{AuthMethod, Capabilities, Codec, Descriptor, EngineKind, Feature, Presentation, TargetKind, VideoCaps}, ids::EngineId, ipc::Display, recorder, settings::{SettingsSchema, Value, Values}};
 use lumatv_gfn_pad::{Curve, PadConfig};
 use punktfunk_core::{client::ConnectParams, config::Mode, quic};
 use std::{collections::BTreeSet, time::Duration};
@@ -7,13 +7,13 @@ use std::{collections::BTreeSet, time::Duration};
 pub fn descriptor() -> Descriptor {
     Descriptor { id: EngineId::new("punktfunk").unwrap(), version: env!("CARGO_PKG_VERSION").into(), capabilities: Capabilities {
         kind: EngineKind::Host, targets: TargetKind::Host, auth: vec![AuthMethod::EnterPin], presentation: Presentation::Feeder,
-        features: BTreeSet::from([Feature::Discovery, Feature::ManualHost, Feature::Wake, Feature::ManyTargets, Feature::Readiness, Feature::Resume, Feature::EndGame, Feature::Stats, Feature::RoundTrip, Feature::OverlayKeys, Feature::Rumble]),
+        features: BTreeSet::from([Feature::Discovery, Feature::ManualHost, Feature::Wake, Feature::ManyTargets, Feature::Readiness, Feature::Resume, Feature::EndGame, Feature::Stats, Feature::RoundTrip, Feature::OverlayKeys, Feature::Rumble, Feature::Recorder]),
         video: Some(VideoCaps { codecs: vec![Codec::H264,Codec::H265,Codec::Av1], width:3840,height:2160,fps:120,hdr10:true }),
     }}
 }
 /// The stream and stick fields use the keys of LumaGame's common settings, so the app's values apply to this engine.
 pub fn schema() -> SettingsSchema {
-    serde_json::from_str(r#"{"sections":[{"title":"Stream","fields":[
+    let mut schema: SettingsSchema = serde_json::from_str(r#"{"sections":[{"title":"Stream","fields":[
         {"key":"width","label":"Width","type":"number","min":1280,"max":3840,"step":640,"unit":"px","default":3840},
         {"key":"height","label":"Height","type":"number","min":720,"max":2160,"step":360,"unit":"px","default":2160},
         {"key":"fps","label":"Frame rate","type":"number","min":30,"max":120,"step":30,"unit":"fps","default":120},
@@ -26,7 +26,13 @@ pub fn schema() -> SettingsSchema {
         {"key":"deadzone","label":"Stick dead zone","type":"number","min":0,"max":20,"step":1,"unit":"%","default":8},
         {"key":"anti-deadzone","label":"Stick anti-deadzone","type":"number","min":0,"max":30,"step":1,"unit":"%","default":0},
         {"key":"stick-curve","label":"Stick response","type":"choice","options":[{"id":"linear","label":"Linear"},{"id":"precise","label":"Precise"},{"id":"quick","label":"Quick"}],"default":"linear"}
-    ]}]}"#).expect("static schema")
+    ]}]}"#).expect("static schema");
+    schema.sections.push(recorder::section());
+    schema
+}
+/// The game recorder's settings, as the viewer left them.
+pub fn recorder(values: &Values) -> recorder::Settings {
+    recorder::Settings::from_values(&schema().resolve(values))
 }
 /// The pads shaped as the settings say: the pad crate applies the sticks' settings before a report goes to the host.
 pub fn pad_config(values: &Values) -> PadConfig {

@@ -1,7 +1,8 @@
 //! OpenNOW's standalone streamer entry (native/opennow-streamer/crates/opennow-streamer/src/main.rs at the pinned revision) with
 //! three additions: a `controller-rumble` event is applied to the pad here, in the process that holds the pad, before it goes up the
 //! pipe; what the engine needs of the events the core does not pass on goes to the engine's side socket; and `input-paused` moves
-//! only the pads (`pause_pads_only`); `steam-overlay` types Shift+Tab into the game (`steam_overlay`). The binary keeps upstream's name because opennow-core looks for `opennow-streamer` beside
+//! only the pads (`pause_pads_only`); `steam-overlay` types Shift+Tab into the game (`steam_overlay`); `save-clip` saves the game
+//! recorder's last seconds (`save_clip_command`). The binary keeps upstream's name because opennow-core looks for `opennow-streamer` beside
 //! itself.
 use std::io::{self, BufRead, Write};
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}, mpsc};
@@ -9,7 +10,7 @@ use std::thread;
 use std::time::Duration;
 
 use opennow_streamer_core::Engine;
-use opennow_streamer_platform::{CapturedInput, MediaRuntime, controller_rumble, create_runtime, stream_ended, stream_idle, stream_telemetry};
+use opennow_streamer_platform::{CapturedInput, MediaRuntime, controller_rumble, create_runtime, save_clip, stream_ended, stream_idle, stream_telemetry};
 use opennow_streamer_protocol::{Command, error, response};
 use serde_json::Value;
 
@@ -100,6 +101,16 @@ fn steam_overlay(command: &Command, playing: &Arc<AtomicBool>, play: impl FnOnce
     Some(response(command.id.as_str(), "ok"))
 }
 
+/// The in-stream menu's "Save clip": the game recorder starts the clip and the outcome, or a refusal, goes to the engine as a `clip`
+/// line on the side socket, so the command itself is answered at once.
+fn save_clip_command(command: &Command, save: impl FnOnce()) -> Option<Value> {
+    if command.kind != "save-clip" {
+        return None;
+    }
+    save();
+    Some(response(command.id.as_str(), "ok"))
+}
+
 fn run_protocol(media_runtime: MediaRuntime) -> io::Result<()> {
     let (event_tx, event_rx) = mpsc::channel::<Value>();
     let event_writer = thread::spawn(move || {
@@ -140,6 +151,10 @@ fn run_protocol(media_runtime: MediaRuntime) -> io::Result<()> {
             });
         };
         if let Some(reply) = steam_overlay(&command, &playing, play) {
+            write_message(&reply)?;
+            continue;
+        }
+        if let Some(reply) = save_clip_command(&command, save_clip) {
             write_message(&reply)?;
             continue;
         }
@@ -205,6 +220,14 @@ mod tests {
         play_overlay_chord(|key| seen.push((clock.get(), key)), |wait| clock.set(clock.get() + wait));
         let at = |ms, virtual_key, modifiers, pressed| (Duration::from_millis(ms), CapturedInput::Key { virtual_key, modifiers, pressed });
         assert_eq!(seen, [at(0, 0xa0, 0, true), at(40, 0x09, 1, true), at(120, 0x09, 1, false), at(160, 0xa0, 0, false)]);
+    }
+
+    #[test]
+    fn save_clip_starts_the_recorder_and_is_answered_at_once() {
+        let mut saved = 0;
+        let reply = save_clip_command(&command(r#"{"id":"runtime-control","type":"save-clip"}"#), || saved += 1);
+        assert_eq!((reply, saved), (Some(response("runtime-control", "ok")), 1));
+        assert_eq!(save_clip_command(&command(r#"{"id":"stop","type":"stop"}"#), || unreachable!()), None);
     }
 
     #[test]

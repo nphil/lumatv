@@ -10,6 +10,7 @@
 //! | [`engine`] | what an engine says of itself (manifest, capabilities) and the trait the app drives |
 //! | [`ipc`] | the messages between the app and an engine in a process of its own, one JSON object a line |
 //! | [`settings`] | an engine's settings page as data the app draws |
+//! | [`recorder`] | the game recorder's settings section and how an engine reads it |
 //! | [`catalog`] | one card per game: which library entries are the same game, never by title alone |
 //! | [`history`] | what was played and for how long, counted only for sessions that started |
 //! | [`activity`] | what an account knows about a game (last played, play time, favourite, genres) and how it joins this TV's history |
@@ -79,6 +80,7 @@ pub mod history;
 pub mod ids;
 pub mod ipc;
 pub mod launch;
+pub mod recorder;
 pub mod session;
 pub mod settings;
 pub mod state;

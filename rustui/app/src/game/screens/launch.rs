@@ -147,6 +147,7 @@ fn icon(item: StripItem) -> Sign {
         StripItem::Picture => Sign::Icon(Icon::Sun),
         StripItem::Controller => Sign::Symbol(Symbol::Gamepad),
         StripItem::Achievements => Sign::Symbol(Symbol::Trophy),
+        StripItem::SaveClip => Sign::Icon(Icon::Camera),
         StripItem::End => Sign::Icon(Icon::Power),
     }
 }
@@ -159,7 +160,8 @@ fn bare(p: &mut Paint<'_>) {
         return;
     }
     pill(p);
-    let items: Vec<Item<'_>> = StripItem::ALL
+    let items: Vec<Item<'_>> = m
+        .strip_items()
         .iter()
         .enumerate()
         .map(|(i, item)| Item { icon: icon(*item), label: Some(item.label()), focus: Focus::Strip(i), danger: *item == StripItem::End })

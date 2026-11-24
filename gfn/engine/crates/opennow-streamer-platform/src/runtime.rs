@@ -160,6 +160,13 @@ pub fn stream_idle(timer: &serde_json::Value) {
     }
 }
 
+/// A `clip` line for the engine's side socket (clip.rs).
+pub(crate) fn stream_clip(line: String) {
+    if let Some(rt) = RUNTIME.get() {
+        rt.pads.stream_clip(line);
+    }
+}
+
 #[derive(Clone)]
 pub struct MediaRuntime {
     inner: Arc<RuntimeInner>,
@@ -305,7 +312,12 @@ impl MediaRuntime {
         client
             .spawn_reader(move |m| reader_shared.on_message(m, &loaded_tx))
             .map_err(|e| format!("feeder reader: {e}"))?;
+        // Before the load, so the tee sees the stream's shape and its first keyframe.
+        if let Some(recorder) = crate::clip::arm(std::env::var_os("LUMATV_GFN_PREFS").map(PathBuf::from).as_deref()) {
+            client.set_tee(recorder);
+        }
         if let Err(e) = load_feeder(&shared, &mut client) {
+            crate::clip::disarm();
             client.close();
             return Err(e);
         }
@@ -875,6 +887,7 @@ impl MediaControl {
         self.shared.pace.lock().unwrap_or_else(|e| e.into_inner()).held.clear();
         self.shared.pace_wake.notify_all();
         *self.runtime.cadence.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        crate::clip::disarm();
         self.runtime.pads.set_grab(false);
         self.runtime.pads.set_active(false);
         if let Some(mut client) = self.client.lock().unwrap_or_else(|e| e.into_inner()).take() {

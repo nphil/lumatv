@@ -5,6 +5,9 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+use std::sync::Arc;
+
+use lumagame_recorder::{AudioConfig, Codec, Hdr10, Mastering, OpusMapping, Recorder, StreamInfo, Track};
 
 pub const PROTO_VERSION: u32 = 2;
 pub const MAX_PAYLOAD: u32 = 8 << 20;
@@ -321,9 +324,40 @@ pub fn decode(kind: u8, p: &[u8]) -> FeederMessage {
 pub struct FeederClient {
     stream: UnixStream,
     reader: Option<JoinHandle<()>>,
+    /// The game recorder's tee ([`FeederClient::set_tee`]): a copy of every coded unit this client hands the feeder.
+    tee: Option<Arc<Recorder>>,
+    /// Whether the audio of the loaded stream is Opus, the only audio the recorder files.
+    tee_audio: bool,
 }
 
 impl FeederClient {
+    fn new(stream: UnixStream) -> Self {
+        Self { stream, reader: None, tee: None, tee_audio: false }
+    }
+
+    /// Copies each video unit and each Opus packet sent from now on into `tee`, and tells it the stream of each load.
+    pub fn set_tee(&mut self, tee: Arc<Recorder>) {
+        self.tee = Some(tee);
+    }
+
+    fn tee_stream(&mut self, load: &Load, mapping: Option<OpusMapping>) {
+        self.tee_audio = load.audio == audio::OPUS;
+        let Some(tee) = &self.tee else { return };
+        tee.set_stream(StreamInfo {
+            codec: match load.codec {
+                codec::H264 => Some(Codec::H264),
+                codec::H265 => Some(Codec::H265),
+                codec::AV1 => Some(Codec::Av1),
+                _ => None,
+            },
+            width: load.width,
+            height: load.height,
+            fps: load.fps,
+            hdr: tee_hdr(&load.hdr_info),
+            audio: self.tee_audio.then_some(AudioConfig { channels: load.channels as u8, sample_rate: load.sample_rate, mapping }),
+        });
+    }
+
     /// Connects, retrying until `timeout` (the feeder may still be starting), and reads the HELLO before handing the socket over.
     pub fn connect(path: &Path, timeout: Duration) -> io::Result<(Self, FeederMessage)> {
         let end = Instant::now() + timeout;
@@ -337,7 +371,7 @@ impl FeederClient {
             }
         };
         stream.set_read_timeout(Some(end.saturating_duration_since(Instant::now()).max(Duration::from_millis(1))))?;
-        let mut s = Self { stream, reader: None };
+        let mut s = Self::new(stream);
         let (kind, payload) = s.read_frame()?;
         let hello = decode(kind, &payload);
         if !matches!(hello, FeederMessage::Hello { version: PROTO_VERSION, .. }) {
@@ -404,7 +438,16 @@ impl FeederClient {
         }
         let f = Frame { kind, flags: 0, reserved: 0, length: (16 + data.len()) as u32 };
         let h = MediaHead { pts_ns, key: u8::from(key), pad: [0; 7] };
-        write_all_vectored(&mut self.stream, &[as_bytes(&f), as_bytes(&h), data])
+        write_all_vectored(&mut self.stream, &[as_bytes(&f), as_bytes(&h), data])?;
+        if let Some(tee) = &self.tee {
+            // After the write, so a unit the feeder never got is not recorded. `offer` never waits: it copies the unit or drops it.
+            if kind == msg::VIDEO {
+                tee.offer(Track::Video, pts_ns, key, data);
+            } else if self.tee_audio {
+                tee.offer(Track::Audio, pts_ns, false, data);
+            }
+        }
+        Ok(())
     }
 
     /// The sender's time for the VIDEO sent next, which must carry the same key. An old feeder ignores the message.
@@ -413,14 +456,19 @@ impl FeederClient {
     }
 
     pub fn send_load(&mut self, load: &Load) -> io::Result<()> {
+        self.tee_stream(load, None);
         self.send(msg::LOAD, as_bytes(load))
     }
 
     pub fn send_load_opus51(&mut self, load: &LoadOpus51) -> io::Result<()> {
+        self.tee_stream(&load.load, Some(OpusMapping { streams: load.streams, coupled: load.coupled, map: load.mapping }));
         self.send(msg::LOAD_OPUS51, as_bytes(load))
     }
 
     pub fn send_hdr(&mut self, hdr: &Hdr) -> io::Result<()> {
+        if let Some(tee) = &self.tee {
+            tee.set_hdr(tee_hdr(hdr));
+        }
         self.send(msg::HDR, as_bytes(hdr))
     }
 
@@ -443,6 +491,32 @@ impl FeederClient {
 
     /// Closes the socket; the reader thread ends with it.
     pub fn close(self) {}
+}
+
+/// The HDR tags the recorder files for a stream: PQ with ST 2086 mastering data and light levels, HLG with its colour tags only, and
+/// nothing for SDR (a transfer the MP4 colour box would not name). `Hdr` carries primaries in 0.00002 units, green first, and
+/// luminance in 0.0001 cd/m², the units of the `mdcv` box.
+fn tee_hdr(h: &Hdr) -> Option<Hdr10> {
+    let mastering = match h.transfer_characteristics {
+        16 => Some(Mastering {
+            primaries: [
+                h.display_primaries_x0 as u16,
+                h.display_primaries_y0 as u16,
+                h.display_primaries_x1 as u16,
+                h.display_primaries_y1 as u16,
+                h.display_primaries_x2 as u16,
+                h.display_primaries_y2 as u16,
+            ],
+            white: [h.white_point_x as u16, h.white_point_y as u16],
+            max_luminance: h.max_display_mastering_luminance,
+            min_luminance: h.min_display_mastering_luminance,
+            max_cll: h.max_content_light_level as u16,
+            max_fall: h.max_pic_average_light_level as u16,
+        }),
+        18 => None,
+        _ => return None,
+    };
+    Some(Hdr10 { colour_primaries: h.color_primaries as u8, transfer: h.transfer_characteristics as u8, matrix: h.matrix_coeffs as u8, mastering })
 }
 
 impl std::ops::Drop for FeederClient {
@@ -518,7 +592,7 @@ mod transport_tests {
     #[test]
     fn media_and_load_are_byte_exact_without_copying_the_unit() {
         let (stream, mut peer) = UnixStream::pair().unwrap();
-        let mut client = FeederClient { stream, reader: None };
+        let mut client = FeederClient::new(stream);
         let load = Load { codec: codec::H265, width: 3840, height: 2160, fps: 120, audio: audio::OPUS,
             channels: 2, sample_rate: 48000, hdr: 1, hdr_info: Hdr::hdr10(1000, 400), drop_threshold: 2, pts_unit: pts_unit::MS };
         client.send_load(&load).unwrap();
@@ -545,7 +619,7 @@ mod transport_tests {
     #[test]
     fn a_video_clock_is_one_fixed_message_naming_the_units_key() {
         let (stream, mut peer) = UnixStream::pair().unwrap();
-        let mut client = FeederClient { stream, reader: None };
+        let mut client = FeederClient::new(stream);
         let clock = VideoClock { pts_ns: 123456789012, rtp: 0xFFFF_FF00, clock_hz: 90_000, flags: video_clock::GAP, pad: 0 };
         client.send_video_clock(&clock).unwrap();
         let mut bytes = [0u8; 8 + 24];
@@ -561,7 +635,7 @@ mod transport_tests {
     #[test]
     fn reader_delivers_recovery_and_fatal_once_then_closes() {
         let (stream, mut peer) = UnixStream::pair().unwrap();
-        let mut client = FeederClient { stream, reader: None };
+        let mut client = FeederClient::new(stream);
         let (tx, rx) = mpsc::channel();
         client.spawn_reader(move |msg| { tx.send(msg).unwrap(); }).unwrap();
         assert_eq!(client.spawn_reader(|_| {}).unwrap_err().kind(), io::ErrorKind::AlreadyExists);
@@ -581,12 +655,47 @@ mod transport_tests {
     #[test]
     fn oversized_reply_ends_the_reader_without_allocating_it() {
         let (stream, mut peer) = UnixStream::pair().unwrap();
-        let mut client = FeederClient { stream, reader: None };
+        let mut client = FeederClient::new(stream);
         let (tx, rx) = mpsc::channel();
         client.spawn_reader(move |msg| { tx.send(msg).unwrap(); }).unwrap();
         peer.write_all(as_bytes(&Frame { kind: msg::STATUS, length: MAX_PAYLOAD + 1, ..Default::default() })).unwrap();
         assert!(rx.recv().unwrap().is_none());
         client.close();
+    }
+
+    #[test]
+    fn the_tee_gets_video_and_opus_that_the_feeder_took_and_nothing_else() {
+        struct Nowhere;
+        impl lumagame_recorder::Destination for Nowhere {
+            fn open(&self, _: &str) -> io::Result<Box<dyn lumagame_recorder::Upload>> {
+                Err(io::ErrorKind::NotConnected.into())
+            }
+        }
+        let (stream, peer) = UnixStream::pair().unwrap();
+        let mut client = FeederClient::new(stream);
+        let tee = Arc::new(Recorder::new(1 << 20, "t", Arc::new(Nowhere), |_| {}));
+        client.set_tee(tee.clone());
+        let load = Load { codec: codec::H264, width: 1280, height: 720, fps: 60, audio: audio::OPUS, channels: 2, sample_rate: 48000, ..Default::default() };
+        client.send_load(&load).unwrap();
+        client.send_media(msg::VIDEO, 1, true, b"v").unwrap();
+        client.send_media(msg::AUDIO, 2, false, b"a").unwrap();
+        assert_eq!(tee.stats().offered, 2);
+        client.send_load(&Load { audio: audio::PCM_S16LE, ..load }).unwrap();
+        client.send_media(msg::AUDIO, 3, false, b"a").unwrap();
+        assert_eq!(tee.stats().offered, 2, "PCM audio is not recorded");
+        drop(peer);
+        assert!(client.send_media(msg::VIDEO, 4, false, b"v").is_err());
+        assert_eq!(tee.stats().offered, 2, "a unit the feeder never took is not recorded");
+    }
+
+    #[test]
+    fn recorder_hdr_tags_follow_the_transfer_the_feeder_was_told() {
+        let pq = tee_hdr(&Hdr::hdr10(1000, 400)).unwrap();
+        let m = pq.mastering.unwrap();
+        assert_eq!((pq.transfer, pq.colour_primaries, m.primaries[..2].to_vec(), m.max_luminance, m.max_cll, m.max_fall), (16, 9, vec![13250, 34500], 10_000_000, 1000, 400));
+        let hlg = tee_hdr(&Hdr { transfer_characteristics: 18, ..Hdr::hdr10(1000, 400) }).unwrap();
+        assert_eq!((hlg.transfer, hlg.mastering), (18, None));
+        assert_eq!(tee_hdr(&Hdr::default()), None);
     }
 
     #[test]

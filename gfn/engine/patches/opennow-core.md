@@ -16,7 +16,7 @@ it, where the official client starts the game:
   The core sent "the variant is in the library", so every owned Steam game went out as linked, though
   Steam offers no sign-on.
 
-`streamer.control` also accepts `steam-overlay`, which the engine's streamer answers by typing Shift+Tab into the game.
+`streamer.control` also accepts `steam-overlay`, which the engine's streamer answers by typing Shift+Tab into the game, and `save-clip`, which it answers by saving the game recorder's last seconds (clip.rs in the platform crate).
 
 The accepted dynamic range is read from the response's own `monitorSettings[0].sdrHdrMode`, where the
 official client reads it (vendor.js `at()`, main.js `hdrStreamingMode`), before the echo of the request in

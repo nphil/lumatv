@@ -191,6 +191,8 @@ pub enum Command {
     LowLatency(bool),
     /// The in-stream menu's Steam overlay, for the shell to hand the engine and to note in diagnostics; `None` when no session is open.
     SteamOverlay(Option<(EngineId, SessionId)>),
+    /// The in-stream menu's Save clip, for the shell to hand the engine; `None` when no session is open.
+    SaveClip(Option<(EngineId, SessionId)>),
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Density {
@@ -490,6 +492,7 @@ pub struct View {
     pub edit_field: Option<usize>,
     pub keyboard_lower: bool,
     pub idle: Option<IdleWarning>,
+    pub clip: Option<launch::ClipNote>,
 }
 impl Default for View {
     fn default() -> Self {
@@ -524,6 +527,7 @@ impl Default for View {
             edit_field: None,
             keyboard_lower: false,
             idle: None,
+            clip: None,
         }
     }
 }
@@ -761,7 +765,7 @@ impl Model {
         self.foreground && !self.session_active()
     }
     pub fn wants_frames(&self) -> bool {
-        self.foreground && (self.view.page != Page::Running || !self.stream_bare() || self.hud_visible() || self.idle_left().is_some())
+        self.foreground && (self.view.page != Page::Running || !self.stream_bare() || self.hud_visible() || self.idle_left().is_some() || self.clip_fading())
     }
     pub fn game(&self, id: GameId) -> Option<&Game> {
         self.games.iter().find(|g| g.id == id)
@@ -936,6 +940,7 @@ impl Model {
                 changed = second && (self.view.idle.is_some() || self.view.auth.as_ref().is_some_and(|a| a.expires_ms.is_some()));
                 changed |= self.tick_navigation(before, &mut out);
                 changed |= self.quick_tick(before);
+                changed |= self.clip_tick(before);
                 changed |= self.refresh_tick(second);
                 self.look_ahead(&mut out);
                 self.facts_ahead(&mut out);
@@ -1659,6 +1664,11 @@ impl Model {
             ipc::Event::Overlay { session } => {
                 if self.session.as_ref().is_some_and(|s| s.id == session && s.source.engine == id) {
                     self.open_strip(out);
+                }
+            }
+            ipc::Event::Clip { session, saved, text } => {
+                if self.session.as_ref().is_some_and(|s| s.id == session && s.source.engine == id) {
+                    self.clip_told(saved, text);
                 }
             }
             ipc::Event::IdleWarning { session, seconds } => {

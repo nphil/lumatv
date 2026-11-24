@@ -129,6 +129,11 @@ pub enum Request {
     SteamOverlay {
         session: SessionId,
     },
+    /// Saves the last seconds of the session's stream as a clip on the recorder's destination, for an engine with `recorder` whose
+    /// recorder setting is on. Answered with `clip`.
+    SaveClip {
+        session: SessionId,
+    },
     /// The viewer pressed a key the engine never sees (the remote's, a keyboard's, an overlay pad key) over a running stream. The
     /// engine of a cloud service sends the far side one input for that press, so it counts as the activity its idle policy asks for.
     /// The app sends it at most once a second while an idle warning is up and once every 30 s otherwise, and only to cloud engines.
@@ -251,6 +256,13 @@ pub enum Event {
     /// The controller asked for the app's overlay. The app answers with `route`.
     Overlay {
         session: SessionId,
+    },
+    /// What became of a clip the viewer asked for with `save-clip`: `saved` says whether it reached the destination, and `text` is one
+    /// plain sentence for the screen (the file's name, or why nothing was saved).
+    Clip {
+        session: SessionId,
+        saved: bool,
+        text: String,
     },
     /// The far side warns that the session ends for lack of input: `seconds` is what it left, and `None` clears the warning (input
     /// arrived, or the far side called it off). The warning is the engine's to forward, never the app's to invent.
@@ -841,6 +853,7 @@ mod tests {
             Request::Stats { session: SessionId(1), on: true, pad_timing: true },
             Request::RoundTrip { session: SessionId(1) },
             Request::SteamOverlay { session: SessionId(1) },
+            Request::SaveClip { session: SessionId(1) },
             Request::Activity { session: SessionId(1) },
             Request::Achievements { target: target(), game: game() },
             Request::Community { game: game(), mature: false },
@@ -907,6 +920,7 @@ mod tests {
             },
             Event::Key { key: PadKey::Back, down: true },
             Event::Overlay { session: SessionId(1) },
+            Event::Clip { session: SessionId(1), saved: true, text: "20260101-120000.mp4".into() },
             Event::IdleWarning { session: SessionId(1), seconds: Some(59) },
             Event::IdleWarning { session: SessionId(1), seconds: None },
             Event::Refresh { step: Some("Checking Steam".into()), note: None },

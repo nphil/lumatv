@@ -2,9 +2,10 @@
 //! compiled unchanged against this crate in place of upstream's: the same type and function names, a runtime that hands encoded
 //! units to lumatv-gfn-feeder instead of decoding them, and controllers from evdev instead of SDL.
 //!
-//! What the TV path cannot offer and says so: recording and replay (the frames never pass through this process), the microphone,
-//! pointer lock, screenshots. What it reports to the core's capability resolver: H.265 and AV1 8/10-bit 4:2:0 with HDR10, H.264 8-bit.
+//! What the TV path cannot offer and says so: the engine's own recording and replay (the decoded frames never pass through this
+//! process; the game recorder in `clip` keeps the encoded stream instead), the microphone, pointer lock, screenshots. What it reports to the core's capability resolver: H.265 and AV1 8/10-bit 4:2:0 with HDR10, H.264 8-bit.
 //! The set caps AV1 at 60 a second and decodes it slower than HEVC (docs/research/opennow-result.md): the app asks for it only at 4K 60.
+mod clip;
 mod colour;
 mod microphone;
 mod pacing;
@@ -15,6 +16,7 @@ mod types;
 mod vrr_capture;
 
 pub use lumagame_feeder::{FeederClient, FeederMessage, Hdr, Load, Status as FeederStatus, decode as decode_feeder_message, msg as feeder_msg};
+pub use clip::save_clip;
 pub use microphone::{EncodedMicrophoneFrame, MICROPHONE_FRAME_SAMPLES, MICROPHONE_SAMPLE_RATE, MicrophoneReceiver, MicrophoneSession, MicrophoneStatus};
 pub use recording::{EncodedRecordingReceiver, ManualRecordingSummary, RecordingSummary, ReplaySnapshot, record_matroska, record_replay_matroska};
 pub use runtime::{FeederConfig, MainThreadHost, MediaControl, MediaRuntime, MediaRuntimeControl, MediaSession, MediaSink, controller_rumble, create_runtime, stream_ended, stream_idle, stream_telemetry};

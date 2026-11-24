@@ -109,6 +109,13 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
     let mut steam = launched.clone();
     feature(&mut steam, "gfn", Feature::SteamOverlay);
     add("launch-strip-steam", steam);
+    let mut clip = launched.clone();
+    crate::game::model::tests::recorder_on(&mut clip, "gfn");
+    add("launch-strip-clip", clip.clone());
+    clip.view.focus = Focus::Strip(0);
+    activate(&mut clip);
+    event(&mut clip, "gfn", ipc::Event::Clip { session, saved: true, text: "Saved 20260101-120000.mp4, 15 s, 118 MB".into() });
+    add("launch-clip-saved", clip);
     let mut picture = launched.clone();
     picture.view.focus = Focus::Strip(1);
     activate(&mut picture);
