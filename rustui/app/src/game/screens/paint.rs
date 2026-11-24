@@ -111,6 +111,9 @@ pub struct Plan {
     pub shift: f32,
     /// How the nodes that arrive with a layer (`Paint::arrives`) come on and go off, by node id.
     pub enters: std::collections::BTreeMap<u64, Enter>,
+    /// The stage art of the page the focused game opens to: [`Art`](super::art::Art) decodes it once focus has rested, so the open
+    /// finds the picture held instead of waiting on a decode.
+    pub warm: Option<art::Key>,
 }
 #[derive(Clone, Copy)]
 pub enum Fill {
@@ -533,9 +536,12 @@ impl<'a> Paint<'a> {
             self.words(id + 2, f, vec![], vec![self.mark(Icon::Tick, 24.0, 46.0, 12.0, Role::Accent, stage)], z + 2);
         }
     }
+    pub fn image_key(path: std::path::PathBuf, frame: Frame, radius: f32, logo: bool, stage: Option<art::Stage>) -> art::Key {
+        art::Key { path, spec: art::Spec { width: frame.w.round() as u32, height: frame.h.round() as u32, radius: radius.round() as u32, logo, stage } }
+    }
     pub fn image(&mut self, id: u64, path: std::path::PathBuf, frame: Frame, radius: f32, logo: bool, stage: Option<art::Stage>, z: i32) {
-        let spec = art::Spec { width: frame.w.round() as u32, height: frame.h.round() as u32, radius: radius.round() as u32, logo, stage };
-        self.plan.nodes.push(Node { id, frame, props: Props::at(frame.x, frame.y), z, body: Body::Image(art::Key { path, spec }) });
+        let key = Self::image_key(path, frame, radius, logo, stage);
+        self.plan.nodes.push(Node { id, frame, props: Props::at(frame.x, frame.y), z, body: Body::Image(key) });
     }
     /// How wide a hint reads: its key's mark, a gap, then `label`.
     pub fn hint_width(&mut self, label: &str) -> f32 {

@@ -347,6 +347,7 @@ impl GameUi {
             }
             self.keep(node, reduced, scrolled, group, model.now_ms())?;
         }
+        self.art.want_warm(plan.warm.take());
         self.end_art(model)?;
         while self.bytes > 64 << 20 {
             let victim = self.images.iter().filter(|(_, c)| c.used != self.generation).min_by_key(|(_, c)| c.used).map(|(k, _)| k.clone());

@@ -1,5 +1,6 @@
 //! The page canvas, the game's art on the stage, its logo, the target line and the cover tile.
-use crate::game::screens::{art::Stage, paint::{Fill, H, Paint, status_word, W}};
+use crate::game::screens::{art::{Key, Stage}, paint::{Body, Fill, H, Node, Paint, status_word, W}};
+use compositor_protocol::Props;
 use crate::game::model::Focus;
 use lumagame_core::{catalog::ArtKind, engine::EngineKind, ids::GameId};
 use lumatv_tokens::{Radius, TypeRole as Type};
@@ -23,28 +24,31 @@ pub fn art(p: &mut Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_to:
 pub fn over_art(p: &mut Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_to: f32, curtain: bool) {
     hero(p, game, art_h, fade_from, fade_to, true, curtain);
 }
+/// The key of the hero art as a page on the stage names it, or none while the game has no hero on disk.
+fn hero_key(p: &Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_to: f32, dim: bool, curtain: bool) -> Option<Key> {
+    let path = p.model.art_url(game, ArtKind::Hero).and_then(|url| p.model.art_path(&url))?;
+    let canvas = p.straight(Role::Canvas, curtain);
+    let scrim = p.straight(Role::Scrim, curtain);
+    let stage = Stage {
+        art_height: art_h as u32,
+        fade_from: fade_from as u32,
+        fade_to: fade_to as u32,
+        canvas: [canvas.r, canvas.g, canvas.b],
+        scrim: [scrim.r, scrim.g, scrim.b, scrim.a],
+        dim,
+        curtain,
+    };
+    Some(Paint::image_key(path, Frame::new(0.0, 0.0, W, H), 0.0, false, Some(stage)))
+}
 fn hero(p: &mut Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_to: f32, dim: bool, curtain: bool) {
-    if let Some(path) = p.model.art_url(game, ArtKind::Hero).and_then(|url| p.model.art_path(&url)) {
-        let canvas = p.straight(Role::Canvas, curtain);
-        let scrim = p.straight(Role::Scrim, curtain);
-        p.image(
-            ART,
-            path,
-            Frame::new(0.0, 0.0, W, H),
-            0.0,
-            false,
-            Some(Stage {
-                art_height: art_h as u32,
-                fade_from: fade_from as u32,
-                fade_to: fade_to as u32,
-                canvas: [canvas.r, canvas.g, canvas.b],
-                scrim: [scrim.r, scrim.g, scrim.b, scrim.a],
-                dim,
-                curtain,
-            }),
-            1,
-        );
+    if let Some(key) = hero_key(p, game, art_h, fade_from, fade_to, dim, curtain) {
+        p.plan.nodes.push(Node { id: ART, frame: Frame::new(0.0, 0.0, W, H), props: Props::at(0.0, 0.0), z: 1, body: Body::Image(key) });
     }
+}
+/// Asks for the art of another page to be decoded ahead, while this one rests: the page it opens to names this picture, and a page
+/// whose art is not held shows nothing until the decode lands (about 100 ms on the set).
+pub fn warm(p: &mut Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_to: f32, curtain: bool) {
+    p.plan.warm = hero_key(p, game, art_h, fade_from, fade_to, false, curtain);
 }
 /// The game's logo art, when it has some.
 pub fn logo_art(p: &Paint<'_>, game: GameId) -> Option<PathBuf> {

@@ -9,6 +9,10 @@
 //! above the picture's own, and the dimmed copy is the picture blended towards the scrim, never brighter than the art.
 mod dip;
 
+/// How long focus rests on a game before its page's art is decoded ahead: short, as the decode (about 100 ms on the set) has to be done
+/// by the time OK is pressed, and it runs on its own thread.
+const WARM_REST_MS: u64 = 100;
+
 use super::{
     GameUi,
     paint::{Body, Node},
@@ -308,6 +312,8 @@ pub struct Art {
     /// The picture the layer last showed: when a page begins, it stays held while the page's own is decoded, so that coming back to the
     /// last page finds it.
     last: Option<Key>,
+    /// The picture of the page the focused game opens to, and the clock when it was named: decoded ahead once focus has rested on it.
+    warm: Option<(Key, u64)>,
     /// Pictures put on the layer since the budget walks last asked, and swaps in all: what the walks hold the art to.
     #[cfg(test)]
     uploads: u32,
@@ -327,6 +333,7 @@ impl Art {
             fresh: true,
             seen: false,
             last: None,
+            warm: None,
             #[cfg(test)]
             uploads: 0,
             #[cfg(test)]
@@ -339,9 +346,28 @@ impl Art {
             self.pictures.arrive(done);
         }
     }
-    /// Whether the art has work under way: a decode in the air, or a dip that is waiting for focus to rest or running.
+    /// Whether the art has work under way: a decode in the air, a dip that is waiting for focus to rest or running, or a page's art
+    /// waiting to be decoded ahead.
     pub fn busy(&self) -> bool {
-        self.loader.busy() || self.dip.pending()
+        self.loader.busy() || self.dip.pending() || self.warm.as_ref().is_some_and(|(key, _)| self.pictures.needs(key))
+    }
+    /// Names the picture of the page the focused game opens to (none when the page has no such game): it is decoded ahead once focus
+    /// has rested on it, so that opening the page finds it held.
+    pub fn want_warm(&mut self, key: Option<Key>) {
+        match key {
+            Some(key) if self.warm.as_ref().is_none_or(|(warm, _)| *warm != key) => self.warm = Some((key, self.now)),
+            Some(_) => {}
+            None => self.warm = None,
+        }
+    }
+    /// Decodes the warm picture when focus has rested on it and nothing else is on the loader or the layer.
+    fn run_warm(&mut self, scrolling: bool) {
+        let Some((key, since)) = &self.warm else { return };
+        if scrolling || self.dip.pending() || self.loader.busy() || !self.pictures.needs(key) || self.now < since + WARM_REST_MS {
+            return;
+        }
+        let key = key.clone();
+        self.fetch(&key);
     }
     /// A new page, or a page that has no art: nothing of the last art stays on a layer, and the next art goes up as it is.
     pub fn reset(&mut self) {
@@ -389,6 +415,8 @@ impl GameUi {
         }
         art.seen = false;
         self.run_art(model)?;
+        let scrolling = self.groups.values().any(|g| g.motion.is_active());
+        self.art.run_warm(scrolling);
         self.art.fresh = false;
         Ok(())
     }
@@ -473,6 +501,10 @@ impl GameUi {
     pub(in crate::game) fn art_swaps(&self) -> u32 {
         self.art.swaps
     }
+    /// Whether the stage art is on its layer.
+    pub(in crate::game) fn art_layer_up(&self) -> bool {
+        self.art.layer.is_some()
+    }
     /// How many layers that cover the whole screen are drawn above the canvas: the art, a wash over it, a page's own floor. The budget
     /// walks hold it to one. It is counted from the retained plan and the art layer, all the page knows of what is drawn (the render
     /// crate has no per-layer geometry to ask): a layer under an opaque one is not counted, as the renderer does not draw it, and a
@@ -504,6 +536,21 @@ impl GameUi {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_page_art_is_decoded_ahead_only_once_focus_has_rested_on_it() {
+        let key = |name: &str| Key { path: name.into(), spec: Spec { width: 1, height: 1, radius: 0, logo: false, stage: None } };
+        let mut art = Art::new().unwrap();
+        art.want_warm(Some(key("a")));
+        art.now = WARM_REST_MS - 1;
+        art.run_warm(false);
+        assert!(!art.loader.busy(), "focus has not rested yet");
+        art.now = WARM_REST_MS;
+        art.run_warm(true);
+        assert!(!art.loader.busy(), "the lists are still scrolling");
+        art.run_warm(false);
+        assert!(art.loader.busy());
+    }
+
     #[test]
     fn logos_align_by_ink_and_corners_are_premultiplied() {
         let mut image = Image { width: 4, height: 4, rgba: vec![0; 64] };

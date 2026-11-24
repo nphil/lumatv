@@ -46,6 +46,7 @@ pub fn home(p: &mut Paint<'_>) {
     };
     // At rest the art fades out low on the left behind the words.
     art(p, game, H, 560.0, H, false);
+    super::game::warm_art(p, game);
     // The art changes with every tile, so the bar is the raised glass's flat colour: captured glass would capture again on each change.
     p.art = false;
     let attention = topbar::needs_attention(p);

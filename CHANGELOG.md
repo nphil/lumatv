@@ -13,6 +13,8 @@ The Live TV Tuner shares the tuner between channels on the same RF channel: up t
 
 LumaGame's focus draws no border: a focused banner, tile, row or button is raised glass (the wash, a soft sheen and one shadow, lifted and grown) with no light edge or lip around it. The focus edge colour (`glassFocusEdge`) is no longer used by LumaGame; LumaTV Home's own kit still draws it.
 
+LumaGame decodes a game page's backdrop while Home or the Library rests on that game (100 ms of rest, off the frame loop), so the page opens with its art up instead of waiting about 100 ms on the set for the first decode. The Activity card no longer reads "Nothing here yet" under a playtime or a post.
+
 LumaTV Home's dock card responds to focus like the widgets: while the focus is on an app icon the card's glass rises 4 px, grows 3 % and lights on the cards' own spring, and settles back when the focus leaves. The icons stay on whole pixels and the focused icon keeps its own lift.
 
 LumaGame's Activity card puts the newest news title on its own row above the screenshots instead of beside them; it drops the screenshots, not the title, when a large text size leaves no room for both.

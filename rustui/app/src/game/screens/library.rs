@@ -260,6 +260,7 @@ fn cover(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, f: Frame) {
     }
     focus::treat(p, from, id + 5, f, Kind::Tile, focused);
     if focused {
+        super::game::warm_art(p, game);
         let w = (f.w * 2.2).min(W - p.x - f.x);
         let y = f.y + f.h + 26.0;
         let ty = p.bold(Type::Body);

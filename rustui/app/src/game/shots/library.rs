@@ -48,9 +48,18 @@ pub(super) fn walks() -> Vec<Walk> {
     panel.push(Step::Expect("Favourites shown", |m, _| m.view.filter.show == crate::game::model::library::Show::Favourites));
     panel.extend(taps(&[(Key::Up, 120), (Key::Ok, 300), (Key::Right, 300)]));
     panel.push(Step::Expect("back in the grid", |m, _| matches!(m.view.focus, Focus::Grid(_))));
+    // Focus rests on a cover, then OK: the page's art was decoded while the library rested, so it is up on the frame the page opens
+    // (a picture still to decode left the page without art for about 100 ms on the set).
+    let mut open = vec![Step::Wait(400)];
+    open.extend(taps(&[(Key::Ok, 0)]));
+    open.push(Step::Expect("the page's art up on its first frame", |m, page| {
+        let Some(game) = m.view.selected else { return false };
+        m.view.page == Page::Game && (m.art_url(game, lumagame_core::catalog::ArtKind::Hero).and_then(|url| m.art_path(&url)).is_none() || page.art_layer_up())
+    }));
     vec![
         Walk { name: "library-grid-scroll".into(), base: library(&fixture()), script: down },
         Walk { name: "library-panel-in-out".into(), base: library(&fixture()), script: panel },
+        Walk { name: "library-open-page".into(), base: library(&fixture()), script: open },
     ]
 }
 /// The refresh states over Home, the library and the game page, in both themes at 100% and 200% text.
