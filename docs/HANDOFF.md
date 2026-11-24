@@ -2114,3 +2114,5 @@ Prior art worth reading before designing anything new:
   binary from a newer release without owning that set), plus buildroot trees
   and `nsu_emu`, an update-server emulator. Nothing needed for this project,
   but it is where to look when a question is "what changed in firmware X".
+
+- 2026-11-24 08:51: compositor installed (applied now, video check passed) from main 336d3233: lumatv-compositor 3ba09192 -> d852d121, lib/x1heapshim.so 3ecc4c5b -> af201702, lumatv-ui 686031e6 -> fdefd797 (animated rounded clip a3410656; b3b876b8 reverted). LumaGame build-id f1248b3fd5686f98 (lumagame-ui 2f1fd7ad, same main) installed 08:07. Rounded corners during the morph not yet checked on screen.
