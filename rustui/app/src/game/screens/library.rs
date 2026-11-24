@@ -187,6 +187,11 @@ fn grid(p: &mut Paint<'_>, area: Frame, search: bool) {
     let w = (area.w - p.gap * (columns - 1) as f32) / columns as f32;
     let row_h = w * 1.5 + ROW_GAP + caption_h(p);
     let first = m.view.first_grid_row;
+    // Where focus is: the covers near it are those whose pages are decoded ahead.
+    let focus = match m.view.focus {
+        Focus::Grid(i) => (i / columns, i % columns),
+        _ => (first, 0),
+    };
     let current = p.scroll_positions.get(&GRID_GROUP).copied().unwrap_or(first as f32 * row_h);
     let total = m.filtered.len().div_ceil(columns);
     // Only the rows on screen at the scroll's start and its end are drawn: rows past them cost layers on every frame, and a cover
@@ -208,6 +213,7 @@ fn grid(p: &mut Paint<'_>, area: Frame, search: bool) {
         let y = area.y + (row as f32 - first as f32) * row_h;
         for (i, game) in m.filtered.iter().enumerate().skip(row * columns).take(columns) {
             let hits = p.plan.hits.len();
+            super::game::warm_art(p, *game, near((i / columns, i % columns), focus));
             cover(p, 1000 + i as u64 * 20, *game, Focus::Grid(i), Frame::new(area.x + (i % columns) as f32 * (w + p.gap), y, w, w * 1.5));
             if p.plan.hits.len() > hits {
                 p.plan.hit_groups.insert(Focus::Grid(i), GRID_GROUP);
@@ -232,6 +238,12 @@ fn caption_h(p: &Paint<'_>) -> f32 {
     26.0 + p.line(Type::Body) + p.line(Type::Caption)
 }
 
+/// How many places a cover is from focus, at `(row, column)`: right and down come before left and up, as that is where focus goes next.
+fn near((row, column): (usize, usize), (focus_row, focus_column): (usize, usize)) -> u32 {
+    let (down, right) = (row as i64 - focus_row as i64, column as i64 - focus_column as i64);
+    let places = 2 * (down.unsigned_abs() + right.unsigned_abs()) as u32;
+    if down > 0 || right > 0 { places - 1 } else { places }
+}
 /// One cover. Only the focused cover has a caption; only a game that cannot start now carries a mark, naming what stops it.
 fn cover(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, f: Frame) {
     let m = p.model;
@@ -260,7 +272,6 @@ fn cover(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, f: Frame) {
     }
     focus::treat(p, from, id + 5, f, Kind::Tile, focused);
     if focused {
-        super::game::warm_art(p, game);
         let w = (f.w * 2.2).min(W - p.x - f.x);
         let y = f.y + f.h + 26.0;
         let ty = p.bold(Type::Body);

@@ -7,18 +7,15 @@
 //!
 //! Panel care: the layer is static between dips, as the art always was. A dip changes its opacity for 200 ms and never lifts a pixel
 //! above the picture's own, and the dimmed copy is the picture blended towards the scrim, never brighter than the art.
+mod ahead;
 mod dip;
-
-/// How long focus rests on a game before its page's art is decoded ahead: short, as the decode (about 100 ms on the set) has to be done
-/// by the time OK is pressed, and it runs on its own thread.
-const WARM_REST_MS: u64 = 100;
 
 use super::{
     GameUi,
     paint::{Body, Node},
     parts::motion::ART_DIP_MS,
 };
-use crate::game::model::Model;
+use crate::game::model::{Model, Page};
 use compositor_protocol::{Ease, Props};
 use dip::{Cue, Dip, Pictures};
 use lumagame_meta::{Image, ImageSpec};
@@ -97,7 +94,12 @@ pub struct Done {
     /// The picture under the scrim, when the request asked for it.
     pub dim: Option<Image>,
 }
-type Job = (Key, bool);
+enum Job {
+    /// Decodes the picture, with its copy under the scrim when the flag is set.
+    Decode(Key, bool),
+    /// Makes the copy under the scrim of a picture that is already decoded, and hands the picture back with it.
+    Scrim(Key, Image),
+}
 pub struct Loader {
     tx: Option<SyncSender<Job>>,
     rx: Receiver<Done>,
@@ -105,9 +107,10 @@ pub struct Loader {
 }
 impl Loader {
     pub fn new() -> io::Result<Self> {
-        Self::with_threads(2)
+        Self::with_threads(2, 0)
     }
-    pub fn with_threads(threads: usize) -> io::Result<Self> {
+    /// `nice` is the threads' niceness: the pictures decoded ahead yield the cores to the frame loop.
+    pub fn with_threads(threads: usize, nice: i32) -> io::Result<Self> {
         let (tx, jobs) = mpsc::sync_channel::<Job>(16);
         let (done, rx) = mpsc::sync_channel(16);
         let jobs = Arc::new(Mutex::new(jobs));
@@ -115,17 +118,28 @@ impl Loader {
             let jobs = jobs.clone();
             let done = done.clone();
             thread::Builder::new().name(format!("game-decode-{n}")).spawn(move || {
+                if nice != 0 {
+                    // On Linux `who` 0 is the calling thread, not the process.
+                    // SAFETY: setpriority takes plain integers and touches no memory.
+                    unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, nice) };
+                }
                 loop {
-                    let (key, dim) = match jobs.lock() {
+                    let job = match jobs.lock() {
                         Ok(rx) => match rx.recv() {
                             Ok(job) => job,
                             Err(_) => break,
                         },
                         Err(_) => break,
                     };
-                    let done_one = match decode(&key, dim) {
-                        Ok((image, dim)) => Done { key, image: Ok(image), dim },
-                        Err(error) => Done { key, image: Err(error), dim: None },
+                    let done_one = match job {
+                        Job::Decode(key, dim) => match decode(&key, dim) {
+                            Ok((image, dim)) => Done { key, image: Ok(image), dim },
+                            Err(error) => Done { key, image: Err(error), dim: None },
+                        },
+                        Job::Scrim(key, image) => {
+                            let dim = key.spec.stage.as_ref().map(|stage| scrimmed(&image, stage.scrim));
+                            Done { key, image: Ok(image), dim }
+                        }
                     };
                     if done.send(done_one).is_err() {
                         break;
@@ -137,10 +151,17 @@ impl Loader {
     }
     /// Queues the picture for decoding, with its copy under the scrim when `dim`.
     pub fn request(&mut self, key: Key, dim: bool) -> bool {
+        self.send(Job::Decode(key, dim))
+    }
+    /// Queues the making of the decoded picture's copy under the scrim. The picture is gone for good when this is false.
+    pub fn scrim(&mut self, key: Key, image: Image) -> bool {
+        self.send(Job::Scrim(key, image))
+    }
+    fn send(&mut self, job: Job) -> bool {
         if self.inflight >= 16 {
             return false;
         }
-        if self.tx.as_ref().is_some_and(|tx| tx.try_send((key, dim)).is_ok()) {
+        if self.tx.as_ref().is_some_and(|tx| tx.try_send(job).is_ok()) {
             self.inflight += 1;
             true
         } else {
@@ -235,11 +256,9 @@ fn backdrop(image: Image, height: u32, stage: &Stage) -> Image {
         / 255.0;
     let alpha = (1.0 - (0.021 / p90.max(0.021)).powf(1.0 / 2.2)).clamp(0.72, 0.90);
     let mut rgba = vec![0; (w * height * 4) as usize];
-    for y in 0..height {
-        let fade = ((y as f32 - stage.fade_from as f32) / stage.fade_to.saturating_sub(stage.fade_from).max(1) as f32).clamp(0.0, 1.0)
-            * if stage.curtain { 0.88 } else { 1.0 };
-        let top = 0.34 * (1.0 - y as f32 / 200.0).clamp(0.0, 1.0);
-        for x in 0..w {
+    // What a pixel takes of the art depends on its column and its row apart, so each is worked out once rather than per pixel.
+    let columns: Vec<f32> = (0..w)
+        .map(|x| {
             let left = if x < 900 {
                 alpha + 0.08 * (1.0 - x as f32 / 900.0)
             } else if x < 1200 {
@@ -247,13 +266,32 @@ fn backdrop(image: Image, height: u32, stage: &Stage) -> Image {
             } else {
                 alpha * 0.35 * (1.0 - (x - 1200) as f32 / 280.0).clamp(0.0, 1.0)
             };
-            let gain = (1.0 - left) * (1.0 - top);
-            let i = ((y * w + x) * 4) as usize;
-            for c in 0..3 {
-                let art = if y < h { f32::from(image.rgba[i + c]) * gain } else { f32::from(stage.canvas[c]) };
-                rgba[i + c] = (art * (1.0 - fade) + f32::from(stage.canvas[c]) * fade).round() as u8;
+            1.0 - left
+        })
+        .collect();
+    let canvas = stage.canvas.map(f32::from);
+    for (y, row) in rgba.chunks_exact_mut(w as usize * 4).enumerate() {
+        let y = y as u32;
+        let fade = ((y as f32 - stage.fade_from as f32) / stage.fade_to.saturating_sub(stage.fade_from).max(1) as f32).clamp(0.0, 1.0)
+            * if stage.curtain { 0.88 } else { 1.0 };
+        let keep = 1.0 - fade;
+        let rest = canvas.map(|c| c * fade);
+        if y >= h {
+            // Below the art the row is the canvas.
+            let canvas = canvas.map(|c| (c * keep + c * fade).round() as u8);
+            for px in row.chunks_exact_mut(4) {
+                px.copy_from_slice(&[canvas[0], canvas[1], canvas[2], 255]);
             }
-            rgba[i + 3] = 255;
+            continue;
+        }
+        let top = 1.0 - 0.34 * (1.0 - y as f32 / 200.0).clamp(0.0, 1.0);
+        let source = &image.rgba[(y * w) as usize * 4..][..w as usize * 4];
+        for ((px, src), column) in row.chunks_exact_mut(4).zip(source.chunks_exact(4)).zip(&columns) {
+            let gain = column * top;
+            for c in 0..3 {
+                px[c] = (f32::from(src[c]) * gain * keep + rest[c]).round() as u8;
+            }
+            px[3] = 255;
         }
     }
     Image { width: w, height, rgba }
@@ -312,8 +350,10 @@ pub struct Art {
     /// The picture the layer last showed: when a page begins, it stays held while the page's own is decoded, so that coming back to the
     /// last page finds it.
     last: Option<Key>,
-    /// The picture of the page the focused game opens to, and the clock when it was named: decoded ahead once focus has rested on it.
-    warm: Option<(Key, u64)>,
+    /// The backdrops of the game pages that Home or the Library lead to, decoded ahead.
+    ahead: ahead::Ahead,
+    /// The picture that went on the page from `ahead`: it has no copy under the scrim yet, which is made once the page has opened.
+    bare: Option<Key>,
     /// Pictures put on the layer since the budget walks last asked, and swaps in all: what the walks hold the art to.
     #[cfg(test)]
     uploads: u32,
@@ -323,7 +363,7 @@ pub struct Art {
 impl Art {
     pub fn new() -> io::Result<Self> {
         Ok(Self {
-            loader: Loader::with_threads(1)?,
+            loader: Loader::with_threads(1, 0)?,
             pictures: Pictures::default(),
             dip: Dip::default(),
             layer: None,
@@ -333,7 +373,8 @@ impl Art {
             fresh: true,
             seen: false,
             last: None,
-            warm: None,
+            ahead: ahead::Ahead::new()?,
+            bare: None,
             #[cfg(test)]
             uploads: 0,
             #[cfg(test)]
@@ -345,29 +386,46 @@ impl Art {
         while let Some(done) = self.loader.poll() {
             self.pictures.arrive(done);
         }
+        self.ahead.poll();
     }
-    /// Whether the art has work under way: a decode in the air, a dip that is waiting for focus to rest or running, or a page's art
+    /// Whether the art has work under way: a decode in the air, a dip that is waiting for focus to rest or running, or a backdrop
     /// waiting to be decoded ahead.
     pub fn busy(&self) -> bool {
-        self.loader.busy() || self.dip.pending() || self.warm.as_ref().is_some_and(|(key, _)| self.pictures.needs(key))
+        self.loader.busy() || self.dip.pending() || self.ahead.busy()
     }
-    /// Names the picture of the page the focused game opens to (none when the page has no such game): it is decoded ahead once focus
-    /// has rested on it, so that opening the page finds it held.
-    pub fn want_warm(&mut self, key: Option<Key>) {
-        match key {
-            Some(key) if self.warm.as_ref().is_none_or(|(warm, _)| *warm != key) => self.warm = Some((key, self.now)),
-            Some(_) => {}
-            None => self.warm = None,
-        }
+    /// Names the backdrops of the game pages the tiles on screen lead to, each with how far its tile is from focus (none when the page
+    /// has no such tiles): they are decoded ahead, nearest first, so that opening a page finds its art held.
+    pub fn want_warm(&mut self, keys: Vec<(u32, Key)>) {
+        self.ahead.want(keys);
     }
-    /// Decodes the warm picture when focus has rested on it and nothing else is on the loader or the layer.
-    fn run_warm(&mut self, scrolling: bool) {
-        let Some((key, since)) = &self.warm else { return };
-        if scrolling || self.dip.pending() || self.loader.busy() || !self.pictures.needs(key) || self.now < since + WARM_REST_MS {
+    /// Puts the page's first picture on it from those decoded ahead, when it is among them.
+    fn adopt(&mut self) {
+        if self.dip.shown().is_some() {
             return;
         }
-        let key = key.clone();
-        self.fetch(&key);
+        let Some(key) = self.dip.wanted().filter(|key| !key.dim() && self.pictures.needs(key) && self.ahead.holds(key)).cloned() else { return };
+        if !self.pictures.make_room(self.last.as_ref()) {
+            return;
+        }
+        if let Some((held, image)) = self.ahead.take(&key) {
+            self.pictures.adopt(held, image);
+            self.bare = Some(key);
+        }
+    }
+    /// Has the copy under the scrim made for the picture adopted, for the layers that open over the page: a pass over the pixels on the
+    /// decode thread, not a second decode.
+    fn top_up(&mut self) {
+        let Some(key) = self.bare.clone() else { return };
+        if !self.dip.shown().is_some_and(|shown| shown.same_picture(&key)) {
+            self.bare = None;
+            return;
+        }
+        if let Some((held, image)) = self.pictures.lend(&key) {
+            if !self.loader.scrim(held, image) {
+                self.pictures.lost();
+            }
+            self.bare = None;
+        }
     }
     /// A new page, or a page that has no art: nothing of the last art stays on a layer, and the next art goes up as it is.
     pub fn reset(&mut self) {
@@ -378,7 +436,7 @@ impl Art {
     }
     /// Asks for the picture, with its copy under the scrim, when it is not held and no other decode is in the air.
     fn fetch(&mut self, key: &Key) {
-        if !self.pictures.needs(key) || !self.pictures.make_room(self.dip.shown().or(self.last.as_ref())) {
+        if !self.pictures.needs(key) || self.ahead.flying(key) || !self.pictures.make_room(self.dip.shown().or(self.last.as_ref())) {
             return;
         }
         let base = key.base();
@@ -399,13 +457,18 @@ impl GameUi {
         art.z = node.z;
         art.dip.want(key, art.now);
     }
-    /// The art's turn at the start of a show: a new page starts it afresh, then whatever is due runs. True when the layer was told something.
+    /// The art's turn at the start of a show: a new page starts it afresh, then whatever is due runs; the backdrops ahead go on while no
+    /// list scrolls. True when the layer was told something.
     pub(super) fn step_art(&mut self, model: &Model) -> io::Result<bool> {
         if self.page != Some(model.view.page) {
             self.art.reset();
         }
         self.art.now = model.now_ms();
-        self.run_art(model)
+        let told = self.run_art(model)?;
+        let scrolling = self.groups.values().any(|g| g.motion.is_active());
+        self.art.top_up();
+        self.art.ahead.run(matches!(model.view.page, Page::Home | Page::Library), scrolling);
+        Ok(told)
     }
     /// The end of a plan: a page that put up no art has none on a layer, and what the plan asked for runs at once.
     pub(super) fn end_art(&mut self, model: &Model) -> io::Result<()> {
@@ -415,13 +478,13 @@ impl GameUi {
         }
         art.seen = false;
         self.run_art(model)?;
-        let scrolling = self.groups.values().any(|g| g.motion.is_active());
-        self.art.run_warm(scrolling);
+        self.art.top_up();
         self.art.fresh = false;
         Ok(())
     }
     fn run_art(&mut self, model: &Model) -> io::Result<bool> {
         let scrolling = self.groups.values().any(|g| g.motion.is_active());
+        self.art.adopt();
         let reduced = model.prefs.reduce_motion || self.tokens.motion.reduced;
         let art = &mut self.art;
         let step = art.dip.step(art.now, scrolling, reduced, &art.pictures);
@@ -537,18 +600,20 @@ impl GameUi {
 mod tests {
     use super::*;
     #[test]
-    fn a_page_art_is_decoded_ahead_only_once_focus_has_rested_on_it() {
-        let key = |name: &str| Key { path: name.into(), spec: Spec { width: 1, height: 1, radius: 0, logo: false, stage: None } };
+    fn a_page_opens_on_the_picture_decoded_ahead_and_its_copy_under_the_scrim_is_made_after() {
+        let stage = Stage { art_height: 1, fade_from: 0, fade_to: 1, canvas: [0; 3], scrim: [0, 0, 0, 128], dim: false, curtain: false };
+        let key = Key { path: "page".into(), spec: Spec { width: 1, height: 1, radius: 0, logo: false, stage: Some(stage) } };
         let mut art = Art::new().unwrap();
-        art.want_warm(Some(key("a")));
-        art.now = WARM_REST_MS - 1;
-        art.run_warm(false);
-        assert!(!art.loader.busy(), "focus has not rested yet");
-        art.now = WARM_REST_MS;
-        art.run_warm(true);
-        assert!(!art.loader.busy(), "the lists are still scrolling");
-        art.run_warm(false);
-        assert!(art.loader.busy());
+        art.ahead.keep(key.clone(), Image { width: 1, height: 1, rgba: vec![9; 4] });
+        art.dip.want(key.clone(), 0);
+        art.adopt();
+        assert!(art.pictures.has(&key) && !art.ahead.holds(&key), "the page has the picture, and decodes nothing");
+        let step = art.dip.step(0, false, false, &art.pictures);
+        assert_eq!(step.cue, Some(Cue::Place(key.clone())));
+        assert_eq!(step.request, None);
+        art.top_up();
+        assert!(art.loader.busy() && art.bare.is_none(), "the copy under the scrim is on its way");
+        assert!(!art.pictures.needs(&key), "and the picture is not decoded again meanwhile");
     }
 
     #[test]

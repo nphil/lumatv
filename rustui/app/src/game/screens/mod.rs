@@ -287,6 +287,7 @@ impl GameUi {
         let bare_stream = model.view.page == Page::Running && model.stream_bare() && !model.hud_visible() && model.idle_left().is_none();
         // A full-screen player in the frame app sits on the video plane under this window: the page and its art leave the screen clear.
         if bare_stream || model.video_full {
+            self.art.want_warm(Vec::new());
             if model.video_full {
                 self.art.reset();
             }
@@ -379,7 +380,10 @@ impl GameUi {
             }
             self.keep(node, reduced, scrolled, group, model.now_ms())?;
         }
-        self.art.want_warm(plan.warm.take());
+        // The game page names none: it holds what Home or the Library had decoded, for the way back.
+        if model.view.page != Page::Game {
+            self.art.want_warm(std::mem::take(&mut plan.warm));
+        }
         self.end_art(model)?;
         while self.bytes > 64 << 20 {
             let victim = self.images.iter().filter(|(_, c)| c.used != self.generation).min_by_key(|(_, c)| c.used).map(|(k, _)| k.clone());

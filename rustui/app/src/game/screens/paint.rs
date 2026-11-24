@@ -111,9 +111,9 @@ pub struct Plan {
     pub shift: f32,
     /// How the nodes that arrive with a layer (`Paint::arrives`) come on and go off, by node id.
     pub enters: std::collections::BTreeMap<u64, Enter>,
-    /// The stage art of the page the focused game opens to: [`Art`](super::art::Art) decodes it once focus has rested, so the open
-    /// finds the picture held instead of waiting on a decode.
-    pub warm: Option<art::Key>,
+    /// The stage art of the game pages that the tiles on screen open, each with how far its tile is from focus: [`Art`](super::art::Art)
+    /// decodes the nearest ahead, so that an open finds its picture held instead of waiting on a decode.
+    pub warm: Vec<(u32, art::Key)>,
 }
 #[derive(Clone, Copy)]
 pub enum Fill {

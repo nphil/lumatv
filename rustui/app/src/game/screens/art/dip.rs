@@ -49,6 +49,25 @@ impl Pictures {
         self.held.retain(|held| shown.is_some_and(|shown| held.key.same_picture(shown)));
         true
     }
+    /// A picture decoded ahead takes its place, without a copy under the scrim.
+    pub fn adopt(&mut self, key: Key, image: Image) {
+        self.held.retain(|held| held.key != key);
+        self.held.push(Held { key, image, dim: None });
+    }
+    /// Hands out the held picture that has no copy under the scrim, to have it made: the picture is on its way until it lands again.
+    pub fn lend(&mut self, key: &Key) -> Option<(Key, Image)> {
+        if self.flying.is_some() {
+            return None;
+        }
+        let at = self.held.iter().position(|held| held.key.same_picture(key) && held.dim.is_none())?;
+        let held = self.held.swap_remove(at);
+        self.flying = Some((held.key.clone(), true));
+        Some((held.key, held.image))
+    }
+    /// What was lent is not coming back.
+    pub fn lost(&mut self) {
+        self.flying = None;
+    }
     pub fn fly(&mut self, key: Key, dim: bool) {
         self.flying = Some((key, dim));
     }
@@ -123,6 +142,9 @@ impl Dip {
             Some(want) if want.key.same_picture(&key) => want.key = key,
             wanted => *wanted = Some(Want { key, since: now }),
         }
+    }
+    pub fn wanted(&self) -> Option<&Key> {
+        self.wanted.as_ref().map(|want| &want.key)
     }
     pub fn shown(&self) -> Option<&Key> {
         self.shown.as_ref()

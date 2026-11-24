@@ -1733,14 +1733,22 @@ impl Model {
         let ids: Vec<GameId> = match self.view.page {
             Page::Home => {
                 let at = self.home_tile().unwrap_or(0);
-                // The neighbours' art is fetched while focus rests, so the next dip never waits on the network.
-                for id in [at.checked_sub(1), Some(at + 1)].into_iter().flatten().filter_map(|i| self.home_games.get(i)) {
+                // The neighbours' art is fetched while focus rests, so the next dip never waits on the network, and so that the pages
+                // of the tiles after focus have their art to decode ahead.
+                for id in [at.checked_sub(1), Some(at + 1), Some(at + 2)].into_iter().flatten().filter_map(|i| self.home_games.get(i)) {
                     wanted.extend(self.art_url(*id, ArtKind::Hero));
                 }
                 // The tile on its way out on the left, the row in view and the one coming in on the right.
                 self.home_games.iter().skip(at.saturating_sub(1)).take(home::TILES_SHOWN + 2).copied().collect()
             }
             Page::Library => {
+                // The covers focus goes to next: the pages they open have their art to decode ahead.
+                if let Focus::Grid(at) = self.view.focus {
+                    let columns = self.library_columns();
+                    for id in [at.checked_sub(1), Some(at + 1), Some(at + columns)].into_iter().flatten().filter_map(|i| self.filtered.get(i)) {
+                        wanted.extend(self.art_url(*id, ArtKind::Hero));
+                    }
+                }
                 self.filtered.iter().skip(self.view.first_grid_row.saturating_sub(1) * self.library_columns()).take(self.library_columns() * 4).copied().collect()
             }
             _ => Vec::new(),

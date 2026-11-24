@@ -25,9 +25,10 @@ use ui::{components::Icon, geometry::Frame, lucent::palette::PaletteRole as Role
 
 /// The art fades into the canvas from this height to the bottom, so the cards and the hints sit on its darker foot.
 const FADE_FROM: f32 = 520.0;
-/// The page's stage art for the focused game on Home or the Library, to be decoded ahead (see [`stage::warm`]): the same picture as `page`'s.
-pub fn warm_art(p: &mut Paint<'_>, game: GameId) {
-    warm(p, game, H, FADE_FROM, H, false);
+/// Names the stage art of `game`'s page, for its tile `near` places from focus, to be decoded ahead (see [`stage::warm`]): the same
+/// picture as `page`'s.
+pub fn warm_art(p: &mut Paint<'_>, game: GameId, near: u32) {
+    warm(p, game, near, H, FADE_FROM, H, false);
 }
 /// Room between cards, and between rows of a list.
 const CARD_GAP: f32 = 24.0;

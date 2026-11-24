@@ -45,10 +45,12 @@ fn hero(p: &mut Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_to: f3
         p.plan.nodes.push(Node { id: ART, frame: Frame::new(0.0, 0.0, W, H), props: Props::at(0.0, 0.0), z: 1, body: Body::Image(key) });
     }
 }
-/// Asks for the art of another page to be decoded ahead, while this one rests: the page it opens to names this picture, and a page
-/// whose art is not held shows nothing until the decode lands (about 100 ms on the set).
-pub fn warm(p: &mut Paint<'_>, game: GameId, art_h: f32, fade_from: f32, fade_to: f32, curtain: bool) {
-    p.plan.warm = hero_key(p, game, art_h, fade_from, fade_to, false, curtain);
+/// Names the art of the page that `game`'s tile opens to, `near` tiles from focus, to be decoded ahead: a page whose art is not held
+/// shows nothing until the decode lands (about 450 ms on the set).
+pub fn warm(p: &mut Paint<'_>, game: GameId, near: u32, art_h: f32, fade_from: f32, fade_to: f32, curtain: bool) {
+    if let Some(key) = hero_key(p, game, art_h, fade_from, fade_to, false, curtain) {
+        p.plan.warm.push((near, key));
+    }
 }
 /// The game's logo art, when it has some.
 pub fn logo_art(p: &Paint<'_>, game: GameId) -> Option<PathBuf> {
