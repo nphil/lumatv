@@ -33,8 +33,11 @@ impl Rig {
         }
     }
 
+    /// Arms as the player does: the arm, then its word that the stream flows once its sink has turned `pcm-multi-ch` back on.
     fn arm(&mut self) -> Result<String, Refusal> {
-        self.route.arm(PID, TAIL, ADEC, &self.env)
+        let converter = self.route.arm(PID, TAIL, ADEC, &self.env)?;
+        self.route.flowing(PID).map_err(Refusal::now)?;
+        Ok(converter)
     }
 
     /// Runs the monitor for `ms` of the fake clock.
@@ -610,38 +613,76 @@ fn a_lost_converter_ends_the_session_after_the_rebuild_grace() {
 }
 
 #[test]
-fn lg_remixing_ends_the_session_but_lgs_own_words_are_left_alone() {
+fn lg_re_mixing_once_is_undone_and_a_second_time_ends_the_session_leaving_lgs_words() {
     let mut rig = Rig::audible();
     rig.host.with(|s| s.words.mix = 1);
-    rig.run(500);
-    let session = rig.session();
-    assert!(
-        session.mixed && !session.bypassing,
-        "the player is told at once"
-    );
-    rig.run(1_000);
+    rig.run(300);
+    assert_eq!(rig.count("words 2,1,0,0,0"), 2, "un-mixed again");
+    assert_eq!(rig.snap().end, None);
+    assert!(rig.session().bypassing);
+    rig.host.with(|s| s.words.mix = 1);
+    rig.run(300);
     assert_adec_restored(&rig);
     let snap = rig.snap();
     assert_eq!((snap.state, snap.session), (State::Lost, None));
-    assert!(snap.reason.contains("mixing back on"), "{}", snap.reason);
+    assert!(snap.reason.contains("a second time"), "{}", snap.reason);
+    assert_eq!(rig.count("words 2,1,0,0,0"), 2);
     assert_eq!(
         rig.count("words 2,1,0,0,1"),
         0,
         "words LG changed are not ours to write"
     );
-    assert_eq!(rig.host.with(|s| s.words.mix), 1);
     assert!(!rig.host.with(|s| s.files.contains_key(JOURNAL)));
 }
 
 #[test]
-fn a_brief_remix_inside_the_grace_is_ridden_out() {
+fn lg_re_mixing_while_another_decoder_decodes_ends_the_session_at_once() {
     let mut rig = Rig::audible();
-    rig.host.with(|s| s.words.mix = 1);
-    rig.run(400);
-    rig.host.with(|s| s.words.mix = 0);
-    rig.run(3_000);
+    rig.host.with(|s| {
+        s.files.insert(
+            sndout::adec_path(0),
+            "Open=1 Connect=HDMI_PORT1 Start=1 Gain=0x800000 Mute=0\n".into(),
+        );
+        s.words.mix = 1;
+    });
+    rig.run(300);
+    let snap = rig.snap();
+    assert_eq!(snap.state, State::Lost);
+    assert!(snap.reason.contains("ADEC0 is decoding"), "{}", snap.reason);
+    assert_eq!(rig.count("words 2,1,0,0,0"), 1, "not un-mixed again");
+}
+
+#[test]
+fn the_words_wait_for_the_players_word_that_its_stream_flows() {
+    let mut rig = Rig::new();
+    rig.route.arm(PID, TAIL, ADEC, &rig.env).unwrap();
+    rig.run(UNMIX_FALLBACK_MS - 200);
+    assert_eq!(rig.host.log(), ["save", "cmd 0427000d"]);
+    let session = rig.session();
+    assert!(session.mixed && !session.bypassing && rig.snap().end.is_none());
+    assert_eq!(rig.route.flowing(PID), Ok(()));
+    assert_eq!(rig.host.log(), ["save", "cmd 0427000d", "words 2,1,0,0,0"]);
     assert!(rig.session().bypassing);
-    assert_eq!(rig.snap().end, None);
+    rig.run(10_000);
+    assert_eq!(rig.count("words 2,1,0,0,0"), 1);
+    assert_eq!(rig.session().phase, Phase::Audible);
+}
+
+#[test]
+fn without_the_players_word_the_words_are_unmixed_after_the_fallback() {
+    let mut rig = Rig::new();
+    rig.route.arm(PID, TAIL, ADEC, &rig.env).unwrap();
+    rig.run(UNMIX_FALLBACK_MS - 200);
+    assert_eq!(rig.count("words 2,1,0,0,0"), 0);
+    rig.run(400);
+    assert_eq!(rig.count("words 2,1,0,0,0"), 1);
+    assert!(rig.session().bypassing);
+    assert_eq!(
+        rig.route.flowing(PID),
+        Ok(()),
+        "a late word changes nothing"
+    );
+    assert_eq!(rig.count("words 2,1,0,0,0"), 1);
 }
 
 #[test]

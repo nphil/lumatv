@@ -2,15 +2,16 @@
 //!
 //! The route is the `audiopass` crate. This module is the plugin around it: the switch and its page, LG's sound output, the monitor
 //! thread that carries a session through connecting and watches it, the reader and sampler threads that keep what a player polls
-//! current ([`audiopass::sample`]), and the three calls a player makes (`docs/plugins/audio-passthrough.md`):
+//! current ([`audiopass::sample`]), and the four calls a player makes (`docs/plugins/audio-passthrough.md`):
 //!
 //! | Request | Answer |
 //! |---|---|
 //! | `POST /v1/audio-passthrough/arm` | `{pid, tail, adec}`: `{armed, converter, reason, retry}` |
+//! | `POST /v1/audio-passthrough/flowing` | `{pid}`: `{unmixed, reason}`; the sink's `pcm-multi-ch` is back on after the arm |
 //! | `GET /v1/audio-passthrough/route` | `{armed, phase, adec, bypassing, mixed, converterPresent, connected, audible, reason, ageMs, sampledUptimeMs}` |
 //! | `POST /v1/audio-passthrough/release` | `{pid}`: `{released}`; the TV is put back before the answer |
 //!
-//! All three are for a player on the TV itself (loopback). The topic `audio.passthrough` carries the same state, plus readiness, the
+//! All four are for a player on the TV itself (loopback). The topic `audio.passthrough` carries the same state, plus readiness, the
 //! firmware verdict and how the last session ended; see [`topic`].
 //!
 //! Nothing is read from or written to the TV's audio stack while the plugin is off, except putting back what an earlier run of this
@@ -43,6 +44,11 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
         "POST",
         "/v1/audio-passthrough/arm",
         "a player that holds LG's renderer asks for the TrueHD passthrough route: {pid, tail, adec} (adec is the decoder input LG granted that renderer); loopback only",
+    ),
+    (
+        "POST",
+        "/v1/audio-passthrough/flowing",
+        "the player's sink has turned pcm-multi-ch back on after the arm: {pid}; the eARC words are un-mixed now (or a second after the arm without it)",
     ),
     (
         "GET",
@@ -478,9 +484,10 @@ impl Service {
         }
         match (request.method.as_str(), op) {
             ("POST", "arm") => self.arm(request),
+            ("POST", "flowing") => self.flowing(request),
             ("GET", "route") => self.route(),
             ("POST", "release") => self.release(request),
-            (_, "arm" | "route" | "release") => {
+            (_, "arm" | "flowing" | "route" | "release") => {
                 error_response(405, "method_not_allowed", "that method is not served here")
                     .with_header("Allow", if op == "route" { "GET" } else { "POST" })
             }
@@ -515,6 +522,26 @@ impl Service {
             Err(refusal) => ok(json!({
                 "armed": false, "converter": null, "reason": refusal.reason, "retry": refusal.retry,
             })),
+        }
+    }
+
+    /// 200 with `unmixed: false` and the reason when the words are not un-mixed; a failed un-mix has ended the session.
+    fn flowing(&self, request: &Request) -> Response {
+        let pid = match body_of(request).and_then(|body| pid_of(&body)) {
+            Ok(pid) => pid,
+            Err(response) => return response,
+        };
+        let unmixed = self.route.lock().flowing(pid);
+        self.wake.notify();
+        match unmixed {
+            Ok(()) => {
+                crate::log_info!("audio passthrough: eARC words un-mixed at the player's word");
+                ok(json!({ "unmixed": true, "reason": null }))
+            }
+            Err(why) => {
+                crate::log_info!("audio passthrough: not un-mixed at the player's word: {why}");
+                ok(json!({ "unmixed": false, "reason": why }))
+            }
         }
     }
 

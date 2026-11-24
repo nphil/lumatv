@@ -6,11 +6,15 @@
 //!
 //! 1. LG's PCM bypass converter is told to carry 8 channels of 16-bit 192 kHz PCM (`CONVERTER_COMMAND`): the encoded stream
 //!    rides inside that PCM, and LG's renderer passes the words through untouched.
-//! 2. The eARC output words are un-mixed (`Mix_option` 1 to 0) so LG stops mixing its system sounds into that stream.
+//! 2. The eARC output words are un-mixed (`Mix_option` 1 to 0) so LG stops mixing its system sounds into that stream. Not at the
+//!    arm: once the player reports its stream flowing ([`Route::flowing`]), or [`UNMIX_FALLBACK_MS`] after the arm.
 //! 3. Once the kernel reports `Pass-Through` and the stream has been flowing for [`CONNECT_DWELL_MS`], the ADEC the player's
 //!    renderer was granted is connected to the main output and, when the kernel holds it muted, unmuted with a mute true/false
 //!    pair (audiooutputd skips a lone unmute). That last step is what makes the TV's eARC transmitter send the stream to the
 //!    receiver.
+//!
+//! LG putting its mixed words back once is answered by un-mixing them again, while the session's decoder is still the only one in
+//! use; a second time ends the session.
 //!
 //! The ADEC comes from the player, never from an assumption, and a session starts only while audiooutputd and the kernel show
 //! nothing connected and the decoder stopped, so no HDMI input's decoder is touched. The words are only written back while they
@@ -51,6 +55,11 @@ const CONVERTER_COMMAND: &str = "0x50020020 192000 8 16 0 0 192000 8 16\n";
 /// How long the stream must have been flowing before the ADEC is connected. The kernel cannot tell a stream from silence, and the
 /// player starts the stream the moment the route reports bypass; the proven window connected 3 s after that.
 const CONNECT_DWELL_MS: u64 = 3000;
+/// The player turns its sink's `pcm-multi-ch` back on with its second buffer, after the arm, and LG re-applies its eARC output
+/// words when it does: on the C4 an un-mix made before that write read `Mix_option=1` again within the second. The words are
+/// un-mixed at the player's word that the write is done, or this long after the arm when the word never comes; the player's
+/// second buffer follows its arm within a buffer period (20 ms).
+const UNMIX_FALLBACK_MS: u64 = 1000;
 /// Measured on the C4: mute true 2.8 s after the connect, mute false 0.7 s after that. Shorter gaps are untested.
 const MUTE_AFTER_CONNECT_MS: u64 = 2800;
 const UNMUTE_AFTER_MUTE_MS: u64 = 700;
@@ -237,6 +246,10 @@ struct Session {
     observed: Reading,
     /// When the route first stopped looking like bypass, for the grace period.
     bad_since: Option<u64>,
+    /// When the words are un-mixed if the player has not said its stream flows; `None` once they are.
+    unmix_due: Option<u64>,
+    /// LG put its mixed words back once and the route un-mixed them again.
+    reasserted: bool,
 }
 
 /// A session's state for the topic and the route endpoint.
@@ -285,13 +298,6 @@ pub struct Snapshot {
 enum Restore {
     Done,
     Pending(String),
-}
-
-/// Why [`Route::apply_words`] did not end with the words read back as asked.
-struct Unapplied {
-    why: String,
-    /// The write was made, so LG's words may have changed all the same.
-    written: bool,
 }
 
 pub struct Route {
@@ -571,31 +577,23 @@ impl Route {
         }
     }
 
-    /// Puts the eARC words to `words` and waits for the kernel to report them.
-    fn apply_words(&mut self, words: Words) -> Result<(), Unapplied> {
+    /// Puts the eARC words to `words` and waits for the kernel to report them. Says why when they do not read back as asked.
+    fn apply_words(&mut self, words: Words) -> Result<(), String> {
         match self.host.set_earc_words(words) {
             Ok(()) => {}
             Err(WriteError::Hung) => {
                 let why = "a sound card write did not answer; restart the helper once the TV's audio is healthy".to_owned();
                 self.hung = Some(why.clone());
-                return Err(Unapplied { why, written: true });
+                return Err(why);
             }
-            Err(WriteError::Failed(why)) => {
-                return Err(Unapplied {
-                    why,
-                    written: false,
-                });
-            }
+            Err(WriteError::Failed(why)) => return Err(why),
         }
         if self.poll(VERIFY_WAIT, |route| {
             route.read_sndout().and_then(|s| s.earc) == Some(words)
         }) {
             Ok(())
         } else {
-            Err(Unapplied {
-                why: format!("LG did not take the eARC words {words}"),
-                written: true,
-            })
+            Err(format!("LG did not take the eARC words {words}"))
         }
     }
 
@@ -705,23 +703,20 @@ impl Route {
                 "cannot configure converter {converter}: {e}"
             )));
         }
-        if words.mix != 0 {
-            if let Err(unapplied) = self.apply_words(journal.applied) {
-                if unapplied.written && !rearm {
-                    // The write was made, so LG's words may have changed although they were not read back (the driver did not
-                    // answer, or LG did not take them): the journal stays, and the restore puts them back once they read again.
-                    self.pending = Some((journal, unapplied.why.clone()));
-                } else {
-                    drop_journal(self);
-                }
-                return Err(Refusal::now(unapplied.why));
-            }
+        let now = self.host.now_ms();
+        // A first arm leaves the words to `flowing`. A re-arm of a session whose words were un-mixed un-mixes them again: LG
+        // re-mixes while it rebuilds the renderer.
+        let due = match &self.session {
+            Some(s) => s.unmix_due,
+            None => (words.mix != 0).then_some(now + UNMIX_FALLBACK_MS),
+        };
+        if due.is_none() && words.mix != 0 {
+            self.apply_words(journal.applied).map_err(Refusal::now)?;
         }
 
-        let now = self.host.now_ms();
-        let (phase, since) = match self.session.take() {
-            Some(old) => (old.phase, old.since),
-            None => (Phase::Armed, now),
+        let (phase, since, reasserted) = match self.session.take() {
+            Some(old) => (old.phase, old.since, old.reasserted),
+            None => (Phase::Armed, now, false),
         };
         self.session = Some(Session {
             pid,
@@ -733,6 +728,8 @@ impl Route {
             since,
             observed: Reading::default(),
             bad_since: None,
+            unmix_due: due,
+            reasserted,
         });
         self.lost = None;
         self.end = None;
@@ -778,6 +775,89 @@ impl Route {
         }
     }
 
+    /// Un-mixes the eARC words, while they hold LG's own words from the arm and the session's decoder is the only one in use.
+    fn unmix(&mut self) -> Result<(), String> {
+        let (journal, connected) = {
+            let s = self.session.as_ref().ok_or("no session")?;
+            (s.journal.clone(), s.phase.connected())
+        };
+        if let Some(why) = &self.hung {
+            return Err(why.clone());
+        }
+        if let Health::Wedged(why) = health::tasks(&*self.host) {
+            return Err(format!("audio control is stuck: {why}"));
+        }
+        match self.read_sndout().and_then(|s| s.earc) {
+            Some(words) if words == journal.applied => {}
+            Some(words) if words == journal.before => {
+                let base = sndout::parse_adec(&journal.kernel);
+                if let Some(sign) = self.foreign(journal.adec, &base, connected) {
+                    return Err(sign);
+                }
+                self.apply_words(journal.applied)?;
+            }
+            Some(words) => {
+                return Err(format!(
+                    "LG's eARC words read {words}, not the {} the session found",
+                    journal.before
+                ));
+            }
+            None => return Err("LG's eARC words cannot be read".into()),
+        }
+        if let Some(s) = &mut self.session {
+            s.unmix_due = None;
+            s.bad_since = None;
+        }
+        Ok(())
+    }
+
+    /// What shows LG using the audio output itself, if anything does: an input connected other than the session's (or the
+    /// session's own before the route connected it), the session's decoder rewired or decoding for LG, another decoder decoding.
+    fn foreign(&self, adec: u8, base: &Adec, connected: bool) -> Option<String> {
+        let Some(snd) = self.read_sndout() else {
+            return Some("LG's sound status cannot be read".into());
+        };
+        let ours = adec.to_string();
+        if let Some(other) = snd
+            .connected_adecs()
+            .into_iter()
+            .find(|a| !connected || *a != ours)
+        {
+            return Some(format!("LG connected ADEC{other}"));
+        }
+        match self.read_adec(adec) {
+            None => return Some(format!("ADEC{adec} cannot be read")),
+            Some(a) if lg_uses(&a, base) => {
+                return Some(format!("LG is using ADEC{adec}: it reads {}", a.render()));
+            }
+            Some(_) => {}
+        }
+        (0..=MAX_ADEC)
+            .filter(|i| *i != adec)
+            .find(|i| self.read_adec(*i).is_some_and(|a| a.start == Some(true)))
+            .map(|i| format!("ADEC{i} is decoding"))
+    }
+
+    /// The player's sink has turned `pcm-multi-ch` back on after the arm: the words are un-mixed now, if they are not yet. A
+    /// failed un-mix ends the session. Says why when the words are not un-mixed.
+    pub fn flowing(&mut self, pid: u32) -> Result<(), String> {
+        match &self.session {
+            Some(s) if s.pid != pid => return Err(format!("process {} holds the route", s.pid)),
+            Some(s) if s.unmix_due.is_none() => return Ok(()),
+            Some(_) => {}
+            None => return Err("no session is armed".into()),
+        }
+        let result = self.unmix();
+        match &result {
+            Ok(()) => {
+                self.observe();
+                self.notify();
+            }
+            Err(why) => self.end(Why::RouteLost, why),
+        }
+        result
+    }
+
     /// One monitoring step of a live session. Returns why it must end, if it must.
     fn monitor(&mut self) -> Option<(Why, String)> {
         let now = self.host.now_ms();
@@ -793,6 +873,42 @@ impl Route {
             }
         }
         self.observe();
+        let (due, reasserted, before) = {
+            let s = self.session.as_ref()?;
+            (s.unmix_due, s.reasserted, s.journal.before)
+        };
+        match due {
+            // Nothing is judged until the words are un-mixed: the stream cannot bypass before.
+            Some(by) if now < by => return None,
+            Some(_) => {
+                if let Err(why) = self.unmix() {
+                    return Some((Why::RouteLost, why));
+                }
+                self.observe();
+            }
+            // LG put its own words back; on the C4 it does as the sink's `pcm-multi-ch` is written.
+            None if before.mix != 0
+                && self.sndout.as_ref().and_then(|s| s.earc) == Some(before) =>
+            {
+                if reasserted {
+                    return Some((
+                        Why::RouteLost,
+                        "LG turned eARC mixing back on a second time".into(),
+                    ));
+                }
+                if let Err(why) = self.unmix() {
+                    return Some((
+                        Why::RouteLost,
+                        format!("LG turned eARC mixing back on: {why}"),
+                    ));
+                }
+                if let Some(s) = &mut self.session {
+                    s.reasserted = true;
+                }
+                self.observe();
+            }
+            None => {}
+        }
         let (observed, phase, adec, base) = {
             let s = self.session.as_mut()?;
             (
@@ -995,8 +1111,8 @@ impl Route {
                 return Restore::Pending("LG's eARC words cannot be read".into());
             };
             if current == journal.applied {
-                if let Err(unapplied) = self.apply_words(journal.before) {
-                    return Restore::Pending(unapplied.why);
+                if let Err(why) = self.apply_words(journal.before) {
+                    return Restore::Pending(why);
                 }
             }
         }
