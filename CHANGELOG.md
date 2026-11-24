@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Going back from a game page to Home puts Home's art up on the first frame without copying and uploading its 8 MB again: its layer is held hidden, one at most, while the Library and the page are open. The frame gate times a close that acts on the key's release from the release, as it does an open.
+
 A page or tab chosen while Settings is open is, at 120 Hz, made in the dark beside the page on screen, 24 layers a draw, and shown on one frame six refreshes after its last layer, so the frame that shows it makes and uploads nothing. Made and drawn in one frame, the 69-72 layer pages of the `settings-scroll` walk took 9.1-9.9 ms of GPU against 8.3 ms. A rail step within 200 ms of the last gives up the page being made, and the page the rail rests on is made 120 ms later. Below 100 Hz, or with under 160 layers or 64 groups left in the scene, a page is made where the other stands, as before.
 
 The tuner tells clients which stream is smooth. `/status.json` gives every converter profile an `interlacedFps` (30 for all six: a 1080i or 480i station comes out at 29.97 whole frames; `null` for a profile that would keep the field rate), and `/lineup.json` gives a channel `interlaced`, `height` and `fps` once its MPEG-2 picture has been seen on air, kept across restarts and left out before that. A client that prefers smooth motion takes the original stream for interlaced channels and a profile whose `interlacedFps` is null or 50 and up otherwise.

@@ -331,6 +331,13 @@ pub(super) fn round(rgba: &mut [u8], width: u32, height: u32, radius: u32) {
     }
 }
 
+/// A layer held hidden for the page that opened a game page: the picture it shows (the key it was laid for) and the z it was made at.
+struct Parked {
+    key: Key,
+    z: i32,
+    layer: ImageLayer,
+}
+
 /// The page's stage art: the loader that decodes it, the pictures held, the dip that decides what the one layer shows, and the layer.
 pub struct Art {
     /// One thread: a page has one picture to decode at a time (`Pictures` sends one), and the cover loader keeps its own two.
@@ -354,11 +361,15 @@ pub struct Art {
     ahead: ahead::Ahead,
     /// The picture that went on the page from `ahead`: it has no copy under the scrim yet, which is made once the page has opened.
     bare: Option<Key>,
+    /// The layer of the Home or Library page that a game page was opened from, hidden until the page comes back.
+    parked: Option<Parked>,
     /// Pictures put on the layer since the budget walks last asked, and swaps in all: what the walks hold the art to.
     #[cfg(test)]
     uploads: u32,
     #[cfg(test)]
     swaps: u32,
+    #[cfg(test)]
+    reused: u32,
 }
 impl Art {
     pub fn new() -> io::Result<Self> {
@@ -373,12 +384,15 @@ impl Art {
             fresh: true,
             seen: false,
             last: None,
+            parked: None,
             ahead: ahead::Ahead::new()?,
             bare: None,
             #[cfg(test)]
             uploads: 0,
             #[cfg(test)]
             swaps: 0,
+            #[cfg(test)]
+            reused: 0,
         })
     }
     /// Takes in the decodes that have finished: the dip picks the pictures up on its next step.
@@ -429,10 +443,35 @@ impl Art {
     }
     /// A new page, or a page that has no art: nothing of the last art stays on a layer, and the next art goes up as it is.
     pub fn reset(&mut self) {
+        self.parked = None;
+        self.clear();
+    }
+    /// Nothing of the last art stays on the layer, which is dropped.
+    fn clear(&mut self) {
         self.last = self.dip.shown().cloned().or_else(|| self.last.take());
         self.layer = None;
         self.dip = Dip::default();
         self.fresh = true;
+    }
+    /// A page change. Leaving Home for the Library or a game page, the layer is parked hidden instead of dropped, and it is held through
+    /// the pages that follow until Home is back: the first frame after Back then puts Home's art up with no copy of its 8 MB and no
+    /// upload (the renderer uploads a hidden layer's pixels between frames). One layer is parked at most (a 1080p picture, 8.3 MB,
+    /// released from the app's resident size); it goes with a change to any other page, or once Home is back, whether it fitted or not.
+    pub fn reset_for(&mut self, from: Option<Page>, to: Page) {
+        let parked = match (from, to) {
+            (Some(Page::Home), Page::Library | Page::Game) => self.park(),
+            (Some(Page::Library | Page::Game), Page::Home | Page::Library | Page::Game) => self.parked.take(),
+            _ => None,
+        };
+        self.clear();
+        self.parked = parked;
+    }
+    /// The layer, hidden, with the picture it shows; none when it shows none.
+    fn park(&mut self) -> Option<Parked> {
+        let (layer, key) = (self.layer.take()?, self.dip.shown().cloned()?);
+        layer.set(Props { visible: false, ..self.props });
+        layer.release_resident();
+        Some(Parked { key, z: self.z, layer })
     }
     /// Asks for the picture, with its copy under the scrim, when it is not held and no other decode is in the air.
     fn fetch(&mut self, key: &Key) {
@@ -461,7 +500,7 @@ impl GameUi {
     /// list scrolls. True when the layer was told something.
     pub(super) fn step_art(&mut self, model: &Model) -> io::Result<bool> {
         if self.page != Some(model.view.page) {
-            self.art.reset();
+            self.art.reset_for(self.page, model.view.page);
         }
         self.art.now = model.now_ms();
         let told = self.run_art(model)?;
@@ -470,14 +509,18 @@ impl GameUi {
         self.art.ahead.run(matches!(model.view.page, Page::Home | Page::Library), scrolling);
         Ok(told)
     }
-    /// The end of a plan: a page that put up no art has none on a layer, and what the plan asked for runs at once.
+    /// The end of a plan: a page that put up no art has none on a layer, and what the plan asked for runs at once. Home, back from the
+    /// pages it led to, has had its turn at the layer held for it.
     pub(super) fn end_art(&mut self, model: &Model) -> io::Result<()> {
         let art = &mut self.art;
         if !art.seen {
-            art.reset();
+            art.clear();
         }
         art.seen = false;
         self.run_art(model)?;
+        if model.view.page == Page::Home {
+            self.art.parked = None;
+        }
         self.art.top_up();
         self.art.fresh = false;
         Ok(())
@@ -527,6 +570,18 @@ impl GameUi {
     fn lay(&mut self, key: &Key) -> io::Result<()> {
         let art = &mut self.art;
         let Some(image) = art.pictures.image(key) else { return Ok(()) };
+        let same = |p: &Parked| p.key == *key && p.z == art.z && (p.layer.width(), p.layer.height()) == (image.width, image.height);
+        if art.layer.is_none()
+            && let Some(parked) = art.parked.take_if(|p| same(p))
+        {
+            parked.layer.set(art.props);
+            art.layer = Some(parked.layer);
+            #[cfg(test)]
+            {
+                art.reused += 1;
+            }
+            return Ok(());
+        }
         match &mut art.layer {
             Some(layer) if (layer.width(), layer.height()) == (image.width, image.height) => {
                 layer.pixels_mut().copy_from_slice(&image.rgba);
@@ -563,6 +618,10 @@ impl GameUi {
     /// How many times the art changed picture, from the first to now.
     pub(in crate::game) fn art_swaps(&self) -> u32 {
         self.art.swaps
+    }
+    /// How many times a page's art went back up from the layer parked while a game page was open, from the first to now.
+    pub(in crate::game) fn art_reused(&self) -> u32 {
+        self.art.reused
     }
     /// Whether the stage art is on its layer.
     pub(in crate::game) fn art_layer_up(&self) -> bool {

@@ -271,6 +271,8 @@ KEYBOARD_WALK = 'RIGHTx6@0.12 DOWNx2@0.12 LEFTx6@0.12 UPx2@0.12 RIGHT:900 s0.2 L
 #               0 for a surface that is the app's drawing (a launch, the keyboard LG's process draws)
 # soak          False when cycling it says nothing about memory (Home idle)
 # act           'press' (default) or 'release': the edge of the key the surface acts on
+# close_act     'press' (default) or 'release': the edge of the key the close acts on, where the close's marker goes (a page that closes on
+#               the release: marker, key down 50 ms before, release at the marker; the close is then the marker and one plain key token)
 # still         True (default): Home's own motion (the wallpaper's tick, the weather card's sprites) is off while the surface is measured
 # delivery      True: a luna call opens it; the first frame is timed from the compositor's delivery marker, else luna-send's return
 # default       False: part of the gate only when named with --surfaces
@@ -357,7 +359,7 @@ SURFACES = [
      'close': '@game-library-close', 'settle_s': 0.6, 'close_settle_s': 0.5,
      'thresholds': {'burst_end_ms': None}},
     # `game-page`: a game's page opened from the Library's first grid row (the page acts on the release of OK, so does Back) and left again.
-    {'name': 'game-page', 'default': False, 'act': 'release', 'setup': GAME_SETUP, 'teardown': GAME_TEARDOWN, 'app_retries': 0,
+    {'name': 'game-page', 'default': False, 'act': 'release', 'close_act': 'release', 'setup': GAME_SETUP, 'teardown': GAME_TEARDOWN, 'app_retries': 0,
      'prep': GAME_LIBRARY_PREP,
      'open': '@game-page-open OK', 'close': '@game-page-close BACK', 'settle_s': 1.5, 'close_settle_s': 1.0,
      'thresholds': {'burst_end_ms': None}},
@@ -479,7 +481,7 @@ SURFACES = [
 
 SURFACE_DEFAULTS = {'setup': [], 'teardown': [], 'reopen': [], 'reopen_wait_s': 0, 'settle_s': 1.0, 'close_settle_s': None,
                     'transition': True, 'soak': True, 'default': True, 'thresholds': {},
-                    'act': 'press', 'still': True, 'delivery': False, 'full_budget_s': None, 'inputs_free': False,
+                    'act': 'press', 'close_act': 'press', 'still': True, 'delivery': False, 'full_budget_s': None, 'inputs_free': False,
                     'prep': '', 'switches': {}, 'tile': None, 'ctl_transitions': False, 'app_retries': None}
 
 # The PLAN gate. An override in a surface may set any of these to None to turn the check off.
@@ -611,6 +613,10 @@ def validate(entries):
             opens = s['open'].split()
             if len(opens) < 2 or opens[1][0] in '@!s' or opens[1][-1] in '+-:' or 'x' in opens[1]:
                 raise ValueError(f'{n}: act release needs open to be the marker and one plain key token, then what follows it')
+        if s['close_act'] not in ('press', 'release'):
+            raise ValueError(f"{n}: close_act is 'press' or 'release'")
+        if s['close_act'] == 'release' and (len(s['close'].split()) != 2 or s['close'].split()[1][-1] in '+-:' or 'x' in s['close'].split()[1]):
+            raise ValueError(f'{n}: close_act release needs close to be the marker and one plain key token')
         preps = s['prep'].split()
         if any(t[0] in '@!' for t in preps):
             raise ValueError(f'{n}: prep is keys; its marker @{n}-prep is put before it')
@@ -694,12 +700,22 @@ def open_tokens(s):
     return toks
 
 
+def close_tokens(s):
+    """kb.py tokens that close a surface. With `close_act: 'release'` the marker is at the release, as open_tokens puts it: the marker
+    before the key would count the 50 ms the injected tap is held, which the surface waits out before it acts."""
+    toks = s['close'].split()
+    if s['close_act'] == 'release':
+        marker, key = toks
+        return [key + '+', 's0.05', marker, key + '-']
+    return toks
+
+
 def cycle_tokens(s):
     """kb.py tokens for one open/close cycle."""
     toks = ([f"@{s['name']}-prep"] + s['prep'].split()) if s['prep'] else []
     toks += open_tokens(s)
     toks.append(settle_token(s['settle_s']))
-    toks += s['close'].split()
+    toks += close_tokens(s)
     toks.append(settle_token(s['settle_s'] if s['close_settle_s'] is None else s['close_settle_s']))
     return [t for t in toks if t]
 

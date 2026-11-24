@@ -59,7 +59,22 @@ pub(super) fn walks() -> Vec<Walk> {
     open.push(Step::Expect("the page's art up on its first frame", held_on_open));
     let mut moved = taps(&[(Key::Right, 10), (Key::Ok, 0)]);
     moved.push(Step::Expect("the art of the page opened 10 ms after a move up on its first frame", held_on_open));
+    // Back from a page opened out of the Library, as the gate does: Home's art is back up on the first frame, on the layer held hidden
+    // while the Library and the page were open (a copy of 8 MB and its upload on the frame of Back took 18 ms of the 40 on the set). The
+    // second round is the one that finds Home on the game it opened.
+    let round = [
+        (Key::Up, 100), (Key::Up, 100), (Key::Up, 100), (Key::Up, 100), (Key::Left, 100), (Key::Left, 100), (Key::Left, 100), (Key::Left, 100),
+        (Key::Left, 100), (Key::Left, 100), (Key::Right, 100), (Key::Ok, 700), (Key::Down, 200), (Key::Ok, 1500), (Key::Back, 1000),
+    ];
+    let mut closed = vec![Step::Wait(400)];
+    closed.extend(taps(&round));
+    closed.extend(taps(&round[..round.len() - 1]));
+    closed.extend(taps(&[(Key::Back, 0)]));
+    closed.push(Step::Expect("Home is back", |m, _| m.view.page == Page::Home));
+    closed.push(Step::Expect("Home's art up on the first frame after Back", |_, page| page.art_layer_up()));
+    closed.push(Step::Expect("Home's art taken from the layer held while the page was open", |_, page| page.art_reused() >= 1));
     vec![
+        Walk { name: "home-page-close".into(), base: fixture(), script: closed },
         Walk { name: "library-grid-scroll".into(), base: library(&fixture()), script: down },
         Walk { name: "library-panel-in-out".into(), base: library(&fixture()), script: panel },
         Walk { name: "library-open-page".into(), base: library(&fixture()), script: open },
