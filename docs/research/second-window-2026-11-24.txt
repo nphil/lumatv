@@ -1,0 +1,359 @@
+Tue Nov 24 18:47:09 EST 2026
+== fg
+{"returnValue":true,"foregroundAppInfo":[{"order":0,"displayId":0,"processId":"1050","windowType":"_WEBOS_WINDOW_TYPE_CARD","viewType":"normal","params":{},"appId":"netflix","windowGroup":false,"appCategory":[]}]}
+== pipelines
+[
+    {
+        "appStatus": 6,
+        "group_level": -1,
+        "level": 4,
+        "currentAppId": "netflix",
+        "is_focus": false,
+        "policy_state": 0,
+        "sub_type": "card",
+        "is_foreground": true,
+        "is_managed": false,
+        "id": "_LL85SgBJUysWqR",
+        "type": "media",
+        "window_group_id": "",
+        "is_boundary": false,
+        "timestamp": 42088730020800,
+        "resource": [
+            {
+                "index": 1,
+                "resource": "ADEC"
+            },
+            {
+                "index": 5,
+                "resource": "ADEC_BANDWIDTH"
+            },
+            {
+                "index": 4,
+                "resource": "ADEC_BANDWIDTH"
+            },
+            {
+                "index": 1,
+                "resource": "SVP_CPB"
+            },
+            {
+                "index": 3,
+                "resource": "VDEC"
+            },
+            {
+                "index": 2,
+                "resource": "VDEC"
+            },
+            {
+                "index": 3,
+                "resource": "HEVCP1_HEVC"
+            },
+            {
+                "index": 2,
+                "resource": "HEVCP1_HEVC"
+            },
+            {
+                "index": 5,
+                "resource": "VDEC_BUS"
+            },
+            {
+                "index": 4,
+                "resource": "VDEC_BUS"
+            }
+        ],
+        "sub_level": 0,
+        "sharedAppIdList": ""
+    },
+    {
+        "appStatus": 6,
+        "group_level": -1,
+        "level": 4,
+        "currentAppId": "netflix",
+        "is_focus": false,
+        "policy_state": 0,
+        "sub_type": "card",
+        "is_foreground": true,
+        "is_managed": false,
+        "id": "_fDgfSgBA9cFnO2",
+        "type": "avconnector",
+        "window_group_id": "",
+        "is_boundary": false,
+        "timestamp": 42087754722760,
+        "resource": [
+            {
+                "index": 0,
+                "resource": "MAIN_SOUND"
+            },
+            {
+                "index": 0,
+                "resource": "MAIN_SCALER"
+            }
+        ],
+        "sub_level": 0,
+        "sharedAppIdList": ""
+    },
+    {
+        "is_foreground": false,
+        "id": "_fzcjC35Trgv9eU",
+        "timestamp": 18192450359540,
+        "policy_state": 0,
+        "is_managed": false,
+        "level": 6,
+        "sub_level": 0,
+        "resource": [
+        ],
+        "is_focus": false,
+        "type": "vtclient",
+        "group_level": -1,
+        "window_group_id": "",
+        "is_boundary": false,
+        "sub_type": "card"
+    }
+]
+== videooutput
+{
+    "video": [
+        {
+            "displayOutput": {
+                "width": 3840,
+                "y": 0,
+                "x": 0,
+                "height": 2160
+            },
+            "extraInfo": null,
+            "sourceInput": {
+                "width": 1920,
+                "y": 0,
+                "x": 0,
+                "height": 1080
+            },
+            "zOrder": 0,
+            "fullScreen": true,
+            "scanType": "progressive",
+            "frameRate": 25,
+            "connected": true,
+            "height": 1080,
+            "connectedSourcePort": 2,
+            "context": "_LL85SgBJUysWqR",
+            "muted": false,
+            "sink": "MAIN",
+            "connectedSource": "VDEC",
+            "width": 1920,
+            "appId": "netflix",
+            "videoInfo": {
+                "rotation": "Deg0",
+                "path": "network",
+                "lowDelayMode": false,
+                "autoAspectRatio": false,
+                "pixelAspectRatio": {
+                    "width": 1,
+                    "height": 1
+                },
+                "afd": 16,
+                "adaptive": true,
+                "rgbRange": "LIMITED",
+                "hdrType": "none",
+                "subScalerOccupied": false,
+                "hfrEnabled": false,
+                "sei": {
+                    "whitePointX": 0,
+                    "displayPrimariesY2": 0,
+                    "displayPrimariesX2": 0,
+                    "displayPrimariesY1": 0,
+                    "displayPrimariesX1": 0,
+                    "maxContentLightLevel": 0,
+                    "displayPrimariesX0": 0,
+                    "displayPrimariesY0": 0,
+                    "maxDisplayMasteringLuminance": 0,
+                    "maxPicAverageLightLevel": 0,
+                    "whitePointY": 0,
+                    "minDisplayMasteringLuminance": 0
+                },
+                "vui": {
+                    "transferCharacteristics": 2,
+                    "colorPrimaries": 2,
+                    "matrixCoeffs": 2
+                }
+            },
+            "opacity": 255,
+            "contentType": "movie"
+        },
+        {
+            "displayOutput": {
+                "width": 0,
+                "y": 0,
+                "x": 0,
+                "height": 0
+            },
+            "extraInfo": null,
+            "sourceInput": {
+                "width": 0,
+                "y": 0,
+                "x": 0,
+                "height": 0
+            },
+            "zOrder": 1,
+            "fullScreen": false,
+            "scanType": "unknown",
+            "frameRate": 0,
+            "connected": false,
+            "height": 0,
+            "connectedSourcePort": 0,
+            "context": "",
+            "muted": true,
+            "sink": "SUB0",
+            "connectedSource": "unknown",
+            "width": 0,
+            "appId": "unknown",
+            "videoInfo": null,
+            "opacity": 255,
+            "contentType": "unknown"
+        }
+    ],
+    "clients": [
+        {
+            "activation": true,
+            "appId": "netflix",
+            "sinkName": "MAIN",
+            "sourceName": "VDEC",
+            "clientId": "_LL85SgBJUysWqR"
+        }
+    ],
+    "returnValue": true,
+    "subscribed": false
+}
+== win0
+localmute=0
+lowdelaymode=0
+h/v active : 1920 / 1080
+scanType   : 1
+vFreq      : 250
+svp        : 1
+hdr_type   : 0
+colordomain: 0
+hdmi444mode: 0
+phyMode    : 0
+== win1
+localmute=777
+h/v active : 0 / 0
+scanType   : 0
+vFreq      : 0
+svp        : 0
+hdr_type   : 0
+colordomain: 0
+hdmi444mode: 0
+phyMode    : 0
+== vdisp
+=== VDISP[2],50737000 ===
+paused             : 1
+port               : 0(PORT0)
+clk_src            : 0x200(GSTC0)
+prev.pts           : 61200
+prev.compensated_pts : 61200
+phase_shift.errors : 6
+phase_shift.val    : 0
+is_film_mode       : 0
+freeze.status      : 0
+qlen               : 5
+frame_cnt          : 23
+- FRAME -
+    idx                : 3
+    y_addr             : 0x5add0000
+    c_addr             : 0x5ada0000
+    y_addr_bottom      : 0x00000000
+    c_addr_bottom      : 0x00000000
+    stride             : 1920
+    codec              : 15(AV1)
+    dpb_map_mode       : 9(BODP_10BIT)
+    comp_mode          : 0(LOSSLESS)
+    frame_rate         : 25/1(25.00)
+    variable_framerate : 0
+    aspect_ratio       : 3
+    addr_extr_hdr      : 0x770d60e4
+    width              : 1920
+    height             : 1080
+    crop(l,r,t,b)      : 0,0,0,0
+    scan_type          : 3(Progressive)
+    frame_format       : 0
+    discontinuity      : 0
+    pts                : 61200
+    enq_gstc           : 3787234897
+    uid                : 33788432
+    display_period     : 1
+    afd                : 0
+    par(w,h)           : 1,1
+    disp_result        : 2
+
+
+#ENDOFREAD_0024
+===  VRATE[2] ===
+speed              : 0
+intr_out_type      : 0
+framerate_max      : 120
+framerate_min      : 10
+
+- CONFIG -
+    -- original --
+    framerate          : 25/1(25.00)
+    duration           : 3600
+    -- current --
+    framerate          : 25/1(25.00)
+    duration           : 3600
+
+- CODEC -
+    -- original --
+    framerate          : 0/4294967295(0.00)
+    duration           : 0
+    -- current --
+    framerate          : 0/4294967295(0.00)
+    duration           : 0
+
+- PTS -
+    prev_stc           : 79200
+    changed            : 0
+    buf_idx            : 22
+    diff_stc_sum       : 79200
+    buf_cnt            : 22
+    framerate          : 1980000/79200(25.00)
+    duration           : 3600
+    stable             : 1
+
+- FIXED -
+    use_fixed          : 0
+    framerate          : 0/0(0.00)
+    duration           : 0
+
+- STATUS -
+    rate_src           : CONF
+    framerate          : 25/1(25.00)
+    duration           : 3600
+
+
+#ENDOFREAD_0025
+=== VSYNC PORT[0] ===
+shared_mode        : 0
+framerate          : 25/1(25.00)
+interlaced         : 0
+phase_shift        : 5380
+next_phase_shift   : 112700
+intv               : 1080000(40000us)
+base_intv          : 1080000
+min_intv           : 1074620
+max_intv           : 1085380
+dco_intv           : 0
+max_phase_shift    : 10800
+    -- VSYNC[2] --
+    shared_mode        : 0
+    no_phase_shift     : 0
+    fixed_frame_rate   : 0
+    framerate          : 25/1(25.00)
+    interlaced         : 0
+    -----------------------------
+
+
+#ENDOFREAD_0026
+== irq
+104:    5022670          0          0          0     GICv2 104 Edge      osd_irq
+175:    5082674          0          0          0     GICv2 175 Edge      DE2VSYNC
+104:    5022870          0          0          0     GICv2 104 Edge      osd_irq
+175:    5082874          0          0          0     GICv2 175 Edge      DE2VSYNC
+Connection to 192.168.1.242 closed.

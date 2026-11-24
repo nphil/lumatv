@@ -76,3 +76,7 @@ While the film plays: `getActivePipelines`, `videooutput/getStatus` (size, rate,
 **C. Netflix 4K over-ask (only with Nitin's word; it is expected to fail).** The same run over Netflix with the check bypassed (`ctl vwin` forced hardware). Expected: `policy action` for Netflix's connector within 2 s, its picture or audio drops. This confirms the preemption rule; with the check on, the pop-up must come as a texture and Netflix must not blink. Stop at the first glitch (`ctl vwin idle`).
 
 A pass in B for a 4K HDR HEVC app moves its row to live; a fail names the unit or the HDR step that decided it. Until then LumaTV's rule is: 4K HDR HEVC main with `free.VDEC` 0, or any of step 3 failing, gets a texture; with room, the hardware sub window.
+
+## Netflix below 4K, read during playback (2026-11-24 18:47)
+
+A Netflix title at 1920x1080, AV1, 25 fps, SDR (secure path, `svp 1`; panel at 100 Hz) holds `VDEC` 2 of 4, `VDEC_BUS` 2, `HEVCP1_HEVC` 2, `SVP_CPB` 1, `ADEC` 1, `ADEC_BANDWIDTH` 2, with `MAIN_SCALER` and `MAIN_SOUND` on its connector; no `DM`, and `win1` is idle. So Netflix does not always take every decoder: the four-`VDEC`, three-`DM` load is its 4K Dolby Vision case, and beside a title like this one the starfish sub stream (`VDEC` 1, `G1_H264` 1, `SUB_SCALER` 1) fits with one `VDEC` spare. The advance check stays the rule: the pop-up reads `getActivePipelines` at the moment it opens. Read only; no sub window was opened. Raw: `second-window-2026-11-24.txt`.
