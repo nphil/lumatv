@@ -215,7 +215,7 @@ impl Rig {
         self.kit.ui.scene.live_layers()
     }
 
-    /// The weather card, OK, and Right to the radar page: the keys of the host render (`tests/render_rust_weather.py`).
+    /// The weather card, OK, Up to the reading, OK, and Right to the radar page: the keys of the host render (`tests/render_rust_weather.py`).
     fn open_radar(&mut self) {
         self.press("down");
         for _ in 0..6 {
@@ -224,6 +224,12 @@ impl Rig {
             }
             self.press("right");
         }
+        // Back from the full-screen view leaves the card entered: step out, so that OK enters it again, Up reaches the reading and OK opens the view
+        if self.home.inner.is_some() {
+            self.press("back");
+        }
+        self.press("ok");
+        self.press("up");
         self.press("ok");
         self.press("right");
         // the helper opens, the frames and the first pictures come, the loop begins

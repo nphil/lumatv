@@ -346,16 +346,16 @@ impl Plan {
     }
 }
 
-/// The month in a box: the largest rows that fit (to 44 px), the columns no wider than the rows allow, centred in the box; `None` where the rows would be under
-/// 21 px (the numbers under 15 px), which is too small to read across a room.
+/// The month in a box, filling it: the rows as tall as the height allows (a header of 0.75 row and six rows, to 52 px), the columns across the whole width (to 120 px),
+/// the numbers 0.8 of a row; `None` where the rows would be under 21 px (the numbers under 15 px), which is too small to read across a room.
 fn month_grid(x: f32, y: f32, w: f32, h: f32) -> Option<Grid> {
-    let rh = (h / 6.75).min(44.0).floor();
-    let cw = (w / 7.0).min(rh * 2.6).min(64.0).floor();
+    let rh = (h / 6.75).min(52.0).floor();
+    let cw = (w / 7.0).min(rh * 4.0).min(120.0).floor();
     if rh < 21.0 || cw < 28.0 {
         return None;
     }
     let hh = (rh * 0.75).round();
-    Some(Grid { x: x + ((w - 7.0 * cw) / 2.0).round(), y: y + ((h - hh - 6.0 * rh) / 2.0).round(), cw, hh, rh, fs: (rh * 0.72).clamp(15.0, 28.0), hs: (rh * 0.55).clamp(13.0, 20.0) })
+    Some(Grid { x: x + ((w - 7.0 * cw) / 2.0).round(), y: y + ((h - hh - 6.0 * rh) / 2.0).round(), cw, hh, rh, fs: (rh * 0.8).clamp(15.0, 32.0), hs: (rh * 0.5).clamp(12.0, 20.0) })
 }
 
 /// The month beside the face (a wide card) or under it (a narrow, tall one), where the card has the room for a grid that reads; `None` leaves the card to the
@@ -406,11 +406,11 @@ fn month_plan(w: f32, h: f32, analog: bool, greeting: bool, token: f32, ampm: bo
         p.greet = greeting && tall;
         p.date_on = date;
         let (gh, dh) = (if p.greet { 43.0 } else { 0.0 }, if date { 42.0 } else { 0.0 });
-        p.ts = fit_time(token, (w * 0.42).round(), h - gh - dh, ampm, 0.0);
+        p.ts = fit_time(token.max((h - gh - dh) * 0.6), (w * 0.4).round(), h - gh - dh, ampm, 0.0);
         col_w = time_w(p.ts, ampm);
         p.face = Box { x: 0.0, y: ((h - gh - p.ts - dh) / 2.0).round(), w: col_w };
     }
-    let rx = col_w + 48.0;
+    let rx = col_w + 28.0;
     p.grid = Some(month_grid(rx, 0.0, w - rx, h)?);
     Some(p)
 }
@@ -662,7 +662,7 @@ impl Clock {
             for i in 0..42 {
                 let (col, row) = ((i % 7) as f32, (i / 7) as f32);
                 cells.push(lines.len());
-                lines.push((Frame::new(g.x + col * g.cw, g.y + g.hh + row * g.rh + (g.rh - g.fs * 1.3) / 2.0, g.cw, g.fs * 1.3), sized(kit, g.fs, Weight::Medium, ink2, Align::Centre), String::new()));
+                lines.push((Frame::new(g.x + col * g.cw, g.y + g.hh + row * g.rh + (g.rh - g.fs * 1.3).max(0.0) / 2.0, g.cw, (g.fs * 1.3).min(g.rh)), sized(kit, g.fs, Weight::Medium, ink2, Align::Centre), String::new()));
             }
             map.grid = Some((heads, cells));
         }
@@ -683,7 +683,7 @@ impl Clock {
         } else { None };
         let today_plate = p.grid.map(|g| {
             let g = g.scaled(k);
-            let (w, h) = ((g.cw * 0.8).min(g.rh * 2.0).round().max(1.0), (g.rh * 0.86).round().max(1.0));
+            let (w, h) = ((g.fs * 2.3).min(g.cw * 0.9).round().max(1.0), (g.rh * 0.9).round().max(1.0));
             (kit.ui.scene.shape(w as u32, h as u32, z + 1, plate::solid(ink, h / 2.0), HIDDEN), g, w, h)
         });
         let p = Plan { dia: p.dia * k, face: Box { x: p.face.x * k, y: p.face.y * k, w: p.face.w * k }, ..p };
@@ -1285,7 +1285,7 @@ mod tests {
         let p = plan(973.0, 166.0, false, true, 92.0, true, false);
         assert_eq!(p.mode, "month");
         let g = grid_in(&p, 973.0, 166.0);
-        assert!(time_w(p.ts, true) + 48.0 <= g.x && !p.date_on, "the time clear of the grid, and the date is the top bar's");
+        assert!(time_w(p.ts, true) + 24.0 <= g.x && !p.date_on, "the time clear of the grid, and the date is the top bar's");
         // with the date kept in the card the time and its date line stand left of the month
         let d = plan(973.0, 166.0, false, true, 92.0, true, true);
         assert!(d.date_on && d.ts + 42.0 <= 166.0 && grid_in(&d, 973.0, 166.0).x >= time_w(d.ts, true));
