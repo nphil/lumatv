@@ -446,6 +446,16 @@ impl Art {
         self.parked = None;
         self.clear();
     }
+    /// The app went out of sight: no layer, picture, copy or backdrop ahead stays held. The page asks for what it shows when it is
+    /// shown again, and the first picture goes up as it is, as on a new page.
+    pub fn release(&mut self) {
+        self.parked = None;
+        self.clear();
+        self.last = None;
+        self.bare = None;
+        self.pictures = Pictures::default();
+        self.ahead.release();
+    }
     /// Nothing of the last art stays on the layer, which is dropped.
     fn clear(&mut self) {
         self.last = self.dip.shown().cloned().or_else(|| self.last.take());

@@ -3,6 +3,7 @@ pub mod capture;
 pub mod diagnosis;
 pub mod diagnostics;
 pub mod helper;
+pub mod hidden;
 pub mod host;
 pub mod input;
 pub mod model;

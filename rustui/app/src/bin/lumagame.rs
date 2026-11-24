@@ -9,6 +9,7 @@ use lumatv_rustui::game::diagnostics::{Diagnostics, Event as DiagnosticEvent, Le
 use lumatv_rustui::game::input::Face;
 use lumatv_rustui::game::{uplink, video};
 use lumatv_rustui::hook::{self, Command as HookCommand, Hook};
+use lumatv_rustui::game::hidden::{Act, Busy, EXIT_AFTER_MS, Hidden};
 use lumatv_rustui::game::model::game::media::VideoRect;
 use lumatv_rustui::game::observer::{Observer, engine_word, phase_word};
 use std::{collections::VecDeque, io, net::SocketAddr, os::fd::AsRawFd, os::unix::net::UnixDatagram, path::{Path, PathBuf}, sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering}, mpsc::{self, Receiver, SyncSender}}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
@@ -16,6 +17,11 @@ use ui::{SceneOptions, Ui};
 
 const W: u32 = 1920;
 const H: u32 = 1080;
+/// The size the task manager's card is asked for (`taskmgr/hook.rs`, `CARD`), which the copy kept while hidden has.
+const KEPT_W: u32 = 640;
+const KEPT_H: u32 = 360;
+/// The longest the release waits for its removals to reach the renderer; the app is hidden, so nothing waits on it.
+const RELEASE_LIMIT: Duration = Duration::from_millis(500);
 /// How soon the page clears after the player grows to full screen, and comes back after it returns to the card.
 const VIDEO_FLAG_MS: u64 = 100;
 static END: AtomicBool = AtomicBool::new(false);
@@ -328,6 +334,18 @@ struct Shell {
 impl Shell {
     /// Hands what the observer found to the diagnostics queue, which keeps only what the level asks for.
     fn report(&mut self) { for event in self.events.drain(..) { self.diagnostics.emit(event); } }
+    /// What keeps a hidden app from closing: anything that is, or may soon be, using the app's engines, pads or the TV's services.
+    fn busy(&self) -> Busy {
+        Busy {
+            streaming: self.model.streaming(),
+            session: self.model.session_active(),
+            engine: self.host.any_running(),
+            launching: self.channel.as_ref().is_some_and(Channel::pending),
+            pads: self.lease.held(),
+            sign_in: self.model.view.auth.is_some(),
+            player: self.video_up,
+        }
+    }
     fn observe_level(&mut self, now_ms: u64) {
         self.observer.configure(self.diagnostics.level(), now_ms, &mut self.events);
         self.report();
@@ -537,6 +555,7 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
     let (data, temporary) = store::data_dir(&o.data)?;
     let (store, snapshot) = Store::open(data.clone())?;
     let video_full_flag = data.join(video::FULL_FLAG);
+    let dwell = hidden_dwell(&data);
     diagnostics.configure(snapshot.diagnostics.clone());
     let (installed, notices) = host::discover(&o.engines)?;
     let mut model = Model::new(snapshot.state, snapshot.listing, installed.iter().map(|engine| engine.manifest.clone()).collect());
@@ -606,6 +625,9 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
     // Not fatal: without the socket LumaTV's task manager has no card or quit hook for LumaGame, and the app runs as before.
     let hook = Hook::start(&spec.app_id).map_err(|e| eprintln!("lumagame: the task-manager hook is off: {e}")).ok();
     let mut signalled = false;
+    let mut hidden = Hidden::new(dwell);
+    // The task manager's card while the page is released, at the size the compositor asks for.
+    let mut kept: Option<Vec<u8>> = None;
     let mut fds = Vec::new();
     let mut frame = 0u64;
     let mut last_flash = None;
@@ -629,7 +651,7 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
             match command {
                 // the same path as SAM's close and SIGTERM: the model stops any session, saves state and exits
                 HookCommand::Quit => if !signalled { inputs.push(Input::Close); signalled = true; },
-                HookCommand::Snapshot { path, w, h, reply } => { let _ = reply.send(hook_snapshot(&renderer, frame, &path, w, h)); }
+                HookCommand::Snapshot { path, w, h, reply } => { let _ = reply.send(hook_snapshot(&renderer, frame, kept.as_deref(), &path, w, h)); }
             }
         }
         for event in window.events() {
@@ -684,6 +706,31 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
             if let Some(seq) = trace.observe(state, trace_events) {
                 eprintln!("lumagame-trace: ms={now_ms} seq={seq} events={trace_events} window_state={trace_window_state:?} page={:?} foreground={} phase={} wants_frames={visible} want_frame={want_frame} painted_ui={painted_ui} eligible={} frame={frame} exiting={exiting}", state.page, state.foreground, state.phase, state.foreground && (visible || painted_ui));
             }
+        }
+        let mut exiting = exiting;
+        match hidden.step(now_ms, shell.model.foreground(), shell.busy()) {
+            Act::Nothing => {}
+            Act::Release => {
+                kept = (frame > 0).then(|| hook::scale(&renderer.read_page(0), W, H, KEPT_W, KEPT_H));
+                page.release();
+                // The removals reach the renderer and its textures are freed before the caches and the heap are trimmed.
+                let began_release = Instant::now();
+                loop {
+                    while let Ok(event) = events.try_recv() { page.ui.scene.observe(&event); }
+                    if page.ui.scene.has_pending() { page.ui.try_commit()?; }
+                    renderer.pump()?; renderer.apply_waiting(now_ns()); renderer.tidy();
+                    if !page.ui.scene.has_pending() && !renderer.tidy_more() { break; }
+                    if began_release.elapsed() > RELEASE_LIMIT { break; }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                renderer.trim_hidden();
+            }
+            Act::Restore => { kept = None; want_frame = true; painted_ui = true; }
+            Act::Exit => if !signalled {
+                // the same path as SAM's close and SIGTERM
+                signalled = true;
+                exiting = shell.inputs([Input::Close], &pads, now_ms)?;
+            },
         }
         if exiting { return Ok(()); }
         // Running keeps only the opt-in HUD; Off commits a transparent scene once and leaves the window idle.
@@ -750,7 +797,7 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
             renderer.apply_waiting(now);
             if renderer.tidy_more() { renderer.tidy(); continue; }
             renderer.idle_moment(false);
-        } else if !shell.model.foreground() { want_frame = true; painted_ui = true; }
+        } else if !shell.model.foreground() { want_frame = true; painted_ui = true; renderer.idle_moment(false); }
         let mut wait_ms = shell.host.wait_ms(now_ms).min(shell.lease.wait_ms(now_ms)).min(shell.stats.wait_ms(now_ms));
         if page.art_busy() || shell.art.inflight() > 0 || !shell.art_waiting.is_empty() { wait_ms = wait_ms.min(16); }
         if let Some(ms) = page.wake_ms(now_ms) { wait_ms = wait_ms.min(ms); }
@@ -769,12 +816,26 @@ fn run(o: Options, diagnostics: &Diagnostics) -> io::Result<()> {
     }
 }
 
-/// The task manager's card: the UI's last presented frame (the render target keeps it whatever the window swapped since). A stream or
-/// video on the hardware layer is not in it, so over a playing game the card is the UI's frame, mostly transparent and so black.
-fn hook_snapshot(renderer: &Engine, frame: u64, path: &Path, w: u32, h: u32) -> Result<(), String> {
-    if frame == 0 { return Err("no frame has been presented yet".into()); }
-    let rows = renderer.read_page(0);
-    hook::write_snapshot(path, &hook::scale(&rows, W, H, w, h)).map_err(|e| e.to_string())
+/// The task manager's card: the UI's last presented frame (the render target keeps it whatever the window swapped since), or the copy
+/// kept when the page was released (the target is not drawn again until the app is shown). A stream or video on the hardware layer is
+/// not in it, so over a playing game the card is the UI's frame, mostly transparent and so black.
+fn hook_snapshot(renderer: &Engine, frame: u64, kept: Option<&[u8]>, path: &Path, w: u32, h: u32) -> Result<(), String> {
+    let card = match kept {
+        Some(kept) => hook::scale(kept, KEPT_W, KEPT_H, w, h),
+        None if frame == 0 => return Err("no frame has been presented yet".into()),
+        None => hook::scale(&renderer.read_page(0), W, H, w, h),
+    };
+    hook::write_snapshot(path, &card).map_err(|e| e.to_string())
+}
+
+/// How long a hidden app waits, with nothing going on, before it closes: [`EXIT_AFTER_MS`], or the milliseconds a marker file in the
+/// app's data directory names for the one start that finds it (the file is deleted when read), so a test on the set need not wait the
+/// real ten minutes. Never longer than the real dwell, and never shorter than a second.
+fn hidden_dwell(data: &Path) -> u64 {
+    let marker = data.join("hidden-dwell-ms");
+    let text = std::fs::read_to_string(&marker).ok();
+    if text.is_some() { let _ = std::fs::remove_file(&marker); }
+    text.and_then(|text| text.trim().parse::<u64>().ok()).map_or(EXIT_AFTER_MS, |ms| ms.clamp(1_000, EXIT_AFTER_MS))
 }
 
 struct ThemeWatch {
@@ -926,5 +987,18 @@ mod tests {
         assert!(inside(&cache, Path::new("cover")).is_some());
         assert!(inside(&cache, Path::new("../secrets.json")).is_none());
         assert!(inside(&cache, Path::new("link")).is_none());
+    }
+
+    #[test]
+    fn the_dwell_marker_is_read_once_clamped_and_deleted() {
+        let root = std::env::var_os("CODY_DATA_SCRATCH").or_else(|| std::env::var_os("TMPDIR")).map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+        let dir = tempfile::tempdir_in(root).unwrap();
+        assert_eq!(hidden_dwell(dir.path()), EXIT_AFTER_MS);
+        let marker = dir.path().join("hidden-dwell-ms");
+        for (text, want) in [("5000\n", 5_000), ("1", 1_000), ("99999999999", EXIT_AFTER_MS), ("soon", EXIT_AFTER_MS)] {
+            std::fs::write(&marker, text).unwrap();
+            assert_eq!(hidden_dwell(dir.path()), want);
+            assert!(!marker.exists());
+        }
     }
 }

@@ -98,6 +98,13 @@ impl Ahead {
     pub fn holds(&self, key: &Key) -> bool {
         self.held.iter().any(|(held, _)| held.same_picture(key))
     }
+    /// Lets go of every picture and every name; a decode that lands later is kept only if the page names it again.
+    pub fn release(&mut self) {
+        self.wanted.clear();
+        self.held.clear();
+        self.failed.clear();
+        self.flying = None;
+    }
     /// The picture, which the page now holds in its stead.
     pub fn take(&mut self, key: &Key) -> Option<(Key, Image)> {
         let at = self.held.iter().position(|(held, _)| held.same_picture(key))?;

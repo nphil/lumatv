@@ -260,6 +260,8 @@ impl Lease {
 
     fn notify(&self) { if let Some(wake) = &self.wake { let _ = wake.try_send(()); } }
     pub fn notice(&self) -> Option<String> { self.notices.try_recv().ok() }
+    /// Whether the pads are leased, or asked for and not yet given.
+    pub fn held(&self) -> bool { self.wanted.load(Ordering::Acquire) }
     pub fn wait_ms(&self, now_ms: u64) -> u64 { if self.wanted.load(Ordering::Acquire) { self.due.saturating_sub(now_ms) } else { u64::MAX } }
 }
 

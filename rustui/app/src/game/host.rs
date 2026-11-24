@@ -212,6 +212,11 @@ impl Supervisor {
         }
     }
 
+    /// Whether any engine is still running, one told to stop and not yet gone included.
+    pub fn any_running(&self) -> bool {
+        self.slots.values().any(|slot| slot.running.is_some())
+    }
+
     pub fn lifecycle_commands(&mut self) -> Vec<FromApp> {
         let mut out = Vec::new();
         for slot in self.slots.values_mut() {

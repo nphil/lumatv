@@ -44,7 +44,7 @@ use crate::clock::now_ns;
 use crate::damage::Region;
 use crate::geometry::Panel;
 use crate::gl::{Gles, RenderTarget};
-use crate::idle::{Idle, Process};
+use crate::idle::{Host, Idle, Process};
 use crate::ops::{Op, Transaction};
 use crate::programs::Cache;
 use crate::renderer::{Draw, DrawReport, Planned, Renderer, Surface};
@@ -998,6 +998,17 @@ impl Engine {
     /// When the idle housekeeping next wants the loop to wake.
     pub fn idle_wake_at(&self, ready: bool) -> Option<u64> {
         self.idle.as_ref().and_then(|idle| idle.wake_at(ready))
+    }
+
+    /// For an app that went out of sight and let go of its layers (the client's own side): frees what the renderer keeps for the next
+    /// frame whatever its age ([`Renderer::trim_hidden`]), and has the C library return the heap pages that were freed with them. The
+    /// bytes of GPU memory let go of; call it with no frame on the GPU, after the layers' removal was applied and tidied.
+    pub fn trim_hidden(&mut self) -> u64 {
+        self.scoped(|engine| {
+            let freed = engine.renderer.trim_hidden().bytes();
+            let _ = Process.purge_heap();
+            freed
+        })
     }
 
     fn forward_events(&mut self) {

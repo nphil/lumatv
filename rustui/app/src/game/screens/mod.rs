@@ -210,6 +210,22 @@ impl GameUi {
         self.revision = None;
         self.art.reset();
     }
+    /// The app went out of sight with no stream to show: every layer, decoded cover and backdrop is let go, and the next `show` plans
+    /// the page again from the model, with the art asked for anew.
+    pub fn release(&mut self) {
+        self.nodes.clear();
+        self.hits.clear();
+        self.groups.clear();
+        self.leaving.clear();
+        self.enters.clear();
+        self.images.clear();
+        self.bytes = 0;
+        self.art.release();
+        self.page = None;
+        self.revision = None;
+        self.settled = false;
+        self.shift = 0.0;
+    }
     pub fn hit_test(&self, x: f32, y: f32) -> Option<Focus> {
         self.hits.iter().rev().find(|(_, f, group)| {
             if let Some(group) = group.and_then(|id| self.groups.get(&id)) {

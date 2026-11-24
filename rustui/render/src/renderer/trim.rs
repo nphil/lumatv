@@ -69,6 +69,16 @@ impl Renderer {
     /// Gives back the memory that only makes the next frame cheaper (see the module's account). Call it with no frame on the GPU
     /// and nothing waiting to be drawn; a frame drawn after it is the frame drawn without it, and a little slower once.
     pub fn trim(&mut self) -> Trimmed {
+        self.trim_unused(UNUSED_FRAMES)
+    }
+
+    /// [`Renderer::trim`] for an app that is out of sight and draws nothing until it is shown again: the cached backdrops and plates go
+    /// whatever their age, since the frames that would age them are not coming. The layers' textures are not touched.
+    pub fn trim_hidden(&mut self) -> Trimmed {
+        self.trim_unused(0)
+    }
+
+    fn trim_unused(&mut self, unused: u64) -> Trimmed {
         let mut done = Trimmed {
             graveyard: u32::try_from(self.graveyard.len()).unwrap_or(u32::MAX),
             ..Trimmed::default()
@@ -76,11 +86,11 @@ impl Renderer {
         for name in self.graveyard.drain(..) {
             self.gl.delete_texture(name);
         }
-        let (pool, backdrops) = self.backdrops.release_idle(&self.gl, UNUSED_FRAMES);
+        let (pool, backdrops) = self.backdrops.release_idle(&self.gl, unused);
         done.pool = pool;
         done.backdrops = backdrops;
         for p in 0..self.plates.len() {
-            if self.frame.saturating_sub(self.plates_used[p]) < UNUSED_FRAMES {
+            if self.frame.saturating_sub(self.plates_used[p]) < unused {
                 continue;
             }
             if let Some(plate) = self.plates[p].take() {

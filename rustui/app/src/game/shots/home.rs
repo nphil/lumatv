@@ -60,7 +60,20 @@ pub(super) fn walks() -> Vec<Walk> {
     page.push(Step::Expect("on the game's page", |m, _| m.view.page == Page::Game));
     page.extend(taps(&[(Key::Back, 300)]));
     page.push(Step::Expect("back on the tile", |m, _| m.view.page == Page::Home && m.view.focus == m.home_focus()));
-    vec![Walk { name: "home-right-walk".into(), base: home(), script: right }, Walk { name: "home-down-up".into(), base: home(), script: page }]
+    // Hidden and shown again: everything is let go at once, then Home draws with what it has and the art comes back a picture a frame.
+    let hidden = vec![
+        Step::Release,
+        Step::Expect("no layer, node or art kept", |_, page| page.retained_counts() == (0, 0) && !page.art_layer_up()),
+        Step::Wait(100),
+        Step::Expect("Home drawn again at once", |_, page| page.retained_counts().0 > 0),
+        Step::Settle,
+        Step::Expect("the art back", |_, page| page.art_layer_up()),
+    ];
+    vec![
+        Walk { name: "home-right-walk".into(), base: home(), script: right },
+        Walk { name: "home-down-up".into(), base: home(), script: page },
+        Walk { name: "home-hide-show".into(), base: home(), script: hidden },
+    ]
 }
 
 #[test]

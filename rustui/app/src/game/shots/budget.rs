@@ -30,6 +30,9 @@ pub(super) enum Step {
     Wait(u32),
     /// Frames pass until the page's art and text have settled: a dip has run its course.
     Settle,
+    /// The app goes out of sight and comes back: the page lets go of everything it holds (`GameUi::release`) and is planned again by the
+    /// next frame, as the first frames of a page.
+    Release,
     /// The page must be in this state now, or the walk is broken.
     Expect(&'static str, fn(&Model, &GameUi) -> bool),
 }
@@ -193,6 +196,10 @@ fn run(shots: &mut Shots, walk: &Walk) -> io::Result<Report> {
             }
             Step::Wait(ms) => run.wait(*ms)?,
             Step::Settle => run.settle()?,
+            Step::Release => {
+                run.shots.page.release();
+                run.page = None;
+            }
             Step::Expect(what, holds) => {
                 if !holds(&run.model, &run.shots.page) {
                     let frame = run.report.frames;
