@@ -19,3 +19,7 @@ Installed on the C4: helper 6e05f76d -> 696e735f, lumatv-ui bdd2884c -> 686031e6
 ## 2026-11-23 helper install (main 6950ab31)
 
 Installed on the C4: helper 696e735f -> 2998ff4c (payload and bin, live swap, pid 25817 -> 9920, compositor untouched), carrying the TrueHD passthrough's takeover of LG's mixer input for the player's own stream. The running helper's exe reads 2998ff4c and `GET /v1/audio-passthrough/route` answers unarmed. Not yet tried on the set: the takeover, retake and give-back during a Marquee TrueHD Load; that uMS lists Marquee's pipeline holding `PCMMC4` (taken from its `smp_cb` resource list); audiooutputd's connect of `AMIXER4` without `pipelineAttribute`.
+
+## 2026-11-24 helper install (main 5ac499ca)
+
+Installed on the C4 with nothing playing and the passthrough unarmed: helper 2998ff4c -> 9ec753c5 (payload and bin, live swap, pid 4733 -> 10438, compositor untouched); the running exe reads 9ec753c5. After a mixer takeover the ADEC connect now follows the un-mix, since the output codec follows the main input, which stayed AMIXER4 in the 22:59 run. Not yet tried on the set: Pass-Through showing within the 1 s grace after that connect.
