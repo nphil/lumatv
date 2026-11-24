@@ -57,6 +57,13 @@ struct Fit {
 /// What `Heavy` aims for at 1080 lines, in kbit/s: a station's MPEG-2 is at most ATSC's 19.4 Mbit/s, and H.264 holds a picture in about half.
 const HEAVY_KBPS: u32 = 9000;
 
+/// Whole frames a second of what a profile makes of an interlaced station, for `interlacedFps` of the status: `None` from 50 up, a profile that
+/// keeps the field rate (59.94) and moves as smoothly as the original.
+fn interlaced_fps(rate: (u32, u32)) -> Option<u32> {
+    let fps = (rate.0 + rate.1 / 2) / rate.1;
+    (fps < 50).then_some(fps)
+}
+
 impl Profile {
     /// Every profile, the best picture first: the order `/status.json` lists the ones a converter makes in.
     pub const ALL: [Self; 6] = [Self::Heavy, Self::Mobile, Self::Internet540, Self::Internet480, Self::Internet360, Self::Internet240];
@@ -101,14 +108,16 @@ impl Profile {
         }
     }
 
-    /// The profile as `/status.json` lists it: `maxHeight` is `null` for the one that keeps the station's size, and `kbps` is what the profile aims for
-    /// at its largest picture (a smaller station picture gets less).
+    /// The profile as `/status.json` lists it: `maxHeight` is `null` for the one that keeps the station's size, `kbps` is what the profile aims for
+    /// at its largest picture (a smaller station picture gets less), and `interlacedFps` is the frames a second it makes of a 1080i or 480i station
+    /// (`null` for a profile that keeps the field rate).
     pub fn describe(self) -> serde_json::Value {
         let (max_height, kbps) = match self.fit() {
             Some(fit) => (Some(fit.wide.1), fit.kbps),
             None => (None, HEAVY_KBPS),
         };
-        serde_json::json!({ "name": self.name(), "codec": "h264", "maxHeight": max_height, "progressive": true, "kbps": kbps })
+        let interlaced_fps = interlaced_fps(self.want(&Format::FALLBACK).rate);
+        serde_json::json!({ "name": self.name(), "codec": "h264", "maxHeight": max_height, "progressive": true, "kbps": kbps, "interlacedFps": interlaced_fps })
     }
 
     /// What the profile asks for a station's picture. A box profile halves a rate above 30 frames a second (59.94 becomes 29.97, 50 becomes 25),
@@ -841,7 +850,7 @@ pub(crate) mod tests {
     #[test]
     fn the_status_page_describes_each_profile_from_the_box_and_the_rate_want_uses() {
         let json = |name: &str, max_height: Option<u32>, kbps: u32| {
-            serde_json::json!({ "name": name, "codec": "h264", "maxHeight": max_height, "progressive": true, "kbps": kbps })
+            serde_json::json!({ "name": name, "codec": "h264", "maxHeight": max_height, "progressive": true, "kbps": kbps, "interlacedFps": 30 })
         };
         assert_eq!(
             Profile::ALL.map(Profile::describe),
@@ -862,6 +871,8 @@ pub(crate) mod tests {
             }
         }
         assert_eq!(Profile::ALL.map(Profile::name), ["heavy", "mobile", "internet540", "internet480", "internet360", "internet240"]);
+        assert_eq!(Profile::ALL.map(|p| p.describe()["interlacedFps"].as_u64()), [Some(30); 6], "1080i and 480i come out as whole 29.97 frames");
+        assert_eq!([(30000, 1001), (25, 1), (60000, 1001), (50, 1)].map(interlaced_fps), [Some(30), Some(25), None, None], "the field rate says null");
     }
 
     #[test]

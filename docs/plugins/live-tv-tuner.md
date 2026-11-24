@@ -16,7 +16,7 @@ On the TV's private address, port 5004 (`hdhr` in `helper.json`: `port`, `bind`,
 | Request | Answer |
 |---|---|
 | `GET /discover.json` | the device: name, id, `TunerCount` 1, `BaseURL`, `LineupURL` |
-| `GET /lineup.json`, `/lineup_status.json` | the TV's antenna channels, one per number, and an antenna that is not scanning |
+| `GET /lineup.json`, `/lineup_status.json` | the TV's antenna channels, one per number (with `interlaced`, `height` and `fps` once a channel has been seen on air, below), and an antenna that is not scanning |
 | `GET /lineup.m3u` | the same lineup as an M3U playlist; `url-tvg` names the guide |
 | `GET /status.json` | who has the tuner, without tuning or asking the TV: `{"holder": {"ip", "name", "channel", "channelName", "since"}}` (`name` is `Plex` for the signed-in Plex server's address or a Plex user agent, else the user agent's product; `since` in Unix ms), or `{"holder": null}` while no client's stream has it; `displaced` lists who lost the tuner (below); `transcode` says whether the converter is on and what it makes (below) |
 | `GET /xmltv.xml` | the TV's own guide, a day back to six days ahead, as XMLTV; with the Guide data plugin on, the online listings laid over it ([guide-data.md](guide-data.md)) |
@@ -76,9 +76,14 @@ so a player draws it in the station's shape; a shape within 2 % of square carrie
 400 and `802 Unknown Transcode Profile`. The first picture comes about 1.5 s after the request (3 s at most) and no slate is sent: the
 messages in the stream are MPEG-2. `mobile` and `heavy` are measured on the set (1080i, 720p60, 480i, 4:3 and 16:9 SD); the `internet` profiles are tested on the host only. The video chain needs about 30 MB of contiguous memory (CMA, `CmaFree`); when the apps kept ready hold it, the converter closes them for the stream (last in the Keep apps ready order first) and, when that cannot make the room, serves the station as it is sent.
 
-The video hardware is the TV's own, so the converter gives way. It converts only while Home or LumaTV is in front and no other program
-holds a video decoder; when an app takes the hardware the stream ends within a second and the page says `Paused` and why. A player
-reconnects when a stream ends, and a request that comes while the hardware is taken is served as the station sends it. Also:
+The video hardware is the TV's own, so the converter gives way. It converts while Home or LumaTV is in front, or a native game (LumaGame,
+Punktfunk) is in front with its own stream up, and the media server's pipelines leave it one video decoder, one MPEG-2 core and the
+encoder (the TV counts four video decoders, four MPEG-2 cores and one encoder: Netflix in 4K holds all four decoders, a 1080p player two).
+Any other app in front or starting ends it. When an app takes the hardware the stream ends within a second and the page says `Paused`
+and why (`netflix is in front`, `org.nphil.lumagame holds the video decoders (4 of 4)`). A player reconnects when a stream ends, and a
+request that comes while the hardware is taken is served as the station sends it. Beside a game's stream the chain also needs its memory
+(CMA) free, and the kept apps are closed already in game mode, so a request the memory cannot hold is served as the station sends it;
+this is not yet measured on the set. Also:
 
 - a station that is H.264 already is sent as the station sends it: the converter makes H.264 from MPEG-2 only;
 - a converter that cannot start, or stalls, leaves the request as MPEG-2 and rests for a minute;
@@ -123,16 +128,24 @@ entry goes when the same client starts a stream again.
 first also as `"holder"`; `shared` is true while another viewer is on the RF channel) and `"sameRf": [{"rf", "channels": ["2.1", "2.4"]}]`
 (the lineup's channels grouped by RF channel, two or more each: these can be watched together).
 
-`/status.json` also says what the converter makes: `"transcode": {"enabled", "profiles": [{"name", "codec", "maxHeight", "progressive", "kbps"}]}`.
+`/status.json` also says what the converter makes: `"transcode": {"enabled", "profiles": [{"name", "codec", "maxHeight", "progressive", "kbps", "interlacedFps"}]}`.
 `enabled` mirrors *Make H.264 for players that ask*. `profiles` lists the profiles measured on the set, best picture first, and is empty while
 the setting is off; a profile left out is still made when a request names it. `codec` is `h264`; `maxHeight` is the tallest picture in lines,
-`null` where the station's own size is kept; `progressive` is true for every profile; `kbps` is the video rate at the largest picture. Now:
-`[{"name": "mobile", "codec": "h264", "maxHeight": 720, "progressive": true, "kbps": 3500}]`.
+`null` where the station's own size is kept; `progressive` is true for every profile; `kbps` is the video rate at the largest picture;
+`interlacedFps` is the frames a second the profile makes of an interlaced station (1080i, 480i): 30 (29.97) for every profile today, `null` for a
+profile that keeps the field rate (59.94). Now:
+`[{"name": "mobile", "codec": "h264", "maxHeight": 720, "progressive": true, "kbps": 3500, "interlacedFps": 30}]`.
+
+`GET /lineup.json` lists, for a channel whose MPEG-2 picture the tuner has seen on air, `"interlaced"` (true for 1080i and 480i, false for 720p),
+`"height"` in lines and `"fps"` in frames a second (29.97 for 1080i, whose fields come at 59.94; 59.94 for 720p60), read from the picture's
+sequence header and kept across restarts. A channel not tuned or checked yet, and one whose picture is H.264, lists none of the three: a client
+takes it as interlaced. A client that prefers smooth motion takes the original stream for interlaced channels and a profile whose
+`interlacedFps` is null or ≥ 50 otherwise.
 
 The tuner answers while the TV is on with any app in front, or off in Always Ready (Active Standby). A stream takes only the tuner and
 the section decoder: the app in front keeps its picture and sound (Netflix in 4K, which holds every video decoder, too), and the TV's
 last channel stays as it was. With Always Ready off, a TV switched off sleeps and nothing answers; the plugin's page says so.
-A conversion is the exception: it also takes a video decoder and the encoder, and gives them up when an app other than Home needs them.
+A conversion is the exception: it also takes a video decoder and the encoder, and gives them up as soon as an app needs them.
 
 ## Channel change
 

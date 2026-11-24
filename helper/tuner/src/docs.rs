@@ -1,6 +1,7 @@
 //! The HDHomeRun documents: what Plex (and Jellyfin, Emby, Tvheadend) read to find a network tuner, see how many streams it can make and
 //! list its channels. Pure functions of the TV's channel list and a name.
 
+use crate::mpeg2::Format;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -100,12 +101,22 @@ pub fn lineup_status() -> Value {
     json!({"ScanInProgress": 0, "ScanPossible": 1, "Source": "Antenna", "SourceList": ["Antenna"]})
 }
 
-/// `/lineup.json`.
-pub fn lineup(entries: &[Entry], base: &str) -> Value {
+/// `/lineup.json`. A channel whose MPEG-2 picture the tuner has seen (`seen` gives its format) also says `interlaced`, its `height` in lines and
+/// its frame rate `fps`, 29.97 for 1080i (59.94 fields a second) and 59.94 for 720p60. A channel not seen yet says none of the three: a client
+/// takes it as interlaced.
+pub fn lineup(entries: &[Entry], base: &str, seen: impl Fn(&str) -> Option<Format>) -> Value {
     Value::Array(
         entries
             .iter()
-            .map(|e| json!({"GuideNumber": e.guide, "GuideName": e.name, "URL": format!("{base}/auto/v{}", e.guide)}))
+            .map(|e| {
+                let mut channel = json!({"GuideNumber": e.guide, "GuideName": e.name, "URL": format!("{base}/auto/v{}", e.guide)});
+                if let Some(format) = seen(&e.guide) {
+                    channel["interlaced"] = json!(!format.progressive);
+                    channel["height"] = json!(format.height);
+                    channel["fps"] = json!((format.fps() * 100.0).round() / 100.0);
+                }
+                channel
+            })
             .collect(),
     )
 }
@@ -320,7 +331,7 @@ mod tests {
         );
         assert_eq!(lineup_status()["Source"], "Antenna");
         assert_eq!(lineup_status()["ScanInProgress"], 0);
-        let l = lineup(&entries(&reply()), base);
+        let l = lineup(&entries(&reply()), base, |_| None);
         assert_eq!(
             l[1],
             json!({"GuideNumber": "2.4", "GuideName": "WEST", "URL": "http://192.168.1.242:5004/auto/v2.4"})
@@ -347,6 +358,24 @@ mod tests {
             major: 0,
             minor: 0,
         }
+    }
+
+    #[test]
+    fn a_channel_seen_on_air_says_its_scan_height_and_rate_and_one_not_seen_says_none() {
+        let list = [entry("2.1", "A", "1_25_2_1_0_0_0"), entry("11.11", "B", "1_25_11_11_0_0_0"), entry("9.1", "C", "1_9_9_1_0_0_0")];
+        let hd720 = Format { width: 1280, height: 720, rate: 7, aspect: 3, progressive: true };
+        let seen = |guide: &str| match guide {
+            "2.1" => Some(hd720),
+            "11.11" => Some(Format::FALLBACK),
+            _ => None,
+        };
+        let l = lineup(&list, "http://tv:5004", seen);
+        assert_eq!(
+            l[0],
+            json!({"GuideNumber": "2.1", "GuideName": "A", "URL": "http://tv:5004/auto/v2.1", "interlaced": false, "height": 720, "fps": 59.94})
+        );
+        assert_eq!((l[1]["interlaced"].clone(), l[1]["height"].clone(), l[1]["fps"].clone()), (json!(true), json!(1080), json!(29.97)));
+        assert_eq!(l[2], json!({"GuideNumber": "9.1", "GuideName": "C", "URL": "http://tv:5004/auto/v9.1"}), "unknown until it has been tuned");
     }
 
     #[test]

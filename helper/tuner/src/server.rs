@@ -334,7 +334,7 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
         ("GET", "/lineup_status.json") => json(&mut stream, &docs::lineup_status()),
         ("GET", "/status.json") => json(&mut stream, &facade.status_doc()),
         ("GET", "/lineup.json") => match facade.lineup() {
-            Ok(entries) => json(&mut stream, &docs::lineup(&entries, &base)),
+            Ok(entries) => json(&mut stream, &docs::lineup(&entries, &base, |guide| facade.format_of(guide))),
             Err(f) => reply(&mut stream, f.status(), "text/plain", f.reason().as_bytes()),
         },
         ("GET", "/lineup.m3u") => match facade.lineup() {
@@ -501,6 +501,38 @@ mod tests {
             get(&server, "POST /lineup.post?scan=start HTTP/1.1\r\n\r\n")
                 .starts_with(b"HTTP/1.1 200")
         );
+    }
+
+    #[test]
+    fn the_lineup_says_how_a_seen_channel_is_scanned_and_leaves_the_rest_unsaid() {
+        use crate::health::Seen;
+        use crate::mpeg2::Format;
+        use crate::splice::Layout;
+        let time = Time::default();
+        let tuning = served();
+        let facade = Facade::new(
+            Arc::new(Shared(fake_with(&time, rf32(&[]), vec![]))),
+            Identity { name: "LumaTV".into(), device_id: "0A1B2C3D".into() },
+            Limits::default(),
+            time.clock(),
+            tuning.clone(),
+            None,
+        );
+        let server = Server::start(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), Arc::new(facade), vec![Cidr::parse("127.0.0.0/8").unwrap()]).unwrap();
+        let lineup = || serde_json::from_slice::<Value>(split(&get(&server, "GET /lineup.json HTTP/1.1\r\n\r\n")).1).unwrap();
+        let scan = |l: &Value, i: usize| (l[i]["interlaced"].clone(), l[i]["height"].clone(), l[i]["fps"].clone());
+        let unknown = (Value::Null, Value::Null, Value::Null);
+        let before = lineup();
+        assert_eq!((scan(&before, 0), scan(&before, 1)), (unknown.clone(), unknown.clone()), "nothing is said until a channel has been tuned");
+
+        let layout = |video_type| Layout { video_type, ..Layout::fallback(1) };
+        let hd720 = Format { width: 1280, height: 720, rate: 7, aspect: 3, progressive: true };
+        tuning.saw("2.1", Seen { format: hd720, layout: layout(0x02), tsid: 1 });
+        tuning.saw("2.4", Seen { format: Format::FALLBACK, layout: layout(0x1B), tsid: 1 });
+        let after = lineup();
+        let (progressive, height, fps) = (serde_json::json!(false), serde_json::json!(720), serde_json::json!(59.94));
+        assert_eq!(scan(&after, 0), (progressive, height, fps), "2.1 is 720p60");
+        assert_eq!(scan(&after, 1), unknown, "an H.264 picture's format is not read");
     }
 
     #[test]
@@ -745,8 +777,8 @@ mod tests {
             serde_json::json!({
                 "enabled": true,
                 "profiles": [
-                    {"name": "heavy", "codec": "h264", "maxHeight": null, "progressive": true, "kbps": 9000},
-                    {"name": "mobile", "codec": "h264", "maxHeight": 720, "progressive": true, "kbps": 3500},
+                    {"name": "heavy", "codec": "h264", "maxHeight": null, "progressive": true, "kbps": 9000, "interlacedFps": 30},
+                    {"name": "mobile", "codec": "h264", "maxHeight": 720, "progressive": true, "kbps": 3500, "interlacedFps": 30},
                 ]
             })
         );

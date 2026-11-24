@@ -846,6 +846,13 @@ impl Facade {
         entries.retain(|e| !hidden.contains(&e.guide));
         Ok(entries)
     }
+
+    /// The picture format of channel `guide` as it was last seen on air, for the lineup: `None` until the channel has been tuned (or checked) once,
+    /// and for a picture that is not MPEG-2, whose format the tuner does not read.
+    pub(crate) fn format_of(&self, guide: &str) -> Option<Format> {
+        self.tuning.seen(guide).filter(|s| s.layout.video_type == 0x02).map(|s| s.format)
+    }
+
     /// The XMLTV guide of the lineup, from the TV's own listings, one read per channel, or the host's guide made from them when it has one.
     /// Kept for `guide_ttl`, or until the host's guide changes: a client that asks again gets the same document, and one that asks while it
     /// is being read waits for it. A channel the TV cannot answer for is listed without its own programmes; only when no channel could be

@@ -6,7 +6,7 @@
 //! | Part | What it does |
 //! |---|---|
 //! | [`child`] | writes the child program (`lumatv-venc xcode`, built into the helper) to the set's RAM disk while the transcoder is on |
-//! | [`gate`] | closes the engine while an app other than Home and LumaTV's shell is in front, starting, or holds a video decoder |
+//! | [`gate`] | closes the engine while an app other than Home, LumaTV's shell and a game with its stream up is in front or starting, or the media server's pipelines hold the decoder, MPEG-2 core or encoder it needs |
 //! | [`codec`] | the tuner's `Codec`: a stream's pictures as one `Live` job of the engine; faults in the tuner's words |
 //!
 //! It exists only while the Live TV Tuner plugin is on and its "Make H.264 for players that ask" setting is on (`tuner.rs`): nothing is
@@ -17,6 +17,7 @@ mod child;
 mod codec;
 mod gate;
 
+use crate::app_priority::game::GAMES;
 use crate::ctx::Ctx;
 use gate::Gate;
 use lumatuner::Codec;
@@ -51,10 +52,12 @@ impl Xcode {
             thread::Builder::new().name("xcode-events".to_owned()).stack_size(128 * 1024).spawn(move || follow(&events, &wake))?
         };
         let ours = vec![HOME.to_owned(), ctx.config.brand_app_id.clone().unwrap_or_else(|| "org.nphil.lumatv".to_owned())];
+        let games = GAMES.iter().map(|game| (*game).to_owned()).collect();
         let (holder, watcher) = (engine.clone(), engine.clone());
         let gate = Gate::start(
             &ctx.config.luna.send,
             ours,
+            games,
             Box::new(move |why| holder.hold(GATE, why.as_deref())),
             Box::new(move || watcher.snapshot().jobs.iter().any(|job| job.state != JobKind::Ended)),
         );
