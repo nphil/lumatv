@@ -8,9 +8,9 @@
 //!    rides inside that PCM, and LG's renderer passes the words through untouched.
 //! 2. The eARC output words are un-mixed (`Mix_option` 1 to 0) so LG stops mixing its system sounds into that stream. Not at the
 //!    arm: once the player reports its stream flowing ([`Route::flowing`]), or [`UNMIX_FALLBACK_MS`] after the arm.
-//! 3. Once the kernel reports `Pass-Through` and the stream has been flowing for [`CONNECT_DWELL_MS`], the ADEC the player's
-//!    renderer was granted is connected to the main output and, when the kernel holds it muted, unmuted with a mute true/false
-//!    pair (audiooutputd skips a lone unmute). That last step is what makes the TV's eARC transmitter send the stream to the
+//! 3. Once the kernel reports `Pass-Through` after the un-mix, the ADEC the player's renderer was granted is connected to the
+//!    main output and, when the kernel holds it muted, unmuted with a mute true/false pair [`UNMUTE_AFTER_MUTE_MS`] apart
+//!    (audiooutputd skips a lone unmute). That last step is what makes the TV's eARC transmitter send the stream to the
 //!    receiver.
 //!
 //! LG putting its mixed words back once is answered by un-mixing them again, while the session's decoder is still the only one in
@@ -57,17 +57,14 @@ pub(crate) const DRIVER_BUSY: &str = "LG's audio driver is busy: a read of its f
 /// 8 channels of 16-bit PCM at 192 kHz, which carry an encoded stream in IEC 61937 bursts (lgroute.c).
 const CONVERTER_COMMAND: &str = "0x50020020 192000 8 16 0 0 192000 8 16\n";
 
-/// How long the stream must have been flowing before the ADEC is connected. The kernel cannot tell a stream from silence, and the
-/// player starts the stream the moment the route reports bypass; the proven window connected 3 s after that.
-const CONNECT_DWELL_MS: u64 = 3000;
 /// The player turns its sink's `pcm-multi-ch` back on with its second buffer, after the arm, and LG re-applies its eARC output
 /// words when it does: on the C4 an un-mix made before that write read `Mix_option=1` again within the second. The words are
 /// un-mixed at the player's word that the write is done, or this long after the arm when the word never comes; the player's
 /// second buffer follows its arm within a buffer period (20 ms).
 const UNMIX_FALLBACK_MS: u64 = 1000;
-/// Measured on the C4: mute true 2.8 s after the connect, mute false 0.7 s after that. Shorter gaps are untested.
-const MUTE_AFTER_CONNECT_MS: u64 = 2800;
-const UNMUTE_AFTER_MUTE_MS: u64 = 700;
+/// A muted input is unmuted with a mute true/false pair this far apart; the hand-run recipe on the C4 unmuted with gaps of 0.5 to
+/// 0.7 s.
+const UNMUTE_AFTER_MUTE_MS: u64 = 500;
 /// LG's policy rewrites can mix for a moment; the route gives up when it has not cleared after this long (lgroute.c).
 const LOSS_GRACE_MS: u64 = 1000;
 /// A flush or track switch makes LG rebuild the renderer; the player re-arms once the new one is there.
@@ -153,8 +150,6 @@ impl State {
 pub enum Phase {
     /// The converter is configured and the words un-mixed; the kernel has not reported Pass-Through yet.
     Armed,
-    /// The kernel reports Pass-Through: the player may send the stream.
-    Bypassing,
     /// The ADEC is connected to the main output.
     Connected,
     /// The mute true/false pair is under way.
@@ -169,7 +164,6 @@ impl Phase {
     pub fn name(self) -> &'static str {
         match self {
             Self::Armed => "armed",
-            Self::Bypassing => "bypassing",
             Self::Connected => "connected",
             Self::Unmuting => "unmuting",
             Self::Audible => "audible",
@@ -1210,8 +1204,10 @@ impl Route {
         match phase {
             // The output codec follows the main audio input, which LG's connect of its mixer input made that input and its
             // disconnect left so (the C4's 22:59 run): after a takeover Pass-Through shows only once the ADEC is connected, so the
-            // connect follows the un-mix, as in the hand-run recipe, and the grace for Pass-Through starts at the connect.
-            Phase::Armed | Phase::Bypassing if took && unmixed => {
+            // connect follows the un-mix, as in the hand-run recipe, and the grace for Pass-Through starts at the connect. Without
+            // a takeover the ADEC connects at the first Pass-Through after the un-mix, when the stream flows: on a fresh boot of
+            // the C4 the connect alone was audible (the hand-run recipe).
+            Phase::Armed if unmixed && (took || bypassing) => {
                 if let Err(why) = self.connect() {
                     return Some((Why::RouteLost, why));
                 }
@@ -1219,29 +1215,26 @@ impl Route {
                 if let Some(s) = &mut self.session {
                     s.bad_since = None;
                 }
-            }
-            Phase::Armed if bypassing => set(self, Phase::Bypassing),
-            Phase::Bypassing if !bypassing => set(self, Phase::Armed),
-            Phase::Bypassing if now.saturating_sub(since) >= CONNECT_DWELL_MS => {
-                if let Err(why) = self.connect() {
-                    return Some((Why::RouteLost, why));
+                if bypassing {
+                    return self.advance(now);
                 }
-                set(self, Phase::Connected);
             }
-            Phase::Connected if bypassing && now.saturating_sub(since) >= MUTE_AFTER_CONNECT_MS => {
+            Phase::Connected if bypassing => {
                 // The connect leaves the kernel's mute as it found it: a muted input needs the true/false pair, an unmuted one is
-                // already audible.
-                if self.read_adec(adec).and_then(|a| a.mute) == Some(false) {
-                    set(self, Phase::Audible);
-                } else {
-                    if !self.luna_mute(adec, true)
-                        || !self.poll(VERIFY_WAIT, |route| {
-                            route.read_adec(adec).and_then(|a| a.mute) == Some(true)
-                        })
-                    {
-                        return Some((Why::RouteLost, format!("ADEC{adec} did not mute")));
+                // already audible, and an unread one is read again at the next tick.
+                match self.read_adec(adec).and_then(|a| a.mute) {
+                    Some(false) => set(self, Phase::Audible),
+                    Some(true) => {
+                        if !self.luna_mute(adec, true)
+                            || !self.poll(VERIFY_WAIT, |route| {
+                                route.read_adec(adec).and_then(|a| a.mute) == Some(true)
+                            })
+                        {
+                            return Some((Why::RouteLost, format!("ADEC{adec} did not mute")));
+                        }
+                        set(self, Phase::Unmuting);
                     }
-                    set(self, Phase::Unmuting);
+                    None => {}
                 }
             }
             Phase::Unmuting if now.saturating_sub(since) >= UNMUTE_AFTER_MUTE_MS => {
@@ -1642,7 +1635,6 @@ pub(crate) fn status_text(phase: Phase, why: &str) -> &str {
     }
     match phase {
         Phase::Armed => "Waiting for the kernel to report Pass-Through",
-        Phase::Bypassing => "Passing the stream through; the output connects shortly",
         Phase::Connected | Phase::Unmuting => "Connecting the output",
         Phase::Audible => "Passthrough is audible",
         Phase::Ending => "Putting LG's settings back",

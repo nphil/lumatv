@@ -186,10 +186,11 @@ fn arming_journals_first_then_configures_the_converter_and_unmixes() {
 }
 
 #[test]
-fn the_receiver_is_connected_and_unmuted_in_the_proven_order_and_time() {
+fn the_receiver_is_audible_within_a_second_and_a_half_of_the_stream_flowing() {
+    // A muted input: connected at the first Pass-Through, then unmuted with the pair the measured gap apart.
     let mut rig = Rig::new();
     rig.arm().unwrap();
-    let armed = rig.host.now();
+    let flowing = rig.host.now();
     rig.run(10_000);
     let log = rig.host.log();
     assert_eq!(
@@ -202,8 +203,10 @@ fn the_receiver_is_connected_and_unmuted_in_the_proven_order_and_time() {
         rig.host.at("luna mute true").unwrap(),
         rig.host.at("luna mute false").unwrap(),
     );
-    assert!(connect - armed >= CONNECT_DWELL_MS, "{connect} {armed}");
-    assert!(mute - connect >= MUTE_AFTER_CONNECT_MS && unmute - mute >= UNMUTE_AFTER_MUTE_MS);
+    assert!(
+        unmute - mute >= UNMUTE_AFTER_MUTE_MS && unmute - flowing <= 1_500,
+        "{flowing} {connect} {mute} {unmute}"
+    );
     let session = rig.session();
     assert!(session.connected && session.audible);
     assert_eq!(session.phase, Phase::Audible);
@@ -211,15 +214,18 @@ fn the_receiver_is_connected_and_unmuted_in_the_proven_order_and_time() {
         assert!(sim.adec_connected && !sim.adec_mute);
         assert!(Journal::parse(&sim.files[JOURNAL]).unwrap().connected);
     });
-}
 
-#[test]
-fn nothing_is_connected_before_the_dwell_has_passed() {
+    // An input found unmuted is audible at the connect, without the pair.
     let mut rig = Rig::new();
+    rig.host.with(|sim| sim.adec_mute = false);
     rig.arm().unwrap();
-    rig.run(CONNECT_DWELL_MS - 500);
-    assert_eq!(rig.count("luna connect"), 0);
-    assert_eq!(rig.session().phase, Phase::Bypassing);
+    rig.run(300);
+    assert_eq!(rig.session().phase, Phase::Audible);
+    assert_eq!(rig.count("luna connect"), 1);
+    assert_eq!(
+        rig.count("luna mute true") + rig.count("luna mute false"),
+        0
+    );
 }
 
 fn refused(mutate: impl FnOnce(&mut Rig)) -> (Rig, Refusal) {
@@ -1612,12 +1618,15 @@ fn lgs_mixer_for_the_players_own_stream_is_taken_over_at_the_arm_and_given_back_
     });
     assert!(!lg_mixer_connected(&rig));
     // LG's mixer input stays the main input after its disconnect, so Pass-Through needs the ADEC: it connects straight after the
-    // un-mix, and the mute pair waits for Pass-Through.
+    // un-mix, and the mute pair follows once Pass-Through shows.
     assert!(!rig.session().bypassing);
     rig.run(200);
-    assert_eq!(rig.session().phase, Phase::Connected);
-    assert_eq!(rig.host.log()[4..], ["save", "luna connect"]);
+    assert_eq!(
+        rig.host.log()[4..],
+        ["save", "luna connect", "luna mute true"]
+    );
     assert!(rig.session().bypassing);
+    assert_eq!(rig.session().phase, Phase::Unmuting);
     rig.run(10_000);
     assert_eq!(rig.session().phase, Phase::Audible);
     assert_eq!(rig.session().mixer, Some(PORT));
