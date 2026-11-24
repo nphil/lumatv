@@ -3,9 +3,10 @@
 //! feature, for the crates that drive the route.
 //!
 //! The behaviours that decide whether the route works are the ones modelled: the kernel reports `Pass-Through` only while a
-//! converter has been configured and the eARC words are un-mixed; the granted ADEC connects with its kernel mute as it was;
-//! audiooutputd forwards a mute call to the kernel only when it differs from what audiooutputd believes, so a lone unmute after
-//! the connect does nothing, and refuses a mute call once the input is disconnected.
+//! converter has been configured, the eARC words are un-mixed and LG's mixer input is not the main input; the granted ADEC
+//! connects with its kernel mute as it was; audiooutputd forwards a mute call to the kernel only when it differs from what
+//! audiooutputd believes, so a lone unmute after the connect does nothing, and refuses a mute call once the input is
+//! disconnected.
 
 use crate::host::{Host, Stuck, WriteError};
 use crate::route::{AREN, BOOT_ID, GRAPH, INSTANCES};
@@ -74,6 +75,9 @@ pub struct Sim {
     pub mixer: Option<u8>,
     /// audiooutputd lists the mixer input from this time on, which may be a moment after the kernel shows it.
     pub listed_at: u64,
+    /// LG's mixer input while it is the main audio input, whose codec the output follows: LG's connect makes it so while no
+    /// decoder input is connected, its disconnect leaves it so, and a decoder input's connect ends it (the C4's 22:59 run).
+    pub main_mixer: Option<u8>,
     /// SAM's running apps, by id and process.
     pub apps: Vec<(String, u32)>,
     pub pipelines: Vec<Pipe>,
@@ -122,11 +126,12 @@ pub fn graph_with(tail: &str, converter: &str) -> String {
 
 impl Sim {
     fn render_sndout(&self) -> String {
-        let codec = if self.words.mix == 0 && !self.configured.is_empty() {
-            "Pass-Through"
-        } else {
-            "PCM"
-        };
+        let codec =
+            if self.words.mix == 0 && !self.configured.is_empty() && self.main_mixer.is_none() {
+                "Pass-Through"
+            } else {
+                "PCM"
+            };
         let w = self.words;
         // The [ARC] section's own words are the decoys the parser must not read as eARC's.
         format!(
@@ -305,6 +310,7 @@ impl FakeHost {
                 others: Vec::new(),
                 mixer: None,
                 listed_at: 0,
+                main_mixer: None,
                 apps: vec![(APP.to_owned(), PID)],
                 pipelines: Vec::new(),
                 hdmi_ok: true,
@@ -344,6 +350,10 @@ impl FakeHost {
     pub fn lg_mixer(&self) {
         self.with(|sim| {
             sim.mixer = Some(PORT);
+            // With a decoder input connected, whether LG's connect makes its mixer the main input is unobserved.
+            if !sim.adec_connected {
+                sim.main_mixer = Some(PORT);
+            }
             sim.words.mix = 1;
             if !sim.pipelines.iter().any(|pipe| pipe.id == PIPELINE) {
                 sim.pipelines.push(Pipe {
@@ -509,6 +519,9 @@ impl Host for FakeHost {
                     }
                     "connect" if sim.connect_ok && sim.mixer.is_none() => {
                         sim.mixer = Some(port);
+                        if !sim.adec_connected {
+                            sim.main_mixer = Some(port);
+                        }
                         true
                     }
                     _ => false,
@@ -531,6 +544,7 @@ impl Host for FakeHost {
                         return Some(NO.into());
                     }
                     sim.adec_connected = true;
+                    sim.main_mixer = None;
                     sim.belief_muted = false;
                     Some(OK.into())
                 }

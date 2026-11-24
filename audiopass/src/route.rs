@@ -1190,9 +1190,16 @@ impl Route {
 
     /// Moves the connect sequence on by at most one step.
     fn advance(&mut self, now: u64) -> Option<(Why, String)> {
-        let (phase, since, bypassing, adec) = {
+        let (phase, since, bypassing, adec, took, unmixed) = {
             let s = self.session.as_ref()?;
-            (s.phase, s.since, s.observed.bypassing, s.journal.adec)
+            (
+                s.phase,
+                s.since,
+                s.observed.bypassing,
+                s.journal.adec,
+                s.journal.mixer.is_some(),
+                s.unmix_due.is_none(),
+            )
         };
         let set = |route: &mut Self, phase: Phase| {
             if let Some(s) = &mut route.session {
@@ -1201,6 +1208,18 @@ impl Route {
             }
         };
         match phase {
+            // The output codec follows the main audio input, which LG's connect of its mixer input made that input and its
+            // disconnect left so (the C4's 22:59 run): after a takeover Pass-Through shows only once the ADEC is connected, so the
+            // connect follows the un-mix, as in the hand-run recipe, and the grace for Pass-Through starts at the connect.
+            Phase::Armed | Phase::Bypassing if took && unmixed => {
+                if let Err(why) = self.connect() {
+                    return Some((Why::RouteLost, why));
+                }
+                set(self, Phase::Connected);
+                if let Some(s) = &mut self.session {
+                    s.bad_since = None;
+                }
+            }
             Phase::Armed if bypassing => set(self, Phase::Bypassing),
             Phase::Bypassing if !bypassing => set(self, Phase::Armed),
             Phase::Bypassing if now.saturating_sub(since) >= CONNECT_DWELL_MS => {
@@ -1209,7 +1228,7 @@ impl Route {
                 }
                 set(self, Phase::Connected);
             }
-            Phase::Connected if now.saturating_sub(since) >= MUTE_AFTER_CONNECT_MS => {
+            Phase::Connected if bypassing && now.saturating_sub(since) >= MUTE_AFTER_CONNECT_MS => {
                 // The connect leaves the kernel's mute as it found it: a muted input needs the true/false pair, an unmuted one is
                 // already audible.
                 if self.read_adec(adec).and_then(|a| a.mute) == Some(false) {

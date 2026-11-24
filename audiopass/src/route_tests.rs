@@ -1611,6 +1611,13 @@ fn lgs_mixer_for_the_players_own_stream_is_taken_over_at_the_arm_and_given_back_
         );
     });
     assert!(!lg_mixer_connected(&rig));
+    // LG's mixer input stays the main input after its disconnect, so Pass-Through needs the ADEC: it connects straight after the
+    // un-mix, and the mute pair waits for Pass-Through.
+    assert!(!rig.session().bypassing);
+    rig.run(200);
+    assert_eq!(rig.session().phase, Phase::Connected);
+    assert_eq!(rig.host.log()[4..], ["save", "luna connect"]);
+    assert!(rig.session().bypassing);
     rig.run(10_000);
     assert_eq!(rig.session().phase, Phase::Audible);
     assert_eq!(rig.session().mixer, Some(PORT));
