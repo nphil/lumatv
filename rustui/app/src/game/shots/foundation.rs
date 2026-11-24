@@ -173,7 +173,10 @@ fn gallery() -> Vec<Shot> {
     let none: fn(&mut Model) = |_| {};
     vec![
         Shot { name: "topbar", setup: |m| m.view.focus = Focus::Nav(2), paint: bar_over_art },
-        Shot { name: "topbar-profile", setup: |m| m.view.focus = Focus::Nav(3), paint: bar_over_art },
+        Shot { name: "topbar-out", setup: |m| m.view.focus = Focus::Nav(2), paint: bar_over_art },
+        Shot { name: "topbar-out-focus", setup: |m| m.view.focus = Focus::Nav(3), paint: bar_over_art },
+        Shot { name: "topbar-in", setup: |m| { *m = with_hades_community(m.clone()); m.view.focus = Focus::Nav(2) }, paint: bar_over_art },
+        Shot { name: "topbar-in-focus", setup: |m| { *m = with_hades_community(m.clone()); m.view.focus = Focus::Nav(3) }, paint: bar_over_art },
         Shot { name: "topbar-flat-pad", setup: pad, paint: bar_flat },
         Shot { name: "hints", setup: none, paint: hints_corner },
         Shot { name: "hints-resting", setup: none, paint: hints_resting },

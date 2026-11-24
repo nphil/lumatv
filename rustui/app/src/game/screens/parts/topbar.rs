@@ -25,13 +25,9 @@ pub enum Here {
     Elsewhere,
 }
 
-/// The avatar's disc.
-fn disc_side(p: &Paint<'_>) -> f32 {
-    (30.0 * p.scale + 14.0).min(60.0)
-}
-/// The pill that holds the avatar alone: the pill's padding twice over the disc. It carries no label.
-fn avatar_width(p: &Paint<'_>) -> f32 {
-    24.0 + disc_side(p)
+/// The profile pill: 1.4 times the nav pill's height, so the picture reads as a pill and not a tall disc.
+fn avatar_width(p: &mut Paint<'_>) -> f32 {
+    (p.tokens.target.max(p.line(Type::Label) + 12.0) + 12.0) * 1.4
 }
 /// The width of `text` in the bar's type: the mock sets its labels semibold.
 fn label_width(p: &mut Paint<'_>, text: &str) -> f32 {
@@ -117,37 +113,31 @@ pub fn bar(p: &mut Paint<'_>, here: Here, attention: bool) -> f32 {
     if pad {
         end += BUMP_GAP + bump(p, 47, "RB", end + BUMP_GAP, p.y, h);
     }
-    avatar(p, here == Here::Profile, attention, fill, cached, h);
+    avatar(p, attention, fill, cached, h);
     end
 }
 
-/// The avatar: the signed-in Steam account's picture in a disc, or a person in a neutral disc when there is none (signed out, offline or
-/// not fetched yet). No label: the pill is the nav pill's size and glass.
-fn avatar(p: &mut Paint<'_>, current: bool, attention: bool, fill: Fill, cached: bool, h: f32) {
+/// The profile pill: the signed-in Steam account's picture filling it, cover-cropped (centred, never stretched) and clipped to the pill's
+/// radius, or a person centred in a neutral wash when there is none (signed out, offline or not fetched yet). No label.
+fn avatar(p: &mut Paint<'_>, attention: bool, fill: Fill, cached: bool, h: f32) {
     let w = avatar_width(p);
     let pill = Frame::new(W - p.x - w, p.y, w, h);
     p.surface(30, pill, fill, Radius::Pill, false, false, cached, 60);
     let item = Frame::new(pill.x + 6.0, p.y + 6.0, w - 12.0, h - 12.0);
     let from = p.plan.nodes.len();
-    if current {
-        p.surface(33, item, Fill::Tint(p.tokens.states.selected_wash), Radius::Pill, false, false, false, 61);
-    }
-    let d = disc_side(p);
-    let disc = Frame::new(item.x + 6.0, item.y + (item.h - d) / 2.0, d, d);
-    let mut marks = Vec::new();
     match p.model.avatar_path() {
-        Some(path) => p.image(31, path, disc, d / 2.0, false, None, 62),
+        Some(path) => p.image(31, path, item, item.h / 2.0, false, None, 62),
         None => {
-            p.surface(31, disc, Fill::Tint(p.tokens.states.selected_wash), Radius::Pill, false, false, false, 61);
-            let side = d * 0.64;
-            marks.push(p.mark(Icon::Person, side, 6.0 + (d - side) / 2.0, (item.h - side) / 2.0, Role::Ink2, false));
+            p.surface(31, item, Fill::Tint(p.tokens.states.selected_wash), Radius::Pill, false, false, false, 61);
+            let side = 30.0 * p.scale;
+            let mark = p.mark(Icon::Person, side, (item.w - side) / 2.0, (item.h - side) / 2.0, Role::Ink2, false);
+            p.words(32, item, vec![], vec![mark], 62);
         }
     }
-    p.words(32, item, vec![], marks, 62);
     focus::treat(p, from, 34, item, Kind::Button, p.focused(Focus::Nav(3)));
     if attention {
-        // 14 px on the disc's top-right corner, on a ring of the canvas that keeps it apart from the disc.
-        let dot = Frame::new(disc.x + d - 10.0, item.y + 6.0, 14.0, 14.0);
+        // 14 px on the item's top-right corner, on a ring of the canvas that keeps it apart from the picture.
+        let dot = Frame::new(item.x + item.w - 14.0, item.y - 2.0, 14.0, 14.0);
         let ring = Frame::new(dot.x - 3.0, dot.y - 3.0, 20.0, 20.0);
         p.solid(36, ring, p.ink(Role::Canvas, false), 10.0, 70);
         p.solid(37, dot, p.ink(Role::Warning, false), 7.0, 71);

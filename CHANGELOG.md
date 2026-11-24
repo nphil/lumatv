@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The Home and Library top bar's profile pill is the avatar alone, the nav pill's height and glass, with no "Menu" label; it still opens the quick menu.
+The Home and Library top bar's profile pill is 1.4 times the nav pill's height wide and carries no "Menu" label: the Steam picture fills it, cover-cropped, or a person sits centred when signed out; it still opens the quick menu.
 
 Dolby TrueHD & Atmos passthrough un-mixes LG's eARC words only once the player says its sink has turned `pcm-multi-ch` back on (`POST /v1/audio-passthrough/flowing`), or 1 s after the arm without that word: LG re-applies its words as that property is written, which ended sessions at the second buffer. LG putting its words back once is undone while only the granted decoder is in use; a second time, or any other input in use, ends the session.
 
