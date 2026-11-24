@@ -59,8 +59,13 @@ fn summary(c: &Ctx) -> String {
     if menu(c).is_none() {
         return String::new();
     }
-    let on = BLOCKERS.iter().filter(|id| item(c, id).and_then(|i| i.get("on")).and_then(Value::as_bool) == Some(true)).count();
+    let on = BLOCKERS.iter().filter(|id| item(c, id).is_some_and(blocking)).count();
     format!("{on} of {} blocking", BLOCKERS.len())
+}
+
+/// On, and for Prime Video also working: when Prime changes its player the helper leaves it as it is, and that is not blocking.
+fn blocking(it: &Value) -> bool {
+    it.get("on").and_then(Value::as_bool) == Some(true) && !(text(it, "id") == "amazoff" && ["partial", "unmodified", "unavailable"].contains(&text(it, "protection")))
 }
 
 /// The second line of a switch: only what is true now and worth saying.
@@ -234,7 +239,7 @@ fn prime_ads(c: &Ctx, it: &Value) -> Row {
         match text(it, "protection") {
             "partial" => "Partly blocked",
             "waiting" => "Ready",
-            "unmodified" => "Cannot block here",
+            "unmodified" => "Ads may show",
             "unavailable" => "Not running",
             _ => "Blocked",
         }
@@ -246,7 +251,8 @@ fn prime_ads(c: &Ctx, it: &Value) -> Row {
     } else {
         match (on, text(it, "protection")) {
             (true, "waiting") => "Starts when Prime Video plays".into(),
-            (true, "unmodified") => "This version of Prime Video's player is left as it is".into(),
+            (true, "partial") => "Prime Video changed part of its player".into(),
+            (true, "unmodified") => "Prime Video changed its player".into(),
             (true, "unavailable") if !text(it, "reason").is_empty() && text(it, "reason").len() <= 60 => text(it, "reason").to_string(),
             _ => String::new(),
         }
@@ -636,6 +642,15 @@ mod tests {
         w.docs.set("privacy", doc);
         let none = find(&w);
         assert_eq!((none.value.as_str(), none.detail.as_str(), none.enabled), ("Not available", "Prime Video is not installed on this TV", false));
+        // Prime Video changed its player: the helper left it as it is, so the row says ads may show and the rail does not count it
+        for (protection, value, detail) in [("unmodified", "Ads may show", "Prime Video changed its player"), ("partial", "Partly blocked", "Prime Video changed part of its player")] {
+            let mut doc = menu_doc();
+            doc["privacy"]["items"][4]["protection"] = json!(protection);
+            w.docs.set("privacy", doc);
+            let row = find(&w);
+            assert_eq!((row.value.as_str(), row.detail.as_str()), (value, detail));
+            assert_eq!(summary(&w.ctx()), "3 of 6 blocking", "{protection}");
+        }
     }
 
     #[test]

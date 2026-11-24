@@ -241,6 +241,8 @@ pub struct Front {
     address: SocketAddr,
     thread: Option<JoinHandle<()>>,
     routes: Arc<Mutex<BTreeMap<String, Value>>>,
+    /// What the filter found wrong with a player, as log lines: `take_notes` gives them out once, and `NOTES` of the newest are kept.
+    notes: Arc<Mutex<Vec<String>>>,
 }
 impl Front {
     pub fn start(
@@ -257,8 +259,10 @@ impl Front {
         let address = listener.local_addr().map_err(|e| e.to_string())?;
         let stop = Arc::new(AtomicBool::new(false));
         let routes = Arc::new(Mutex::new(BTreeMap::new()));
+        let notes = Arc::new(Mutex::new(Vec::new()));
         let s = stop.clone();
         let r = routes.clone();
+        let n = notes.clone();
         let active = Arc::new(AtomicUsize::new(0));
         let thread = thread::Builder::new()
             .name("prime-assets".into())
@@ -277,11 +281,12 @@ impl Front {
                             let t = tls.clone();
                             let src = source.clone();
                             let r = r.clone();
+                            let n = n.clone();
                             let a = active.clone();
                             if thread::Builder::new()
                                 .name("prime-asset".into())
                                 .spawn(move || {
-                                    let _ = serve(socket, t, src.as_ref(), &r);
+                                    let _ = serve(socket, t, src.as_ref(), &r, &n);
                                     a.fetch_sub(1, Ordering::AcqRel);
                                 })
                                 .is_err()
@@ -300,10 +305,14 @@ impl Front {
             address,
             thread: Some(thread),
             routes,
+            notes,
         })
     }
     pub fn routes(&self) -> parking_lot::MutexGuard<'_, BTreeMap<String, Value>> {
         self.routes.lock()
+    }
+    pub fn take_notes(&self) -> Vec<String> {
+        std::mem::take(&mut *self.notes.lock())
     }
 }
 impl Drop for Front {
@@ -320,6 +329,7 @@ fn serve(
     tls: Arc<ServerConfig>,
     source: &dyn AssetSource,
     routes: &Mutex<BTreeMap<String, Value>>,
+    notes: &Mutex<Vec<String>>,
 ) -> Result<(), String> {
     socket
         .set_read_timeout(Some(Duration::from_secs(8)))
@@ -376,11 +386,28 @@ fn serve(
         };
         let entry = match result {
             Ok(patched) => {
-                asset.body = patched.into_bytes();
+                asset.body = patched.body.into_bytes();
                 asset.body_start = 0;
-                json!({"state":"patched","sourceSha256":source_sha,"patchedSha256":sha(asset.bytes())})
+                let mut entry = json!({"state":"patched","sourceSha256":source_sha,"patchedSha256":sha(asset.bytes())});
+                if !patched.missed.is_empty() {
+                    let line = format!(
+                        "Prime's player {route} ({}) is patched, but still sends these reports: {}",
+                        &source_sha[..8],
+                        patched.missed.join(", ")
+                    );
+                    note(notes, line);
+                    entry["missed"] = json!(patched.missed);
+                }
+                entry
             }
-            Err(reason) => json!({"state":"unmodified","reason":reason,"sourceSha256":source_sha}),
+            Err(reason) => {
+                let line = format!(
+                    "Prime's player {route} ({}) was left as it is, so its ads may show: {reason}",
+                    &source_sha[..8]
+                );
+                note(notes, line);
+                json!({"state":"unmodified","reason":reason,"sourceSha256":source_sha})
+            }
         };
         let mut r = routes.lock();
         if r.len() >= 32 && !r.contains_key(route) {
@@ -398,6 +425,15 @@ fn serve(
     }
     stream.conn.send_close_notify();
     stream.flush().map_err(|e| e.to_string())
+}
+/// The log lines for players the filter could not fully block, kept until the helper takes them (it does every few seconds).
+fn note(notes: &Mutex<Vec<String>>, line: String) {
+    const NOTES: usize = 16;
+    let mut notes = notes.lock();
+    if notes.len() >= NOTES {
+        notes.remove(0);
+    }
+    notes.push(line);
 }
 
 #[cfg(test)]
@@ -440,6 +476,11 @@ mod tests {
                 headers: vec![],
                 body: if path.contains("wave3") {
                     include_bytes!("../tests/player.js").to_vec()
+                } else if path.contains("wave4") {
+                    // the ads can be blocked, but one report has no place to be cut from
+                    include_str!("../tests/player.js")
+                        .replace("uploadMinervaKpiMetrics", "uploadOther")
+                        .into_bytes()
                 } else {
                     b"original asset bytes".to_vec()
                 },
@@ -450,6 +491,7 @@ mod tests {
     fn verified_tls_filters_the_requested_route_and_passes_other_assets_through() {
         for path in [
             "/family/lg/ATVUnfPlayerBundle-1.0/wave3/js/ATVUnfPlayerBundle.js",
+            "/family/lg/ATVUnfPlayerBundle-1.0/wave4/js/ATVUnfPlayerBundle.js",
             "/family/lg/ATVUnfPlayerBundle-1.0/new/js/ATVUnfPlayerBundle.js",
             "/packages/SyeCorePlayerNativeModule-1.0/prod/ignite/module.so",
         ] {
@@ -458,10 +500,11 @@ mod tests {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let address = listener.local_addr().unwrap();
             let routes = Arc::new(Mutex::new(BTreeMap::new()));
-            let r = routes.clone();
+            let notes = Arc::new(Mutex::new(Vec::new()));
+            let (r, n) = (routes.clone(), notes.clone());
             let worker = thread::spawn(move || {
                 let (socket, _) = listener.accept().unwrap();
-                serve(socket, config, &Source, &r).unwrap();
+                serve(socket, config, &Source, &r, &n).unwrap();
             });
             let mut roots = rustls::RootCertStore::empty();
             for cert in rustls_pemfile::certs(&mut id.ca.as_bytes()) {
@@ -491,12 +534,21 @@ mod tests {
             if path.contains("wave3") {
                 assert!(response.contains("__HOMEBREW_NOADS"));
                 assert_eq!(routes.lock()["wave3"]["state"], "patched");
+                assert!(routes.lock()["wave3"].get("missed").is_none());
+                assert!(notes.lock().is_empty());
+            } else if path.contains("wave4") {
+                assert!(response.contains("__HOMEBREW_NOADS"));
+                assert_eq!(routes.lock()["wave4"]["state"], "patched");
+                assert_eq!(routes.lock()["wave4"]["missed"][0], "minerva kpi upload");
+                assert!(notes.lock()[0].ends_with("still sends these reports: minerva kpi upload"));
             } else {
                 assert!(response.ends_with("original asset bytes"));
                 if path.contains("/new/") {
                     assert_eq!(routes.lock()["new"]["state"], "unmodified");
+                    assert!(notes.lock()[0].contains("left as it is, so its ads may show"));
                 } else {
                     assert!(routes.lock().is_empty());
+                    assert!(notes.lock().is_empty());
                 }
             }
         }

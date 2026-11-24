@@ -519,6 +519,15 @@ impl Privacy {
             state.error = Some(e);
         }
     }
+    /// What the Prime filter found wrong with the players it served since the last call, for the helper's log.
+    pub fn take_notes(&self) -> Vec<String> {
+        self.state
+            .lock()
+            .prime
+            .as_ref()
+            .map(prime::Front::take_notes)
+            .unwrap_or_default()
+    }
     pub fn stop(&self) {
         // Remove the jail redirect before dropping TLS, without changing the saved user choice.
         if self.state.lock().prime.is_some() {

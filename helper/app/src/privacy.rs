@@ -62,6 +62,9 @@ pub fn spawn(ctx: &Ctx, privacy: Arc<Privacy>) -> std::io::Result<JoinHandle<()>
             let mut ticks = 0u32;
             while !stop.sleep(Duration::from_secs(5)) {
                 privacy.maintain();
+                for note in privacy.take_notes() {
+                    crate::log_warn!("privacy: {note}");
+                }
                 ticks += 1;
                 if ticks == PRIME_AFTER_TICKS {
                     privacy.refresh_declutter();
