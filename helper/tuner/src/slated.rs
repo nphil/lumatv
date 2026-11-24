@@ -378,7 +378,10 @@ impl Play<'_> {
         if stop.load(Ordering::Relaxed) {
             return Some(End::Stopped);
         }
-        self.lease.replaced.load(Ordering::Acquire).then_some(End::Replaced)
+        self.lease
+            .replaced
+            .load(Ordering::Acquire)
+            .then(|| self.lease.taker().map_or(End::Replaced, End::Taken))
     }
 
     /// The tuning slate's bar at `step`, begun at `since`.
@@ -428,6 +431,9 @@ impl Play<'_> {
                 break found;
             }
             if let Some(end) = self.given_up(stop) {
+                if let End::Taken(by) = &end {
+                    return self.last(Says::Taken(by.clone()), end, out).map(Ran::Over);
+                }
                 return Ok(Ran::Over(end));
             }
             let now = match program(tap.as_mut(), &self.entry, &mut sections, try_for) {
@@ -499,6 +505,9 @@ impl Play<'_> {
         let mut frame = Duration::from_micros(format.ticks(1) * 100 / 9);
         loop {
             if let Some(end) = self.given_up(stop) {
+                if let End::Taken(by) = &end {
+                    return self.last(Says::Taken(by.clone()), end, out);
+                }
                 return Ok(end);
             }
             let now = self.now();
@@ -530,6 +539,7 @@ impl Play<'_> {
                 let taken = f.hw.in_use().or_else(|| self.tap.as_mut().and_then(|t| t.taken()));
                 if let Some(why) = taken {
                     self.over.then = Status::Busy(why.clone());
+                    self.lease.taken_by_tv(&f.hw.tv_name());
                     return self.last(Says::TvInUse, End::Preempted(why), out);
                 }
             }
@@ -660,7 +670,12 @@ impl Play<'_> {
             self.show.stand_in(slate, now);
         }
         self.show.slate.say(says);
-        self.show.last_word(self.facade.limits.last_word, out)?;
+        // a device that took the tuner waits for this stream to let go of it, and gives up after `release`: its last word is shorter
+        let word = match end {
+            End::Taken(_) => self.facade.limits.last_word.min(self.facade.limits.release / 2),
+            _ => self.facade.limits.last_word,
+        };
+        self.show.last_word(word, out)?;
         Ok(end)
     }
 
@@ -700,8 +715,10 @@ pub(crate) mod tests {
     use parking_lot::Mutex;
     use serde_json::{Value, json};
     use std::collections::VecDeque;
+    use std::net::{IpAddr, Ipv4Addr};
     use std::sync::Arc;
     use std::sync::atomic::AtomicU64;
+    use std::thread;
 
     /// A TV whose tap gives each chunk of its script once the clock has come to the chunk's time, and whose reads wait by moving the clock.
     /// Its tables come from `tables_from` on (before, a read waits and gives nothing: a weak signal), and its own Live TV takes the tuner
@@ -911,7 +928,7 @@ pub(crate) mod tests {
     }
 
     fn play(f: &Facade) -> (Vec<u8>, End) {
-        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX, None, None) else {
+        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX, None, None, None) else {
             panic!("not slated");
         };
         let mut out = Vec::new();
@@ -1008,7 +1025,7 @@ pub(crate) mod tests {
         let script = Script::new(&time, stops_at_two());
         let f = facade(&script, quick());
         f.tuning.saw("2.4", Seen { format: SHAPE, layout: Layout::fallback(1), tsid: 1 });
-        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX, None, None) else {
+        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX, None, None, None) else {
             panic!("not slated");
         };
         let mut out = Writes::default();
@@ -1046,6 +1063,38 @@ pub(crate) mod tests {
         assert!((65..=85).contains(&pics.len()), "{}", pics.len());
         assert_eq!(Format::of_sequence(&pics[0].2), Some(Format::FALLBACK));
         assert_eq!(f.tuning.known()["2.4"].health.as_ref().map(|h| h.verdict), Some(Verdict::NoSignal));
+    }
+
+    #[test]
+    fn a_device_taking_the_tuner_ends_a_stream_with_slates_with_a_last_slate_and_the_tuner_is_its_when_that_is_over() {
+        let time = Time::default();
+        let script = Script::new(&time, stops_at_two());
+        let f = Arc::new(facade(&script, quick()));
+        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX, None, None, None) else {
+            panic!("not slated");
+        };
+        let claim = crate::stream::Claim {
+            peer: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 71)),
+            agent: None,
+            device: Some("Pixel".into()),
+            recording: false,
+            guide: "2.1".into(),
+            name: "WSB-HD".into(),
+            channel_id: "1_32_2_1_0_0_0".into(),
+            since_ms: 0,
+        };
+        let taker = {
+            let f = f.clone();
+            thread::spawn(move || f.tuning.take_stream(claim, "Pixel".into(), Duration::from_secs(5)).map(drop))
+        };
+        while !s.lease.replaced.load(Ordering::Acquire) {
+            thread::yield_now();
+        }
+        let mut out = Vec::new();
+        let end = f.play(s, &mut out, &AtomicBool::new(false)).unwrap();
+        assert_eq!(end, End::Taken("Pixel".into()));
+        assert!(!pictures(&out).is_empty(), "the last slate went out");
+        assert_eq!(taker.join().unwrap(), Ok(()), "the tuner is the device's once the stream let go");
     }
 
     #[test]
@@ -1149,7 +1198,7 @@ pub(crate) mod tests {
         f.tuning.options.lock().hidden = ["2.1".to_owned()].into();
         assert_eq!(f.lineup().unwrap().iter().map(|e| e.guide.as_str()).collect::<Vec<_>>(), ["2.4"]);
         f.tuning.options.lock().look = Some(Arc::new(|| None));
-        assert!(!matches!(f.admit("2.4", PLEX, None, None), Ok(Admitted::Slated(_))));
+        assert!(!matches!(f.admit("2.4", PLEX, None, None, None), Ok(Admitted::Slated(_))));
     }
 
     #[test]

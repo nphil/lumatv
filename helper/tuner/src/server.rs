@@ -177,10 +177,40 @@ struct Request {
     agent: Option<String>,
     /// The profile `?transcode=` names, as written; the rest of the query (`duration=`) is not read.
     transcode: Option<String>,
+    /// What the client calls itself: `?device=` or the `X-Luma-Device` header, the query first.
+    device: Option<String>,
 }
 
-/// The request line, the Host header and the User-Agent; a request that is not read whole within a moment, or is not HTTP, is nothing.
-/// Of the query only `transcode` is read.
+/// A device name as a client wrote it (percent-escapes and `+` undone): visible text, at most 40 characters, none when empty.
+fn device_name(raw: &str) -> Option<String> {
+    let bytes = raw.replace('+', " ").into_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let escaped = (bytes[i] == b'%')
+            .then(|| bytes.get(i + 1..i + 3))
+            .flatten()
+            .and_then(|h| std::str::from_utf8(h).ok())
+            .and_then(|h| u8::from_str_radix(h, 16).ok());
+        match escaped {
+            Some(b) => {
+                out.push(b);
+                i += 3;
+            }
+            None => {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+    }
+    let text = String::from_utf8_lossy(&out);
+    let name: String = text.chars().filter(|c| !c.is_control()).take(40).collect();
+    let name = name.trim();
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
+/// The request line, the Host header, the User-Agent and the device's name; a request that is not read whole within a moment, or is not
+/// HTTP, is nothing. Of the query only `transcode` and `device` are read.
 fn read_request(stream: &TcpStream) -> Option<Request> {
     stream.set_read_timeout(Some(REQUEST_WAIT)).ok()?;
     let mut lines = BufReader::new(stream.take(REQUEST_LIMIT)).lines();
@@ -190,7 +220,7 @@ fn read_request(stream: &TcpStream) -> Option<Request> {
     if !version.starts_with("HTTP/1.") {
         return None;
     }
-    let (mut host, mut agent) = (None, None);
+    let (mut host, mut agent, mut header_device) = (None, None, None);
     for line in lines {
         let line = line.ok()?;
         if line.is_empty() {
@@ -202,6 +232,8 @@ fn read_request(stream: &TcpStream) -> Option<Request> {
                 host = Some(value.trim().to_owned());
             } else if name.eq_ignore_ascii_case("user-agent") {
                 agent = Some(value.trim().chars().take(200).collect());
+            } else if name.eq_ignore_ascii_case("x-luma-device") {
+                header_device = device_name(value);
             }
         }
     }
@@ -210,12 +242,18 @@ fn read_request(stream: &TcpStream) -> Option<Request> {
         .split('&')
         .find_map(|pair| pair.strip_prefix("transcode="))
         .map(|name| name.chars().take(40).collect());
+    let device = query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("device="))
+        .and_then(device_name)
+        .or(header_device);
     Some(Request {
         method: method.to_owned(),
         path: path.to_owned(),
         host,
         agent,
         transcode,
+        device,
     })
 }
 
@@ -324,7 +362,7 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
             let asked = Instant::now();
             let fd = stream.as_raw_fd();
             const HEAD: &str = "HTTP/1.0 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-cache\r\n\r\n";
-            let sent = match facade.admit(guide, peer, request.agent.as_deref(), request.transcode.as_deref()) {
+            let sent = match facade.admit(guide, peer, request.agent.as_deref(), request.device.as_deref(), request.transcode.as_deref()) {
                 Err(f) => {
                     refusals.refused(peer, guide, f.reason(), Instant::now()).iter().for_each(|l| log::info!("{l}"));
                     return drop(refuse(&mut stream, &f));
@@ -365,6 +403,7 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
             match sent {
                 Ok(End::Stopped) => log::info!("tuner: {guide} stopped"),
                 Ok(End::Replaced) => log::info!("tuner: {guide} gave the tuner to the next request"),
+                Ok(End::Taken(by)) => log::info!("tuner: {guide} gave the tuner to {by}"),
                 Ok(end) => log::warn!("tuner: {guide} ended: {end:?}"),
                 Err(e) => log::info!("tuner: {peer} left {guide}: {e}"),
             }
@@ -634,21 +673,23 @@ mod tests {
         let peers = vec![Cidr::parse("127.0.0.0/8").unwrap()];
         let server = Server::start(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), Arc::new(facade), peers).unwrap();
         let status = || serde_json::from_slice::<Value>(split(&get(&server, "GET /status.json HTTP/1.1\r\n\r\n")).1).unwrap();
-        assert_eq!(status(), serde_json::json!({"holder": null}));
+        assert_eq!(status(), serde_json::json!({"holder": null, "displaced": []}));
 
         let plex = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 69));
-        let lease = tuning.take(plex, Duration::ZERO).unwrap();
-        lease.claim(crate::stream::Claim {
+        let claim = crate::stream::Claim {
             peer: plex,
             agent: Some("PlexMediaServer/1.41".into()),
+            device: None,
+            recording: true,
             guide: "2.1".into(),
             name: "WSB-HD".into(),
             channel_id: "1_32_2_1_0_0_0".into(),
             since_ms: 1_794_000_000_000,
-        });
+        };
+        let lease = tuning.take_stream(claim, "Plex".into(), Duration::ZERO).unwrap();
         assert_eq!(
             status(),
-            serde_json::json!({"holder": {"ip": "192.168.1.69", "name": "Plex", "channel": "2.1", "channelName": "WSB-HD", "since": 1_794_000_000_000u64}})
+            serde_json::json!({"holder": {"ip": "192.168.1.69", "name": "Plex", "channel": "2.1", "channelName": "WSB-HD", "since": 1_794_000_000_000u64}, "displaced": []})
         );
 
         let (head, _) = split(&get(&server, "GET /auto/v2.4 HTTP/1.1\r\n\r\n"));
@@ -662,7 +703,15 @@ mod tests {
         assert!(fake.tuned.lock().is_empty(), "the tuner is not touched");
 
         drop(lease);
-        assert_eq!(status(), serde_json::json!({"holder": null}));
+        assert_eq!(status(), serde_json::json!({"holder": null, "displaced": []}));
+    }
+
+    #[test]
+    fn a_device_name_is_unescaped_cleaned_and_cut_to_forty_characters() {
+        assert_eq!(device_name("Living%20Room+iPad").as_deref(), Some("Living Room iPad"));
+        assert_eq!(device_name("%0A%09").as_deref(), None);
+        assert_eq!(device_name("100%").as_deref(), Some("100%"));
+        assert_eq!(device_name(&"a".repeat(60)).map(|n| n.len()), Some(40));
     }
 
     #[test]

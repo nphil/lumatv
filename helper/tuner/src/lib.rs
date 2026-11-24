@@ -17,14 +17,14 @@
 //! | the `log` facade | what it served and why it refused, under the target `lumatuner` |
 //!
 //! It is a network entrance and the tuner is shared with the TV's own use, so a host serves it only when the owner says so, on a private
-//! address of the TV. One tuner: one stream at a time, and the TV's own Live TV comes first: a stream does not start while Live TV has the
-//! tuner, and a running one ends when Live TV takes it.
+//! address of the TV. One tuner: one stream at a time, and whoever starts last has it: a device's request takes it from another device's stream and
+//! from the TV's own Live TV ([`Hardware::yield_to`]), Plex's streams (recordings) excepted, and Live TV opening takes it from a stream.
 //!
 //! | Request | Answer |
 //! |---|---|
 //! | `GET /discover.json` | the device: name, id, `TunerCount` 1, `BaseURL`, `LineupURL` |
 //! | `GET /lineup_status.json` | an antenna, not scanning |
-//! | `GET /status.json` | who has the tuner, nothing tuned or asked of the TV: `{"holder": {"ip", "name", "channel", "channelName", "since"}}` for a client's stream (`name` as the host knows its address, `Plex` by user agent, else its user agent's product; `since` Unix ms), `{"holder": null}` while no client's stream has it |
+//! | `GET /status.json` | who has the tuner, nothing tuned or asked of the TV: `{"holder": {"ip", "name", "channel", "channelName", "since"}}` for a client's stream (`name` as the host knows its address, `Plex` by user agent, else its user agent's product; `since` Unix ms), `{"holder": null}` while no client's stream has it; `"displaced"` lists for 60 s the clients another device (or the TV's Live TV) took the tuner from: `{"ip", "name", "by", "byKind": "app"|"tv", "at", "channel", "channelName"}` |
 //! | `GET /lineup.json` | the TV's antenna channels (`iepg/getChannelList`), one per number: `GuideNumber` `2.4`, `GuideName`, `URL`; a channel the owner left out ([`Tuner::hide`]) is not listed |
 //! | `GET /lineup.m3u` | the same lineup as an M3U playlist: `tvg-id` and `tvg-chno` are the guide number, the URL is `/auto/v<number>`, `url-tvg` names `/xmltv.xml` |
 //! | `GET /xmltv.xml` | the TV's own broadcast guide (`iepg/getEventList`, a day back to six days ahead, read once per channel and kept 30 minutes, or until the host's [`Guide`] changes) as XMLTV, UTC, channel ids the guide numbers, or the host's guide made from it when it has one; a channel nobody has listings for has no programmes |

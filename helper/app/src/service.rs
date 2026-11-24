@@ -357,8 +357,14 @@ impl Service {
         // Live TV Tuner: the antenna tuner on the home network, a plugin of the helper's own. Nothing listens and the tuner is left alone
         // until the owner switches it on in Settings. Guide data: online listings laid over the TV's own guide, the tuner's `/xmltv.xml`
         // included, also off until switched on. Both read the TV's channel list through the same luna path.
+        // A device that takes the tuner from the TV's own Live TV is named in a toast of LumaTV's, and LumaTV's home takes the screen.
+        let app = config.brand_app_id.clone().unwrap_or_else(|| "org.nphil.lumatv".to_owned());
         let tv: Arc<dyn lumatuner::Hardware> = Arc::new(lumatuner::webos::Tv::new(
-            config.hdhr.webos(),
+            lumatuner::webos::WebosConfig {
+                home_app: Some(app.clone()),
+                toast_source: Some(app),
+                ..config.hdhr.webos()
+            },
             Arc::new(lumatuner::webos::LunaSend::new(config.luna.send.clone())),
         ));
         // The Plex account: the TV's one sign-in to Plex, whose server Guide data's Plex source uses. What Guide data kept of a Plex

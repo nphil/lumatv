@@ -5,7 +5,9 @@
 //! A client counts one tuner, so a new request from the client whose stream has the tuner means it gave that stream up: Plex asks for
 //! the next channel before it closes the last one. That request takes the tuner over: the old stream is told to end, and the TV is let
 //! go before it is tuned again. A stream that is over is only letting go of the TV (a pipeline to close, the channel to put back), so a
-//! request then waits for it too. Another client's running stream keeps the tuner (503).
+//! request then waits for it too. Whoever starts last has the tuner otherwise: another client's running stream (not Plex's, which is a
+//! recording) is told to end and who took it, and the TV's own Live TV is asked to give way ([`Hardware::yield_to`]) unless the request is
+//! Plex's; `/status.json` says for [`DISPLACED_FOR_MS`] who was displaced and by whom.
 
 use crate::Status;
 use crate::docs::{self, Entry, Identity};
@@ -120,6 +122,16 @@ pub trait Hardware: Send + Sync + 'static {
     /// The TV's last channel, LG's: what the demodulator reads while nothing of this tuner has it.
     fn tuned_to(&self) -> Option<String> {
         None
+    }
+    /// What the TV is called, for the clients it displaces.
+    fn tv_name(&self) -> String {
+        "The TV".to_owned()
+    }
+    /// The device `by` took the tuner while the TV's own Live TV had it: tells the viewer (a toast naming `by`), leaves Live TV for the TV's
+    /// home and lets go of the tuner. `true` when the TV has given it up; `false` when it is not Live TV that has it or it cannot.
+    fn yield_to(&self, by: &str) -> bool {
+        let _ = by;
+        false
     }
 }
 
@@ -349,12 +361,30 @@ pub fn real_clock() -> Clock {
 }
 
 /// Who has the tuner: the client whose stream it is, the flag that ends that stream, whether the stream is over and only letting go
-/// of the TV, and what the stream is (none for the meter and the reception check).
+/// of the TV, what the stream is (none for the meter and the reception check) and, once another client has displaced it, who.
 struct Holding {
     peer: IpAddr,
     replaced: Arc<AtomicBool>,
     over: bool,
     claim: Option<Claim>,
+    taker: Option<String>,
+}
+
+/// How long `/status.json` keeps saying a client was displaced.
+pub(crate) const DISPLACED_FOR_MS: u64 = 60_000;
+
+/// A client whose stream another device (or the TV's own Live TV) took the tuner from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Displaced {
+    pub(crate) peer: IpAddr,
+    /// The displaced client, as a player knows it.
+    pub(crate) name: String,
+    pub(crate) by: String,
+    /// `tv` for the TV's own Live TV, `app` for a device on the network.
+    pub(crate) by_kind: &'static str,
+    pub(crate) at_ms: u64,
+    pub(crate) guide: String,
+    pub(crate) channel_name: String,
 }
 
 /// A client's stream that has the tuner, as `/status.json` and a refused request's slate say it.
@@ -363,6 +393,10 @@ pub(crate) struct Claim {
     pub(crate) peer: IpAddr,
     /// The request's `User-Agent`.
     pub(crate) agent: Option<String>,
+    /// The device name the client gave (`?device=` or `X-Luma-Device`).
+    pub(crate) device: Option<String>,
+    /// A recording (Plex's stream): another client does not take the tuner from it.
+    pub(crate) recording: bool,
     pub(crate) guide: String,
     pub(crate) name: String,
     pub(crate) channel_id: String,
@@ -385,9 +419,16 @@ impl Lease {
         }
     }
 
-    pub(crate) fn claim(&self, claim: Claim) {
-        if let Some(h) = self.tuning.held.lock().as_mut() {
-            h.claim = Some(claim);
+    /// The device that displaced this stream, when another client did (the same client asking again is not that).
+    pub(crate) fn taker(&self) -> Option<String> {
+        self.tuning.held.lock().as_ref().and_then(|h| h.taker.clone())
+    }
+
+    /// The TV's own Live TV took the tuner from this stream: noted for the client to read.
+    pub(crate) fn taken_by_tv(&self, tv: &str) {
+        let claim = self.tuning.held.lock().as_ref().and_then(|h| h.claim.clone());
+        if let Some(claim) = claim {
+            self.tuning.displaced(&claim, tv, "tv");
         }
     }
 }
@@ -411,6 +452,7 @@ pub(crate) struct Tuning {
     pub(crate) options: Mutex<Options>,
     pub(crate) breaker: Breaker,
     known: Mutex<HashMap<String, Known>>,
+    taken: Mutex<Vec<Displaced>>,
 }
 
 /// Where a stream's slates get their look: asked once for each request, so a change of the host's theme reaches the next stream; `None`
@@ -486,9 +528,19 @@ impl Tuning {
 }
 
 impl Tuning {
-    /// Takes the tuner for `peer`. A stream of the same client, or one that is over, is told to end and waited for, at most `wait`;
-    /// another client's running stream keeps it.
+    /// Takes the tuner for `peer`, who is nobody's stream (the meter, the reception check): a stream of the same client, or one that is
+    /// over, is told to end and waited for, at most `wait`; a client's running stream keeps it.
     pub(crate) fn take(self: &Arc<Self>, peer: IpAddr, wait: Duration) -> Result<Lease, Failure> {
+        self.acquire(peer, None, wait)
+    }
+
+    /// Takes the tuner for a client's stream, `by` being what it is called. As [`Tuning::take`], and the last to start wins: another
+    /// client's running stream that is not a recording is told to end, who took it noted, and waited for.
+    pub(crate) fn take_stream(self: &Arc<Self>, claim: Claim, by: String, wait: Duration) -> Result<Lease, Failure> {
+        self.acquire(claim.peer, Some((claim, by)), wait)
+    }
+
+    fn acquire(self: &Arc<Self>, peer: IpAddr, taker: Option<(Claim, String)>, wait: Duration) -> Result<Lease, Failure> {
         let deadline = Instant::now() + wait;
         let mut held = self.held.lock();
         loop {
@@ -499,20 +551,56 @@ impl Tuning {
                         peer,
                         replaced: replaced.clone(),
                         over: false,
-                        claim: None,
+                        claim: taker.as_ref().map(|(c, _)| c.clone()),
+                        taker: None,
                     });
+                    if taker.is_some() {
+                        self.taken.lock().retain(|d| d.peer != peer);
+                    }
                     return Ok(Lease {
                         tuning: self.clone(),
                         replaced,
                     });
                 }
                 Some(h) if h.over || h.peer == peer => h.replaced.store(true, Ordering::Release),
+                Some(h) if taker.is_some() && h.claim.as_ref().is_some_and(|c| !c.recording) => {
+                    if !h.replaced.swap(true, Ordering::AcqRel) {
+                        let (_, by) = taker.as_ref().expect("a stream's taker");
+                        h.taker = Some(by.clone());
+                        if let Some(old) = &h.claim {
+                            self.displaced(old, by, "app");
+                        }
+                    }
+                }
                 Some(_) => return Err(Failure::Busy),
             }
             if self.freed.wait_until(&mut held, deadline).timed_out() && held.is_some() {
                 return Err(Failure::Busy);
             }
         }
+    }
+
+    /// Notes that `by` (of `kind`) took the tuner from `old`'s stream.
+    fn displaced(&self, old: &Claim, by: &str, kind: &'static str) {
+        let name = client_name(old, &self.options.lock().names).unwrap_or_else(|| old.peer.to_string());
+        let mut taken = self.taken.lock();
+        taken.retain(|d| d.peer != old.peer);
+        taken.push(Displaced {
+            peer: old.peer,
+            name,
+            by: by.to_owned(),
+            by_kind: kind,
+            at_ms: crate::webos::unix_ms(),
+            guide: old.guide.clone(),
+            channel_name: old.name.clone(),
+        });
+    }
+
+    /// The clients displaced within [`DISPLACED_FOR_MS`] of `now_ms`.
+    pub(crate) fn displaced_since(&self, now_ms: u64) -> Vec<Displaced> {
+        let mut taken = self.taken.lock();
+        taken.retain(|d| now_ms.saturating_sub(d.at_ms) < DISPLACED_FOR_MS);
+        taken.clone()
     }
 
     /// The client's stream that has the tuner, if one has it and is not letting go of it.
@@ -742,21 +830,29 @@ impl Facade {
     }
 
     /// Takes the tuner for `entry` for the client at `peer`: what a refusal answers is checked here, while nothing has been sent to the
-    /// client and a failure is still an HTTP status.
-    fn take_for(&self, entry: &Entry, peer: IpAddr, agent: Option<&str>) -> Result<Lease, Failure> {
-        let lease = self.tuning.take(peer, self.limits.release)?;
-        if let Some(why) = self.hw.in_use() {
-            self.tuning.refused(&why);
-            return Err(Failure::TvInUse(why));
-        }
-        lease.claim(Claim {
+    /// client and a failure is still an HTTP status. The last to start has the tuner: another client's stream gives way (told who took it),
+    /// and so does the TV's own Live TV, to a device but not to Plex, whose streams are recordings.
+    fn take_for(&self, entry: &Entry, peer: IpAddr, agent: Option<&str>, device: Option<&str>) -> Result<Lease, Failure> {
+        let mut claim = Claim {
             peer,
             agent: agent.map(str::to_owned),
+            device: device.map(str::to_owned),
+            recording: false,
             guide: entry.guide.clone(),
             name: entry.name.clone(),
             channel_id: entry.channel_id.clone(),
             since_ms: crate::webos::unix_ms(),
-        });
+        };
+        let who = client_name(&claim, &self.tuning.options.lock().names);
+        claim.recording = who.as_deref() == Some("Plex");
+        let by = who.unwrap_or_else(|| peer.to_string());
+        let lease = self.tuning.take_stream(claim.clone(), by.clone(), self.limits.release)?;
+        if let Some(why) = self.hw.in_use()
+            && (claim.recording || !self.hw.yield_to(&by))
+        {
+            self.tuning.refused(&why);
+            return Err(Failure::TvInUse(why));
+        }
         Ok(lease)
     }
 
@@ -765,14 +861,14 @@ impl Facade {
     /// that says who has it ([`Facade::refuse`]); otherwise it is tuned here and answered from its first whole picture, and a channel that
     /// cannot start is still an HTTP status. A request for H.264 (`transcode`, with a converter installed) is not answered with a slate,
     /// whose pictures are MPEG-2. Nothing of a failure is kept but the channel's health: the next request tunes again.
-    pub(crate) fn admit(&self, guide: &str, peer: IpAddr, agent: Option<&str>, transcode: Option<&str>) -> Result<Admitted, Failure> {
+    pub(crate) fn admit(&self, guide: &str, peer: IpAddr, agent: Option<&str>, device: Option<&str>, transcode: Option<&str>) -> Result<Admitted, Failure> {
         let entry = self.entry(guide)?;
         let convert = self.conversion(transcode)?;
         let source = self.tuning.options.lock().look.clone();
         let look = source
             .and_then(|look| look())
             .filter(|_| self.tuning.seen(guide).is_none_or(|s| s.layout.video_type == 0x02));
-        match (self.take_for(&entry, peer, agent), look) {
+        match (self.take_for(&entry, peer, agent, device), look) {
             (Ok(lease), Some(look)) if convert.is_none() => Ok(Admitted::Slated(Slated { entry, lease, look })),
             (Ok(lease), _) => self.found(entry, lease).map(|mut stream| {
                 if let Some(Conversion { codec, profile }) = convert {
@@ -830,8 +926,13 @@ impl Facade {
         busy_line(&claim, who.as_deref(), programme.as_deref())
     }
 
-    /// `/status.json`: the client whose stream has the tuner, or `null` while none has it. Nothing is asked of the TV.
+    /// `/status.json`: the client whose stream has the tuner, or `null` while none has it, and the clients whose stream another device or
+    /// the TV took the tuner from in the last [`DISPLACED_FOR_MS`]. Nothing is asked of the TV.
     pub(crate) fn status_doc(&self) -> Value {
+        self.status_at(crate::webos::unix_ms())
+    }
+
+    fn status_at(&self, now_ms: u64) -> Value {
         let names = self.tuning.options.lock().names.clone();
         let holder = self.tuning.holder().map(|c| {
             serde_json::json!({
@@ -842,14 +943,30 @@ impl Facade {
                 "since": c.since_ms,
             })
         });
-        serde_json::json!({ "holder": holder })
+        let displaced: Vec<Value> = self
+            .tuning
+            .displaced_since(now_ms)
+            .into_iter()
+            .map(|d| {
+                serde_json::json!({
+                    "ip": d.peer.to_string(),
+                    "name": d.name,
+                    "by": d.by,
+                    "byKind": d.by_kind,
+                    "at": d.at_ms,
+                    "channel": d.guide,
+                    "channelName": d.channel_name,
+                })
+            })
+            .collect();
+        serde_json::json!({ "holder": holder, "displaced": displaced })
     }
 
     /// A request without slates: the tuner taken, the channel tuned, its program found and its first whole picture waited for.
     #[cfg(test)]
     pub(crate) fn open(&self, guide: &str, peer: IpAddr) -> Result<Stream, Failure> {
         let entry = self.entry(guide)?;
-        let lease = self.take_for(&entry, peer, None)?;
+        let lease = self.take_for(&entry, peer, None, None)?;
         self.found(entry, lease)
     }
 
@@ -1289,8 +1406,12 @@ struct Conversion {
     profile: Profile,
 }
 
-/// What a client is called: the name the host knows its address by, `Plex` for a Plex user agent, else its user agent's product.
+/// What a client is called: the device name it gave, else the name the host knows its address by, `Plex` for a Plex user agent, else its
+/// user agent's product.
 pub(crate) fn client_name(claim: &Claim, names: &HashMap<IpAddr, String>) -> Option<String> {
+    if let Some(device) = claim.device.as_deref().filter(|d| !d.is_empty()) {
+        return Some(device.to_owned());
+    }
     if let Some(name) = names.get(&claim.peer) {
         return Some(name.clone());
     }
@@ -1322,6 +1443,8 @@ pub(crate) enum End {
     Replaced,
     /// The program's picture stopped arriving: the tuner has been moved (Live TV changed channel).
     Silent,
+    /// Another device took the tuner: its name. The stream ends and the client is told who took it.
+    Taken(String),
     /// The TV took the tuner for its own use.
     Preempted(String),
     Failed(Failure),
@@ -1441,7 +1564,7 @@ impl Stream {
                 return Ok(End::Stopped);
             }
             if self.lease.replaced.load(Ordering::Acquire) {
-                return Ok(End::Replaced);
+                return Ok(self.lease.taker().map_or(End::Replaced, End::Taken));
             }
             let now = (self.clock)();
             if now.saturating_sub(last_pat) >= lim.pat_every {
@@ -1460,6 +1583,7 @@ impl Stream {
                 last_owner = now;
                 if let Some(why) = self.hw.in_use().or_else(|| self.tap.taken()) {
                     self.over.then = Status::Busy(why.clone());
+                    self.lease.taken_by_tv(&self.hw.tv_name());
                     return Ok(End::Preempted(why));
                 }
             }
@@ -1519,6 +1643,7 @@ pub(crate) mod tests {
     /// Plex at home, and another client.
     pub(crate) const PLEX: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 69));
     const OTHER: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 70));
+    const THIRD: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 71));
 
     /// The fake clock: reads wait by moving it, so a test of five silent seconds takes no time.
     #[derive(Clone, Default)]
@@ -1583,6 +1708,9 @@ pub(crate) mod tests {
         scripted: Vec<Vec<u8>>,
         lists: AtomicU64,
         list_fails: AtomicBool,
+        /// The devices Live TV was asked to give way to, and whether it does.
+        pub(crate) yielded: Mutex<Vec<String>>,
+        pub(crate) yields: AtomicBool,
         /// The channels `programmes` was asked for, and the ones it fails for.
         programmes_asked: Mutex<Vec<String>>,
         programmes_fail: Mutex<Vec<String>>,
@@ -1610,6 +1738,8 @@ pub(crate) mod tests {
                 mux,
                 owner: Mutex::default(),
                 taken: Mutex::default(),
+                yielded: Mutex::default(),
+                yields: AtomicBool::new(false),
                 tuned: Mutex::default(),
                 started: Mutex::default(),
                 released: AtomicU64::new(0),
@@ -1713,6 +1843,19 @@ pub(crate) mod tests {
 
         fn tuned_to(&self) -> Option<String> {
             self.0.last.lock().clone()
+        }
+
+        fn tv_name(&self) -> String {
+            "Living Room TV".to_owned()
+        }
+
+        fn yield_to(&self, by: &str) -> bool {
+            self.0.yielded.lock().push(by.to_owned());
+            let gives_way = self.0.yields.load(Ordering::Relaxed);
+            if gives_way {
+                *self.0.owner.lock() = None;
+            }
+            gives_way
         }
     }
 
@@ -1981,6 +2124,7 @@ pub(crate) mod tests {
         let time = Time::default();
         let fake = fake_with(&time, rf32(&[]), on_air());
         let f = facade(&fake, &time);
+        f.tuning.options.lock().names.insert(PLEX, "Plex".to_owned());
         let first = f.open("2.4", PLEX).unwrap();
         assert_eq!(f.open("2.1", OTHER).err(), Some(Failure::Busy));
         assert_eq!(
@@ -2002,6 +2146,101 @@ pub(crate) mod tests {
         drop(first);
         assert_eq!(f.tuning.status(), Status::Idle);
         assert!(f.open("2.1", OTHER).is_ok());
+    }
+
+    /// A client's stream as a request without slates is served, the client calling itself `device`.
+    fn started(f: &Facade, guide: &str, peer: IpAddr, device: &str) -> Result<Box<Stream>, Failure> {
+        match f.admit(guide, peer, None, Some(device), None)? {
+            Admitted::Plain(stream) => Ok(stream),
+            _ => panic!("not a plain stream"),
+        }
+    }
+
+    fn displaced_of(f: &Facade, now_ms: u64) -> Vec<Value> {
+        f.status_at(now_ms)["displaced"].as_array().cloned().unwrap()
+    }
+
+    #[test]
+    fn the_last_client_to_start_has_the_tuner_and_the_displaced_one_is_told_who_took_it_for_a_minute() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), on_air());
+        let f = Arc::new(facade(&fake, &time));
+        let mut phone = started(&f, "2.4", OTHER, "Pixel").unwrap();
+        let next = {
+            let f = f.clone();
+            thread::spawn(move || started(&f, "2.1", THIRD, "Living Room iPad").map(drop))
+        };
+        until_asked(&phone);
+        let end = phone.pump(&mut Vec::new(), &AtomicBool::new(false)).unwrap();
+        assert_eq!(end, End::Taken("Living Room iPad".into()), "the stream ends, not fails");
+        drop(phone);
+        assert_eq!(next.join().unwrap(), Ok(()));
+        let now = crate::webos::unix_ms();
+        let [told] = displaced_of(&f, now).try_into().unwrap();
+        let at = told["at"].as_u64().unwrap();
+        assert_eq!(
+            told,
+            serde_json::json!({"ip": "192.168.1.70", "name": "Pixel", "by": "Living Room iPad", "byKind": "app", "at": at, "channel": "2.4", "channelName": "WEST"})
+        );
+        assert_eq!(displaced_of(&f, at + DISPLACED_FOR_MS - 1).len(), 1);
+        assert!(displaced_of(&f, at + DISPLACED_FOR_MS).is_empty(), "the record expires");
+    }
+
+    #[test]
+    fn the_same_client_changing_channel_is_not_displaced_and_a_recording_is_not_taken_from() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), on_air());
+        let f = Arc::new(facade(&fake, &time));
+        let mut old = started(&f, "2.4", OTHER, "Pixel").unwrap();
+        let next = {
+            let f = f.clone();
+            thread::spawn(move || started(&f, "2.1", OTHER, "Pixel").map(drop))
+        };
+        until_asked(&old);
+        assert_eq!(old.pump(&mut Vec::new(), &AtomicBool::new(false)).unwrap(), End::Replaced);
+        drop(old);
+        assert_eq!(next.join().unwrap(), Ok(()));
+        assert!(displaced_of(&f, crate::webos::unix_ms()).is_empty());
+
+        f.tuning.options.lock().names.insert(PLEX, "Plex".to_owned());
+        let recording = f.open("2.4", PLEX).unwrap();
+        assert_eq!(started(&f, "2.1", THIRD, "Pixel").err(), Some(Failure::Busy), "a recording keeps the tuner");
+        assert!(!recording.lease.replaced.load(Ordering::Acquire));
+        assert!(displaced_of(&f, crate::webos::unix_ms()).is_empty());
+    }
+
+    #[test]
+    fn a_device_takes_the_tuner_from_the_tvs_live_tv_by_asking_it_to_give_way_but_plex_does_not() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), on_air());
+        *fake.owner.lock() = Some("Live TV is in front".into());
+        let f = facade(&fake, &time);
+        f.tuning.options.lock().names.insert(PLEX, "Plex".to_owned());
+        assert_eq!(f.open("2.4", PLEX).err(), Some(Failure::TvInUse("Live TV is in front".into())));
+        assert!(fake.yielded.lock().is_empty(), "the TV does not give way to a recording");
+
+        assert_eq!(started(&f, "2.4", OTHER, "Pixel").err(), Some(Failure::TvInUse("Live TV is in front".into())), "Live TV that cannot give way keeps it");
+        assert_eq!(*fake.yielded.lock(), ["Pixel"]);
+        assert!(fake.tuned.lock().is_empty());
+
+        fake.yields.store(true, Ordering::Relaxed);
+        assert!(started(&f, "2.4", OTHER, "Pixel").is_ok());
+        assert_eq!(*fake.yielded.lock(), ["Pixel", "Pixel"], "the TV is told who took the tuner");
+    }
+
+    #[test]
+    fn the_tv_taking_the_tuner_from_a_client_is_noted_for_it_as_the_tv() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), on_air());
+        let f = facade_with(&fake, &time, asking_often());
+        let mut stream = started(&f, "2.4", OTHER, "Pixel").unwrap();
+        *fake.owner.lock() = Some("Live TV is in front".into());
+        assert_eq!(
+            stream.pump(&mut Vec::new(), &AtomicBool::new(false)).unwrap(),
+            End::Preempted("Live TV is in front".into())
+        );
+        let [told] = displaced_of(&f, crate::webos::unix_ms()).try_into().unwrap();
+        assert_eq!((told["name"].as_str(), told["by"].as_str(), told["byKind"].as_str()), (Some("Pixel"), Some("Living Room TV"), Some("tv")));
     }
 
     #[test]
@@ -2435,6 +2674,8 @@ pub(crate) mod tests {
         let claim = |agent: Option<&str>| Claim {
             peer: OTHER,
             agent: agent.map(str::to_owned),
+            device: None,
+            recording: false,
             guide: "2.1".into(),
             name: "WSB-HD".into(),
             channel_id: "1_32_2_1_0_0_0".into(),
@@ -2466,7 +2707,7 @@ pub(crate) mod tests {
 
     /// One request for 2.4, pumped until it ends: how it ended and what it sent.
     fn ask(f: &Facade, transcode: Option<&str>) -> (End, Vec<u8>) {
-        let Ok(Admitted::Plain(mut stream)) = f.admit("2.4", PLEX, None, transcode) else {
+        let Ok(Admitted::Plain(mut stream)) = f.admit("2.4", PLEX, None, None, transcode) else {
             panic!("not a plain stream");
         };
         let mut out = Vec::new();
@@ -2487,7 +2728,7 @@ pub(crate) mod tests {
         let codec = converter::Fake::default();
         let f = facade(&fake, &time);
         f.tuning.options.lock().codec = Some(Arc::new(codec.clone()));
-        let Ok(Admitted::Plain(mut stream)) = f.admit("2.4", PLEX, None, Some("MOBILE")) else {
+        let Ok(Admitted::Plain(mut stream)) = f.admit("2.4", PLEX, None, None, Some("MOBILE")) else {
             panic!("not a plain stream");
         };
         let source = Format { width: 1920, height: 1080, rate: 4, aspect: 3, progressive: false };

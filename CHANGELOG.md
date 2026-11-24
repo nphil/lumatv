@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The Live TV Tuner gives the tuner to whoever starts a stream last: a phone or tablet's request takes it from another device's stream and from the TV's own Live TV, where a toast names the device and LumaTV Home takes the screen. The displaced stream ends with a `Tuner taken by <device>` slate and `/status.json` lists the displaced client and who took it for 60 s; clients name themselves with `?device=` or `X-Luma-Device`. Plex's recordings keep the tuner.
+
 LumaGame's focus draws no border: a focused banner, tile, row or button is raised glass (the wash, a soft sheen and one shadow, lifted and grown) with no light edge or lip around it. The focus edge colour (`glassFocusEdge`) is no longer used by LumaGame; LumaTV Home's own kit still draws it.
 
 LumaTV Home's dock card responds to focus like the widgets: while the focus is on an app icon the card's glass rises 4 px, grows 3 % and lights on the cards' own spring, and settles back when the focus leaves. The icons stay on whole pixels and the focused icon keeps its own lift.

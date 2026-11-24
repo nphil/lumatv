@@ -18,7 +18,7 @@ On the TV's private address, port 5004 (`hdhr` in `helper.json`: `port`, `bind`,
 | `GET /discover.json` | the device: name, id, `TunerCount` 1, `BaseURL`, `LineupURL` |
 | `GET /lineup.json`, `/lineup_status.json` | the TV's antenna channels, one per number, and an antenna that is not scanning |
 | `GET /lineup.m3u` | the same lineup as an M3U playlist; `url-tvg` names the guide |
-| `GET /status.json` | who has the tuner, without tuning or asking the TV: `{"holder": {"ip", "name", "channel", "channelName", "since"}}` (`name` is `Plex` for the signed-in Plex server's address or a Plex user agent, else the user agent's product; `since` in Unix ms), or `{"holder": null}` while no client's stream has it |
+| `GET /status.json` | who has the tuner, without tuning or asking the TV: `{"holder": {"ip", "name", "channel", "channelName", "since"}}` (`name` is `Plex` for the signed-in Plex server's address or a Plex user agent, else the user agent's product; `since` in Unix ms), or `{"holder": null}` while no client's stream has it; `displaced` lists who lost the tuner (below) |
 | `GET /xmltv.xml` | the TV's own guide, a day back to six days ahead, as XMLTV; with the Guide data plugin on, the online listings laid over it ([guide-data.md](guide-data.md)) |
 | `GET /auto/v<number>` | MPEG-TS of one channel (`/auto/v2.4`), starting with the program's PAT and PMT. With the tuner's messages on (the default) it is answered at once and opens with a slate while the channel tunes; otherwise it is answered once the channel's first whole picture has come, and starts with that picture |
 | `GET /auto/v<number>?transcode=<profile>` | the same channel as H.264 from the TV's own video hardware, when the owner has switched that on (*H.264 on request*, below) |
@@ -95,9 +95,21 @@ measurements.
 
 ## One tuner
 
-The TV has one tuner, so one stream runs at a time and the TV's own Live TV comes first: a stream does not start while Live TV has the
-tuner, and a running one ends when Live TV takes it. The client whose stream has the tuner takes it over with its next request (a channel
-change); another client is refused (503) while a stream runs.
+The TV has one tuner, so one stream runs at a time and whoever starts last has it. A device's request takes the tuner from another
+device's running stream and from the TV's own Live TV; Live TV opening takes it from a stream. The client whose stream has the tuner
+takes it over with its next request (a channel change). Plex's streams count as recordings and keep their rule: another client is
+refused (503) while Plex has the tuner, and Plex does not take it from Live TV (503 `The TV is using its tuner`).
+
+On the TV a device that takes the tuner from Live TV shows a LumaTV toast, `<Device> is now using the tuner` (it leaves by itself, in
+the theme's tokens), then LumaTV Home takes the screen and Live TV is closed.
+
+**Client contract.** Name the device with `?device=<name>` on `/auto/v<number>` or an `X-Luma-Device: <name>` header (query first;
+percent-escapes and `+` read, 40 characters at most); without one the name is the host's name for the address, else the User-Agent's
+product, else the address. A displaced stream ends cleanly: with slates on, a last 2.5 s slate `Tuner taken by <name>` then the end
+(Live TV taking it says `The TV is using its tuner`); without slates the stream just ends. `GET /status.json` then lists, for 60 s,
+`"displaced": [{"ip", "name", "by", "byKind", "at", "channel", "channelName"}]`: `name` is the displaced client, `by` the taker (the TV's
+own name for Live TV), `byKind` is `app` (a device on the network) or `tv`, `at` Unix ms. A client finds itself by `ip` or `name`; the
+entry goes when the same client starts a stream again.
 
 The tuner answers while the TV is on with any app in front, or off in Always Ready (Active Standby). A stream takes only the tuner and
 the section decoder: the app in front keeps its picture and sound (Netflix in 4K, which holds every video decoder, too), and the TV's
