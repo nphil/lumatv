@@ -22,6 +22,7 @@ pub mod boot_direct;
 pub mod boxdim;
 pub mod buffer;
 pub mod buttons;
+pub(crate) mod card;
 pub mod capture;
 pub mod childlog;
 pub mod config;

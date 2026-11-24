@@ -1430,7 +1430,7 @@ impl Scene {
         // Home is hidden for the frames in which an app's card has covered it and nothing is in transition (a launch and a return draw it as the
         // underlay, and a frame that finds it back draws it whole: `Gl::set_home_hidden`).
         self.plan.home_hidden = self.home_rust && !self.transitions.active() && self.home_covered_in(surfaces);
-        self.plan.animating = self.transitions.animating(now_ns);
+        self.plan.animating = self.transitions.animating(now_ns) || self.snapshots.fading();
         for h in &self.holes {
             let Some(before) = self.plan.items.iter().position(|i| i.surface == h.surface) else { continue };
             let item = &self.plan.items[before];

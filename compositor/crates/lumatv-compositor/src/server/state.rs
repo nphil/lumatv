@@ -908,7 +908,7 @@ impl State {
         if let Some(receipt) = self.output.take_snapshot_presented()
             && self.scene.snapshots.presented(receipt)
         {
-            self.output.retain_app_snapshots(&self.scene.snapshots);
+            // the saved picture starts to dissolve into the window from the next plan
             self.scene.redraw_all();
         }
     }

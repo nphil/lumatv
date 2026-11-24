@@ -1679,7 +1679,7 @@ impl Gl {
             if wall_home && index == plan.home_before {
                 self.draw_home_over_wallpaper(plan, rects)?;
             }
-            self.draw_snapshots_before(plan, index, &mut stats.snapshot, rects);
+            self.draw_snapshots_before(plan, index, stats.snapshot, rects);
             if self.snapshot_replaces(plan, item.window, stats.snapshot) {
                 continue;
             }
@@ -1767,7 +1767,7 @@ impl Gl {
         if wall_home && plan.home_before == plan.items.len() {
             self.draw_home_over_wallpaper(plan, rects)?;
         }
-        self.draw_snapshots_before(plan, plan.items.len(), &mut stats.snapshot, rects);
+        self.draw_snapshots_before(plan, plan.items.len(), stats.snapshot, rects);
         // an idle system layer leaves the backdrop above every item
         if let Some(b) = plan.backdrop.as_ref().filter(|b| b.before >= plan.items.len()) {
             self.draw_backdrop(b, rects);
@@ -2210,6 +2210,10 @@ impl Output for Gl {
 
     fn freeze_app(&mut self, id: crate::snapshot::SnapshotId, window: crate::window::WindowId, plan: &Plan, live: &crate::snapshot::Snapshots) -> bool {
         Gl::freeze_app(self, id, window, plan, live)
+    }
+
+    fn freeze_card(&mut self, id: crate::snapshot::SnapshotId, rgba: &[u8], live: &crate::snapshot::Snapshots) -> bool {
+        Gl::freeze_card(self, id, rgba, live)
     }
 
     fn retain_app_snapshots(&mut self, snapshots: &crate::snapshot::Snapshots) {

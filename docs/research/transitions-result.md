@@ -11,32 +11,45 @@ Rust Home supplies the active theme's icon geometry through `rustui/ui/src/home/
 Mocks: `docs/mocks/transitions/` (`node render.mjs`; dark and light, 100 % and 200 % text for the Settings row). Renders from the
 compositor itself: `docs/research/transitions/` (`LUMATV_TRANSITIONS_RENDER_DIR=<dir> cargo test --test transitions renders_the_transitions`).
 
-## App snapshots (2026-11-16)
+## App snapshots (2026-11-16, revised 2026-11-24)
 
-An eligible app and its grouped surfaces are copied before the background notification into an independent, output-sized RGBA texture.
-Home, the cursor, system layers and other apps are not copied. The existing 180/220 ms poses provide the soft landing and its reverse;
-reduced motion uses a stationary 120 ms fade. The picture is cover-fitted without changing its aspect. Nothing is written to disk or telemetry.
+An eligible app and its grouped surfaces are copied before the background notification into an independent GPU texture at half the output's
+size (960×540, 2,073,600 bytes). Home, the cursor, system layers and other apps are not copied. The existing 180/220 ms poses provide the soft
+landing and its reverse; reduced motion uses a stationary 120 ms fade. The picture is cover-fitted without changing its aspect. Nothing is
+written to disk or telemetry.
 
-The fixed 24 MiB payload budget holds at most three 1920×1080 pictures: 8,294,400 bytes each, 24,883,200 bytes in total.
-The oldest inactive picture is evicted first; its allocation is reused directly, never with a temporary fourth texture.
-`ctl transitions` reports the actual allocation count and payload bytes, not the driver's additional bookkeeping.
-Close, unmap, remap, app identity changes and interrupted resumes invalidate the corresponding lifecycle identity.
+At most eight pictures are kept: 16,588,800 bytes in total. The oldest inactive picture is evicted first; its allocation is reused directly,
+never with a temporary ninth texture. `ctl transitions` reports the actual allocation count and payload bytes, not the driver's additional
+bookkeeping. Close, unmap, remap, app identity changes and interrupted resumes free the corresponding picture.
 
-Resume keeps the cover until the complete app group has drawable content committed after the resume request. Callback-only commits and
-background-only changes do not prove freshness; unchanged children can accompany a fresh root or sibling. The first complete picture
-replaces the cover in its existing allocation, so a newer buffer that is still warming cannot bring the old picture back. Only the
-matching output flip releases that cover. Failed or dropped submissions cannot acknowledge it. After 1.5 s without a successful handoff,
-the cover is abandoned in favour of the ordinary live/fallback path; this is a bounded hold, not a claim that a fresh frame arrived.
-Logical foreground, input, app notifications and Home never wait for a cover.
+What is kept depends on what the window is (`Capture` in `scene/snapshots.rs`):
 
-Eligibility requires a complete normal RGB UI group with supported geometry, no owned video hole, and no undrawn source mutation.
-An exported element without a hole only reserves future video capability. A confirmed RGB copy permits normal snapshot motion;
-an unconfirmed or failed capture keeps the conservative cold-launch fade. A new hole discards the saved UI and makes any remaining
-motion stationary without restarting its end time. Paused video holes remain excluded, as do input cards and unknown external formats.
-Video is never sampled.
-The available webOS buffer metadata has no universal protection flag, so this is not a claim of general protected-content capture support.
-An ineligible or unavailable picture keeps the existing no-snapshot path. Snapshot continuity has not yet been accepted on the TV;
-the shipped motion default remains off.
+- an app of normal RGB UI: its own pixels;
+- an app with a video window under half the output (a preview, YouTube): its UI with the hole transparent, so video is never sampled;
+- an app whose video covers half the output or more, or whose window is only an owned hole (hardware video, protected playback): a card
+  painted on the CPU (`card.rs`) from the active theme's palette, the panel colour with an icon tile, the app's initial and its name, uploaded
+  as a texture and kept like any other picture. The palette is the one the shell last sent with the task manager's layout, the default
+  theme's until then.
+
+Input cards (HDMI) have none. An exported element without a hole only reserves future video capability. A confirmed RGB copy permits normal
+snapshot motion; an unconfirmed or failed capture keeps the conservative cold-launch fade. A hole appearing under a plain UI picture discards
+it and makes any remaining motion stationary without restarting its end time. Unknown external formats are excluded. The available webOS
+buffer metadata has no universal protection flag, so the UI copy is not a claim of general protected-content capture support.
+
+Resume shows the picture on the first frame of the open motion, in place of the cold-launch fade, so no frame is black or empty. The app's
+window is drawn under it from the first complete frame committed after the resume request (callback-only commits and background-only changes
+do not prove freshness; unchanged children can accompany a fresh root or sibling). Once the output has presented that frame the picture
+dissolves into it over 140 ms (smoothstep). A newer buffer that is still warming is covered by the same picture. Failed or dropped
+submissions cannot start the dissolve. After 1.5 s without a successful handoff the picture is dropped in favour of the ordinary
+live/fallback path; this is a bounded hold, not a claim that a fresh frame arrived. Logical foreground, input, app notifications and Home
+never wait for it.
+
+Panel care: a picture or card stays at most 1.5 s plus the 140 ms dissolve, adds no light beyond the app's own (the card is the theme's panel
+colour with a tile a tenth of the way to the text colour; about 2% of its pixels are at text brightness) and does not move beyond the open
+motion.
+
+An ineligible or unavailable picture keeps the existing no-snapshot path. Snapshot continuity has not yet been accepted on the TV; the
+shipped motion default remains off.
 
 The initial LumaGame menu check on compositor `c51fd3e7` produced zero snapshots and one 22 ms late gap against the 20 ms gate.
 No snapshot copy occurred, so the gap is not attributed to copying. The menu's dormant video export incorrectly excluded its RGB UI.

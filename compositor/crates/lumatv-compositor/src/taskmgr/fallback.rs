@@ -456,7 +456,12 @@ fn wrap(face: &mut Typeface, text: &str, px: u32, width: i32) -> Vec<String> {
 
 /// What stands in a card when the compositor has no picture of the app to draw there.
 fn initial(item: &Item) -> char {
-    item.title.chars().chain(item.id.chars()).find(|c| c.is_alphanumeric()).map_or('?', |c| c.to_uppercase().next().unwrap_or(c))
+    initial_of(&item.title, &item.id)
+}
+
+/// The first letter or digit of an app's title, else of its id, upper case; `?` when it has neither.
+pub(crate) fn initial_of(title: &str, id: &str) -> char {
+    title.chars().chain(id.chars()).find(|c| c.is_alphanumeric()).map_or('?', |c| c.to_uppercase().next().unwrap_or(c))
 }
 
 impl Screen {

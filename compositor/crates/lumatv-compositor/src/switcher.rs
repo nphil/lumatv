@@ -360,6 +360,12 @@ impl Switcher {
     pub fn active(&self) -> bool {
         self.phase != Phase::Closed
     }
+
+    /// The theme's colours as the shell last sent them with its layout (Rosé Pine until it has): what the compositor paints with where the
+    /// shell is not drawing.
+    pub(crate) fn palette(&self) -> Palette {
+        self.basic.palette
+    }
 }
 
 impl State {

@@ -1441,6 +1441,10 @@ impl Output for Kms {
         self.gl.freeze_app(id, window, plan, live)
     }
 
+    fn freeze_card(&mut self, id: crate::snapshot::SnapshotId, rgba: &[u8], live: &crate::snapshot::Snapshots) -> bool {
+        self.gl.freeze_card(id, rgba, live)
+    }
+
     fn retain_app_snapshots(&mut self, snapshots: &crate::snapshot::Snapshots) {
         self.gl.retain_app_snapshots(snapshots);
     }

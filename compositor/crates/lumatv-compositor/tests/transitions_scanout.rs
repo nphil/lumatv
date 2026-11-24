@@ -337,7 +337,8 @@ fn a_resume_requires_fresh_drawable_content_and_a_real_receipt_without_rolling_b
     rig.client.roundtrip();
     assert_eq!(tick(&server, 4_300 * MS).pixel(960, 540), [0xd0, 0x40, 0x40, 255]);
     release.store(true, Ordering::SeqCst);
-    assert_eq!(tick(&server, 4_320 * MS).pixel(960, 540), [0x20, 0xd0, 0x60, 255]);
+    // the receipt's frame draws the live window under the saved picture: the picture is what shows, never a gap
+    assert_eq!(tick(&server, 4_320 * MS).pixel(960, 540), [0xd0, 0x40, 0x40, 255], "the saved picture stays over the first live frame");
     assert_eq!(server.eval(|s| s.scene.snapshots.len()), 1, "storage waits for the output, not the draw");
 
     release.store(false, Ordering::SeqCst);
@@ -345,15 +346,19 @@ fn a_resume_requires_fresh_drawable_content_and_a_real_receipt_without_rolling_b
     let d = rig.client.shm_buffer(1920, 1080, 0xffd0_a020);
     rig.client.present(&win.surface, &d);
     rig.client.roundtrip();
-    assert_eq!(tick(&server, 4_340 * MS).pixel(960, 540), [0x20, 0xd0, 0x60, 255],
-        "queued C followed by unready D must never restore pre-resume A");
+    assert_eq!(tick(&server, 4_340 * MS).pixel(960, 540), [0xd0, 0x40, 0x40, 255],
+        "C was never shown: the picture stays while the next buffer warms");
     acknowledge.store(true, Ordering::SeqCst);
-    assert_eq!(tick(&server, 4_360 * MS).pixel(960, 540), [0x20, 0xd0, 0x60, 255]);
+    assert_eq!(tick(&server, 4_360 * MS).pixel(960, 540), [0xd0, 0x40, 0x40, 255], "the dissolve starts at the picture");
+    assert_eq!(server.eval(|s| s.scene.snapshots.len()), 1, "the picture lives through its dissolve");
+    release.store(true, Ordering::SeqCst);
+    tick(&server, 4_380 * MS);
+    let mid = tick(&server, 4_430 * MS).pixel(960, 540);
+    assert!(mid != [0xd0, 0x40, 0x40, 255] && mid != [0xd0, 0xa0, 0x20, 255], "half-way the window shows through the picture: {mid:?}");
+    assert_eq!(tick(&server, (4_360 + 140 + 20) * MS).pixel(960, 540), [0xd0, 0xa0, 0x20, 255]);
     assert_eq!(server.eval(|s| s.scene.snapshots.len()), 0);
     assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 0);
-    release.store(true, Ordering::SeqCst);
-    assert_eq!(tick(&server, 4_380 * MS).pixel(960, 540), [0xd0, 0xa0, 0x20, 255]);
-    for ms in [4_400, 4_420, 4_440] {
+    for ms in [4_540, 4_560, 4_580] {
         server.eval(|s| s.scene.redraw_all());
         let image = tick(&server, ms * MS);
         assert_eq!(image.pixel(2, 2), [0xd0, 0xa0, 0x20, 255], "no old rounded cover on any ring page");
@@ -372,7 +377,11 @@ fn a_resume_requires_fresh_drawable_content_and_a_real_receipt_without_rolling_b
     fail.store(true, Ordering::SeqCst);
     tick(&server, 6_250 * MS);
     assert_eq!(server.eval(|s| s.scene.snapshots.len()), 1, "a failed submission is not a presentation");
-    assert_eq!(tick(&server, 6_270 * MS).pixel(960, 540), [0xc0, 0x30, 0xd0, 255]);
+    assert!(!server.eval(|s| s.scene.snapshots.fading()));
+    tick(&server, 6_270 * MS);
+    tick(&server, 6_290 * MS);
+    assert!(server.eval(|s| s.scene.snapshots.fading()), "the presented frame starts the dissolve");
+    assert_eq!(tick(&server, (6_290 + 140 + 20) * MS).pixel(960, 540), [0xc0, 0x30, 0xd0, 255]);
     assert_eq!(server.eval(|s| s.scene.snapshots.len()), 0);
     assert_eq!(server.eval(|s| s.stats.gl_errors), 0);
 }
@@ -485,11 +494,14 @@ fn a_shared_memory_update_hidden_by_a_warming_group_member_is_uploaded_before_it
     assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 1);
     release.store(true, Ordering::SeqCst);
     let ready = tick(&server, 4_320 * MS);
-    assert_eq!(ready.pixel(960, 540), [0x20, 0xd0, 0x60, 255], "consumed damage must not turn old root pixels into a fresh receipt");
-    assert_eq!(ready.pixel(40, 40), [0x20, 0x40, 0xe0, 255], "the complete group includes its now-ready child");
+    assert_eq!(ready.pixel(960, 540), [0xd0, 0x40, 0x40, 255], "the picture covers the first live frame");
     assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 1, "ready content still awaits its presentation receipt");
     acknowledge.store(true, Ordering::SeqCst);
-    assert_eq!(tick(&server, 4_340 * MS).pixel(960, 540), [0x20, 0xd0, 0x60, 255]);
+    tick(&server, 4_340 * MS);
+    tick(&server, 4_360 * MS);
+    let done = tick(&server, (4_360 + 140 + 20) * MS);
+    assert_eq!(done.pixel(960, 540), [0x20, 0xd0, 0x60, 255], "consumed damage must not turn old root pixels into a fresh receipt");
+    assert_eq!(done.pixel(40, 40), [0x20, 0x40, 0xe0, 255], "the complete group includes its now-ready child");
     assert_eq!(server.eval(|s| s.output.app_snapshot_count()), 0);
     assert_eq!(server.eval(|s| s.stats.gl_errors), 0);
 }

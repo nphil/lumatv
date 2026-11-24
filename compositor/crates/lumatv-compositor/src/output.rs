@@ -159,9 +159,15 @@ pub trait Output {
         false
     }
 
+    /// Keeps a painted picture (`card.rs`: premultiplied RGBA, `snapshot::PICTURE_WIDTH` by `PICTURE_HEIGHT`, top row first) as the window's
+    /// saved picture, for a window with no pixels of its own to copy.
+    fn freeze_card(&mut self, _id: crate::snapshot::SnapshotId, _rgba: &[u8], _live: &crate::snapshot::Snapshots) -> bool {
+        false
+    }
+
     fn retain_app_snapshots(&mut self, _snapshots: &crate::snapshot::Snapshots) {}
 
-    /// Actual output-sized RGBA allocations retained by the renderer (driver bookkeeping is not included).
+    /// Saved-picture allocations retained by the renderer (driver bookkeeping is not included).
     fn app_snapshot_count(&self) -> usize {
         0
     }
