@@ -6,8 +6,9 @@
 Writes the same line capture.sh's shell sampler wrote (uptime, per-CPU jiffies, pressure, memory,
 vm counters, GPU utilisation and state, the compositor's faults, times and RSS, online CPUs,
 temperature and LG's load line, `|`-separated) once a second to OUT until DIR/.running is gone
-(DIR defaults to /tmp/perf). The shell version forked about 40 processes a second (grep, tr, sed,
-cat, cut, awk); on the set those forks and the scheduler's exec-time migrations used 50-60 ms of
+(DIR defaults to /tmp/perf) or LUMATV_PERF_SAMPLER_MAX_S (default 1800) seconds have passed: a run that died without
+`capture.sh stop` must not leave a sampler writing into the set's RAM-backed /tmp. At that limit it also turns
+tracing off. The shell version forked about 40 processes a second (grep, tr, sed, cat, cut, awk); on the set those forks and the scheduler's exec-time migrations used 50-60 ms of
 CPU inside the first window of every full capture, which is exactly where the gate measures the
 first frame after a key.
 """
@@ -74,8 +75,17 @@ def sample(pid):
 def main(argv):
     out, pid = argv[1], int(argv[2])
     running = os.path.join(argv[3] if len(argv) > 3 else '/tmp/perf', '.running')
+    limit = time.monotonic() + float(os.environ.get('LUMATV_PERF_SAMPLER_MAX_S', '1800'))
     with open(out, 'w') as f:
         while os.path.exists(running):
+            if time.monotonic() >= limit:
+                try:
+                    os.remove(running)
+                    with open(os.path.join(os.environ.get('LUMATV_TRACEFS', '/sys/kernel/debug/tracing'), 'tracing_on'), 'w') as t:
+                        t.write('0')
+                except OSError:
+                    pass
+                break
             f.write(sample(pid) + '\n')
             f.flush()
             time.sleep(1)

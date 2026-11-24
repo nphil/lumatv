@@ -5,6 +5,13 @@
 #   capture.sh mark TEXT                 write a marker into the trace
 #   capture.sh stop NAME                 stop, dump /tmp/perf/NAME.trace and
 #                                        NAME.sys (sampler), restore ftrace
+#   capture.sh clean [PREFIX]            stop whatever a dead run left (tracing, sampler, trigger), restore ftrace and delete
+#                                        PREFIX*.trace / PREFIX*.sys (all of them without a PREFIX)
+#
+# /tmp on the set is a RAM-backed tmpfs, so nothing here may outlive its run: `stop` ends the sampler for good; `start` first ends any sampler and
+# trigger an interrupted run left and deletes traces and samples older than LUMATV_PERF_STALE_MIN (default 30) minutes; a trace is cut at
+# LUMATV_PERF_TRACE_MAX_MB (default 128; the full set of a 10 s window is about 70 MB on the set's 3 CPUs) with a note on stderr; the sampler ends
+# itself after LUMATV_PERF_SAMPLER_MAX_S (default 1800) and turns tracing off then. The caller (run.py, gate.py) deletes what it pulled and calls `clean`.
 #
 # A presented frame is one drm_vblank_event_delivered (the page-flip
 # completion the compositor waits on), so the trace counts what the panel
@@ -28,6 +35,9 @@
 T=${LUMATV_TRACEFS:-/sys/kernel/debug/tracing}
 D=${LUMATV_PERF_DIR:-/tmp/perf}
 PROC=${LUMATV_PROC:-/proc}
+MAX_MB=${LUMATV_PERF_TRACE_MAX_MB:-128}
+STALE_MIN=${LUMATV_PERF_STALE_MIN:-30}
+SAMPLER_MAX_S=${LUMATV_PERF_SAMPLER_MAX_S:-1800}
 mkdir -p $D
 
 events_full="drm/drm_vblank_event_delivered drm/drm_vblank_event
@@ -77,11 +87,42 @@ arm_kstack() {
   fi
 }
 
+# End the sampler of this directory and forget it. The pid is only signalled if it still is one of ours (sample.py, or the shell sampler, a
+# subshell of this script).
+stop_sampler() {
+  rm -f $D/.running
+  p=$(cat $D/.sampler 2>/dev/null)
+  rm -f $D/.sampler
+  [ -n "$p" ] || return 0
+  case "$(tr '\0' ' ' < $PROC/$p/cmdline 2>/dev/null)" in
+    *sample.py*|*capture.sh*) kill $p 2>/dev/null ;;
+  esac
+  return 0
+}
+
+# Take the stack trigger and the thread filters off the sched events (start sets them for kwait/full, stop and a dead run's cleanup put them back).
+disarm_kstack() {
+  if [ -f $D/.kstack ]; then
+    echo "!$(cat $D/.kstack)" > $T/events/sched/sched_switch/trigger 2>/dev/null
+    rm -f $D/.kstack
+  fi
+  echo 0 > $T/events/sched/sched_switch/filter 2>/dev/null
+  echo 0 > $T/events/sched/sched_wakeup/filter 2>/dev/null
+}
+
+sweep_stale() {
+  find $D -maxdepth 1 -type f \( -name '*.trace' -o -name '*.sys' \) -mmin +$STALE_MIN -exec rm -f {} \; 2>/dev/null
+  return 0
+}
+
 sample() {
   # one line per second: wall, uptime, per-cpu /proc/stat, pressure, memory,
   # vmstat counters, gpu busy/idle, compositor faults, cpu online, temperature
   pid=$(pidof surface-manager)
+  i=0
   while [ -f $D/.running ]; do
+    if [ $i -ge $SAMPLER_MAX_S ]; then rm -f $D/.running; echo 0 > $T/tracing_on; break; fi
+    i=$((i + 1))
     up=$(cut -d' ' -f1 /proc/uptime)
     cpu=$(grep -E '^cpu[0-9]' /proc/stat | tr '\n' ';')
     psi="$(sed -n 1p /proc/pressure/cpu)|$(sed -n 1p /proc/pressure/memory)|$(sed -n 2p /proc/pressure/memory)|$(sed -n 1p /proc/pressure/io)"
@@ -102,6 +143,9 @@ case "$1" in
   start)
     name=$2; mode=${3:-full}
     echo 0 > $T/tracing_on
+    stop_sampler
+    disarm_kstack
+    sweep_stale
     echo 0 > $T/events/enable
     echo > $T/trace
     echo ${LUMATV_PERF_BUFFER_KB:-16384} > $T/buffer_size_kb
@@ -135,21 +179,29 @@ case "$1" in
     name=$2
     echo "stop $name $(cut -d' ' -f1 /proc/uptime)" > $T/trace_marker
     echo 0 > $T/tracing_on
-    rm -f $D/.running
-    if [ -f $D/.kstack ]; then
-      echo "!$(cat $D/.kstack)" > $T/events/sched/sched_switch/trigger 2>/dev/null
-      rm -f $D/.kstack
+    stop_sampler
+    disarm_kstack
+    # `head -c` ends the read at the cap; the dump is cut, so its header's loss count and the stop marker may be missing.
+    cat $T/trace | head -c $((MAX_MB * 1048576)) > $D/$name.trace
+    if [ "$(wc -c < $D/$name.trace)" -ge $((MAX_MB * 1048576)) ]; then
+      echo "trace $name cut at $MAX_MB MB (LUMATV_PERF_TRACE_MAX_MB)" >&2
     fi
-    echo 0 > $T/events/sched/sched_switch/filter 2>/dev/null
-    echo 0 > $T/events/sched/sched_wakeup/filter 2>/dev/null
-    cat $T/trace > $D/$name.trace
     echo 0 > $T/events/enable
     echo > $T/trace
     echo 1408 > $T/buffer_size_kb
     wc -l $D/$name.trace
     ;;
+  clean)
+    echo 0 > $T/tracing_on 2>/dev/null
+    stop_sampler
+    disarm_kstack
+    echo 0 > $T/events/enable 2>/dev/null
+    echo > $T/trace 2>/dev/null
+    echo 1408 > $T/buffer_size_kb 2>/dev/null
+    rm -f $D/"$2"*.trace $D/"$2"*.sys
+    ;;
   *)
-    echo "usage: capture.sh start NAME [full|basic|kwait] | mark TEXT | stop NAME" >&2
+    echo "usage: capture.sh start NAME [full|basic|kwait] | mark TEXT | stop NAME | clean [PREFIX]" >&2
     exit 1
     ;;
 esac

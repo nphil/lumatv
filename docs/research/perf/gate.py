@@ -38,7 +38,8 @@ sampler gives the compositor RSS. --soak is the release run: 500 cycles, split i
 most SOAK_TRACE_MAX so the ring never overflows. Exit status 0 only when every check passes.
 
 Home must be on screen when the gate starts. The set needs python3 for kb.py; kb.py and
-capture.sh are copied to /tmp on the set at the start, so nothing else has to be installed.
+capture.sh are copied to /tmp on the set at the start, so nothing else has to be installed, and they, the run's traces and any sampler are gone from the
+set when the run ends, however it ends (/tmp there is RAM; capture.sh caps a trace at 128 MB and sweeps what an earlier killed run left).
 The gate also measures the panel (the display's vsync interrupts, `DE2VSYNC`) before it starts and stops when it does not run at --refresh: the TV
 re-times it to 100 Hz after a camera popup or a video window, and a run at the wrong rate judges every window by the wrong refresh. Under LumaTV's
 compositor it also stops when the bundle's `ctl` in /tmp/lumatv does not answer, when the app switcher is up after its wake, and, with --refresh other
@@ -1229,6 +1230,13 @@ class Rig:
             if out.channel.recv_exit_status() != 0:
                 raise RuntimeError(f'could not copy {local} to the set')
 
+    def cleanup(self, tag):
+        """Leaves nothing of the gate in the set's RAM-backed /tmp: ends a capture still running (tracing, sampler, stack trigger), deletes this run's
+        traces and the tools push_tools copied, and the directory when nothing else is in it. Best effort: it runs when the run ended any way, the
+        link included. A gate killed past the reach of this (SIGKILL) is cleaned by capture.sh's next start (stale files, stray sampler) and by the
+        sampler's own time limit."""
+        self.sh(f'[ -f {CAPTURE} ] && {CAPTURE} clean gate-{tag}-; rm -f {CAPTURE} {SAMPLER} {KB}; rmdir /tmp/perf 2>/dev/null; true', timeout=60)
+
     def load_start(self, kinds, seconds):
         """Starts the background load for `seconds` (the gate's whole run is the limit it must outlast); False when it did not start."""
         self.sh(f'mkdir -p {os.path.dirname(LOAD_LOG)}')
@@ -1841,13 +1849,17 @@ def unfit(state, hz):
 
 
 def run_gate(rig, surfaces, soak_cycles, tag, log=None, load=None, load_seconds=3600):
-    """measure_surfaces with the cameras' alerts snoozed for the run and put back as found when it ends, however it ends."""
+    """measure_surfaces with the cameras' alerts snoozed for the run and put back as found when it ends, however it ends; the set's /tmp/perf is cleaned then too."""
     try:
         print(rig.hold_start(), flush=True)
         return measure_surfaces(rig, surfaces, soak_cycles, tag, log, load, load_seconds)
     finally:
         with signals_ignored():
             print(rig.hold_stop(), flush=True)
+            try:
+                rig.cleanup(tag)
+            except Exception as e:
+                print(f'could not clean /tmp/perf on the set: {e}', file=sys.stderr)
 
 
 def measure_surfaces(rig, surfaces, soak_cycles, tag, log=None, load=None, load_seconds=3600):

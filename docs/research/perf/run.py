@@ -20,6 +20,7 @@ Workloads (phase markers in brackets):
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -132,11 +133,24 @@ class Set:
             print('capture start:', err.strip(), file=sys.stderr)
 
     def stop(self, name):
-        self.sh(f'/tmp/perf/capture.sh stop {name}', timeout=180)
-        os.makedirs(LOCAL, exist_ok=True)
-        self.get(f'/tmp/perf/{name}.trace', f'{LOCAL}/{name}.trace')
-        self.get(f'/tmp/perf/{name}.sys', f'{LOCAL}/{name}.sys')
-        self.sh(f'rm -f /tmp/perf/{name}.trace /tmp/perf/{name}.sys')
+        # /tmp on the set is RAM: its copy of the trace (tens of MB) goes whether or not the pull worked.
+        try:
+            rc, out, err = self.sh(f'/tmp/perf/capture.sh stop {name}', timeout=180)
+            if err.strip():
+                print('capture stop:', err.strip(), file=sys.stderr)
+            os.makedirs(LOCAL, exist_ok=True)
+            self.get(f'/tmp/perf/{name}.trace', f'{LOCAL}/{name}.trace')
+            self.get(f'/tmp/perf/{name}.sys', f'{LOCAL}/{name}.sys')
+        finally:
+            try:
+                self.sh(f'rm -f /tmp/perf/{name}.trace /tmp/perf/{name}.sys')
+            except Exception as e:
+                print(f'could not delete /tmp/perf/{name}.* on the set: {e}', file=sys.stderr)
+
+    def clean(self, prefix=''):
+        """Ends what a capture of ours left running on the set (tracing, sampler, stack trigger), puts ftrace back and deletes the `prefix`*.trace
+        and *.sys files there. Where capture.sh is not installed there is nothing of ours to end."""
+        self.sh(f'[ -f /tmp/perf/capture.sh ] && /tmp/perf/capture.sh clean {prefix}; true', timeout=60)
 
     def foreground(self):
         return self.luna('luna://com.webos.applicationManager/getForegroundAppInfo')
@@ -321,5 +335,13 @@ if __name__ == '__main__':
     ap.add_argument('--revert')
     ap.add_argument('--start', type=int, default=0, help='first repeat index (to resume a run)')
     a = ap.parse_args()
+    for sig in (signal.SIGTERM, signal.SIGHUP):      # a kill unwinds run()'s finally like Ctrl-C does, so the set's capture is ended and its files deleted
+        signal.signal(sig, lambda signum, _frame: sys.exit(128 + signum))
     s = Set()
-    run(s, a.tag, a.workloads.split(','), a.repeat, a.apply, a.revert, a.start)
+    try:
+        run(s, a.tag, a.workloads.split(','), a.repeat, a.apply, a.revert, a.start)
+    finally:
+        try:
+            s.clean(f'{a.tag}-')
+        except Exception as e:
+            print(f'could not clean /tmp/perf on the set: {e}', file=sys.stderr)

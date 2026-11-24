@@ -680,6 +680,9 @@ class Edges(unittest.TestCase):
             self.held = 'put back'
             return 'camera snooze put back'
 
+        def cleanup(self, tag):
+            self.cleaned = tag
+
     def run_gate(self, motion, names):
         rig = self.FakeRig(motion)
         orig = gate.run_surface
@@ -728,6 +731,7 @@ class Edges(unittest.TestCase):
         finally:
             gate.run_surface = orig
         self.assertEqual(rig.calls, [self.OFF, self.ON])
+        self.assertEqual(rig.cleaned, 't', "the set's /tmp/perf is cleaned when a surface fails")
 
     def test_the_gate_waits_for_a_freshly_started_compositor(self):
         orig = gate.run_surface
@@ -1343,6 +1347,120 @@ class RingSummary(unittest.TestCase):
         self.assertEqual(ringsum.window(self.lines(), 'nope', 8.0), [])
         self.assertIsNone(ringsum.summarize([]))
         self.assertIn('no frame', ringsum.line('w', None))
+
+
+class SetTmpIsRam(unittest.TestCase):
+    """The set's /tmp is a tmpfs: a capture's files go when the run ends, whichever way it ends."""
+
+    def test_a_failed_pull_still_deletes_the_traces_on_the_set(self):
+        import run
+        cmds = []
+        with patch.object(run.Set, 'connect'), patch.object(run.Set, 'sh', side_effect=lambda cmd, **kw: cmds.append(cmd) or (0, '17', '')):
+            rig = run.Set()
+            with patch.object(run.Set, 'get', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+                rig.stop('gate-t-x-m0')
+        self.assertEqual(cmds[-1], 'rm -f /tmp/perf/gate-t-x-m0.trace /tmp/perf/gate-t-x-m0.sys')
+
+    def test_the_gate_cleans_its_own_files_and_tools(self):
+        rig = gate.Rig.__new__(gate.Rig)
+        rig.sh = Mock(return_value=(0, '', ''))
+        rig.cleanup('1124-x')
+        cmd = rig.sh.call_args.args[0]
+        self.assertIn(f'{gate.CAPTURE} clean gate-1124-x-', cmd)
+        for path in (gate.CAPTURE, gate.SAMPLER, gate.KB):
+            self.assertIn(path, cmd)
+
+
+class CaptureScript(unittest.TestCase):
+    """capture.sh against a fake tracefs and /proc: the dump is capped, the sampler ends with the capture, a dead run's leftovers go."""
+    PERF = os.path.join(os.path.dirname(HERE), 'docs', 'research', 'perf')
+
+    def setUp(self):
+        import subprocess
+        import tempfile
+        self.subprocess = subprocess
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.trace = os.path.join(self.tmp.name, 'tracefs')
+        self.dir = os.path.join(self.tmp.name, 'perf')
+        os.makedirs(self.dir)
+        for d in ('events/sched/sched_switch', 'events/sched/sched_wakeup'):
+            os.makedirs(os.path.join(self.trace, d))
+        self.env = dict(os.environ, LUMATV_TRACEFS=self.trace, LUMATV_PERF_DIR=self.dir, LUMATV_PERF_TRACE_MAX_MB='1')
+        with open(os.path.join(self.dir, 'sample.py'), 'w') as f, open(os.path.join(self.PERF, 'sample.py')) as src:
+            f.write(src.read())
+
+    def capture(self, *args):
+        return self.subprocess.run(['sh', os.path.join(self.PERF, 'capture.sh'), *args], env=self.env, capture_output=True, text=True, timeout=60)
+
+    def sampler_pid(self):
+        with open(os.path.join(self.dir, '.sampler')) as f:
+            return int(f.read())
+
+    def alive(self, pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        with open(f'/proc/{pid}/stat') as f:
+            stat = f.read().rsplit(')', 1)[1].split()[0]
+        return stat != 'Z'        # killed but not yet reaped by its (finished) parent
+
+    def wait_gone(self, pid):
+        import time
+        for _ in range(50):
+            if not self.alive(pid):
+                return True
+            time.sleep(0.05)
+        return False
+
+    def test_stop_cuts_the_dump_at_the_cap_and_ends_the_sampler(self):
+        self.capture('start', 'a', 'basic')
+        pid = self.sampler_pid()
+        self.assertTrue(self.alive(pid))
+        with open(os.path.join(self.trace, 'trace'), 'w') as f:
+            f.write(('x' * 99 + '\n') * 20000)      # 2 MB
+        r = self.capture('stop', 'a')
+        self.assertEqual(os.path.getsize(os.path.join(self.dir, 'a.trace')), 1 << 20)
+        self.assertIn('cut at 1 MB', r.stderr)
+        self.assertTrue(self.wait_gone(pid), 'the sampler is gone after stop')
+        self.assertFalse(os.path.exists(os.path.join(self.dir, '.sampler')))
+        self.assertFalse(os.path.exists(os.path.join(self.dir, '.running')))
+
+    def test_start_ends_a_dead_runs_sampler_and_clears_its_stale_files(self):
+        self.capture('start', 'dead', 'basic')
+        old = self.sampler_pid()
+        stale = os.path.join(self.dir, 'old.trace')
+        fresh = os.path.join(self.dir, 'fresh.trace')
+        for p in (stale, fresh):
+            open(p, 'w').close()
+        os.utime(stale, (0, 0))
+        self.capture('start', 'next', 'basic')
+        self.assertTrue(self.wait_gone(old))
+        self.assertNotEqual(self.sampler_pid(), old)
+        self.assertFalse(os.path.exists(stale))
+        self.assertTrue(os.path.exists(fresh))
+        self.capture('stop', 'next')
+
+    def test_clean_ends_the_capture_and_deletes_only_the_prefix(self):
+        self.capture('start', 'gate-t-a', 'basic')
+        pid = self.sampler_pid()
+        for n in ('gate-t-a.trace', 'gate-t-a.sys', 'other.trace'):
+            open(os.path.join(self.dir, n), 'w').close()
+        self.capture('clean', 'gate-t-')
+        self.assertTrue(self.wait_gone(pid))
+        self.assertEqual(sorted(n for n in os.listdir(self.dir) if not n.startswith('.')), ['other.trace', 'sample.py'])
+        with open(os.path.join(self.trace, 'tracing_on')) as f:
+            self.assertEqual(f.read().strip(), '0')
+
+    def test_the_sampler_ends_itself_at_its_time_limit(self):
+        import time
+        open(os.path.join(self.dir, '.running'), 'w').close()
+        sampler = self.subprocess.Popen([sys.executable, os.path.join(self.PERF, 'sample.py'), os.path.join(self.dir, 's.sys'), '0', self.dir],
+                                        env=dict(self.env, LUMATV_PERF_SAMPLER_MAX_S='0.3'))
+        self.addCleanup(sampler.kill)
+        sampler.wait(timeout=10)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, '.running')))
 
 
 if __name__ == '__main__':
