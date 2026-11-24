@@ -12,3 +12,6 @@ On the set: dock card lifted and Restart LumaTV confirm focus match the renders 
 ## 2026-11-23 helper install (main f1dff184)
 
 Installed on the set: helper 22a19fd1 -> 6e05f76d (live swap, compositor untouched), carrying the TrueHD un-mix order and `POST /v1/audio-passthrough/flowing` (answers "no session is armed" with none armed) and the tuner fixes of 70283ab3. UI bdd2884c (from 9057b877) was installed at 21:20; compositor unchanged. audio-passthrough, voice-assistant and live-tv-tuner connected.
+
+## 2026-11-23 weather install (main e85b765a)
+Installed on the C4: helper 6e05f76d -> 696e735f, lumatv-ui bdd2884c -> 686031e6. Profile nitin: clock.weekStart monday, layout.statusBar.date centre. Capture home-tv-weather-calendar.png: month grid, centred date and week list shown. Untested: weather day open/close and the 120 Hz frame gate (gate refuses: no compositor bundle in /tmp/lumatv).
