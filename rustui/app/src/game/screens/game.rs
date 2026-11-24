@@ -7,7 +7,7 @@
 pub mod media;
 use crate::game::model::{
     Focus, Layer, Model,
-    facts::{Fact, Section, why},
+    facts::{Fact, Reason, Section, why},
     game::{Entry, SECTIONS, play_time, section_index, section_name},
 };
 use crate::game::screens::paint::{H, Paint, W, status_word};
@@ -25,6 +25,10 @@ use ui::{components::Icon, geometry::Frame, lucent::palette::PaletteRole as Role
 
 /// The art fades into the canvas from this height to the bottom, so the cards and the hints sit on its darker foot.
 const FADE_FROM: f32 = 520.0;
+/// The page's stage art for the focused game on Home or the Library, to be decoded ahead (see [`stage::warm`]): the same picture as `page`'s.
+pub fn warm_art(p: &mut Paint<'_>, game: GameId) {
+    warm(p, game, H, FADE_FROM, H, false);
+}
 /// Room between cards, and between rows of a list.
 const CARD_GAP: f32 = 24.0;
 const ROW_GAP: f32 = 6.0;
@@ -165,6 +169,11 @@ fn said<T>(fact: &Fact<T>, present: impl FnOnce(&T) -> String) -> String {
     }
 }
 
+/// [`said`], except that "Nothing here yet" is left out while the rest of the card has something to show.
+fn said_unless_empty<T>(fact: &Fact<T>, has_content: bool, present: impl FnOnce(&T) -> String) -> Option<String> {
+    if has_content && matches!(fact, Fact::Absent(Reason::Empty)) { None } else { Some(said(fact, present)) }
+}
+
 fn glance_of(m: &Model, id: GameId, section: Section) -> Glance {
     let facts = m.facts(id);
     let pictures = |urls: Vec<&str>| urls.into_iter().filter_map(|url| m.art_path(url)).collect::<Vec<_>>();
@@ -175,20 +184,24 @@ fn glance_of(m: &Model, id: GameId, section: Section) -> Glance {
                 Fact::Present(a) => (a.total.map(|t| a.unlocked as f32 / t.max(1) as f32), pictures(a.latest.iter().take(3).filter_map(|a| a.icon).collect())),
                 _ => (None, Vec::new()),
             };
+            // The newest post, where Home's strip used to show it.
+            let caption = match facts.activity.news {
+                Fact::Present(news) => news.first().map(|n| n.title.clone()),
+                _ => None,
+            };
+            // "Nothing here yet" under a playtime or a post says the card is empty when it is not.
+            let has_content = matches!(facts.activity.play_time, Fact::Present(_)) || caption.is_some();
+            let detail = said_unless_empty(achievements, has_content, |a| match a.total {
+                Some(total) => format!("{} of {total} achievements", a.unlocked),
+                None => format!("{} achievements", a.unlocked),
+            });
             Glance {
                 big: matches!(facts.activity.play_time, Fact::Present(_)),
                 headline: said(&facts.activity.play_time, |t| play_time(t.seconds)),
-                detail: Some(said(achievements, |a| match a.total {
-                    Some(total) => format!("{} of {total} achievements", a.unlocked),
-                    None => format!("{} achievements", a.unlocked),
-                })),
+                detail,
                 progress,
                 thumbs,
-                // The newest post, where Home's strip used to show it.
-                caption: match facts.activity.news {
-                    Fact::Present(news) => news.first().map(|n| n.title.clone()),
-                    _ => None,
-                },
+                caption,
                 steam: matches!(achievements, Fact::Present(_)),
             }
         }
@@ -544,6 +557,15 @@ mod tests {
             let hints = plan.nodes.iter().filter(|n| (hints::ID..hints::ID + 100).contains(&n.id)).map(|n| n.frame.y).fold(f32::MAX, f32::min);
             assert!(switch.y + switch.h <= hints, "{percent} %: the switch stays above the hints");
         }
+    }
+
+    #[test]
+    fn nothing_here_yet_is_left_out_of_a_card_that_has_something_to_show() {
+        let say = |fact: &Fact<u32>, has_content| said_unless_empty(fact, has_content, |n| n.to_string());
+        assert_eq!(say(&Fact::Absent(Reason::Empty), true), None);
+        assert_eq!(say(&Fact::Absent(Reason::Empty), false).as_deref(), Some("Nothing here yet"));
+        assert_eq!(say(&Fact::Absent(Reason::Off), true).as_deref(), Some("Off in Settings"));
+        assert_eq!(say(&Fact::Present(3), true).as_deref(), Some("3"));
     }
 
     #[test]
