@@ -206,7 +206,7 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             self.note(&format!("forget: the saved sign-in could not be deleted ({:?})", error.kind()));
             return self.error(seq, ErrorCode::Internal, "The saved Steam sign-in could not be removed");
         }
-        for name in [library::CACHE_FILE, store::CACHE_FILE] {
+        for name in [library::CACHE_FILE, store::CACHE_FILE, auth::REFUSED_FILE] {
             if let Err(error) = files::remove(&self.cache, name) {
                 self.note(&format!("forget: a saved copy could not be deleted ({:?})", error.kind()));
             }

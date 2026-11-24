@@ -24,6 +24,16 @@ const ATTEMPT_MS: u64 = 300_000;
 const POLL_RETRIES: u8 = 3;
 /// An access token with less than this left is renewed before it is used.
 const RENEW_MARGIN_S: u64 = 60;
+/// After Steam refuses to renew the access token, no further renewal is asked for this long. The refusal was seen on the TV for a
+/// sign-in that Steam had accepted earlier the same day, and every extra request counts against the account.
+const RENEW_BACKOFF_S: u64 = 1800;
+/// A read refused with a reused access token forces a renewal at most this often.
+const FORCED_RENEW_EVERY_S: u64 = 1800;
+/// Renewals refused without one that worked for this long retire the saved sign-in. Steam also answers a valid sign-in with a
+/// refusal, so only a long unbroken run of them is taken to mean it was revoked.
+const REFUSED_FOR_S: u64 = 7 * 86_400;
+/// The unix time of the first renewal refused since the last one that worked, kept in the cache directory.
+pub const REFUSED_FILE: &str = "renew-refused";
 const DEFAULT_INTERVAL_S: u64 = 5;
 const APPROVAL_HINT: &str = "Approve the sign-in in the Steam app";
 /// What the owner's Steam app calls this sign-in.
@@ -76,6 +86,9 @@ pub enum Refusal {
     Expired,
     /// A data endpoint refused this read, not the saved account sign-in.
     ReadDenied,
+    /// Steam refused to renew the access token just now. The saved sign-in is kept and nothing is shown to the owner; a renewal is
+    /// tried again later and on the next start.
+    Renewal,
     Trouble(Trouble),
 }
 
@@ -175,13 +188,17 @@ pub struct Account {
     pub expired: bool,
     /// An access token and its end of life, in memory only.
     access: Option<(String, u64)>,
+    /// No renewal is asked for before this unix time, after Steam refused one.
+    renew_after: u64,
+    /// A refused read forces no renewal before this unix time.
+    forced_after: u64,
 }
 
 impl Account {
     fn new(refresh_token: String, claims: Claims, persona: Option<String>, now: u64) -> Self {
         let expired = claims.exp.is_some_and(|exp| exp <= now);
         let mobile = claims.aud.iter().any(|name| name == MOBILE_AUDIENCE);
-        Self { refresh_token, steamid: claims.steamid, persona, exp: claims.exp, mobile, expired, access: None }
+        Self { refresh_token, steamid: claims.steamid, persona, exp: claims.exp, mobile, expired, access: None, renew_after: 0, forced_after: 0 }
     }
 
     /// The saved sign-in, when there is one that can be used: its token must say it belongs to the account the file names.
@@ -457,6 +474,8 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             self.note(&format!("sign-in: the token could not be saved ({:?})", error.kind()));
             return self.fail_auth(seq, AuthFail::Network, "The Steam sign-in could not be saved on the TV");
         }
+        // A new sign-in starts without the old one's refusals.
+        let _ = files::remove(&self.cache, REFUSED_FILE);
         // A saved library belongs to the account it came from.
         if self.account.as_ref().is_none_or(|old| old.steamid != account.steamid) {
             self.snapshot = None;
@@ -518,12 +537,14 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             self.expire();
             return Err(Refusal::Expired);
         }
+        if now < account.renew_after {
+            return Err(Refusal::Renewal);
+        }
         let body = http::form(&[("refresh_token", &account.refresh_token), ("steamid", &account.steamid)]);
         let reply = self.http.post_form(&http::api("/IAuthenticationService/GenerateAccessTokenForApp/v1/"), &http::MOBILE_APP, &body, http::SMALL_BODY);
         let resp = reply.map_err(|error| Refusal::Trouble(Trouble::Network(error)))?;
         if resp.status == 200 && matches!(resp.eresult, Some(ACCESS_DENIED | REFUSED)) {
-            self.expire();
-            return Err(Refusal::Expired);
+            return Err(self.renewal_refused(now, resp.eresult));
         }
         if !resp.succeeded() {
             return Err(Refusal::Trouble(Trouble::of(&resp)));
@@ -543,9 +564,68 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         if let Some(account) = self.account.as_mut() {
             account.access = Some((token.clone(), exp));
         }
+        if let Err(error) = files::remove(&self.cache, REFUSED_FILE) {
+            self.note(&format!("sign-in: the refusal record could not be deleted ({:?})", error.kind()));
+        }
         self.note("sign-in: access token renewed");
         Ok(token)
     }
+
+    /// Steam answered a renewal with access denied or refused. That is also what it said, on the TV, to a sign-in it accepted before and
+    /// after, so the saved sign-in stays and is shown as it was; it is retired only when every renewal for a week has been refused.
+    fn renewal_refused(&mut self, now: u64, code: Option<i32>) -> Refusal {
+        if let Some(account) = self.account.as_mut() {
+            account.renew_after = now + RENEW_BACKOFF_S;
+        }
+        let since = files::read(&self.cache, REFUSED_FILE, 32)
+            .and_then(|bytes| String::from_utf8(bytes).ok()?.trim().parse::<u64>().ok())
+            .filter(|since| *since <= now);
+        let since = since.unwrap_or_else(|| {
+            if let Err(error) = files::write(&self.cache, REFUSED_FILE, now.to_string().as_bytes()) {
+                self.note(&format!("sign-in: the refusal could not be recorded ({:?})", error.kind()));
+            }
+            now
+        });
+        let code = code.map_or_else(|| "none".to_owned(), |code| code.to_string());
+        if now - since >= REFUSED_FOR_S {
+            self.note(&format!("sign-in: Steam refused every renewal for a week (error {code})"));
+            self.expire();
+            return Refusal::Expired;
+        }
+        self.note(&format!("sign-in: Steam refused to renew access (error {code}); the saved sign-in is kept"));
+        Refusal::Renewal
+    }
+
+    /// A read of the web API with the account's access token. An access token that was in memory and is refused gets one renewal and
+    /// one new try, since Steam may have ended it early; a refusal of a token just made is the answer for this read alone. The reply
+    /// is returned as Steam gave it: judging a refusal is the caller's.
+    pub(crate) fn read_with_access(&mut self, url: impl Fn(&str) -> String, limit: usize) -> Result<Resp, Refusal> {
+        let now = self.clock.unix_s();
+        let reused = self.account.as_ref().is_some_and(|account| account.access.as_ref().is_some_and(|(_, exp)| *exp > now + RENEW_MARGIN_S));
+        let token = self.access_token()?;
+        let resp = self.http.get(&url(&token), limit).map_err(|error| Refusal::Trouble(Trouble::Network(error)))?;
+        let forced = reused
+            && denied(&resp)
+            && self.account.as_mut().is_some_and(|account| {
+                let allowed = now >= account.forced_after;
+                if allowed {
+                    account.forced_after = now + FORCED_RENEW_EVERY_S;
+                    account.access = None;
+                }
+                allowed
+            });
+        if !forced {
+            return Ok(resp);
+        }
+        let token = self.access_token()?;
+        self.http.get(&url(&token), limit).map_err(|error| Refusal::Trouble(Trouble::Network(error)))
+    }
+}
+
+/// Whether a data endpoint refused the read: HTTP 401, or Steam's access-denied result code. For a per-game read this is also what
+/// Steam answers for a game without stats or with private details, so it says nothing about the sign-in.
+pub(crate) fn denied(resp: &Resp) -> bool {
+    resp.status == 401 || (resp.status == 200 && resp.eresult == Some(ACCESS_DENIED))
 }
 
 #[cfg(test)]
@@ -989,11 +1069,57 @@ mod tests {
     }
 
     #[test]
-    fn steam_refusing_the_refresh_token_marks_the_account_expired_and_keeps_its_file() {
+    fn a_refused_renewal_keeps_the_sign_in_untouched_and_is_not_asked_again_for_half_an_hour() {
+        for code in [15, 63] {
+            let mut rig = library_rig(UNIX0 + 30 * 86_400);
+            rig.http.on("GenerateAccessTokenForApp", [fake::eresult(code, r#"{"response":{}}"#)]);
+            let events = library(&mut rig);
+            let [FromEngine { re: Some(2), event: Event::Error { code: error, .. } }] = events.as_slice() else { panic!("{events:?}") };
+            assert_ne!(*error, ErrorCode::SignIn, "nothing tells the owner to sign in");
+            let events = rig.send(Request::Targets);
+            let [FromEngine { event: Event::Targets { targets }, .. }] = events.as_slice() else { panic!("{events:?}") };
+            assert_eq!(targets[0].link, Link::Linked);
+            assert!(rig.data().join("token.json").exists() && rig.cache().join(REFUSED_FILE).exists());
+            assert_eq!(rig.http.to("GenerateAccessTokenForApp")[0].headers, http::MOBILE_APP.map(|(name, value)| (name.to_owned(), value.to_owned())));
+            rig.http.forget();
+            library(&mut rig);
+            assert!(rig.http.sent().is_empty(), "no request while Steam is given time");
+
+            // Half an hour on Steam is asked again, and an answer clears the record.
+            rig.clock.advance_s(RENEW_BACKOFF_S + 1);
+            let access = fake::jwt(STEAMID, Some(UNIX0 + 86_400));
+            rig.http.on("GenerateAccessTokenForApp", [fake::ok(&format!(r#"{{"response":{{"access_token":"{access}"}}}}"#))]);
+            let events = library(&mut rig);
+            assert!(matches!(events.as_slice(), [FromEngine { event: Event::Library { .. }, .. }]), "{events:?}");
+            assert!(!rig.cache().join(REFUSED_FILE).exists());
+        }
+    }
+
+    #[test]
+    fn a_refusal_at_every_start_is_asked_again_at_the_next_one() {
         let mut rig = library_rig(UNIX0 + 30 * 86_400);
         rig.http.on("GenerateAccessTokenForApp", [fake::eresult(15, r#"{"response":{}}"#)]);
+        library(&mut rig);
+        rig.restart();
+        rig.hello();
+        library(&mut rig);
+        assert_eq!(rig.http.count("GenerateAccessTokenForApp"), 2);
+        let events = rig.send(Request::Targets);
+        let [FromEngine { event: Event::Targets { targets }, .. }] = events.as_slice() else { panic!("{events:?}") };
+        assert_eq!(targets[0].link, Link::Linked);
+    }
+
+    #[test]
+    fn only_a_week_of_refused_renewals_retires_the_sign_in_and_the_file_stays() {
+        let mut rig = library_rig(UNIX0 + 30 * 86_400);
+        rig.http.on("GenerateAccessTokenForApp", [fake::eresult(15, r#"{"response":{}}"#)]);
+        library(&mut rig);
+        rig.clock.advance_s(REFUSED_FOR_S - 3_600);
         let events = library(&mut rig);
-        let [FromEngine { re: Some(2), event: Event::Error { code: ErrorCode::SignIn, .. } }, FromEngine { re: None, event: Event::Targets { targets } }] =
+        assert!(matches!(events.as_slice(), [FromEngine { event: Event::Error { code, .. }, .. }] if *code != ErrorCode::SignIn), "{events:?}");
+        rig.clock.advance_s(3_600);
+        let events = library(&mut rig);
+        let [FromEngine { re: Some(_), event: Event::Error { code: ErrorCode::SignIn, .. } }, FromEngine { re: None, event: Event::Targets { targets } }] =
             events.as_slice()
         else {
             panic!("{events:?}")
@@ -1002,29 +1128,8 @@ mod tests {
         assert!(rig.data().join("token.json").exists());
         // Once, not at every request; and with no more requests to Steam.
         rig.http.forget();
-        let events = library(&mut rig);
-        assert!(matches!(events.as_slice(), [FromEngine { event: Event::Error { .. }, .. }]), "{events:?}");
+        library(&mut rig);
         assert!(rig.http.sent().is_empty());
-        // Expired survives a restart only through the token's own end; Steam is asked again then.
-        rig.restart();
-        rig.hello();
-        let events = rig.send(Request::Targets);
-        let [FromEngine { event: Event::Targets { targets }, .. }] = events.as_slice() else { panic!("{events:?}") };
-        assert_eq!(targets[0].link, Link::Linked);
-    }
-
-    #[test]
-    fn steam_refusing_a_renewal_with_error_63_retires_the_sign_in_like_access_denied() {
-        let mut rig = library_rig(UNIX0 + 30 * 86_400);
-        rig.http.on("GenerateAccessTokenForApp", [fake::eresult(63, r#"{"response":{}}"#)]);
-        let events = library(&mut rig);
-        let [FromEngine { re: Some(2), event: Event::Error { code: ErrorCode::SignIn, .. } }, FromEngine { re: None, event: Event::Targets { targets } }] =
-            events.as_slice()
-        else {
-            panic!("{events:?}")
-        };
-        assert_eq!(targets[0].link, Link::Expired);
-        assert_eq!(rig.http.to("GenerateAccessTokenForApp")[0].headers, http::MOBILE_APP.map(|(name, value)| (name.to_owned(), value.to_owned())));
     }
 
     #[test]

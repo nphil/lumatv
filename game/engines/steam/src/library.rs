@@ -207,17 +207,21 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             Ok(()) => {}
             Err(Refusal::Expired) => self.note("library: not refreshed, Steam does not accept the sign-in"),
             Err(Refusal::ReadDenied) => self.note("library: Steam refused the library read"),
+            Err(Refusal::Renewal) => self.note("library: not refreshed, Steam did not renew access just now"),
             Err(Refusal::Trouble(trouble)) => self.note(&format!("library: not refreshed, {trouble}")),
         }
         outcome
     }
 
     fn fetch_library(&mut self, steamid: &str) -> Result<(), Refusal> {
-        let token = self.access_token()?;
-        let query =
-            http::form(&[("access_token", &token), ("steamid", steamid), ("include_appinfo", "1"), ("include_played_free_games", "1"), ("format", "json")]);
-        let reply = self.http.get(&http::api(&format!("/IPlayerService/GetOwnedGames/v1/?{query}")), http::LIBRARY_BODY);
-        let resp = reply.map_err(|error| Refusal::Trouble(Trouble::Network(error)))?;
+        let resp = self.read_with_access(
+            |token| {
+                let query =
+                    http::form(&[("access_token", token), ("steamid", steamid), ("include_appinfo", "1"), ("include_played_free_games", "1"), ("format", "json")]);
+                http::api(&format!("/IPlayerService/GetOwnedGames/v1/?{query}"))
+            },
+            http::LIBRARY_BODY,
+        )?;
         // Refusal by a data endpoint does not establish that the account's refresh token expired.
         if matches!(resp.status, 401 | 403) || (resp.status == 200 && resp.eresult == Some(15)) {
             return Err(Refusal::ReadDenied);

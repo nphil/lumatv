@@ -1,7 +1,7 @@
 //! The owner's own achievements in one game, for the game's page. The game's list of achievements, their names and how rare each is
 //! come from public sources the app asks itself; this is only which of them the signed-in account has unlocked.
 
-use crate::auth::Refusal;
+use crate::auth::{Refusal, denied};
 use crate::http::{self, Http};
 use crate::{Adapter, Clock};
 use lumagame_core::ids::{ProviderGameId, TargetId};
@@ -59,27 +59,29 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         let Some(appid) = game.as_str().parse::<u32>().ok().filter(|appid| *appid != 0) else {
             return self.error(seq, ErrorCode::BadRequest, "That is not a Steam game");
         };
-        let token = match self.access_token() {
-            Ok(token) => token,
-            Err(Refusal::Expired) => return self.error(seq, ErrorCode::SignIn, "Sign in again to renew Steam access"),
-            Err(Refusal::ReadDenied) => return self.error(seq, ErrorCode::BadRequest, "Steam did not allow access to these achievements"),
-            Err(Refusal::Trouble(_)) => return self.error(seq, ErrorCode::Network, "Steam is not reachable"),
-        };
-        let query = http::form(&[("access_token", &token), ("steamid", &steamid), ("appid", &appid.to_string()), ("format", "json")]);
-        let reply = self.http.get(&http::api(&format!("/ISteamUserStats/GetPlayerAchievements/v1/?{query}")), http::SMALL_BODY);
+        let appid = appid.to_string();
+        let reply = self.read_with_access(
+            |token| {
+                let query = http::form(&[("access_token", token), ("steamid", &steamid), ("appid", &appid), ("format", "json")]);
+                http::api(&format!("/ISteamUserStats/GetPlayerAchievements/v1/?{query}"))
+            },
+            http::SMALL_BODY,
+        );
         let resp = match reply {
             Ok(resp) => resp,
-            Err(_) => return self.error(seq, ErrorCode::Network, "Steam is not reachable"),
+            Err(Refusal::Expired) => return self.error(seq, ErrorCode::SignIn, "Sign in again to renew Steam access"),
+            // Steam would not renew access just now; the sign-in is kept and the page shows no progress until the next start.
+            Err(Refusal::Renewal | Refusal::ReadDenied) => return self.answer(seq, Event::Achievements { target, game, unlocked: Vec::new() }),
+            Err(Refusal::Trouble(_)) => return self.error(seq, ErrorCode::Network, "Steam is not reachable"),
         };
-        if resp.status == 401 || (resp.status == 200 && resp.eresult == Some(15)) {
-            return self.error(seq, ErrorCode::BadRequest, "Steam did not allow access to these achievements");
-        }
+        // A refusal of a freshly made access token is Steam's answer for this game (no stats, private details), not for the sign-in.
         let unlocked = match resp.status {
+            200 if denied(&resp) => Vec::new(),
             200 => match parse(&resp.body) {
                 Some(unlocked) => unlocked,
                 None => return self.error(seq, ErrorCode::Internal, "Steam sent an answer the TV could not read"),
             },
-            400 | 403 => Vec::new(),
+            400 | 401 | 403 => Vec::new(),
             _ => return self.error(seq, ErrorCode::Network, "Steam is not reachable"),
         };
         self.answer(seq, Event::Achievements { target, game, unlocked });
@@ -90,7 +92,7 @@ impl<H: Http, C: Clock> Adapter<H, C> {
 mod tests {
     use crate::fake::{self, Rig, STEAMID, UNIX0};
     use lumagame_core::ids::{ProviderGameId, TargetId};
-    use lumagame_core::ipc::{ErrorCode, Event, FromEngine, Request, Unlocked};
+    use lumagame_core::ipc::{ErrorCode, Event, FromEngine, Link, Request, Unlocked};
 
     fn ask(rig: &mut Rig) -> Vec<FromEngine> {
         rig.send(Request::Achievements { target: TargetId::new(STEAMID).unwrap(), game: ProviderGameId::new("1145350").unwrap() })
@@ -116,14 +118,59 @@ mod tests {
     }
 
     #[test]
-    fn unavailable_stats_network_failure_and_a_refused_read_are_distinct() {
+    fn unavailable_stats_and_network_failure_are_distinct() {
         let mut rig = rig();
         rig.http.on("GetPlayerAchievements", [fake::status(400)]);
         assert!(matches!(&ask(&mut rig)[..], [FromEngine { event: Event::Achievements { unlocked, .. }, .. }] if unlocked.is_empty()));
         rig.http.on("GetPlayerAchievements", [fake::down()]);
         assert!(matches!(&ask(&mut rig)[..], [FromEngine { event: Event::Error { code: ErrorCode::Network, .. }, .. }]));
-        rig.http.on("GetPlayerAchievements", [fake::status(401)]);
+    }
+
+    fn is_empty(events: &[FromEngine]) -> bool {
+        matches!(events, [FromEngine { event: Event::Achievements { unlocked, .. }, .. }] if unlocked.is_empty())
+    }
+
+    fn linked(rig: &mut Rig) -> bool {
+        let events = rig.send(Request::Targets);
+        matches!(&events[..], [FromEngine { event: Event::Targets { targets }, .. }] if targets[0].link == Link::Linked)
+    }
+
+    #[test]
+    fn a_games_refusal_after_a_fresh_renewal_shows_no_achievements_and_leaves_the_sign_in_alone() {
+        for refusal in [fake::status(401), fake::eresult(15, "{}")] {
+            let mut rig = rig();
+            rig.http.on("GetPlayerAchievements", [refusal]);
+            assert!(is_empty(&ask(&mut rig)));
+            assert_eq!(rig.http.count("GenerateAccessTokenForApp"), 1);
+            assert_eq!(rig.http.count("GetPlayerAchievements"), 1, "a token just made is not tried twice");
+            assert!(linked(&mut rig));
+        }
+    }
+
+    #[test]
+    fn a_refused_old_access_token_is_renewed_once_and_the_read_tried_again() {
+        let mut rig = rig();
+        let body = r#"{"playerstats":{"achievements":[{"apiname":"WIN","achieved":1,"unlocktime":5}]}}"#;
+        rig.http.on("GetPlayerAchievements", [fake::ok(body)]);
+        ask(&mut rig);
+        rig.http.on("GetPlayerAchievements", [fake::status(401), fake::ok(body)]);
         let events = ask(&mut rig);
-        assert!(matches!(&events[..], [FromEngine { event: Event::Error { code: ErrorCode::BadRequest, .. }, .. }]));
+        assert!(matches!(&events[..], [FromEngine { event: Event::Achievements { unlocked, .. }, .. }] if unlocked.len() == 1), "{events:?}");
+        assert_eq!((rig.http.count("GenerateAccessTokenForApp"), rig.http.count("GetPlayerAchievements")), (2, 3));
+        // The next refusal within half an hour is the game's: no further renewal.
+        rig.http.on("GetPlayerAchievements", [fake::status(401)]);
+        assert!(is_empty(&ask(&mut rig)));
+        assert_eq!((rig.http.count("GenerateAccessTokenForApp"), rig.http.count("GetPlayerAchievements")), (2, 4));
+        assert!(linked(&mut rig));
+    }
+
+    #[test]
+    fn a_renewal_steam_refuses_shows_no_achievements_and_nothing_else() {
+        let mut rig = Rig::signed_in();
+        rig.http.on("GenerateAccessTokenForApp", [fake::eresult(15, r#"{"response":{}}"#)]);
+        assert!(is_empty(&ask(&mut rig)));
+        assert_eq!(rig.http.count("GetPlayerAchievements"), 0);
+        assert!(linked(&mut rig));
+        assert!(rig.data().join("token.json").exists());
     }
 }
