@@ -72,6 +72,8 @@ sh "$here/tools/fetch-gamestream.sh" "$data"
 
 chmod 755 "$data/lumagame-main" "$data/run64.sh" "$data/bin64/"* "$data/gfx64/launch.sh" "$data/gfx64/bundle/lib/ld-linux-aarch64.so.1" \
   "$engine/bin/"* "$data/engines/punktfunk/bin/"* "$data/engines/steam/bin/"*
+find "$data" -type d -exec chmod 755 {} +
+find "$data" -type f -perm -100 -exec chmod 755 {} +
 find "$data" -type f ! -perm -100 -exec chmod 644 {} +
 ( cd "$data" && find . -type f ! -name build-id -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16 ) > "$data/build-id"
 build_id=$(cat "$data/build-id")
