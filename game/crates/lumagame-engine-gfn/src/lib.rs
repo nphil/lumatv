@@ -305,11 +305,11 @@ impl Adapter {
         let (Some(saved),Some(text)) = (v["saved"].as_bool(),v["text"].as_str()) else { return };
         if self.launch.as_ref().is_some_and(|l| l.running && !l.stopping) { self.clip(None,saved,text); }
     }
-    /// The streamer's recorder as it is now (`{"stream":"recorder","replay":bool,"recording":bool}`).
+    /// The streamer's recorder as it is now (`{"stream":"recorder","replay":bool,"recording":bool,"ready":bool}`); an older streamer sends no `ready`.
     fn recorder_line(&mut self, v: &Value) {
         let (Some(replay),Some(recording)) = (v["replay"].as_bool(),v["recording"].as_bool()) else { return };
         let Some(session) = self.launch.as_ref().filter(|l| l.running && !l.stopping).map(|l| l.id) else { return };
-        self.emit(None,Event::Recorder { session,replay,recording });
+        self.emit(None,Event::Recorder { session,replay,recording,ready:v["ready"].as_bool().unwrap_or(true) });
     }
     /// One datagram from the streamer's pad bridge (`LUMATV_GFN_PAD_SIDE`). The PS button asks for the overlay, as it does on every
     /// engine; while the overlay has the pads their reports become its menu keys. The streamer's own telemetry and its end arrive the

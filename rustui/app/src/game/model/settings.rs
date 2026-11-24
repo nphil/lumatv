@@ -14,6 +14,8 @@ pub enum Pane {
     GameSir,
     Leadjoy,
     Diagnostics,
+    /// The recorder's settings, shared by every integration that keeps one.
+    Recorder,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Place {
@@ -95,6 +97,8 @@ pub enum Act {
     SignOut,
     /// A field of the open integration's schema, by its place in the schema.
     Field(usize),
+    /// A field of the Game recorder page, by its place in the recorder's section.
+    Recorder(usize),
     Credit(&'static str),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -251,7 +255,35 @@ impl Slice for Rules {
         m.settings_hints()
     }
 }
+/// What a schema field's row shows at its right, from its current value.
+pub(super) fn field_shows(kind: &FieldKind, current: Option<Value>) -> Shows {
+    match (kind, current) {
+        (FieldKind::Toggle { .. }, Some(Value::Bool(on))) => Shows::Switch(on),
+        (FieldKind::Choice { options, .. }, Some(Value::Text(v))) => Shows::Stepper(options.iter().find(|o| o.id == v).map_or(v.clone(), |o| o.label.clone())),
+        (FieldKind::Number { unit, .. }, Some(Value::Int(v))) => Shows::Stepper(format!("{v}{}", unit.as_deref().unwrap_or(""))),
+        (FieldKind::Text { .. }, Some(Value::Text(v))) if !v.is_empty() => Shows::Value(v),
+        (FieldKind::Text { .. }, _) => Shows::Value("Add".into()),
+        _ => Shows::Opens,
+    }
+}
+/// The value a field takes when Left or Right steps it: a switch flips, a choice and a number move one place and stop at the ends.
+pub(super) fn step_value(kind: &FieldKind, current: Option<Value>, right: bool) -> Option<Value> {
+    match (kind, current) {
+        (FieldKind::Toggle { .. }, Some(Value::Bool(v))) => Some(Value::Bool(!v)),
+        (FieldKind::Choice { options, .. }, Some(Value::Text(v))) if !options.is_empty() => {
+            let i = options.iter().position(|o| o.id == v).unwrap_or(0);
+            let j = if right { (i + 1).min(options.len() - 1) } else { i.saturating_sub(1) };
+            Some(Value::Text(options[j].id.clone()))
+        }
+        (FieldKind::Number { min, max, step, .. }, Some(Value::Int(v))) => Some(Value::Int(if right { v.saturating_add(*step).min(*max) } else { v.saturating_sub(*step).max(*min) })),
+        _ => None,
+    }
+}
 impl Model {
+    /// What the Game recorder row says under its name.
+    fn recorder_word(&self) -> &'static str {
+        if lumagame_core::recorder::Settings::from_values(&self.recorder_values()).runs() { "On" } else { "Off" }
+    }
     /// Shows Settings at `place`, focused on its rail.
     pub fn open_settings(&mut self, place: Place) {
         self.view.place = place;
@@ -279,6 +311,7 @@ impl Model {
             Some(Pane::GameSir) => Sheet::titled("GameSir Cyclone 2", Vec::new()),
             Some(Pane::Leadjoy) => Sheet::titled("Leadjoy Xeno", Vec::new()),
             Some(Pane::Diagnostics) => Sheet::titled("Diagnostics", self.diagnostics_entries()),
+            Some(Pane::Recorder) => Sheet::titled("Game recorder", self.recorder_entries()),
         };
         if self.view.pane.is_some() {
             sheet.crumb = Some(place.name());
@@ -344,6 +377,8 @@ impl Model {
             Entry::Group("Playing".into()),
             Entry::Row(Item::new(Act::Pref(Pref::Preferred), Glyph::Games, "Preferred way to play", Shows::Stepper(preferred))),
             Entry::Row(Item::new(Act::Pref(Pref::Stats), Glyph::Gauge, "Stats while playing", Shows::Stepper(["Off", "Compact", "Full"][p.stats.mode.index()].into()))),
+            Entry::Group("Recording".into()),
+            Entry::Row(Item::new(Act::Pane(Pane::Recorder), Glyph::Picture, "Game recorder", Shows::Opens).sub(self.recorder_word())),
         ]
     }
     fn controller_entries(&self) -> Vec<Entry> {
@@ -404,6 +439,20 @@ impl Model {
             Entry::Row(Item::new(Act::Diag(5), Glyph::SignOut, "Clear write token", Shows::Nothing)),
             Entry::Row(Item::new(Act::Diag(6), Glyph::Info, "Test diagnostics", Shows::Value("Send".into()))),
         ]
+    }
+    /// The Game recorder page: every field of the recorder's section, with the values every integration that keeps one shares.
+    fn recorder_entries(&self) -> Vec<Entry> {
+        let values = self.recorder_values();
+        lumagame_core::recorder::section()
+            .fields
+            .into_iter()
+            .enumerate()
+            .map(|(i, field)| {
+                let mut item = Item::new(Act::Recorder(i), Glyph::Setting, field.label.clone(), field_shows(&field.kind, values.get(&field.key).cloned()));
+                item.sub = field.help;
+                Entry::Row(item)
+            })
+            .collect()
     }
     fn settings_grid(&self, layer: Option<Layer>) -> Vec<Vec<Focus>> {
         let mut rows: Vec<Vec<Focus>> = Vec::new();
@@ -536,6 +585,9 @@ impl Model {
             }
             Act::SignOut => self.push_layer(Layer::SignOut, Focus::SheetAction(0)),
             Act::Field(i) => self.change_engine_field(i, true, out),
+            Act::Recorder(i) => {
+                self.change_recorder_field(i, true, out);
+            }
             Act::Credit(url) => out.push(Command::PlayMedia { url: url.into() }),
         }
     }
@@ -564,7 +616,7 @@ impl Model {
                 let i = lumatv_tokens::themes::game_options().iter().position(|o| o.id == self.prefs.family).unwrap_or(0);
                 self.show_pane(pane, Focus::Theme(i));
             }
-            Pane::Service | Pane::Add | Pane::Diagnostics => self.show_pane(pane, Focus::Setting(0)),
+            Pane::Service | Pane::Add | Pane::Diagnostics | Pane::Recorder => self.show_pane(pane, Focus::Setting(0)),
         }
     }
     fn diagnostics_action(&mut self, row: usize, out: &mut Vec<Command>) {
@@ -629,6 +681,7 @@ impl Model {
                     self.change_engine_field(i, right, out);
                     true
                 }
+                Act::Recorder(i) => self.change_recorder_field(i, right, out),
                 _ => false,
             };
         }
@@ -637,6 +690,45 @@ impl Model {
             return true;
         }
         false
+    }
+    /// A field of the Game recorder page: a switch or a choice steps, a text opens the keyboard. True when it changed or opened.
+    fn change_recorder_field(&mut self, index: usize, right: bool, out: &mut Vec<Command>) -> bool {
+        let Some(field) = lumagame_core::recorder::section().fields.into_iter().nth(index) else {
+            return false;
+        };
+        let current = self.recorder_values().get(&field.key).cloned();
+        if let FieldKind::Text { .. } = field.kind {
+            self.view.address = if let Some(Value::Text(value)) = current { value } else { String::new() };
+            self.view.edit_field = Some(index);
+            self.push_layer(Layer::EditText, Focus::Keyboard(0));
+            return true;
+        }
+        let Some(value) = step_value(&field.kind, current.clone(), right).filter(|v| Some(v) != current.as_ref()) else {
+            return false;
+        };
+        self.prefs.recorder.insert(field.key, value);
+        self.save_prefs(out);
+        self.push_common(out);
+        true
+    }
+    /// The Game recorder page's text field, from the keyboard.
+    pub(super) fn save_recorder_text(&mut self, out: &mut Vec<Command>) {
+        let Some(field) = self.view.edit_field.and_then(|i| lumagame_core::recorder::section().fields.into_iter().nth(i)) else {
+            return;
+        };
+        let value = Value::Text(self.view.address.trim().to_owned());
+        let schema = SettingsSchema { sections: vec![lumagame_core::recorder::section()] };
+        if schema.check(&field.key, &value).is_err() {
+            self.view.notice = Some(match field.kind {
+                FieldKind::Text { max_chars, .. } => format!("Use at most {max_chars} characters."),
+                _ => "This field changed. Open it again.".into(),
+            });
+            return;
+        }
+        self.prefs.recorder.insert(field.key, value);
+        self.save_prefs(out);
+        self.push_common(out);
+        self.pop_layer();
     }
     fn diagnostics_step(&mut self, row: usize, right: bool, out: &mut Vec<Command>) -> bool {
         let before = (self.diagnostics.enabled, self.diagnostics.level);
@@ -1061,6 +1153,51 @@ mod tests {
         let saved = Preferences::read(&m.prefs.json());
         assert!(!saved.game_pages && saved.mature_pages);
         assert!(key(&mut m, Key::Right).is_empty(), "a switch already on stays on");
+    }
+    #[test]
+    fn the_game_recorder_page_is_one_for_every_integration_and_starts_at_the_nas() {
+        use lumagame_core::recorder;
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gfn", "GeForce NOW", EngineKind::Cloud)]);
+        describe(&mut m, "gfn", vec![], &[Feature::Recorder]);
+        m.integrations[0].schema = SettingsSchema { sections: vec![recorder::section()] };
+        m.open_settings(Place::Picture);
+        let sheet = m.settings_sheet();
+        m.view.focus = Focus::Setting(sheet.rows().into_iter().find(|&i| sheet.item(i).unwrap().act == Act::Pane(Pane::Recorder)).unwrap());
+        m.rebuild_navigation();
+        key(&mut m, Key::Ok);
+        assert_eq!(m.view.pane, Some(Pane::Recorder));
+        let at = |key: &str| recorder::section().fields.iter().position(|f| f.key == key).unwrap();
+        let row = |m: &Model, key: &str| {
+            let sheet = m.settings_sheet();
+            sheet.rows().into_iter().find(|&i| sheet.item(i).unwrap().act == Act::Recorder(at(key))).unwrap()
+        };
+        assert_eq!(m.settings_sheet().item(row(&m, recorder::URL)).unwrap().shows, Shows::Value(recorder::DEFAULT_URL.into()));
+        m.view.focus = Focus::Setting(row(&m, recorder::ENABLED));
+        key(&mut m, Key::Ok);
+        let saved = |m: &Model, key: &str| m.state.engines[&EngineId::new("gfn").unwrap()].settings.get(key).cloned();
+        assert_eq!((m.prefs.recorder.get(recorder::ENABLED), saved(&m, recorder::ENABLED)), (Some(&Value::Bool(true)), Some(Value::Bool(true))), "the engine hears the page");
+        m.view.focus = Focus::Setting(row(&m, recorder::KEYFRAMES));
+        key(&mut m, Key::Right);
+        key(&mut m, Key::Right);
+        key(&mut m, Key::Right);
+        assert_eq!(saved(&m, recorder::KEYFRAMES), Some(Value::Text("save".into())), "the choices stop at the last");
+        m.view.focus = Focus::Setting(row(&m, recorder::URL));
+        key(&mut m, Key::Ok);
+        assert_eq!((m.view.top(), m.view.address.as_str()), (Some(Layer::EditText), recorder::DEFAULT_URL));
+        m.view.address = "http://nas:9".into();
+        m.save_recorder_text(&mut Vec::new());
+        assert_eq!((m.view.top(), saved(&m, recorder::URL)), (None, Some(Value::Text("http://nas:9".into()))));
+        assert_eq!(Preferences::read(&m.prefs.json()).recorder, m.prefs.recorder, "and it survives a restart");
+    }
+    #[test]
+    fn a_profile_from_before_the_game_recorder_page_keeps_its_first_integrations_settings() {
+        let mut state = State::default();
+        state.engines.entry(EngineId::new("gfn").unwrap()).or_default().settings =
+            Values::from([("recorder".into(), Value::Bool(true)), ("recorder-url".into(), Value::Text("http://nas:9".into())), ("width".into(), Value::Int(1280))]);
+        let m = Model::new(state, Listing::default(), vec![]);
+        let values = m.recorder_values();
+        assert_eq!((values.get("recorder"), values.get("recorder-url")), (Some(&Value::Bool(true)), Some(&Value::Text("http://nas:9".into()))));
+        assert!(!m.prefs.recorder.contains_key("width"), "only the recorder's keys move");
     }
     mod lab_tests {
         use super::*;

@@ -3,7 +3,7 @@ mod feeder_tests;
 use anyhow::{Context, Result, bail, ensure};
 use lumagame_core::{engine::Codec, ids::{ProviderGameId, SessionId}, ipc::{EndReason, Event, FailReason, FromEngine, Hello, RecorderAction, RoundTrip, SessionState, Stats, StreamInfo}};
 use lumagame_feeder::{FeederClient, FeederMessage, Hdr, Load, audio, msg, pts_unit};
-use lumagame_recorder::{HttpDestination, Plan, RING_CAP, Recorder};
+use lumagame_recorder::{HttpDestination, KeyframeRequest, Plan, RING_CAP, Recorder};
 use lumatv_gfn_pad::PadRuntime;
 use punktfunk_core::{client::NativeClient, packet::{FLAG_SOF,USER_FLAG_RECOVERY_ANCHOR}, quic, PunktfunkError};
 use std::{path::Path, sync::{Arc, Mutex, atomic::{AtomicBool,AtomicU64,Ordering}, mpsc::Sender}, thread, time::{Duration,Instant}};
@@ -105,7 +105,8 @@ fn media(id:SessionId,client:Arc<NativeClient>,hello:&Hello,control:&Arc<Control
     let format=client.video_format();
     let info=stream_info(&client,format).map_err(video)?;
     let hdr=client.latest_hdr_meta(Duration::ZERO).map(|m|metadata(m,format.color));
-    if let Some(recorder)=tee(id,hello,control,out) {feeder.set_tee(recorder);}
+    let recorder=tee(id,hello,control,out,&client);
+    if let Some(recorder)=&recorder {feeder.set_tee(Arc::clone(recorder));}
     feeder.send_load(&load(&info,hdr)).map_err(|e|video(e.into()))?;
     let feeder=Arc::new(Mutex::new(feeder));
     let audio_stop=Arc::new(AtomicBool::new(false));
@@ -127,7 +128,7 @@ fn media(id:SessionId,client:Arc<NativeClient>,hello:&Hello,control:&Arc<Control
     let pads=Arc::new(Pads::new(Arc::clone(&client),id,out.clone()));
     let pad_runtime=PadRuntime::start(settings::pad_config(&hello.settings),pads.clone());
     pad_runtime.set_grab(true);
-    let result=video_loop(id,&client,&feeder,&player,control,out,&pads,&pad_runtime,info,smooth,hdr);
+    let result=video_loop(id,&client,&feeder,&player,control,out,&pads,&pad_runtime,info,smooth,hdr,recorder.as_deref());
     pads.route(true);
     for slot in 0..4 { let _=pad_runtime.rumble(slot,0,0,0); }
     pad_runtime.set_grab(false);pad_runtime.stop();
@@ -139,23 +140,27 @@ fn media(id:SessionId,client:Arc<NativeClient>,hello:&Hello,control:&Arc<Control
 }
 /// The game recorder for this stream when the viewer turned it on. What it has to say goes to the app as `clip` events and its
 /// state as `recorder` events, the first one now.
-fn tee(id:SessionId,hello:&Hello,control:&Control,out:&Sender<Notice>)->Option<Arc<Recorder>> {
+fn tee(id:SessionId,hello:&Hello,control:&Control,out:&Sender<Notice>,client:&Arc<NativeClient>)->Option<Arc<Recorder>> {
     let rec=settings::recorder(&hello.settings);
     if !rec.runs() {return None;}
     let send={let out=out.clone();move |event:Event| {let _=out.send(Notice::Emit(FromEngine::told(event)));}};
     let destination=match HttpDestination::new(&rec.url) {Ok(d)=>d,Err(text)=>{send(Event::Clip {session:id,saved:false,text});return None;}};
-    let plan=Plan {replay:rec.replay,reach_s:rec.reach_s,mbps:settings::bitrate_mbps(&hello.settings),record_max_s:rec.record_max_s};
-    send(Event::Recorder {session:id,replay:rec.replay,recording:false});
-    let recorder=Arc::new(Recorder::new(RING_CAP,Arc::new(destination),plan,move |event| match event.sentence() {
+    let plan=Plan {replay:rec.replay,reach_s:rec.reach_s,mbps:settings::bitrate_mbps(&hello.settings),record_max_s:rec.record_max_s,keyframe_s:rec.keyframe_s};
+    send(Event::Recorder {session:id,replay:rec.replay,recording:false,ready:rec.keyframe_s==0});
+    let asking=Arc::clone(client);
+    let keyframes:KeyframeRequest=Arc::new(move || {let _=asking.request_keyframe();});
+    let recorder=Arc::new(Recorder::new(RING_CAP,Arc::new(destination),plan,keyframes,move |event| match event.sentence() {
         Some((saved,text))=>send(Event::Clip {session:id,saved,text}),
-        None=>if let lumagame_recorder::Event::State {replay,recording}=event {send(Event::Recorder {session:id,replay,recording});},
+        None=>if let lumagame_recorder::Event::State {replay,recording,ready}=event {send(Event::Recorder {session:id,replay,recording,ready});},
     }));
     *control.recorder.lock().unwrap()=Some((Arc::clone(&recorder),rec.seconds));
     Some(recorder)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn video_loop(id:SessionId,client:&NativeClient,feeder:&Mutex<FeederClient>,player:&Player,control:&Control,out:&Sender<Notice>,pads:&Pads,pad_runtime:&PadRuntime,mut info:StreamInfo,smooth:bool,mut last_hdr:Option<Hdr>)->Result<EndReason,Failure> {
+fn video_loop(id:SessionId,client:&NativeClient,feeder:&Mutex<FeederClient>,player:&Player,control:&Control,out:&Sender<Notice>,pads:&Pads,pad_runtime:&PadRuntime,mut info:StreamInfo,smooth:bool,mut last_hdr:Option<Hdr>,recorder:Option<&Recorder>)->Result<EndReason,Failure> {
+    // The recorder asks the host for no keyframe while the picture is recovering, so a keyframe of its own never adds to a recovery.
+    let trouble=|| if let Some(recorder)=recorder {recorder.trouble();};
     let video=|e| (FailReason::Video,e);
     let mut stage=stage::Stage::new(info.fps,smooth,codec_bit(info.codec));
     let mut loss=stage::Loss::new(client.frames_dropped());
@@ -176,6 +181,7 @@ fn video_loop(id:SessionId,client:&NativeClient,feeder:&Mutex<FeederClient>,play
         }
         if pads.failed.load(Ordering::Relaxed) {return Err((FailReason::Network,anyhow::anyhow!("The host stopped accepting controller input.")));}
         if player.keyframe.swap(false,Ordering::AcqRel) {
+            trouble();
             let count=player.dropped.load(Ordering::Relaxed);
             if count!=dropped {stage.decoder_loss(monotonic_ns());dropped=count;} else {stage.hold(monotonic_ns(),false);}
             if stage.keyframe_due(monotonic_ns()) {client.request_keyframe().map_err(|e|(FailReason::Network,e.into()))?;}
@@ -246,8 +252,10 @@ fn video_loop(id:SessionId,client:&NativeClient,feeder:&Mutex<FeederClient>,play
         let gap=client.note_frame_index(frame.frame_index);
         let (lost,index)=loss.observe(frame.frame_index,gap,client.frames_dropped(),now);
         let anchor=stage.anchor(frame.flags & u32::from(FLAG_SOF)!=0,frame.flags & USER_FLAG_RECOVERY_ANCHOR!=0);
+        if lost || !frame.complete || frame.part.is_some() {trouble();}
         if !frame.complete || frame.part.is_some() {stage.hold(now,true);continue;}
         let gate=stage.gate(anchor,lost,now);
+        if gate!=stage::Gate::Feed {trouble();}
         match gate {
             stage::Gate::Keyframe=>{client.request_keyframe().map_err(|e|(FailReason::Network,e.into()))?;continue;}
             stage::Gate::Hold=>continue,

@@ -8,6 +8,7 @@
 //! Memory budget, 128 MB in all: the ring ([`RING_CAP`]), the hand-off queue ([`HANDOFF_CAP`]) and the fragment being muxed
 //! ([`FRAGMENT_CAP`]) by the live feed and by one clip. Both read the ring unit by unit and hold only their fragment's references.
 mod bitstream;
+mod cut;
 mod fmp4;
 mod http;
 mod ring;
@@ -23,6 +24,7 @@ pub use bitstream::Codec;
 pub use http::HttpDestination;
 
 use ring::{Read, Ring};
+use cut::{Cutter, Move};
 
 pub const TOTAL_CAP: usize = 128 << 20;
 pub const HANDOFF_CAP: usize = 4 << 20;
@@ -145,12 +147,20 @@ pub struct Plan {
     pub mbps: u32,
     /// The longest one recording may run.
     pub record_max_s: u32,
+    /// Seconds between the keyframes the recorder asks the game server for while it runs. 0 asks only when Save clip or Record needs
+    /// one, and a clip then starts at the press and runs forward.
+    pub keyframe_s: u32,
 }
+
+/// Asks the game server for a keyframe. The engine supplies it, because how the ask reaches the server differs by streaming service.
+/// It returns at once and is called from the recorder's own threads, never from the decode path.
+pub type KeyframeRequest = Arc<dyn Fn() + Send + Sync>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
-    /// Long replay or a recording went on or off.
-    State { replay: bool, recording: bool },
+    /// Long replay or a recording went on or off, or a clip became possible or impossible: `ready` says the ring holds a keyframe to
+    /// start a clip from (always true when clips start at the press).
+    State { replay: bool, recording: bool, ready: bool },
     /// A clip or recording is on the NAS.
     Saved { name: String, seconds: u32, bytes: u64 },
     /// What the viewer asked for did not happen.
@@ -188,6 +198,10 @@ pub struct Stats {
     pub oversize: u64,
     pub clips: u64,
     pub failures: u64,
+    /// A clip can start now.
+    pub ready: bool,
+    /// Keyframes asked of the game server.
+    pub keyframe_asks: u64,
     /// The live feed reaches the receiver.
     pub live: bool,
     /// Times the live feed stopped because the receiver failed or fell behind.
@@ -219,6 +233,18 @@ struct Shared {
     /// A reach the receiver shortened is said once a stream.
     reach_told: AtomicBool,
     plan: Plan,
+    keyframes: KeyframeRequest,
+    /// Milliseconds on the recorder's own clock; a fake one in the tests.
+    clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+    cutter: Mutex<Cutter>,
+    /// No keyframe is asked for before this time: the stream showed trouble.
+    quiet_until: AtomicU64,
+    /// The ring holds a keyframe to start a clip from; always true when clips start at the press.
+    ready: AtomicBool,
+    video_seen: AtomicBool,
+    asked: AtomicU64,
+    /// Urgent waits for a keyframe that were given up on.
+    gave_up: AtomicU64,
     destination: Arc<dyn Destination>,
     on_event: Box<dyn Fn(Event) + Send + Sync>,
 }
@@ -229,6 +255,10 @@ struct Live {
     want_replay: bool,
     /// The game a recording was asked for, until the receiver starts it.
     want_record: Option<String>,
+    /// Where the ring stood, and how many waits for a keyframe had been given up on, when the recording was asked for: it starts at
+    /// the first keyframe from there on, and fails if a wait is given up on first.
+    record_from: u64,
+    record_gen: u64,
     stop_record: bool,
     /// The feed reaches the receiver, as the stream it knows by `session`.
     up: bool,
@@ -269,7 +299,19 @@ impl std::fmt::Display for Refusal {
 }
 
 impl Recorder {
-    pub fn new(ring_cap: usize, destination: Arc<dyn Destination>, plan: Plan, on_event: impl Fn(Event) + Send + Sync + 'static) -> Self {
+    pub fn new(ring_cap: usize, destination: Arc<dyn Destination>, plan: Plan, keyframes: KeyframeRequest, on_event: impl Fn(Event) + Send + Sync + 'static) -> Self {
+        let epoch = Instant::now();
+        Self::with_clock(ring_cap, destination, plan, keyframes, Arc::new(move || epoch.elapsed().as_millis() as u64), on_event)
+    }
+
+    fn with_clock(
+        ring_cap: usize,
+        destination: Arc<dyn Destination>,
+        plan: Plan,
+        keyframes: KeyframeRequest,
+        clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+        on_event: impl Fn(Event) + Send + Sync + 'static,
+    ) -> Self {
         let (tx, rx) = mpsc::sync_channel(QUEUE_UNITS);
         let shared = Arc::new(Shared {
             ring: Mutex::new(Ring::new(ring_cap)),
@@ -287,6 +329,14 @@ impl Recorder {
             live_failures: AtomicU64::new(0),
             reach_told: AtomicBool::new(false),
             plan,
+            keyframes,
+            cutter: Mutex::new(Cutter::new(plan.keyframe_s, clock())),
+            clock,
+            quiet_until: AtomicU64::new(0),
+            ready: AtomicBool::new(plan.keyframe_s == 0),
+            video_seen: AtomicBool::new(false),
+            asked: AtomicU64::new(0),
+            gave_up: AtomicU64::new(0),
             destination,
             on_event: Box::new(on_event),
         });
@@ -337,15 +387,24 @@ impl Recorder {
             oversize: ring.oversize,
             clips: s.clips.load(Ordering::Relaxed),
             failures: s.failures.load(Ordering::Relaxed),
+            ready: s.ready.load(Ordering::Relaxed),
+            keyframe_asks: s.asked.load(Ordering::Relaxed),
             live,
             live_failures: s.live_failures.load(Ordering::Relaxed),
         }
     }
 
-    /// Whether long replay is on for this stream, and whether a recording runs.
-    pub fn state(&self) -> (bool, bool) {
+    /// Whether long replay is on for this stream, whether a recording runs, and whether a clip can start now.
+    pub fn state(&self) -> (bool, bool, bool) {
         let live = lock(&self.shared.live);
-        (live.want_replay, live.recording)
+        (live.want_replay, live.recording, self.shared.ready.load(Ordering::Relaxed))
+    }
+
+    /// Tells the recorder the stream is in trouble: the decoder is recovering or pictures were lost on the way. It asks the game server
+    /// for no keyframe until things have been quiet a few seconds. Two atomics and no lock, so any thread may call it.
+    pub fn trouble(&self) {
+        let s = &self.shared;
+        s.quiet_until.fetch_max((s.clock)() + cut::HOLD_MS, Ordering::Relaxed);
     }
 
     /// Turns long replay on or off for this stream.
@@ -355,15 +414,24 @@ impl Recorder {
         tell_state(&self.shared);
     }
 
-    /// Asks the NAS to record `game` from the next keyframe on. What became of it comes as [`Event`]s from the live feed's thread.
+    /// Asks the NAS to record `game`, starting at a keyframe that arrives from now on: the recorder asks the game server for one at
+    /// once. What became of it comes as [`Event`]s from the live feed's thread.
     pub fn start_recording(&self, game: &str) {
-        let mut live = lock(&self.shared.live);
-        if !live.recording {
+        let s = &self.shared;
+        let from = lock(&s.ring).next_seq();
+        let mut live = lock(&s.live);
+        let asked = !live.recording;
+        if asked {
             live.want_record = Some(game.to_owned());
             live.stop_record = false;
+            live.record_from = from;
+            live.record_gen = s.gave_up.load(Ordering::Relaxed);
         }
         drop(live);
-        self.shared.live_wake.notify_all();
+        if asked {
+            need_keyframe(s);
+        }
+        s.live_wake.notify_all();
     }
 
     pub fn stop_recording(&self) {
@@ -373,8 +441,9 @@ impl Recorder {
     }
 
     /// Saves a clip of `game` as one file: the last minutes out of the NAS's buffer while long replay reaches it, and otherwise, or when
-    /// the NAS cannot give it, the last `seconds` out of the ring (at least that much when the ring holds it, starting on a keyframe).
-    /// The answer comes as an [`Event`] from the job's thread.
+    /// the NAS cannot give it, `seconds` out of the ring. By default these are the last `seconds` (at least that much when the ring holds
+    /// it, starting on a keyframe); with [`Plan::keyframe_s`] 0 the clip starts at the press, on a keyframe the recorder asks for, and
+    /// runs `seconds` forward. The answer comes as an [`Event`] from the job's thread.
     pub fn save_clip(&self, game: &str, seconds: u32) -> Result<(), Refusal> {
         let s = self.shared.clone();
         if s.busy.swap(true, Ordering::AcqRel) {
@@ -391,7 +460,8 @@ impl Recorder {
                 seconds: told.number("seconds") as u32,
                 bytes: told.number("bytes"),
             });
-            let event = match from_nas.map_or_else(|| clip_from_ring(&s, &game, seconds), Ok) {
+            let ring_span = if s.plan.keyframe_s == 0 { Span::Forward(seconds) } else { Span::Back(seconds) };
+            let event = match from_nas.map_or_else(|| clip_from_ring(&s, &game, ring_span), Ok) {
                 Ok(saved) => {
                     s.clips.fetch_add(1, Ordering::Relaxed);
                     saved
@@ -431,32 +501,88 @@ impl Drop for Recorder {
 fn worker_loop(s: &Arc<Shared>, rx: &Receiver<Msg>) {
     let mut last_config: Option<Arc<Config>> = None;
     let mut seen_drops = 0;
+    let mut paced = (s.clock)();
     while !s.closed.load(Ordering::Acquire) {
-        let msg = match rx.recv_timeout(Duration::from_millis(200)) {
-            Ok(m) => m,
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
-        };
-        let (track, pts_ns, key, data) = match msg {
-            Msg::Unit { track, pts_ns, key, data } => (track, pts_ns, key, data),
+        match rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(Msg::Unit { track, pts_ns, key, data }) => file_unit(s, &mut last_config, &mut seen_drops, track, pts_ns, key, data),
             #[cfg(test)]
-            Msg::Barrier(done) => {
+            Ok(Msg::Barrier(done)) => {
+                pace(s);
                 let _ = done.send(());
                 continue;
             }
-        };
-        s.queued.fetch_sub(data.len(), Ordering::Relaxed);
-        let config = (track == Track::Video && key).then(|| config_for(s, &data, &mut last_config)).flatten();
-        let mut ring = lock(&s.ring);
-        let drops = s.dropped.load(Ordering::Relaxed);
-        if drops != seen_drops {
-            seen_drops = drops;
-            ring.mark_damaged();
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
-        ring.push(track, pts_ns, key, data, config);
-        drop(ring);
-        s.arrived.notify_all();
+        let now = (s.clock)();
+        if now.saturating_sub(paced) >= PACE_MS {
+            paced = now;
+            pace(s);
+        }
     }
+}
+
+/// How often the worker looks at the cutter.
+const PACE_MS: u64 = 100;
+
+fn file_unit(s: &Shared, last_config: &mut Option<Arc<Config>>, seen_drops: &mut u64, track: Track, pts_ns: i64, key: bool, data: Arc<[u8]>) {
+    s.queued.fetch_sub(data.len(), Ordering::Relaxed);
+    let video = track == Track::Video;
+    if video {
+        s.video_seen.store(true, Ordering::Relaxed);
+    }
+    let config = (video && key).then(|| config_for(s, &data, last_config)).flatten();
+    let usable_key = config.is_some();
+    let mut ring = lock(&s.ring);
+    let drops = s.dropped.load(Ordering::Relaxed);
+    if drops != *seen_drops {
+        *seen_drops = drops;
+        ring.mark_damaged();
+        // Units lost at the hand-off are trouble of the recorder's own: a keyframe asked for now would be one more large unit to lose.
+        s.quiet_until.fetch_max((s.clock)() + cut::HOLD_MS, Ordering::Relaxed);
+    }
+    let outgrown = ring.oversize;
+    ring.push(track, pts_ns, key, data, config);
+    let cleared = ring.oversize != outgrown;
+    let ready = (s.plan.keyframe_s != 0 && (usable_key || cleared)).then(|| ring.ready());
+    drop(ring);
+    s.arrived.notify_all();
+    if usable_key {
+        lock(&s.cutter).key_arrived((s.clock)());
+    }
+    if let Some(ready) = ready {
+        if s.ready.swap(ready, Ordering::Relaxed) != ready {
+            tell_state(s);
+        }
+    }
+    if cleared {
+        need_keyframe(s);
+    }
+}
+
+/// Runs the cutter: sends the keyframe request when one is due, and wakes whoever waits when an urgent one is given up on. Called from
+/// the worker and from the threads that need a keyframe, never from the decode path; the request goes out with no lock held.
+fn pace(s: &Shared) {
+    let (ready, video) = (s.ready.load(Ordering::Relaxed), s.video_seen.load(Ordering::Relaxed));
+    let verdict = lock(&s.cutter).poll((s.clock)(), s.quiet_until.load(Ordering::Relaxed), ready, video);
+    match verdict {
+        Move::Idle => {}
+        Move::Ask => {
+            s.asked.fetch_add(1, Ordering::Relaxed);
+            (s.keyframes)();
+        }
+        Move::GaveUp => {
+            s.gave_up.fetch_add(1, Ordering::Relaxed);
+            s.arrived.notify_all();
+            s.live_wake.notify_all();
+        }
+    }
+}
+
+/// Something waits for a keyframe now: ask for one at once.
+fn need_keyframe(s: &Shared) {
+    lock(&s.cutter).urgent((s.clock)());
+    pace(s);
 }
 
 /// The config a keyframe files under: the stream's shape and the keyframe's own parameter sets; the previous one when nothing changed.
@@ -483,11 +609,55 @@ fn end_upload(mut mux: ClipMuxer) -> Result<(u64, Answer), String> {
     Ok((bytes, told))
 }
 
-/// One clip of the ring's last `seconds`, from a keyframe, uploaded as one file.
-fn clip_from_ring(s: &Arc<Shared>, game: &str, seconds: u32) -> Result<Event, String> {
-    let (start, end) = {
-        let ring = lock(&s.ring);
-        (ring.start_for_last(seconds).ok_or("no picture has been recorded yet")?, ring.next_seq())
+/// Which part of the stream a clip from the ring takes.
+#[derive(Clone, Copy)]
+enum Span {
+    /// The last seconds: from the newest keyframe at or before that far back, to what the ring holds now.
+    Back(u32),
+    /// From a keyframe that arrives after the press, this many seconds on.
+    Forward(u32),
+}
+
+/// A clip stops growing here whatever its length: the receiver refuses a clip larger than it can hold, and one so large is a recording.
+const CLIP_MAX_BYTES: u64 = 176 << 20;
+
+/// Waits for the ring to hold what `found` looks for, asking the game server for a keyframe first. Fails when the ask is given up on.
+fn await_keyframe<T>(s: &Shared, found: impl Fn(&Ring) -> Option<T>) -> Result<T, String> {
+    let gave_up = s.gave_up.load(Ordering::Relaxed);
+    let mut asked = false;
+    let mut ring = lock(&s.ring);
+    loop {
+        if let Some(found) = found(&ring) {
+            return Ok(found);
+        }
+        if s.gave_up.load(Ordering::Relaxed) != gave_up || s.closed.load(Ordering::Acquire) {
+            return Err("Save clip could not start: the game sent no keyframe to start from".to_owned());
+        }
+        if asked {
+            ring = s.arrived.wait_timeout(ring, Duration::from_millis(100)).unwrap_or_else(|e| e.into_inner()).0;
+        } else {
+            asked = true;
+            drop(ring);
+            need_keyframe(s);
+            ring = lock(&s.ring);
+        }
+    }
+}
+
+/// One clip of the ring, from a keyframe, uploaded as one file.
+fn clip_from_ring(s: &Arc<Shared>, game: &str, span: Span) -> Result<Event, String> {
+    if !s.video_seen.load(Ordering::Relaxed) {
+        return Err("no picture has been recorded yet".to_owned());
+    }
+    let (start, end, forward_s) = match span {
+        Span::Back(seconds) => {
+            let start = await_keyframe(s, |ring| ring.start_for_last(seconds))?;
+            (start, Some(lock(&s.ring).next_seq()), 0)
+        }
+        Span::Forward(seconds) => {
+            let from = lock(&s.ring).next_seq();
+            (await_keyframe(s, |ring| ring.first_key_from(from))?, None, seconds)
+        }
     };
     let (first_config, mut seq) = match lock(&s.ring).read(start) {
         Read::Unit(_, Some(config)) => (config, start),
@@ -496,8 +666,17 @@ fn clip_from_ring(s: &Arc<Shared>, game: &str, seconds: u32) -> Result<Event, St
     let upload = s.destination.open(&format!("/clip?game={}", http::encode(game))).map_err(|e| format!("cannot reach the NAS: {e}"))?;
     let mut mux = fmp4::Muxer::new(BufWriter::with_capacity(64 << 10, upload), first_config).map_err(|e| format!("upload: {e}"))?;
     let (mut first_pts, mut last_pts) = (None, 0i64);
-    while seq < end {
-        let read = lock(&s.ring).read(seq);
+    let until = (s.clock)() + (u64::from(forward_s) + 5) * 1000;
+    while end.is_none_or(|end| seq < end) {
+        let read = {
+            let mut ring = lock(&s.ring);
+            let mut read = ring.read(seq);
+            if matches!(read, Read::Wait) && end.is_none() && (s.clock)() < until && !s.closed.load(Ordering::Acquire) {
+                ring = s.arrived.wait_timeout(ring, Duration::from_millis(100)).unwrap_or_else(|e| e.into_inner()).0;
+                read = ring.read(seq);
+            }
+            read
+        };
         match read {
             Read::Unit(unit, config) => {
                 if config.as_ref().is_some_and(|c| **c != **mux.config()) {
@@ -510,8 +689,13 @@ fn clip_from_ring(s: &Arc<Shared>, game: &str, seconds: u32) -> Result<Event, St
                     last_pts = unit.pts_ns;
                 }
                 seq += 1;
+                let long_enough = first_pts.is_some_and(|f| last_pts - f >= i64::from(forward_s) * 1_000_000_000);
+                if end.is_none() && (long_enough || mux.bytes >= CLIP_MAX_BYTES) {
+                    break;
+                }
             }
-            Read::Wait => break,
+            Read::Wait if end.is_some() || (s.clock)() >= until || s.closed.load(Ordering::Acquire) => break,
+            Read::Wait => {}
             Read::Evicted => return Err("the upload fell behind the stream and the ring dropped the rest".to_owned()),
         }
     }
@@ -537,7 +721,7 @@ fn tell_state(s: &Shared) {
         let live = lock(&s.live);
         (live.want_replay, live.recording)
     };
-    (s.on_event)(Event::State { replay, recording });
+    (s.on_event)(Event::State { replay, recording, ready: s.ready.load(Ordering::Relaxed) });
 }
 
 /// Says once when the receiver's buffer holds less than the reach asked for.
@@ -560,6 +744,16 @@ fn record_ended(s: &Shared, told: &Answer, prefix: &str) {
         (false, true) => Event::Saved { name, seconds, bytes },
         (false, false) => Event::Notice { text: format!("{note}. {}", saved(&name, seconds, bytes)) },
     });
+}
+
+/// A recording waits for a keyframe the game never sent: it is given up on, and the viewer told.
+fn record_timed_out(s: &Shared) {
+    let mut live = lock(&s.live);
+    if live.want_record.is_some() && s.gave_up.load(Ordering::Relaxed) != live.record_gen {
+        live.want_record = None;
+        drop(live);
+        (s.on_event)(Event::Failed { reason: "Record could not start: the game sent no keyframe".to_owned() });
+    }
 }
 
 /// The live feed's thread: it runs the feed while long replay or a recording wants it, and after a failure says so once and tries
@@ -617,6 +811,7 @@ fn feed(s: &Arc<Shared>) -> Result<(), String> {
         })
     };
     let Some((config, mut seq)) = start else {
+        record_timed_out(s);
         pause(s, Duration::from_millis(200));
         return Ok(());
     };
@@ -643,13 +838,13 @@ fn feed(s: &Arc<Shared>) -> Result<(), String> {
     }
     let mut checked = Instant::now();
     loop {
-        let (want_replay, start, stop, recording) = {
+        record_timed_out(s);
+        let (want_replay, stop, recording, waiting) = {
             let mut live = lock(&s.live);
             let stop = std::mem::take(&mut live.stop_record) && live.recording;
-            let start = if live.recording { None } else { live.want_record.take() };
-            (live.want_replay, start, stop, live.recording)
+            (live.want_replay, stop, live.recording, live.want_record.is_some())
         };
-        if s.closed.load(Ordering::Acquire) || !(want_replay || recording || start.is_some()) {
+        if s.closed.load(Ordering::Acquire) || !(want_replay || recording || waiting) {
             break;
         }
         if want_replay != replay {
@@ -658,20 +853,7 @@ fn feed(s: &Arc<Shared>) -> Result<(), String> {
             lock(&s.live).reach_s = told.number("reach") as u32;
             reach_granted(s, &told);
         }
-        if let Some(game) = start {
-            match s.destination.ask(&format!("/record/start?session={session}&game={}&max={}", http::encode(&game), plan.record_max_s)) {
-                Ok(_) => {
-                    lock(&s.live).recording = true;
-                    checked = Instant::now();
-                    tell_state(s);
-                }
-                Err(AskError::Refused(note)) => (s.on_event)(Event::Failed { reason: note }),
-                Err(AskError::Down(_)) => {
-                    lock(&s.live).want_record = Some(game);
-                    return Err(down());
-                }
-            }
-        } else if stop {
+        if stop {
             record_ended(s, &ask(format!("/record/stop?session={session}"))?, "");
         } else if recording && checked.elapsed() >= RECORD_CHECK {
             checked = Instant::now();
@@ -695,6 +877,28 @@ fn feed(s: &Arc<Shared>) -> Result<(), String> {
             Read::Unit(unit, config) => {
                 if config.as_ref().is_some_and(|c| **c != **mux.config()) {
                     break; // the stream changed shape: this upload ends where its sample entry stops being true, and the next one begins
+                }
+                if unit.track == Track::Video && unit.key {
+                    // A recording asked for starts at the first keyframe from then on: the receiver begins a file at the first keyframe
+                    // it is sent after it is told, so telling it just before this one is filed makes this the start.
+                    let game = {
+                        let mut live = lock(&s.live);
+                        if live.recording || unit.seq < live.record_from { None } else { live.want_record.take() }
+                    };
+                    if let Some(game) = game {
+                        match s.destination.ask(&format!("/record/start?session={session}&game={}&max={}", http::encode(&game), plan.record_max_s)) {
+                            Ok(_) => {
+                                lock(&s.live).recording = true;
+                                checked = Instant::now();
+                                tell_state(s);
+                            }
+                            Err(AskError::Refused(note)) => (s.on_event)(Event::Failed { reason: note }),
+                            Err(AskError::Down(_)) => {
+                                lock(&s.live).want_record = Some(game);
+                                return Err(down());
+                            }
+                        }
+                    }
                 }
                 mux.push(&unit).map_err(|_| down())?;
                 seq += 1;
@@ -813,22 +1017,80 @@ pub(crate) mod tests {
         }
     }
 
-    const OFF: Plan = Plan { replay: false, reach_s: 300, mbps: 65, record_max_s: 7200 };
+    const OFF: Plan = Plan { replay: false, reach_s: 300, mbps: 65, record_max_s: 7200, keyframe_s: 5 };
 
-    fn recorder(cap: usize, plan: Plan) -> (Recorder, Arc<Memory>, Receiver<Event>) {
+    /// A recorder on a clock the test moves, with a game server that counts the keyframes it is asked for.
+    struct Rig {
+        r: Recorder,
+        memory: Arc<Memory>,
+        events: Receiver<Event>,
+        clock: Arc<AtomicU64>,
+        asks: Arc<AtomicU64>,
+    }
+
+    impl Rig {
+        /// Moves the clock on and lets the worker look at it.
+        fn advance(&self, ms: u64) {
+            self.clock.fetch_add(ms, Ordering::Relaxed);
+            self.r.sync();
+        }
+        fn asked(&self) -> u64 {
+            self.asks.load(Ordering::Relaxed)
+        }
+        /// One 30 fps second from `from_s`: delta pictures, or with `key` a keyframe first, as the game server answers an ask.
+        fn second(&self, from_s: i64, key: bool) {
+            for f in 0..30 {
+                let pts = from_s * 1_000_000_000 + f * 33_333_333;
+                if f == 0 && key {
+                    self.r.offer(Track::Video, pts, true, &h264_key());
+                } else {
+                    self.r.offer(Track::Video, pts, false, &h264_delta(f as u8));
+                }
+            }
+            self.r.sync();
+        }
+    }
+
+    fn rig(cap: usize, plan: Plan) -> Rig {
         let memory = Arc::new(Memory { grant: Mutex::new((plan.reach_s, "")), ..Memory::default() });
-        let (tx, rx) = mpsc::channel();
+        let (tx, events) = mpsc::channel();
         let tx = Mutex::new(tx);
-        let r = Recorder::new(cap, Arc::new(MemoryDestination(memory.clone())), plan, move |e| {
-            let _ = lock(&tx).send(e);
-        });
+        let (clock, asks) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
+        let (now, counted) = (clock.clone(), asks.clone());
+        let r = Recorder::with_clock(
+            cap,
+            Arc::new(MemoryDestination(memory.clone())),
+            plan,
+            Arc::new(move || {
+                counted.fetch_add(1, Ordering::Relaxed);
+            }),
+            Arc::new(move || now.load(Ordering::Relaxed)),
+            move |e| {
+                let _ = lock(&tx).send(e);
+            },
+        );
         let c = h264_config();
         r.set_stream(StreamInfo { codec: Some(Codec::H264), width: c.width, height: c.height, fps: 30, hdr: None, audio: c.audio.clone() });
-        (r, memory, rx)
+        Rig { r, memory, events, clock, asks }
+    }
+
+    fn recorder(cap: usize, plan: Plan) -> (Recorder, Arc<Memory>, Receiver<Event>) {
+        let Rig { r, memory, events, .. } = rig(cap, plan);
+        (r, memory, events)
     }
 
     fn next(events: &Receiver<Event>) -> Event {
         events.recv_timeout(Duration::from_secs(5)).unwrap()
+    }
+
+    /// The next event that is news to the viewer: not a change of state.
+    fn told(events: &Receiver<Event>) -> Event {
+        loop {
+            let event = next(events);
+            if !matches!(event, Event::State { .. }) {
+                return event;
+            }
+        }
     }
 
     fn wait(done: impl Fn() -> bool) {
@@ -880,7 +1142,7 @@ pub(crate) mod tests {
         let (r, memory, events) = recorder(RING_CAP, OFF);
         feed(&r, 0, 10);
         r.save_clip("Hades II", 3).unwrap();
-        let Event::Saved { name, seconds, .. } = next(&events) else { panic!() };
+        let Event::Saved { name, seconds, .. } = told(&events) else { panic!() };
         assert_eq!(name, "Hades/clip.mp4");
         let files = lock(&memory.files);
         let (path, file) = &files[0];
@@ -898,12 +1160,12 @@ pub(crate) mod tests {
         feed(&r, 0, 1);
         wait(|| r.stats().live);
         r.save_clip("Hades II", 15).unwrap();
-        assert_eq!(next(&events), Event::Saved { name: "Hades/cut.mp4".into(), seconds: 300, bytes: 2 << 30 });
+        assert_eq!(told(&events), Event::Saved { name: "Hades/cut.mp4".into(), seconds: 300, bytes: 2 << 30 });
         let asked = lock(&memory.asked).clone();
         assert!(asked[0].starts_with("/open?session=") && asked[0].ends_with("&replay=1&reach=300&mbps=65"), "{asked:?}");
         assert!(asked[1].starts_with("/save?session=") && asked[1].ends_with("&seconds=300&game=Hades%20II"), "{asked:?}");
         r.set_replay(false);
-        assert_eq!(next(&events), Event::State { replay: false, recording: false });
+        assert_eq!(next(&events), Event::State { replay: false, recording: false, ready: true });
         wait(|| !lock(&memory.files).is_empty());
         let files = lock(&memory.files);
         assert!(files[0].0.starts_with("/live?session=") && video_samples(&files[0].1) > 0, "the upload ends whole when nothing wants it");
@@ -930,7 +1192,7 @@ pub(crate) mod tests {
         assert!(st.dropped == 0 && st.evicted_gops > 0 && st.ring_bytes <= cap, "the tee kept filing while the upload stood still: {st:?}");
         r.save_clip("Hades", 2).unwrap();
         memory.stall.store(false, Ordering::Relaxed);
-        let mut told = [next(&events), next(&events)];
+        let mut told = [told(&events), told(&events)];
         told.sort_by_key(|e| matches!(e, Event::Notice { .. }));
         assert!(matches!(&told[0], Event::Saved { name, .. } if name == "Hades/clip.mp4"), "{told:?}");
         assert_eq!(told[1], Event::Notice { text: "Long replay is paused: the NAS is not keeping up with the stream. Save clip keeps the TV's own last seconds.".into() });
@@ -939,15 +1201,19 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_recording_is_started_and_stopped_on_the_nas_and_the_feed_runs_only_for_it() {
-        let (r, memory, events) = recorder(RING_CAP, OFF);
-        feed(&r, 0, 1);
+    fn a_recording_starts_at_a_keyframe_asked_for_and_is_stopped_on_the_nas_and_the_feed_runs_only_for_it() {
+        let g = rig(RING_CAP, OFF);
+        let (r, memory, events) = (&g.r, &g.memory, &g.events);
+        g.second(0, true);
         r.start_recording("Hades");
-        assert_eq!(next(&events), Event::State { replay: false, recording: true });
-        assert_eq!(r.state(), (false, true));
+        assert_eq!(g.asked(), 1, "the press asks for a keyframe at once");
+        wait(|| r.stats().live);
+        assert!(!lock(&memory.asked).iter().any(|a| a.starts_with("/record/start")), "the keyframe already held is not the start");
+        g.second(1, true);
+        wait(|| r.state().1);
+        assert_eq!(r.state(), (false, true, true));
         r.stop_recording();
-        assert_eq!(next(&events), Event::State { replay: false, recording: false });
-        assert_eq!(next(&events), Event::Saved { name: "Hades/rec.mp4".into(), seconds: 7, bytes: 1 << 20 });
+        assert_eq!(told(events), Event::Saved { name: "Hades/rec.mp4".into(), seconds: 7, bytes: 1 << 20 });
         wait(|| !lock(&memory.files).is_empty());
         let asked = lock(&memory.asked).clone();
         assert!(asked[0].ends_with("&replay=0&reach=300&mbps=65"), "{asked:?}");
@@ -956,13 +1222,26 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_recording_that_gets_no_keyframe_is_asked_for_three_times_and_then_said_calmly() {
+        let g = rig(RING_CAP, OFF);
+        g.second(0, true);
+        g.r.start_recording("Hades");
+        for _ in 0..4 {
+            g.advance(2100);
+        }
+        assert_eq!(told(&g.events), Event::Failed { reason: "Record could not start: the game sent no keyframe".into() });
+        assert_eq!((g.asked(), g.r.state()), (3, (false, false, true)));
+        assert!(!lock(&g.memory.asked).iter().any(|a| a.starts_with("/record/start")));
+    }
+
+    #[test]
     fn a_recording_the_nas_cannot_take_is_said_and_not_retried() {
         let (r, memory, events) = recorder(RING_CAP, OFF);
         feed(&r, 0, 1);
         memory.deaf.store(true, Ordering::Relaxed);
         r.start_recording("Hades");
-        assert_eq!(next(&events), Event::Notice { text: "Recording could not start: the NAS is not answering".into() });
-        assert_eq!((r.state(), r.stats().live_failures), ((false, false), 1));
+        assert_eq!(told(&events), Event::Notice { text: "Recording could not start: the NAS is not answering".into() });
+        assert_eq!((r.state(), r.stats().live_failures), ((false, false, true), 1));
         assert!(!lock(&r.shared.live).wanted());
     }
 
@@ -972,7 +1251,7 @@ pub(crate) mod tests {
         let note = "The NAS buffer is 6 GB: at 150 Mbit/s it holds 5 min 40 s, not 15 min";
         *lock(&memory.grant) = (340, note);
         feed(&r, 0, 1);
-        assert_eq!(next(&events), Event::Notice { text: note.into() });
+        assert_eq!(told(&events), Event::Notice { text: note.into() });
         wait(|| r.stats().live);
         r.set_replay(false);
         wait(|| lock(&memory.files).len() == 1);
@@ -985,7 +1264,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_saved_clip_is_one_sentence_and_a_change_of_state_is_silent() {
-        assert_eq!(Event::State { replay: true, recording: true }.sentence(), None);
+        assert_eq!(Event::State { replay: true, recording: true, ready: false }.sentence(), None);
         assert_eq!(Event::Saved { name: "Hades/a.mp4".into(), seconds: 15, bytes: 3 << 20 }.sentence(), Some((true, "Saved Hades/a.mp4, 15 s, 3 MB".into())));
         assert_eq!(Event::Saved { name: "a.mp4".into(), seconds: 300, bytes: 5 << 29 }.sentence(), Some((true, "Saved a.mp4, 5 min, 2.5 GB".into())));
         assert_eq!(Event::Failed { reason: "no".into() }.sentence(), Some((false, "no".into())));
@@ -993,17 +1272,114 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn nothing_is_saved_before_a_keyframe_and_an_unreachable_nas_is_reported() {
+    fn nothing_is_saved_before_a_picture_and_an_unreachable_nas_is_reported() {
         let (r, memory, events) = recorder(RING_CAP, OFF);
-        r.offer(Track::Video, 0, false, &h264_delta(1));
-        r.sync();
         r.save_clip("Hades", 5).unwrap();
-        assert!(matches!(next(&events), Event::Failed { reason } if reason.contains("no picture")));
+        assert!(matches!(told(&events), Event::Failed { reason } if reason.contains("no picture")));
         feed(&r, 0, 2);
         memory.refuse.store(true, Ordering::Relaxed);
         r.save_clip("Hades", 1).unwrap();
-        assert!(matches!(next(&events), Event::Failed { reason } if reason.contains("cannot reach the NAS")));
+        assert!(matches!(told(&events), Event::Failed { reason } if reason.contains("cannot reach the NAS")));
         assert_eq!(r.stats().failures, 2);
+    }
+
+    #[test]
+    fn a_save_with_no_keyframe_in_the_ring_asks_for_one_and_starts_there() {
+        let g = rig(RING_CAP, OFF);
+        g.r.offer(Track::Video, 0, false, &h264_delta(1));
+        g.r.sync();
+        assert!(!g.r.state().2, "a feed with no keyframe yet is not ready");
+        g.r.save_clip("Hades", 5).unwrap();
+        wait(|| g.asked() == 1);
+        g.second(1, true);
+        assert!(matches!(told(&g.events), Event::Saved { name, .. } if name == "Hades/clip.mp4"));
+        let files = lock(&g.memory.files);
+        assert!((1..=30).contains(&video_samples(&files[0].1)) && files[0].1.windows(4).any(|w| w == b"avcC"));
+    }
+
+    #[test]
+    fn a_save_the_game_never_answers_fails_in_one_calm_sentence() {
+        let g = rig(RING_CAP, OFF);
+        g.r.offer(Track::Video, 0, false, &h264_delta(1));
+        g.r.sync();
+        g.r.save_clip("Hades", 5).unwrap();
+        wait(|| g.asked() == 1);
+        for _ in 0..4 {
+            g.advance(2100);
+        }
+        assert_eq!(told(&g.events), Event::Failed { reason: "Save clip could not start: the game sent no keyframe to start from".into() });
+        assert_eq!((g.asked(), g.r.stats().failures), (3, 1));
+    }
+
+    #[test]
+    fn a_single_keyframe_gets_a_cut_point_every_interval_and_a_stream_with_its_own_costs_nothing() {
+        let g = rig(RING_CAP, OFF);
+        g.second(0, true);
+        let mut answered = 0;
+        for s in 1..=12 {
+            g.advance(1000);
+            let key = g.asked() > answered;
+            answered = g.asked();
+            g.second(s, key);
+        }
+        assert_eq!((g.asked(), g.r.stats().ring_gops), (2, 3), "asks at 5 s and 10 s; each answer is a new GOP");
+
+        let own = rig(RING_CAP, OFF);
+        for s in 0..=12 {
+            own.advance(1000);
+            own.second(s, s % 3 == 0);
+        }
+        assert_eq!(own.asked(), 0);
+    }
+
+    #[test]
+    fn a_keyframe_is_not_asked_for_while_the_stream_is_in_trouble() {
+        let g = rig(RING_CAP, OFF);
+        g.second(0, true);
+        g.advance(3000);
+        g.r.trouble();
+        g.advance(2500);
+        assert_eq!(g.asked(), 0, "due at 5 s, held until 3 s after the trouble");
+        g.advance(1000);
+        assert_eq!(g.asked(), 1);
+    }
+
+    #[test]
+    fn only_when_i_save_nothing_is_asked_until_the_press_and_the_clip_starts_there() {
+        let g = rig(RING_CAP, Plan { keyframe_s: 0, ..OFF });
+        g.second(0, true);
+        for _ in 0..4 {
+            g.advance(10_000);
+        }
+        assert_eq!(g.asked(), 0);
+        assert!(g.r.state().2);
+        g.r.save_clip("Hades", 2).unwrap();
+        wait(|| g.asked() == 1);
+        for s in 100..103 {
+            g.second(s, s == 100);
+        }
+        let Event::Saved { seconds, .. } = told(&g.events) else { panic!() };
+        assert_eq!(seconds, 2);
+        assert_eq!(video_samples(&lock(&g.memory.files)[0].1), 61, "the keyframe asked for, then two seconds on");
+    }
+
+    #[test]
+    fn the_drawer_is_told_when_a_clip_can_start_and_when_it_cannot() {
+        let g = rig(6 << 20, OFF);
+        let (mut big_delta, big) = (h264_delta(1), big_key());
+        big_delta.extend(std::iter::repeat_n(1u8, 400_000));
+        g.r.offer(Track::Video, 0, true, &big);
+        g.r.sync();
+        assert_eq!(next(&g.events), Event::State { replay: false, recording: false, ready: true });
+        for f in 1..17 {
+            g.r.offer(Track::Video, f * 33_000_000, false, &big_delta);
+            g.r.sync();
+        }
+        assert_eq!(next(&g.events), Event::State { replay: false, recording: false, ready: false });
+        assert_eq!(g.asked(), 1, "the only keyframe fell out of the ring: one is asked for");
+        g.r.offer(Track::Video, 1_000_000_000, true, &big);
+        g.r.sync();
+        assert_eq!(next(&g.events), Event::State { replay: false, recording: false, ready: true });
     }
 
     #[test]
@@ -1130,7 +1506,7 @@ pub(crate) mod tests {
             }
             r.sync();
             r.save_clip("Test", 1).unwrap();
-            let Event::Saved { bytes, .. } = events.recv_timeout(Duration::from_secs(10)).unwrap() else { panic!("{name}: not saved") };
+            let Event::Saved { bytes, .. } = told(&events) else { panic!("{name}: not saved") };
             let file = lock(&memory.files)[0].1.clone();
             assert_eq!(file.len() as u64, bytes);
             let path = std::env::temp_dir().join(format!("lumagame-recorder-{name}-{}.mp4", std::process::id()));

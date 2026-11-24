@@ -39,6 +39,8 @@ impl Model {
     fn save_text(&mut self, out: &mut Vec<Command>) {
         if self.view.pane == Some(settings::Pane::Leadjoy) {
             self.save_leadjoy_text(out);
+        } else if self.view.pane == Some(settings::Pane::Recorder) {
+            self.save_recorder_text(out);
         } else if self.in_diagnostics() {
             self.save_diagnostics_text(out);
         } else {

@@ -247,6 +247,9 @@ pub struct Preferences {
     pub game_pages: bool,
     /// Steam keeps some pages behind an age check; on, the owner has agreed to read them.
     pub mature_pages: bool,
+    /// The Game recorder page's values by field key; a key not here has the field's default. Every integration that keeps a recorder
+    /// gets them.
+    pub recorder: Values,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -271,6 +274,7 @@ impl Default for Preferences {
             // facts
             game_pages: true,
             mature_pages: false,
+            recorder: Values::new(),
         }
     }
 }
@@ -313,10 +317,13 @@ impl Preferences {
         // facts
         p.game_pages = v["game_pages"].as_bool().unwrap_or(p.game_pages);
         p.mature_pages = v["mature_pages"].as_bool().unwrap_or(p.mature_pages);
+        let schema = SettingsSchema { sections: vec![lumagame_core::recorder::section()] };
+        p.recorder = serde_json::from_value::<Values>(v["recorder"].clone()).unwrap_or_default();
+        p.recorder.retain(|key, value| schema.check(key, value).is_ok());
         p
     }
     fn json(&self) -> serde_json::Value {
-        serde_json::json!({"family":self.family,"light":self.light,"covers":self.covers.index(),"text_percent":self.text_percent,"button_labels":self.button_labels.key(),"reduce_motion":self.reduce_motion,"width":self.width,"height":self.height,"fps":self.fps,"hdr":self.hdr,"codec":self.codec.map_or("auto",Codec::as_str),"frame_pacing":self.frame_pacing(),"bitrate_mbps":self.bitrate_mbps,"stats":self.stats,"deadzone":self.deadzone,"anti_deadzone":self.anti_deadzone,"stick_curve":self.stick_curve.name(),"game_pages":self.game_pages,"mature_pages":self.mature_pages})
+        serde_json::json!({"family":self.family,"light":self.light,"covers":self.covers.index(),"text_percent":self.text_percent,"button_labels":self.button_labels.key(),"reduce_motion":self.reduce_motion,"width":self.width,"height":self.height,"fps":self.fps,"hdr":self.hdr,"codec":self.codec.map_or("auto",Codec::as_str),"frame_pacing":self.frame_pacing(),"bitrate_mbps":self.bitrate_mbps,"stats":self.stats,"deadzone":self.deadzone,"anti_deadzone":self.anti_deadzone,"stick_curve":self.stick_curve.name(),"game_pages":self.game_pages,"mature_pages":self.mature_pages,"recorder":self.recorder})
     }
     fn frame_pacing(&self) -> &'static str {
         if self.smooth_pacing { "smooth" } else { "latency" }
@@ -645,7 +652,14 @@ pub struct Model {
 impl Model {
     pub fn new(state: State, mut listing: Listing, manifests: Vec<Manifest>) -> Self {
         listing.unchecked();
-        let prefs = Preferences::read(&state.profile().ui);
+        let mut prefs = Preferences::read(&state.profile().ui);
+        // Before the Game recorder page the settings lived on each integration's page: a profile without the page's values keeps
+        // the first integration's.
+        if state.profile().ui.get("recorder").is_none() {
+            if let Some(saved) = state.engines.values().find(|e| e.settings.contains_key(lumagame_core::recorder::ENABLED)) {
+                prefs.recorder = saved.settings.iter().filter(|(k, _)| k.starts_with("recorder")).map(|(k, v)| (k.clone(), v.clone())).collect();
+            }
+        }
         let mut m = Self {
             state,
             listing,
@@ -1458,7 +1472,7 @@ impl Model {
         }
     }
     fn common_values(&self) -> Values {
-        Values::from([
+        let mut values = Values::from([
             ("width".into(), Value::Int(i64::from(self.prefs.width))),
             ("height".into(), Value::Int(i64::from(self.prefs.height))),
             ("fps".into(), Value::Int(i64::from(self.prefs.fps))),
@@ -1469,7 +1483,13 @@ impl Model {
             ("deadzone".into(), Value::Int(i64::from(self.prefs.deadzone))),
             ("anti-deadzone".into(), Value::Int(i64::from(self.prefs.anti_deadzone))),
             ("stick-curve".into(), Value::Text(self.prefs.stick_curve.name().into())),
-        ])
+        ]);
+        values.extend(self.recorder_values());
+        values
+    }
+    /// The Game recorder page's values: what the viewer set over the fields' defaults.
+    pub(super) fn recorder_values(&self) -> Values {
+        SettingsSchema { sections: vec![lumagame_core::recorder::section()] }.resolve(&self.prefs.recorder)
     }
     /// The bitrate the engines are asked for: the viewer's choice, held to what the uplink carries. The choice itself stays as it was
     /// set, so a faster uplink lifts the limit by itself.
@@ -1547,7 +1567,9 @@ impl Model {
         match event {
             ipc::Event::Ready { descriptor, schema } => {
                 let first = self.integration(&id).is_some_and(|e| e.descriptor.is_none());
-                if first {
+                // The recorder's page is the app's, not an engine's: an engine that starts with older values hears the page's.
+                let stale = self.state.engines.get(&id).is_some_and(|s| self.recorder_values().iter().any(|(k, v)| schema.check(k, v).is_ok() && s.settings.get(k) != Some(v)));
+                if first || stale {
                     let desired = self.common_values();
                     let saved = self.state.engines.entry(id.clone()).or_default();
                     for field in schema.fields() {
@@ -1678,9 +1700,9 @@ impl Model {
                     self.clip_told(saved, text);
                 }
             }
-            ipc::Event::Recorder { session, replay, recording } => {
+            ipc::Event::Recorder { session, replay, recording, ready } => {
                 if self.session.as_ref().is_some_and(|s| s.id == session && s.source.engine == id) {
-                    self.recorder_told(replay, recording);
+                    self.recorder_told(replay, recording, ready);
                 }
             }
             ipc::Event::IdleWarning { session, seconds } => {

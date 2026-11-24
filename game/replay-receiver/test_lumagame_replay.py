@@ -116,6 +116,14 @@ class Case(unittest.TestCase):
         self.assertLess(s.held_seconds(), 10 + 2 * r.chunk_bytes / 1700)
         self.assertGreaterEqual(s.held_seconds(), 10)
 
+    def test_the_cap_never_keeps_frames_that_have_no_keyframe_to_start_from(self):
+        r = self.receiver()
+        s = self.stream(r)
+        for second in range(200):
+            s.feed(fragment(second, key=second == 0))
+            self.assertTrue(not s.held or any(h.key for h in s.held), second)
+        self.assertEqual(s.held, [], "the buffer waits for the next keyframe")
+
     def test_a_clip_starts_on_the_keyframe_at_or_before_its_reach(self):
         r = self.receiver()
         s = self.stream(r)

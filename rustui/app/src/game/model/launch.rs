@@ -36,6 +36,8 @@ const REC_MARK_EVERY_MS: u64 = 60_000;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RecorderState {
     pub replay: bool,
+    /// The recorder holds no keyframe to start a clip from yet: the drawer says it is waiting for one.
+    pub waiting: bool,
     /// When the recording that runs began, on the model's clock.
     pub recording_since_ms: Option<u64>,
 }
@@ -272,12 +274,15 @@ impl Model {
     pub fn picture_rows(&self) -> Vec<PictureRow> {
         PICTURE.iter().map(|s| PictureRow { label: s.label(), icon: s.icon(), switch: s.is_switch(), value: s.value(self), on: s.on(self) }).collect()
     }
-    /// The Recorder drawer's rows: Save clip with how far back it reaches now, Record or Stop recording, and the long replay switch.
+    /// The Recorder drawer's rows: Save clip with whether it can start now and how far it reaches, Record or Stop recording, and the
+    /// long replay switch.
     pub fn recorder_rows(&self) -> Vec<PictureRow> {
         let state = self.view.recorder;
         let reach = match self.recorder_settings() {
-            Some(s) if state.replay => format!("Last {} min", s.reach_s / 60),
-            Some(s) => format!("Last {} s", s.seconds),
+            _ if state.waiting => "Waiting for a keyframe".to_owned(),
+            Some(s) if state.replay => format!("Ready \u{b7} last {} min", s.reach_s / 60),
+            Some(s) if s.keyframe_s == 0 => format!("Ready \u{b7} next {} s", s.seconds),
+            Some(s) => format!("Ready \u{b7} last {} s", s.seconds),
             None => String::new(),
         };
         let record = if state.recording_since_ms.is_some() { "Stop recording" } else { "Record" };
@@ -368,13 +373,12 @@ impl Model {
         let recorder = self.recorder_settings().is_some();
         StripItem::ALL.into_iter().filter(|item| *item != StripItem::Recorder || recorder).collect()
     }
-    /// The recorder's settings while the running session's engine can keep one and the viewer switched it on, with an address to
-    /// send to.
+    /// The recorder's settings (the Game recorder page's) while the running session's engine can keep one and the viewer switched it
+    /// on, with an address to send to.
     fn recorder_settings(&self) -> Option<lumagame_core::recorder::Settings> {
         let s = self.session.as_ref()?;
         let integration = self.integration(&s.source.engine)?;
-        let values = &self.state.engines.get(&s.source.engine)?.settings;
-        let settings = lumagame_core::recorder::Settings::from_values(&integration.schema.resolve(values));
+        let settings = lumagame_core::recorder::Settings::from_values(&self.recorder_values());
         (integration.descriptor.as_ref().is_some_and(|d| d.capabilities.has(Feature::Recorder)) && settings.runs()).then_some(settings)
     }
     /// The clip confirmation while it is up over a stream being watched.
@@ -395,9 +399,9 @@ impl Model {
         self.view.clip = Some(ClipNote { text, saved, until_ms: self.now_ms + CLIP_NOTE_MS });
     }
     /// What an event says of the recorder's state. A recording that already runs keeps its start.
-    pub(super) fn recorder_told(&mut self, replay: bool, recording: bool) {
+    pub(super) fn recorder_told(&mut self, replay: bool, recording: bool, ready: bool) {
         let since = self.view.recorder.recording_since_ms;
-        self.view.recorder = RecorderState { replay, recording_since_ms: recording.then(|| since.unwrap_or(self.now_ms)) };
+        self.view.recorder = RecorderState { replay, waiting: !ready, recording_since_ms: recording.then(|| since.unwrap_or(self.now_ms)) };
     }
     /// The recording mark while it shows over a stream being watched, as which of its four places it is at.
     pub fn rec_mark(&self) -> Option<u8> {
@@ -877,30 +881,32 @@ mod tests {
         m.integrations[0].schema = SettingsSchema { sections: vec![lumagame_core::recorder::section()] };
         m.step(Input::Overlay);
         assert_eq!(m.strip_items().len(), 5, "off until the viewer switches it on");
-        let values = &mut m.state.engines.get_mut(&gfn).unwrap().settings;
-        values.insert("recorder".into(), Value::Bool(true));
-        assert_eq!(m.strip_items().len(), 5, "and gives it an address");
-        m.state.engines.get_mut(&gfn).unwrap().settings.insert("recorder-url".into(), Value::Text("http://nas:8765".into()));
-        assert_eq!((m.strip_items().len(), m.strip_items()[4], m.strip_items()[5]), (6, StripItem::Recorder, StripItem::End));
+        m.prefs.recorder.insert("recorder".into(), Value::Bool(true));
+        assert_eq!((m.strip_items().len(), m.strip_items()[4], m.strip_items()[5]), (6, StripItem::Recorder, StripItem::End), "the address starts as the NAS's");
+        m.prefs.recorder.insert("recorder-url".into(), Value::Text(String::new()));
+        assert_eq!(m.strip_items().len(), 5, "a cleared address stops it");
+        m.prefs.recorder.insert("recorder-url".into(), Value::Text("http://nas:8765".into()));
         let session = m.session().unwrap().id;
         let title = m.game(m.session().unwrap().game).unwrap().title.clone();
         let asked = |action| Command::Recorder(Some((gfn.clone(), session)), action, title.clone());
         m.view.focus = Focus::Strip(4);
         key(&mut m, Key::Ok);
         assert_eq!((m.view.top(), m.view.focus), (Some(Layer::Recorder), Focus::SheetRow(0)));
-        assert_eq!(m.recorder_rows().iter().map(|r| (r.label, r.value.as_str())).collect::<Vec<_>>(), [("Save clip", "Last 15 s"), ("Record", ""), ("Long replay", "")]);
+        assert_eq!(m.recorder_rows().iter().map(|r| (r.label, r.value.as_str())).collect::<Vec<_>>(), [("Save clip", "Ready \u{b7} last 15 s"), ("Record", ""), ("Long replay", "")]);
         key(&mut m, Key::Down);
         key(&mut m, Key::Down);
         assert!(key(&mut m, Key::Ok).contains(&asked(RecorderAction::ReplayOn)));
         assert_eq!(m.view.top(), Some(Layer::Recorder), "the switch keeps the drawer");
-        engine_says(&mut m, "gfn", ipc::Event::Recorder { session, replay: true, recording: false });
-        assert_eq!((m.recorder_rows()[0].value.as_str(), m.recorder_rows()[2].on), ("Last 5 min", true));
+        engine_says(&mut m, "gfn", ipc::Event::Recorder { session, replay: true, recording: false, ready: false });
+        assert_eq!((m.recorder_rows()[0].value.as_str(), m.recorder_rows()[2].on), ("Waiting for a keyframe", true));
+        engine_says(&mut m, "gfn", ipc::Event::Recorder { session, replay: true, recording: false, ready: true });
+        assert_eq!((m.recorder_rows()[0].value.as_str(), m.recorder_rows()[2].on), ("Ready \u{b7} last 5 min", true));
         key(&mut m, Key::Up);
         assert_eq!(key(&mut m, Key::Ok).last(), Some(&asked(RecorderAction::RecordStart)));
         assert!(m.view.top().is_none() && !m.strip_visible(), "the drawer and the strip leave so the game has the pad");
 
         tick(&mut m, 10_000);
-        engine_says(&mut m, "gfn", ipc::Event::Recorder { session, replay: true, recording: true });
+        engine_says(&mut m, "gfn", ipc::Event::Recorder { session, replay: true, recording: true, ready: true });
         assert_eq!((m.rec_mark(), m.recorder_rows()[1].label), (Some(0), "Stop recording"));
         assert!(m.wants_frames());
         tick(&mut m, 14_000);
@@ -909,7 +915,7 @@ mod tests {
         assert!(!m.rec_fading());
         tick(&mut m, 70_000);
         assert_eq!(m.rec_mark(), Some(1), "back a minute on, at its next place");
-        engine_says(&mut m, "gfn", ipc::Event::Recorder { session, replay: true, recording: false });
+        engine_says(&mut m, "gfn", ipc::Event::Recorder { session, replay: true, recording: false, ready: true });
         assert!(m.rec_mark().is_none());
 
         tick(&mut m, 80_000);

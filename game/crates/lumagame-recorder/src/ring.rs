@@ -1,6 +1,7 @@
 //! The RAM ring: the stream's coded units from the last keyframes, in whole GOPs, under a byte cap. The oldest GOP goes first, so what is
-//! left always starts at a keyframe and a clip can begin on any GOP boundary. Units are shared (`Arc`), so a reader holds no lock while
-//! it writes, and a unit it holds stays valid after the ring drops it.
+//! left starts at a keyframe and a clip can begin on any GOP boundary, unless the one open GOP has itself outgrown the cap (see
+//! [`Ring::push`]). Units are shared (`Arc`), so a reader holds no lock while it writes, and a unit it holds stays valid after the
+//! ring drops it.
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -20,7 +21,7 @@ pub struct Unit {
 struct Gop {
     first_seq: u64,
     start_pts_ns: i64,
-    units: Vec<Unit>,
+    units: VecDeque<Unit>,
     bytes: usize,
     config: Option<Arc<Config>>,
     /// Units were lost inside it, so it shows damage until its next keyframe; a clip prefers to start elsewhere.
@@ -49,7 +50,7 @@ pub struct Ring {
     pub evicted_gops: u64,
     /// Units refused because no keyframe had arrived to start from.
     pub before_keyframe: u64,
-    /// Times a single GOP outgrew the cap and the ring started over at the next keyframe.
+    /// Times a single GOP outgrew the cap and lost its keyframe.
     pub oversize: u64,
 }
 
@@ -73,11 +74,15 @@ impl Ring {
 
     /// Adds a unit. A video keyframe opens a GOP and carries `config` (or inherits the previous GOP's when it has none); anything else
     /// joins the open GOP, and is refused while there is none. Returns whether the unit was kept.
+    ///
+    /// When the open GOP alone outgrows the cap (a stream with one keyframe, or far apart), its oldest units go one at a time: readers
+    /// that keep up still find the stream, but the GOP has lost its keyframe and cannot start a clip, so the ring is not ready until the
+    /// next keyframe.
     pub fn push(&mut self, track: Track, pts_ns: i64, key: bool, data: Arc<[u8]>, config: Option<Arc<Config>>) -> bool {
         let opens = track == Track::Video && key;
         if opens {
             let config = config.or_else(|| self.gops.back().and_then(|g| g.config.clone()));
-            self.gops.push_back(Gop { first_seq: self.next_seq, start_pts_ns: pts_ns, units: Vec::new(), bytes: 0, config, damaged: false });
+            self.gops.push_back(Gop { first_seq: self.next_seq, start_pts_ns: pts_ns, units: VecDeque::new(), bytes: 0, config, damaged: false });
         } else if self.gops.is_empty() {
             self.before_keyframe += 1;
             return false;
@@ -88,7 +93,7 @@ impl Ring {
         let gop = self.gops.back_mut().expect("a GOP is open");
         gop.bytes += data.len();
         self.bytes += data.len();
-        gop.units.push(Unit { seq: self.next_seq, track, pts_ns, key, data });
+        gop.units.push_back(Unit { seq: self.next_seq, track, pts_ns, key, data });
         self.next_seq += 1;
         while self.bytes > self.cap && self.gops.len() > 1 {
             let old = self.gops.pop_front().expect("more than one GOP");
@@ -96,10 +101,16 @@ impl Ring {
             self.evicted_gops += 1;
         }
         if self.bytes > self.cap {
-            // The one GOP left is itself over the cap: nothing in it can be a clip's start any more.
-            self.gops.clear();
-            self.bytes = 0;
-            self.oversize += 1;
+            let gop = self.gops.back_mut().expect("a GOP is open");
+            if gop.config.take().is_some() {
+                self.oversize += 1;
+            }
+            while self.bytes > self.cap && gop.units.len() > 1 {
+                let unit = gop.units.pop_front().expect("more than one unit");
+                gop.bytes -= unit.data.len();
+                gop.first_seq += 1;
+                self.bytes -= unit.data.len();
+            }
         }
         true
     }
@@ -145,6 +156,16 @@ impl Ring {
     pub fn start_of_open_gop(&self) -> Option<u64> {
         self.starts().last().map(|g| g.first_seq)
     }
+
+    /// Whether a clip can start now: some GOP opened with a keyframe whose decoder config is known.
+    pub fn ready(&self) -> bool {
+        self.gops.iter().any(|g| g.config.is_some())
+    }
+
+    /// The first keyframe that arrived at or after position `seq`: where a clip or recording that began then starts.
+    pub fn first_key_from(&self, seq: u64) -> Option<u64> {
+        self.gops.iter().find(|g| g.first_seq >= seq && g.config.is_some()).map(|g| g.first_seq)
+    }
 }
 
 #[cfg(test)]
@@ -188,14 +209,15 @@ mod tests {
     }
 
     #[test]
-    fn a_gop_larger_than_the_cap_empties_the_ring_until_the_next_keyframe() {
+    fn a_gop_larger_than_the_cap_loses_its_oldest_units_and_its_keyframe_but_a_reader_that_keeps_up_still_reads_on() {
         let mut r = Ring::new(250);
         gop(&mut r, 0, 2, 100);
         gop(&mut r, 1_000_000_000, 4, 100);
-        assert_eq!((r.gops(), r.bytes(), r.oversize), (0, 0, 1));
-        assert!(!r.push(Track::Video, 2_000_000_000, false, data(10), None));
+        assert_eq!((r.gops(), r.bytes(), r.oversize, r.ready()), (1, 200, 1, false));
+        assert!(r.push(Track::Video, 2_000_000_000, false, data(10), None), "the stream goes on");
+        assert!(matches!(r.read(r.next_seq() - 1), Read::Unit(..)) && matches!(r.read(2), Read::Evicted));
         gop(&mut r, 3_000_000_000, 2, 100);
-        assert_eq!(r.gops(), 1);
+        assert_eq!((r.gops(), r.ready()), (1, true), "the next keyframe is a start again, and the headless GOP is dropped for room");
     }
 
     #[test]
@@ -224,6 +246,36 @@ mod tests {
         let Read::Unit(_, config) = r.read(2) else { panic!() };
         assert!(config.is_some());
         assert_eq!(r.start_of_open_gop(), Some(2));
+    }
+
+    #[test]
+    fn eviction_never_takes_the_newest_gop_and_a_look_back_past_what_is_held_starts_at_the_oldest_one() {
+        let mut r = Ring::new(1000);
+        for g in 0..40 {
+            gop(&mut r, g * 5_000_000_000, 4, 100); // a keyframe every 5 s; 400 bytes a GOP, so two whole GOPs fit
+            assert!(r.ready());
+            assert!(matches!(r.read(r.next_seq() - 1), Read::Unit(..)), "the newest GOP is kept");
+        }
+        let oldest = r.gops.front().map(|g| g.first_seq);
+        assert_eq!(r.start_for_last(15), oldest, "15 s back is past what is held");
+        let Read::Unit(first, _) = r.read(oldest.unwrap()) else { panic!() };
+        assert!(first.key, "a clip starts on a keyframe");
+    }
+
+    #[test]
+    fn a_single_keyframe_stream_is_not_ready_once_it_outgrows_the_ring_until_the_next_cut_point() {
+        let mut r = Ring::new(1000);
+        r.push(Track::Video, 0, true, data(100), Some(test_config()));
+        assert!(r.ready());
+        for i in 1..12 {
+            r.push(Track::Video, i * 16_000_000, false, data(100), None);
+        }
+        assert_eq!((r.ready(), r.oversize), (false, 1), "the only keyframe went with its oversized GOP");
+        let from = r.next_seq();
+        assert_eq!(r.first_key_from(from), None);
+        r.push(Track::Video, 1_000_000_000, true, data(100), Some(test_config()));
+        assert!(r.ready());
+        assert_eq!((r.first_key_from(from), r.first_key_from(from + 1)), (Some(from), None));
     }
 
     #[test]

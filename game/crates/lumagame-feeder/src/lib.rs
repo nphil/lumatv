@@ -676,8 +676,8 @@ mod transport_tests {
         }
         let (stream, peer) = UnixStream::pair().unwrap();
         let mut client = FeederClient::new(stream);
-        let plan = lumagame_recorder::Plan { replay: false, reach_s: 300, mbps: 65, record_max_s: 7200 };
-        let tee = Arc::new(Recorder::new(1 << 20, Arc::new(Nowhere), plan, |_| {}));
+        let plan = lumagame_recorder::Plan { replay: false, reach_s: 300, mbps: 65, record_max_s: 7200, keyframe_s: 5 };
+        let tee = Arc::new(Recorder::new(1 << 20, Arc::new(Nowhere), plan, Arc::new(|| {}), |_| {}));
         client.set_tee(tee.clone());
         let load = Load { codec: codec::H264, width: 1280, height: 720, fps: 60, audio: audio::OPUS, channels: 2, sample_rate: 48000, ..Default::default() };
         client.send_load(&load).unwrap();

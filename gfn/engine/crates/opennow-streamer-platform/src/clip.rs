@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use lumagame_recorder::{Event, HttpDestination, Plan, Recorder, RING_CAP};
+use lumagame_recorder::{Event, HttpDestination, KeyframeRequest, Plan, Recorder, RING_CAP};
 
 struct Active {
     recorder: Arc<Recorder>,
@@ -37,7 +37,13 @@ fn prefs(bytes: &[u8]) -> Option<Prefs> {
         url: r["url"].as_str().filter(|u| !u.is_empty())?.to_owned(),
         seconds: number("seconds", 15),
         title: r["title"].as_str().unwrap_or_default().to_owned(),
-        plan: Plan { replay: r["replay"].as_bool().unwrap_or(false), reach_s: number("reach", 300), mbps: number("mbps", 0), record_max_s: number("recordMax", 7200) },
+        plan: Plan {
+            replay: r["replay"].as_bool().unwrap_or(false),
+            reach_s: number("reach", 300),
+            mbps: number("mbps", 0),
+            record_max_s: number("recordMax", 7200),
+            keyframe_s: number("keyframes", 5),
+        },
     })
 }
 
@@ -45,13 +51,13 @@ fn line(saved: bool, text: &str) -> String {
     serde_json::json!({"stream": "clip", "saved": saved, "text": text}).to_string()
 }
 
-fn state_line(replay: bool, recording: bool) -> String {
-    serde_json::json!({"stream": "recorder", "replay": replay, "recording": recording}).to_string()
+fn state_line(replay: bool, recording: bool, ready: bool) -> String {
+    serde_json::json!({"stream": "recorder", "replay": replay, "recording": recording, "ready": ready}).to_string()
 }
 
-/// Starts the recorder for a stream when the prefs ask for one. A destination that cannot be used is said once on the side socket and
-/// the stream plays on without a recorder.
-pub(crate) fn arm(prefs_file: Option<&Path>) -> Option<Arc<Recorder>> {
+/// Starts the recorder for a stream when the prefs ask for one; `keyframes` asks the game server for a keyframe. A destination that
+/// cannot be used is said once on the side socket and the stream plays on without a recorder.
+pub(crate) fn arm(prefs_file: Option<&Path>, keyframes: KeyframeRequest) -> Option<Arc<Recorder>> {
     let p = prefs(&std::fs::read(prefs_file?).ok()?)?;
     let destination = match HttpDestination::new(&p.url) {
         Ok(d) => d,
@@ -60,11 +66,11 @@ pub(crate) fn arm(prefs_file: Option<&Path>) -> Option<Arc<Recorder>> {
             return None;
         }
     };
-    crate::runtime::stream_clip(state_line(p.plan.replay, false));
-    let recorder = Arc::new(Recorder::new(RING_CAP, Arc::new(destination), p.plan, |event| {
+    crate::runtime::stream_clip(state_line(p.plan.replay, false, p.plan.keyframe_s == 0));
+    let recorder = Arc::new(Recorder::new(RING_CAP, Arc::new(destination), p.plan, keyframes, |event| {
         crate::runtime::stream_clip(match (event.sentence(), event) {
             (Some((saved, text)), _) => line(saved, &text),
-            (None, Event::State { replay, recording }) => state_line(replay, recording),
+            (None, Event::State { replay, recording, ready }) => state_line(replay, recording, ready),
             (None, _) => return,
         });
     }));
@@ -75,6 +81,16 @@ pub(crate) fn arm(prefs_file: Option<&Path>) -> Option<Arc<Recorder>> {
 /// The stream ended: the recorder goes, with what it held. The receiver closes a recording when its stream ends.
 pub(crate) fn disarm() {
     *ACTIVE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+/// The picture is in trouble (a frame was lost or the decoder is recovering): the recorder asks the game server for nothing for a few
+/// seconds. Called from the video path, so it never waits for the lock.
+pub(crate) fn trouble() {
+    if let Ok(active) = ACTIVE.try_lock() {
+        if let Some(a) = active.as_ref() {
+            a.recorder.trouble();
+        }
+    }
 }
 
 /// One of the in-stream menu's recorder requests ([`RECORDER_ACTIONS`]). The answer comes later as `clip` and `recorder` lines; a
@@ -119,8 +135,11 @@ mod tests {
                 url: "http://nas:8765".into(),
                 seconds: 20,
                 title: "Hades II".into(),
-                plan: Plan { replay: true, reach_s: 900, mbps: 65, record_max_s: 3600 }
+                plan: Plan { replay: true, reach_s: 900, mbps: 65, record_max_s: 3600, keyframe_s: 5 }
             })
         );
+        assert_eq!(prefs(br#"{"recorder":{"url":"http://nas:8765","keyframes":0}}"#).unwrap().plan.keyframe_s, 0);
+        let said: serde_json::Value = serde_json::from_str(&state_line(true, false, false)).unwrap();
+        assert_eq!(said, serde_json::json!({"stream": "recorder", "replay": true, "recording": false, "ready": false}));
     }
 }

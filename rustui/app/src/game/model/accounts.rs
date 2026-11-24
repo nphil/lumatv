@@ -239,20 +239,14 @@ impl Model {
             }
         }
         let values = self.state.engines.get(id).map(|s| &s.settings);
-        let fields: Vec<(usize, &Field)> = e.schema.fields().enumerate().filter(|(_, f)| f.kind != FieldKind::Note).collect();
+        // The recorder's fields are on the Game recorder page, one for every integration.
+        let fields: Vec<(usize, &Field)> = e.schema.fields().enumerate().filter(|(_, f)| f.kind != FieldKind::Note && !f.key.starts_with("recorder")).collect();
         if !fields.is_empty() && target.is_none() {
             rows.push(Entry::Group("Settings".into()));
         }
         for (i, field) in fields.into_iter().filter(|_| target.is_none()) {
             let current = values.and_then(|v| v.get(&field.key)).cloned().or_else(|| field.kind.default());
-            let shows = match (&field.kind, current) {
-                (FieldKind::Toggle { .. }, Some(Value::Bool(on))) => Shows::Switch(on),
-                (FieldKind::Choice { options, .. }, Some(Value::Text(v))) => Shows::Stepper(options.iter().find(|o| o.id == v).map_or(v.clone(), |o| o.label.clone())),
-                (FieldKind::Number { unit, .. }, Some(Value::Int(v))) => Shows::Stepper(format!("{v}{}", unit.as_deref().unwrap_or(""))),
-                (FieldKind::Text { .. }, Some(Value::Text(v))) if !v.is_empty() => Shows::Value(v),
-                (FieldKind::Text { .. }, _) => Shows::Value("Add".into()),
-                _ => Shows::Opens,
-            };
+            let shows = settings::field_shows(&field.kind, current);
             let mut item = Item::new(Act::Field(i), Glyph::Setting, field.label.clone(), shows);
             item.sub = field.help.clone();
             rows.push(Entry::Row(item));
@@ -403,18 +397,7 @@ impl Model {
             self.push_layer(Layer::EditText, Focus::Keyboard(0));
             return;
         }
-        let next = match (&field.kind, current) {
-            (FieldKind::Toggle { .. }, Some(Value::Bool(v))) => Some(Value::Bool(!v)),
-            (FieldKind::Choice { options, .. }, Some(Value::Text(v))) if !options.is_empty() => {
-                let i = options.iter().position(|o| o.id == v).unwrap_or(0);
-                let j = if right { (i + 1).min(options.len() - 1) } else { i.saturating_sub(1) };
-                Some(Value::Text(options[j].id.clone()))
-            }
-            (FieldKind::Number { min, max, step, .. }, Some(Value::Int(v))) => {
-                Some(Value::Int(if right { v.saturating_add(*step).min(*max) } else { v.saturating_sub(*step).max(*min) }))
-            }
-            _ => None,
-        };
+        let next = settings::step_value(&field.kind, current, right);
         if let Some(value) = next {
             saved.settings.insert(field.key, value);
             Self::send(out, &id, Request::Settings { values: saved.settings.clone() });

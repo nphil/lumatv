@@ -122,7 +122,7 @@ pub fn runtime_prefs(values: &Values) -> Value {
     let rec = recorder::Settings::from_values(values);
     if rec.runs() {
         prefs["recorder"] = json!({"url": rec.url, "seconds": rec.seconds, "replay": rec.replay, "reach": rec.reach_s,
-            "mbps": integer(values, "bitrate-mbps", 80), "recordMax": rec.record_max_s});
+            "mbps": integer(values, "bitrate-mbps", 80), "recordMax": rec.record_max_s, "keyframes": rec.keyframe_s});
     }
     prefs
 }

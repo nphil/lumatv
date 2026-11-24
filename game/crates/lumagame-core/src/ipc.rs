@@ -282,11 +282,14 @@ pub enum Event {
         saved: bool,
         text: String,
     },
-    /// The session's recorder as it is now: whether long replay is on, and whether a recording runs.
+    /// The session's recorder as it is now: whether long replay is on, whether a recording runs, and whether a clip can start now.
+    /// `ready` is false while the recorder holds no keyframe to start a clip from; engines that predate it never say so.
     Recorder {
         session: SessionId,
         replay: bool,
         recording: bool,
+        #[serde(default = "yes")]
+        ready: bool,
     },
     /// The far side warns that the session ends for lack of input: `seconds` is what it left, and `None` clears the warning (input
     /// arrived, or the far side called it off). The warning is the engine's to forward, never the app's to invent.
@@ -713,6 +716,10 @@ word_enum! {
     unknown => Other
 }
 
+fn yes() -> bool {
+    true
+}
+
 /// One message as its line, newline included.
 pub fn encode<T: Serialize>(message: &T) -> String {
     // The message types hold only strings, numbers and maps keyed by strings, which always serialise.
@@ -945,7 +952,7 @@ mod tests {
             Event::Key { key: PadKey::Back, down: true },
             Event::Overlay { session: SessionId(1) },
             Event::Clip { session: SessionId(1), saved: true, text: "Saved Hades II/2026-01-01 12.00.00.mp4, 15 s, 118 MB".into() },
-            Event::Recorder { session: SessionId(1), replay: true, recording: false },
+            Event::Recorder { session: SessionId(1), replay: true, recording: false, ready: false },
             Event::IdleWarning { session: SessionId(1), seconds: Some(59) },
             Event::IdleWarning { session: SessionId(1), seconds: None },
             Event::Refresh { step: Some("Checking Steam".into()), note: None },

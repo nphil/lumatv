@@ -355,7 +355,7 @@ class Session:
                 return self.lose(f"the buffer folder refused a file ({e.strerror})")
             self.next_chunk += 1
         self.trim(moof)
-        while self.used() + len(data) > r.cap and len(self.chunks) > 1:
+        while self.used() + len(data) > r.cap and len(self.chunks) > 1 and not self.holds_newest_key(self.chunks[0]):
             self.evict()
         if self.used() + len(data) > r.cap:
             return self.lose("one fragment does not fit under the cap")
@@ -375,6 +375,11 @@ class Session:
         start = next((h for h in reversed(self.held) if h.key and h.base <= target), None)
         while start is not None and len(self.chunks) > 1 and self.chunks[0] is not start.chunk:
             self.evict()
+
+    def holds_newest_key(self, chunk):
+        """The chunk with the newest keyframe: dropping it leaves frames nothing can decode, so the cap never takes it."""
+        newest = next((h for h in reversed(self.held) if h.key), None)
+        return newest is not None and newest.chunk is chunk
 
     def evict(self):
         chunk = self.chunks.pop(0)

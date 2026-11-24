@@ -119,6 +119,8 @@ pub fn edit_text(p: &mut Paint<'_>) {
             LeadjoyState::Ready(profile) => model.view.edit_field.and_then(|i| profile.schema.fields().nth(i)).map_or("Edit setting", |field| field.label.as_str()),
             _ => "Edit setting",
         }
+    } else if editing && model.view.pane == Some(Pane::Recorder) {
+        "Receiver address"
     } else if editing {
         model
             .view

@@ -432,14 +432,14 @@ fn a_recorder_request_needs_the_recorder_on_and_is_answered_by_the_streamers_lin
     f.reply("streamer.start",json!({"status":"running"}));
     let prefs=f.adapter.runtime_prefs()["recorder"].clone();
     assert!(prefs["title"].is_string(),"the game's name goes with the prefs: {prefs}");
-    assert_eq!(json!({"url":prefs["url"],"seconds":prefs["seconds"],"replay":prefs["replay"],"reach":prefs["reach"],"mbps":prefs["mbps"],"recordMax":prefs["recordMax"]}),
-        json!({"url":"http://nas:8765","seconds":15,"replay":true,"reach":300,"mbps":65,"recordMax":7200}));
+    assert_eq!(json!({"url":prefs["url"],"seconds":prefs["seconds"],"replay":prefs["replay"],"reach":prefs["reach"],"mbps":prefs["mbps"],"recordMax":prefs["recordMax"],"keyframes":prefs["keyframes"]}),
+        json!({"url":"http://nas:8765","seconds":15,"replay":true,"reach":300,"mbps":65,"recordMax":7200,"keyframes":5}));
     f.send(41,ask(RecorderAction::RecordStart));
     assert_eq!(f.reply("streamer.control",json!({"action":"record-start","streamerRunning":true}))["params"],json!({"action":"record-start"}));
-    f.adapter.pad_line(&json!({"stream":"recorder","replay":true,"recording":true}).to_string());
+    f.adapter.pad_line(&json!({"stream":"recorder","replay":true,"recording":true,"ready":false}).to_string());
     f.adapter.pad_line(&json!({"stream":"clip","saved":true,"text":"Saved Hades II/a.mp4, 15 s, 118 MB"}).to_string());
     assert_eq!(clips(&mut f),[(true,"Saved Hades II/a.mp4, 15 s, 118 MB".to_owned())]);
-    assert!(f.events.iter().any(|e| matches!(e.event,Event::Recorder{session:SessionId(9),replay:true,recording:true})));
+    assert!(f.events.iter().any(|e| matches!(e.event,Event::Recorder{session:SessionId(9),replay:true,recording:true,ready:false})));
     f.send(42,ask(RecorderAction::SaveClip));
     f.reject("streamer.control","unknown_action");
     assert_eq!(clips(&mut f).len(),2);

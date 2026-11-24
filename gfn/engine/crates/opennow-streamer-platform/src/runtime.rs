@@ -313,7 +313,13 @@ impl MediaRuntime {
             .spawn_reader(move |m| reader_shared.on_message(m, &loaded_tx))
             .map_err(|e| format!("feeder reader: {e}"))?;
         // Before the load, so the tee sees the stream's shape and its first keyframe.
-        if let Some(recorder) = crate::clip::arm(std::env::var_os("LUMATV_GFN_PREFS").map(PathBuf::from).as_deref()) {
+        let asking = Arc::downgrade(&shared);
+        let keyframes = Arc::new(move || {
+            if let Some(shared) = asking.upgrade() {
+                shared.request_recorder_keyframe();
+            }
+        });
+        if let Some(recorder) = crate::clip::arm(std::env::var_os("LUMATV_GFN_PREFS").map(PathBuf::from).as_deref(), keyframes) {
             client.set_tee(recorder);
         }
         if let Err(e) = load_feeder(&shared, &mut client) {
@@ -469,11 +475,13 @@ impl Shared {
                 }
             }
             Some(FeederMessage::Drop(d)) => {
+                crate::clip::trouble();
                 self.dropped.fetch_add(1, Ordering::Relaxed);
                 self.take_in_flight(d.pts_ns);
                 let _ = self.feedback.send(MediaFeedback::QueueDropped { media: "video", count: 1 });
             }
             Some(FeederMessage::Keyframe) => {
+                crate::clip::trouble();
                 if !self.stopped.load(Ordering::Acquire) {
                     let _ = self.feedback.send(MediaFeedback::RequestKeyframe {
                         mid: self.video_mid.lock().unwrap_or_else(|e| e.into_inner()).clone(),
@@ -496,6 +504,17 @@ impl Shared {
                 }
             }
             Some(FeederMessage::Hello { .. } | FeederMessage::Pong { .. } | FeederMessage::Event { .. } | FeederMessage::Unknown { .. }) => {}
+        }
+    }
+
+    /// The recorder needs a keyframe to cut at: the game server is asked for one over the same feedback path as the feeder's recovery
+    /// anchor, and the core coalesces repeats. The recorder never asks while the picture is in trouble.
+    fn request_recorder_keyframe(&self) {
+        if !self.stopped.load(Ordering::Acquire) {
+            let _ = self.feedback.send(MediaFeedback::RequestKeyframe {
+                mid: self.video_mid.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+                reason: "the recorder needs a cut point".to_owned(),
+            });
         }
     }
 
@@ -599,6 +618,9 @@ impl MediaSink {
         drop(mid);
         let now = now_ns();
         let resync = frame.keyframe || !frame.contiguous;
+        if !frame.contiguous {
+            crate::clip::trouble();
+        }
         let mut pace = self.shared.pace.lock().unwrap_or_else(|e| e.into_inner());
         let release = pace.pacer.schedule(now, frame.timestamp, frame.clock_rate_hz, resync);
         let slot = self.shared.capture.as_ref().map_or(NO_SLOT, |c| c.enter(now, &frame, pace.held.len(), resync, release, pace.pacer.smooth()));

@@ -10,6 +10,13 @@ pub const SECONDS: &str = "recorder-seconds";
 pub const REPLAY: &str = "recorder-replay";
 pub const REACH: &str = "recorder-reach";
 pub const RECORD_MAX: &str = "recorder-record-max";
+pub const KEYFRAMES: &str = "recorder-keyframes";
+
+/// Where the receiver on BeastNAS listens; the address field starts as this, so turning the recorder on is the only step.
+pub const DEFAULT_URL: &str = "http://192.168.1.69:8765";
+/// The seconds between the keyframes the recorder asks the game for; the choices on the page. 0 is "only when I save".
+pub const KEYFRAME_CHOICES: [(&str, u32); 3] = [("5", 5), ("10", 10), ("save", 0)];
+pub const DEFAULT_KEYFRAME_ID: &str = "5";
 
 pub const DEFAULT_SECONDS: i64 = 15;
 /// The reach of long replay in minutes; the choices on the page.
@@ -33,7 +40,7 @@ pub fn section() -> Section {
                 URL,
                 "Receiver address",
                 "The receiver on BeastNAS, as http://host:port. The stream goes there over plain HTTP, so keep it on the home network.",
-                FieldKind::Text { max_chars: 128, default: String::new() },
+                FieldKind::Text { max_chars: 128, default: DEFAULT_URL.into() },
             ),
             field(
                 REPLAY,
@@ -53,8 +60,21 @@ pub fn section() -> Section {
             field(
                 SECONDS,
                 "Instant clip length",
-                "How far back a clip from the TV's own memory starts, from the keyframe at or before that point. The memory holds about 13 seconds at 65 Mbit/s, so such a clip is shorter on a higher bitrate.",
+                "How long a clip from the TV's own memory is. It reaches back from the press, to the keyframe at or before that point, and the memory holds about 13 seconds at 65 Mbit/s, so a clip is shorter on a higher bitrate. With the keyframe setting on Only when I save it starts at the press and runs this long forward.",
                 FieldKind::Number { min: 5, max: 60, step: 5, unit: Some("s".into()), default: DEFAULT_SECONDS },
+            ),
+            field(
+                KEYFRAMES,
+                "Keyframes",
+                "While long replay or the TV's memory is on, the game is asked for a fresh keyframe this often, so a clip can start where it should; a stream that sends its own needs none. One costs about three pictures of extra data: roughly 0.5% more bitrate at 5 s, half that at 10 s. Only when I save asks once, at the press: no extra data while playing, and the clip starts at the press and runs forward. Nothing is asked while the picture is recovering.",
+                FieldKind::Choice {
+                    options: vec![
+                        ChoiceOption { id: "5".into(), label: "Every 5 s".into() },
+                        ChoiceOption { id: "10".into(), label: "Every 10 s".into() },
+                        ChoiceOption { id: "save".into(), label: "Only when I save".into() },
+                    ],
+                    default: DEFAULT_KEYFRAME_ID.into(),
+                },
             ),
             field(
                 RECORD_MAX,
@@ -77,6 +97,8 @@ pub struct Settings {
     pub replay: bool,
     pub reach_s: u32,
     pub record_max_s: u32,
+    /// Seconds between the keyframes asked for; 0 asks only when a clip is saved or a recording starts.
+    pub keyframe_s: u32,
 }
 
 impl Settings {
@@ -99,6 +121,10 @@ impl Settings {
             replay: matches!(values.get(REPLAY), Some(Value::Bool(true))),
             reach_s: reach.unwrap_or(DEFAULT_REACH_MINUTES) * 60,
             record_max_s: number(RECORD_MAX, DEFAULT_RECORD_MAX_MINUTES) * 60,
+            keyframe_s: match values.get(KEYFRAMES) {
+                Some(Value::Text(t)) => KEYFRAME_CHOICES.iter().find(|(id, _)| id == t).map_or(5, |(_, s)| *s),
+                _ => 5,
+            },
         }
     }
 
@@ -120,6 +146,12 @@ mod tests {
         let mut values = schema.defaults();
         let off = Settings::from_values(&values);
         assert_eq!((off.enabled, off.seconds, off.replay, off.reach_s, off.record_max_s, off.runs()), (false, 15, false, 300, 7200, false));
+        assert_eq!((off.url.as_str(), off.keyframe_s), (DEFAULT_URL, 5));
+        values.insert(KEYFRAMES.into(), Value::Text("save".into()));
+        assert_eq!(Settings::from_values(&values).keyframe_s, 0);
+        values.insert(KEYFRAMES.into(), Value::Text("nonsense".into()));
+        assert_eq!(Settings::from_values(&values).keyframe_s, 5);
+        values.insert(URL.into(), Value::Text(String::new()));
         values.insert(ENABLED.into(), Value::Bool(true));
         assert!(!Settings::from_values(&values).runs(), "no address, no recorder");
         values.insert(URL.into(), Value::Text(" http://nas:8765 ".into()));

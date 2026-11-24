@@ -115,11 +115,11 @@ pub(super) fn screens(base: &Model, add: &mut impl FnMut(&str, Model)) {
     let mut recorder = clip.clone();
     recorder.view.focus = Focus::Strip(4);
     activate(&mut recorder);
-    event(&mut recorder, "gfn", ipc::Event::Recorder { session, replay: true, recording: true });
+    event(&mut recorder, "gfn", ipc::Event::Recorder { session, replay: true, recording: true, ready: true });
     add("launch-recorder", recorder);
     clip.view.focus = Focus::Strip(0);
     activate(&mut clip);
-    event(&mut clip, "gfn", ipc::Event::Recorder { session, replay: true, recording: true });
+    event(&mut clip, "gfn", ipc::Event::Recorder { session, replay: true, recording: true, ready: true });
     add("launch-recording", clip.clone());
     event(&mut clip, "gfn", ipc::Event::Clip { session, saved: true, text: "Saved Hades II/2026-01-01 12.00.00.mp4, 5 min 0 s, 2.4 GB".into() });
     add("launch-clip-saved", clip);
