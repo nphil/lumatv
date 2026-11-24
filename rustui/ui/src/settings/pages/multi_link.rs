@@ -70,4 +70,24 @@ mod tests {
         assert!(matches!(&act(Arg::Toggle(false))[..], [Op::Send { body: Some(b), .. }] if b == &json!({"on":false})));
         assert!(!matches!(&act(Arg::Toggle(true))[..], [Op::Send { .. }]));
     }
+
+    #[test]
+    fn the_connection_rows_stay_when_a_later_read_of_the_plugin_fails() {
+        use crate::settings::src::Owner;
+        let mut world = World::new(crate::host::sio::Sio::new(0));
+        world.topics.helper_up = true;
+        world.topics.set_helper("plugins", json!({"plugins":[],"firstParty":[{"id":ID,"state":"on","firstParty":true,"consent":"Uses both links.","approve":"code"}]}));
+        world.topics.set_helper("plugin.multi-link.facts", json!({"facts": {"status": "Ready for supported apps", "ethernet": "100 Mbps"}}));
+        let field = |key: &str| json!({"key": key, "label": key, "kind": {"type": "read-only", "value": {"capability": format!("plugin.{ID}.{key}")}}});
+        let mut owner = Owner::new(ID);
+        owner.take(&json!({"ok": true, "version": 1, "effective": {}, "schema": {"sections": [{"id": "links", "fields": [field("status"), field("ethernet"), field("usb")]}]}}));
+        world.owners.insert(ID.into(), owner);
+        let before: Vec<String> = rows(&world.ctx()).iter().map(|r| r.id.clone()).collect();
+        assert_eq!(before.len(), 4, "the switch and one row per line: {before:?}");
+        for (status, body) in [(0, Value::Null), (404, json!({"ok": false, "error": {"code": "no_such_owner"}})), (503, json!({}))] {
+            world.owners.get_mut(ID).unwrap().fetched(status, &body);
+            let after: Vec<String> = rows(&world.ctx()).iter().map(|r| r.id.clone()).collect();
+            assert_eq!(after, before, "a failed read ({status}) leaves the page as it was");
+        }
+    }
 }

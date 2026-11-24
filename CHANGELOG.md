@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The weather card's day view shows hours for every one of the seven days. With Home Assistant as the source (36 hours from the entity), the helper takes the hours after its last one from Open-Meteo for the same place; today's view starts at the current hour and lists every hour once fewer than a grid's worth are left, so a late evening is no longer empty.
+
+Settings pages of the helper's plugins (Multi Link and the rest) keep their rows when a later read of the plugin fails or the plugin registers its page again; before, one failed read replaced every row with "details appear once the plugin is running" until the next answer.
+
 A layer's clip can have rounded corners that animate with it (`Request::ClipRadius`, after the `Set` or `Animate` it belongs to), so the Home banner-to-cover morph keeps its corners round all the way. The corners are cut in the fragment shader of the clip's feather twin; a layer with square corners draws as before. The compositor reports the request in the last field of `Welcome` (`clip_radius`) and the LumaGame client sends it only then, so a LumaGame built with it runs on a compositor without it, with square corners during the morph.
 The Home and Library top bar's profile pill is 1.4 times the nav pill's height wide and carries no "Menu" label: the Steam picture fills it, cover-cropped, or a person sits centred when signed out; it still opens the quick menu.
 

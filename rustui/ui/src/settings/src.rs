@@ -101,12 +101,12 @@ impl Owner {
         self.known = true;
     }
 
-    /// The helper's answer to the fetch: a document, or an owner it does not have.
+    /// The helper's answer to the fetch: a document, or an owner it does not have. An owner that was known stays as it was when a later
+    /// read fails (the helper busy or restarting, a plugin that registers its page again): a page keeps its rows, and the next answer
+    /// that comes puts the values right. Only an owner that never answered is unknown.
     pub fn fetched(&mut self, status: u16, body: &Value) {
         if status == 200 && body.get("ok").and_then(Value::as_bool) == Some(true) {
             self.take(body);
-        } else {
-            self.known = false;
         }
     }
 

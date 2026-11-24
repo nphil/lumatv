@@ -157,23 +157,11 @@ fn list<'a>(v: &'a Value, field: &str) -> Result<&'a Vec<Value>, FeedError> {
         .ok_or_else(|| FeedError::Parse(format!("missing list field {field}")))
 }
 
-/// Turns the Open-Meteo reply (and the alerts' body, when there is one) into the document.
-pub fn parse(body: &[u8], alerts: Option<&[u8]>, geo: &Geo, cfg: &WeatherConfig, now_ms: u64) -> Result<MoreDoc, FeedError> {
-    let v: Value = serde_json::from_slice(body).map_err(|_| FeedError::Parse("forecast is not JSON".into()))?;
-    let cur = v.get("current").cloned().unwrap_or(Value::Null);
-    let now = Now {
-        uv_index: opt(&cur, "uv_index"),
-        gust_mph: opt(&cur, "wind_gusts_10m"),
-        wind_deg: opt(&cur, "wind_direction_10m"),
-        pressure_hpa: opt(&cur, "surface_pressure"),
-        cloud_pct: opt(&cur, "cloud_cover"),
-        visibility_m: opt(&cur, "visibility"),
-        rain_in: opt(&cur, "precipitation"),
-    };
-    let h = v.get("hourly").ok_or_else(|| FeedError::Parse("forecast has no hourly".into()))?;
+/// The hours of an Open-Meteo `hourly` block.
+fn parse_hours(h: &Value) -> Result<Vec<Hour>, FeedError> {
     let (times, temps, codes, days) = (list(h, "time")?, list(h, "temperature_2m")?, list(h, "weather_code")?, list(h, "is_day")?);
     let (rain, wind) = (h.get("precipitation_probability").and_then(Value::as_array), h.get("wind_speed_10m").and_then(Value::as_array));
-    let hourly: Vec<Hour> = times
+    Ok(times
         .iter()
         .enumerate()
         .filter_map(|(i, t)| {
@@ -187,7 +175,49 @@ pub fn parse(body: &[u8], alerts: Option<&[u8]>, geo: &Geo, cfg: &WeatherConfig,
             })
         })
         .take(HOURS)
-        .collect();
+        .collect())
+}
+
+/// The Open-Meteo request for the hours alone.
+fn hours_url(geo: &Geo, units: Units) -> String {
+    format!(
+        "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}\
+         &hourly=temperature_2m,precipitation_probability,weather_code,is_day,wind_speed_10m\
+         &temperature_unit={}&wind_speed_unit=mph&timezone=auto&forecast_hours={HOURS}",
+        crate::jsnum::fmt_num(geo.lat),
+        crate::jsnum::fmt_num(geo.lon),
+        units.as_str()
+    )
+}
+
+/// Lengthens the hours of a document whose source gives fewer than the view's week (Home Assistant's entity gives 36): the hours
+/// Open-Meteo has for the document's place that come after the last one it has. A reply that does not come leaves the document as it is.
+pub fn extend_hours(fetch: &dyn Fetch, doc: &mut MoreDoc) {
+    if doc.hourly.len() >= HOURS || (doc.lat == 0.0 && doc.lon == 0.0) {
+        return;
+    }
+    let geo = Geo { place: doc.place.clone(), lat: doc.lat, lon: doc.lon };
+    let Ok(body) = fetch.get(&hours_url(&geo, doc.units), FetchLimits { max_bytes: 512 * 1024, ..FetchLimits::default() }) else { return };
+    let Some(more) = serde_json::from_slice::<Value>(&body).ok().and_then(|v| parse_hours(v.get("hourly")?).ok()) else { return };
+    let last = doc.hourly.last().map(|h| h.time.clone());
+    doc.hourly.extend(more.into_iter().filter(|h| last.as_ref().is_none_or(|l| h.time > *l)));
+    doc.hourly.truncate(HOURS);
+}
+
+/// Turns the Open-Meteo reply (and the alerts' body, when there is one) into the document.
+pub fn parse(body: &[u8], alerts: Option<&[u8]>, geo: &Geo, cfg: &WeatherConfig, now_ms: u64) -> Result<MoreDoc, FeedError> {
+    let v: Value = serde_json::from_slice(body).map_err(|_| FeedError::Parse("forecast is not JSON".into()))?;
+    let cur = v.get("current").cloned().unwrap_or(Value::Null);
+    let now = Now {
+        uv_index: opt(&cur, "uv_index"),
+        gust_mph: opt(&cur, "wind_gusts_10m"),
+        wind_deg: opt(&cur, "wind_direction_10m"),
+        pressure_hpa: opt(&cur, "surface_pressure"),
+        cloud_pct: opt(&cur, "cloud_cover"),
+        visibility_m: opt(&cur, "visibility"),
+        rain_in: opt(&cur, "precipitation"),
+    };
+    let hourly = parse_hours(v.get("hourly").ok_or_else(|| FeedError::Parse("forecast has no hourly".into()))?)?;
     let d = v.get("daily").ok_or_else(|| FeedError::Parse("forecast has no daily".into()))?;
     let dates = list(d, "time")?;
     let text = |f: &str, i: usize| d.get(f).and_then(Value::as_array).and_then(|a| a.get(i)).and_then(Value::as_str).map(str::to_owned);
@@ -336,5 +366,29 @@ mod tests {
         assert!(doc.alerts.is_empty());
         assert!(parse(b"nope", None, &geo(), &cfg(), 5).is_err());
         assert_eq!(parse_alerts(b"nope"), Vec::new());
+    }
+
+    #[test]
+    fn hours_from_open_meteo_follow_the_last_hour_a_shorter_source_has() {
+        struct Canned;
+        impl Fetch for Canned {
+            fn get(&self, url: &str, _: FetchLimits) -> Result<Vec<u8>, fetch::FetchError> {
+                assert!(url.contains("latitude=33.723") && url.ends_with("&forecast_hours=168"), "{url}");
+                let times: Vec<String> = (0..48).map(|i| format!("2026-10-{:02}T{:02}:00", 29 + i / 24, i % 24)).collect();
+                let n = times.len();
+                Ok(json!({"hourly": {"time": times, "temperature_2m": vec![50.0; n], "weather_code": vec![0.0; n], "is_day": vec![1.0; n]}}).to_string().into_bytes())
+            }
+        }
+        let hour = |t: &str| Hour { time: t.into(), temp: 60.0, rain_pct: None, code: 3, is_day: true, wind_mph: None };
+        let base = json!({"hourly": {"time": ["2026-10-29T22:00"], "temperature_2m": [61.0], "weather_code": [0.0], "is_day": [1.0]}, "daily": {"time": []}}).to_string();
+        let mut doc = parse(base.as_bytes(), None, &geo(), &cfg(), 5).expect("a document");
+        doc.hourly = vec![hour("2026-10-29T22:00"), hour("2026-10-29T23:00")];
+        extend_hours(&Canned, &mut doc);
+        assert_eq!(doc.hourly.len(), 2 + 24, "the hours after 23:00 on the 29th");
+        assert_eq!((doc.hourly[1].temp, doc.hourly[2].time.as_str(), doc.hourly[2].temp), (60.0, "2026-10-30T00:00", 50.0), "the source's own hours stay");
+        let mut unplaced = parse(base.as_bytes(), None, &Geo { place: String::new(), lat: 0.0, lon: 0.0 }, &cfg(), 5).expect("a document");
+        unplaced.hourly.clear();
+        extend_hours(&Canned, &mut unplaced);
+        assert!(unplaced.hourly.is_empty(), "no place, no request");
     }
 }

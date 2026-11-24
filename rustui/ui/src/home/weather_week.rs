@@ -123,9 +123,24 @@ impl Panel {
 }
 
 /// The hours of the day `date` (`YYYY-MM-DD`) at the `cols` of every third one from midnight: those the hours say, as many as there are.
+/// A day the hours begin in the middle of (today, from the current hour on) starts at its first hour instead, and takes every hour while
+/// the rest of the day fits the columns: at 22:00 the third-hour grid has no hour left.
 pub fn day_hours<'a>(hours: &'a [serde_json::Value], date: &str, cols: usize) -> Vec<&'a serde_json::Value> {
     let step = if cols >= 8 { 3 } else { 24 / cols.max(1) };
-    hours.iter().filter(|h| h.get("time").and_then(serde_json::Value::as_str).is_some_and(|t| t.starts_with(date) && t.get(11..13).and_then(|x| x.parse::<usize>().ok()).is_some_and(|x| x % step == 0))).take(cols).collect()
+    let of_day: Vec<(&serde_json::Value, usize)> = hours
+        .iter()
+        .filter_map(|h| {
+            let t = h.get("time").and_then(serde_json::Value::as_str).filter(|t| t.starts_with(date))?;
+            Some((h, t.get(11..13)?.parse().ok()?))
+        })
+        .collect();
+    match of_day.first() {
+        Some(&(_, first)) if first > 0 => {
+            let stride = if of_day.len() <= cols { 1 } else { step };
+            of_day.into_iter().step_by(stride).take(cols).map(|(h, _)| h).collect()
+        }
+        _ => of_day.into_iter().filter(|(_, h)| h % step == 0).map(|(v, _)| v).collect(),
+    }
 }
 
 #[cfg(test)]
@@ -159,5 +174,15 @@ mod tests {
         assert_eq!(day_hours(&hours, "2026-11-24", 8).len(), 8);
         assert_eq!(day_hours(&hours, "2026-11-23", 8)[1]["time"], "2026-11-23T03:00");
         assert_eq!(day_hours(&hours, "2026-11-25", 8).len(), 0);
+    }
+
+    #[test]
+    fn today_shows_the_hours_from_now_on_and_a_late_evening_is_not_empty() {
+        let from = |first: usize| -> Vec<serde_json::Value> { (first..24).map(|h| serde_json::json!({"time": format!("2026-11-24T{h:02}:00")})).collect() };
+        let times = |h: &[serde_json::Value]| day_hours(h, "2026-11-24", 8).iter().map(|v| v["time"].as_str().unwrap()[11..13].to_owned()).collect::<Vec<_>>();
+        assert_eq!(times(&from(22)), ["22", "23"], "no third hour is left, every hour is");
+        assert_eq!(times(&from(16)), ["16", "17", "18", "19", "20", "21", "22", "23"]);
+        assert_eq!(times(&from(8)), ["08", "11", "14", "17", "20", "23"], "more than the columns hold: every third hour from the first");
+        assert_eq!(times(&from(0)).len(), 8, "a whole day keeps its grid");
     }
 }

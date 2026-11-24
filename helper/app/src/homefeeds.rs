@@ -157,10 +157,13 @@ impl Feed for WeatherMoreFeed {
 
     fn refresh(env: &Env, key: &WeatherConfig, previous: Option<&MoreDoc>, now: u64) -> Result<MoreDoc, FeedError> {
         if let Some(entity) = ha_weather::entity_of(&key.zip) {
-            if let Some(more) = env.ha.take_parked(key, previous.map_or(0, |p| p.fetched_at)) {
-                return Ok(more);
-            }
-            return env.ha.documents(entity, key, now).map(|(_, more)| more);
+            // the entity gives 36 hours and the view opens seven days: the rest comes from Open-Meteo for the same place
+            let mut more = match env.ha.take_parked(key, previous.map_or(0, |p| p.fetched_at)) {
+                Some(more) => more,
+                None => env.ha.documents(entity, key, now)?.1,
+            };
+            weather_more::extend_hours(env.fetch, &mut more);
+            return Ok(more);
         }
         weather_more::refresh(env.fetch, key, previous, now)
     }

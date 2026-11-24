@@ -3684,6 +3684,36 @@ mod tests {
         assert!(out.contains(&Effect::Redraw));
     }
 
+    /// The owner's own layout (clock left, weather right of it, the bar's buttons at the top): Home starts on the bar's first button, so OK
+    /// there is that button's; the weather card is one Down from the bar's right end, or Down then Right from the chip, and OK enters it.
+    #[test]
+    fn the_weather_card_is_reached_from_the_status_bar_and_ok_enters_it() {
+        let mut theme = lumatv_tokens::Tokens::shipped().json().clone();
+        theme["layout"] = json!({"statusBar": {"profile": "left", "date": "centre"}});
+        let mut layout: Value = serde_json::from_str(include_str!("../../../../payload/theme/layout.json")).unwrap();
+        layout["grid"] = json!({"rows": 16});
+        layout["widgets"] = json!([
+            {"col": 0, "id": "clock", "row": 0, "rows": 4, "span": 7, "type": "clock"},
+            {"col": 7, "id": "weather", "row": 0, "rows": 9, "span": 5, "type": "weather"},
+            {"col": 0, "fade": 110, "gap": 16, "id": "dock", "padY": 40, "row": 9, "rows": 7, "span": 12, "tile": 120, "type": "dock"},
+            {"col": 0, "id": "onhome", "row": 4, "rows": 5, "span": 7, "title": "Smart home", "type": "onhome"}]);
+        let days: Vec<Value> = (0..7).map(|i| json!({"day": format!("D{i}"), "kind": "cloud", "hi": "60\u{b0}", "lo": "40\u{b0}"})).collect();
+        let on_weather = |h: &Home| h.focus.current().and_then(|id| h.widget_of(id)) == Some("weather");
+        for keys in [&["right", "right", "down"][..], &["down", "right"][..]] {
+            let mut h = Home::new(theme.clone(), layout.clone(), json!({}));
+            h.start(1000);
+            h.update(&Input::Topic { topic: "foreground".into(), data: json!({"app": "com.webos.app.home", "home": true, "covered": false}) }, 1000);
+            h.update(&Input::Helper { topic: "weather".into(), data: json!({"doc": {"display": {"place": "Atlanta", "days": days}}, "state": "fresh"}) }, 1050);
+            assert_eq!(h.focus.current().map(|id| id.0), Some(STATUS_ID), "Home starts on the bar's first button");
+            for (i, k) in keys.iter().enumerate() {
+                press(&mut h, k, 1100 + i as u64 * 100);
+            }
+            assert!(on_weather(&h), "{keys:?} reaches the weather card");
+            press(&mut h, "ok", 2000);
+            assert_eq!(h.weather_look("weather"), super::super::weather_card::Look { head: false, focus: Some(0), open: None }, "{keys:?}: OK enters the card on today");
+        }
+    }
+
     #[test]
     fn the_weather_card_is_entered_on_today_walks_its_days_opens_one_and_is_the_week_again_when_left() {
         let mut h = home();
@@ -5778,3 +5808,4 @@ mod tests {
         assert_eq!(h.layer, Layer::None, "a click elsewhere puts it away");
     }
 }
+
