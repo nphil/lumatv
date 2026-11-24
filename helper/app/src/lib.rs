@@ -94,6 +94,7 @@ pub mod live;
 pub mod lgchannels;
 pub mod log;
 pub mod luna;
+pub mod lsbridge;
 pub mod logging;
 pub mod logging_native;
 pub mod media_audio;

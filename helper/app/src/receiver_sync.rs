@@ -151,7 +151,7 @@ pub struct Subscription {
 
 impl Subscription {
     pub fn start(program: &str, wake: Sender<Cmd>) -> std::io::Result<Self> {
-        let mut feed = Feed::start(program, URI, PAYLOAD, false)?;
+        let mut feed = Feed::start(program, URI, PAYLOAD)?;
         let Some(out) = feed.output() else {
             feed.end();
             return Err(std::io::Error::other("no subscription output"));

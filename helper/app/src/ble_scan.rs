@@ -435,7 +435,7 @@ impl Bluetooth for LunaBluetooth {
             json!({"subscribe": true})
         }
         .to_string();
-        let mut feed = Feed::start(&self.program, SCAN_URI, &payload, true)
+        let mut feed = Feed::start_process(&self.program, SCAN_URI, &payload, true)
             .map_err(|e| format!("could not run {}: {e}", self.program))?;
         let Some(out) = feed.output() else {
             feed.end();

@@ -1,5 +1,6 @@
 //! `luna-send` as the helper's modules use it: one answer of a call, and subscriptions.
 
+use crate::lsbridge::Sub;
 use serde_json::Value;
 use std::io::{self, BufRead, BufReader, Read};
 use std::os::unix::process::CommandExt;
@@ -12,17 +13,30 @@ use std::time::{Duration, Instant};
 /// What a subscription's reader reads: the replies as `luna-send` prints them, one JSON text to a line (compact or spread over lines).
 pub type FeedOut = Box<dyn Read + Send>;
 
-/// One subscription (`luna-send -n 1000000 <uri> <payload>`): its replies and the means to end it. The modules that read the replies
-/// themselves hold a `Feed` where they held the `Child`.
+/// One subscription: its replies and the means to end it. The helper's bus bridge (`lsbridge`) holds it when that is running and takes
+/// it, and a `luna-send -n 1000000` of its own otherwise. The modules that read the replies themselves hold a `Feed`.
 pub struct Feed {
-    child: Child,
+    held: Held,
+}
+
+enum Held {
+    Process(Child),
+    Bridge(Sub),
 }
 
 impl Feed {
-    /// Starts `program` (a `luna-send`) on `uri` with `payload`. `with_helper` ends the child with the helper: a child that waits for a
-    /// reply that never comes would outlive a restart of it. It is the thread that starts the child, not the process, that the child
-    /// follows, so only a caller that starts it from a thread that lives as long as the child may ask for it.
-    pub fn start(program: &str, uri: &str, payload: &str, with_helper: bool) -> io::Result<Self> {
+    /// Subscribes to `uri` with `payload`: through the bridge, or through `program` (a `luna-send`) when the bridge is not there for it.
+    pub fn start(program: &str, uri: &str, payload: &str) -> io::Result<Self> {
+        match crate::lsbridge::subscribe(program, uri, payload) {
+            Some(sub) => Ok(Self { held: Held::Bridge(sub) }),
+            None => Self::start_process(program, uri, payload, false),
+        }
+    }
+
+    /// Starts `program` (a `luna-send`) on `uri` with `payload`, as a process of its own. `with_helper` ends the child with the helper: a
+    /// child that waits for a reply that never comes would outlive a restart of it. It is the thread that starts the child, not the
+    /// process, that the child follows, so only a caller that starts it from a thread that lives as long as the child may ask for it.
+    pub fn start_process(program: &str, uri: &str, payload: &str, with_helper: bool) -> io::Result<Self> {
         let mut command = Command::new(program);
         command
             .args(["-n", "1000000", uri, payload])
@@ -40,23 +54,34 @@ impl Feed {
                 });
             }
         }
-        Ok(Self { child: command.spawn()? })
+        Ok(Self { held: Held::Process(command.spawn()?) })
     }
 
     /// The replies, once: a second call has nothing.
     pub fn output(&mut self) -> Option<FeedOut> {
-        self.child.stdout.take().map(|out| Box::new(out) as FeedOut)
+        match &mut self.held {
+            Held::Process(child) => child.stdout.take().map(|out| Box::new(out) as FeedOut),
+            Held::Bridge(sub) => sub.output(),
+        }
     }
 
-    /// Whether the subscription ended on its own (the child exited).
+    /// Whether the subscription ended on its own (the child exited, or the bridge ended it).
     pub fn has_ended(&mut self) -> bool {
-        self.child.try_wait().ok().flatten().is_some()
+        match &mut self.held {
+            Held::Process(child) => child.try_wait().ok().flatten().is_some(),
+            Held::Bridge(sub) => sub.has_ended(),
+        }
     }
 
     /// Ends the subscription (its output ends with it) and waits for what ended it.
     pub fn end(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        match &mut self.held {
+            Held::Process(child) => {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            Held::Bridge(sub) => sub.end(),
+        }
     }
 }
 
@@ -113,7 +138,7 @@ pub type OnReply = Box<dyn Fn(&Value) + Send>;
 impl Follow {
     /// `name` names the reader thread.
     pub fn start(name: &str, luna: &str, uri: &str, payload: &str, on_reply: OnReply) -> io::Result<Self> {
-        let mut feed = Feed::start(luna, uri, payload, false)?;
+        let mut feed = Feed::start(luna, uri, payload)?;
         let Some(out) = feed.output() else {
             feed.end();
             return Err(io::Error::other("no subscription output"));

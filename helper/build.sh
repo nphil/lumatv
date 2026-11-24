@@ -1,8 +1,8 @@
 #!/bin/sh
 # Builds lumatv-helper, the native helper, as the static aarch64 musl binary the set runs.
 #
-#   ./build.sh            release build for aarch64-unknown-linux-musl (the transcoder's child, venc/build/arm64/lumatv-venc, is built first
-#                         and carried inside the helper) -> dist/lumatv-helper, dist/beszel-native (the Beszel plugin's
+#   ./build.sh            release build for aarch64-unknown-linux-musl (the transcoder's child, venc/build/arm64/lumatv-venc, and the bus
+#                         bridge, lsbridge/build/arm/lumatv-lsbridge, are built first and carried inside the helper) -> dist/lumatv-helper, dist/beszel-native (the Beszel plugin's
 #                         agent) and dist/ssgw, dist/ssgw-accept (the Rust gateway for port 3001; each + .sha256) and the Home Assistant
 #                         plugin's package -> dist/plugins/home-assistant/{plugin.json,bin/home-assistant}
 #   ./build.sh test       host tests and clippy (the gate before a commit)
@@ -86,8 +86,9 @@ host_tests() {
 }
 
 release() {
-  # the helper carries the transcoder's child program (app/build.rs embeds it), so that is built first
+  # the helper carries the transcoder's child program and the bus bridge (app/build.rs embeds them), so they are built first
   "$HERE/../venc/build.sh" --arm64
+  "$HERE/lsbridge/build.sh"
   cargo build --release --target "$TARGET" -p lumatv-helper -p beszel-native -p ssgw -p "$PLUGIN"
   mkdir -p dist
   for name in "$BIN" beszel-native ssgw ssgw-accept; do

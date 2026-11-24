@@ -486,6 +486,7 @@ fn serve(
     );
     let swept = crate::tidy::sweep(&paths.data_dir, std::time::SystemTime::now());
     let old_keys = std::mem::take(&mut config.old_keys);
+    crate::lsbridge::enable(&paths.data_dir, &config.luna.send);
     let service = match Service::start(StartOptions {
         paths: paths.clone(),
         config,
@@ -520,6 +521,7 @@ fn serve(
     let signal = sys::wait_termination();
     crate::log_info!("signal {signal}: stopping");
     service.stop();
+    crate::lsbridge::shutdown();
     // A pid file that outlives the process would only mislead a reader that does not check the lock. A supervisor's is its own.
     if !supervised {
         let _ = lock.set_len(0);

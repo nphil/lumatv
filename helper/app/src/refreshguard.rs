@@ -759,7 +759,7 @@ pub fn follow(
                 if stop.is_set() {
                     return;
                 }
-                match Feed::start(&program, REFRESHER_URI, r#"{"subscribe":true}"#, false) {
+                match Feed::start(&program, REFRESHER_URI, r#"{"subscribe":true}"#) {
                     Ok(mut feed) => {
                         let out = feed.output();
                         *slot.lock() = Some(feed);

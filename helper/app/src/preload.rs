@@ -175,7 +175,7 @@ pub fn spawn_service_watch(ctx: &Ctx, channels: std::sync::Arc<crate::lgchannels
     });
     thread::Builder::new().name("preload-service".into()).stack_size(128 * 1024).spawn(move || {
         while !stop.is_set() {
-            let feed = Feed::start(&program, "luna://com.webos.service.bus/signal/registerServerStatus", r#"{"serviceName":"com.webos.service.preloadmanager","subscribe":true}"#, false);
+            let feed = Feed::start(&program, "luna://com.webos.service.bus/signal/registerServerStatus", r#"{"serviceName":"com.webos.service.preloadmanager","subscribe":true}"#);
             if let Ok(mut feed) = feed {
                 if let Some(out) = feed.output() {
                     let (tx, rx) = mpsc::sync_channel(16);

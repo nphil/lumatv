@@ -161,7 +161,7 @@ struct Subscription {
 
 impl Subscription {
     fn start(program: &str, slot: Arc<Mutex<Option<Feed>>>) -> Result<Self, String> {
-        let mut feed = Feed::start(program, POWER_STATE_URI, r#"{"subscribe":true}"#, false)
+        let mut feed = Feed::start(program, POWER_STATE_URI, r#"{"subscribe":true}"#)
             .map_err(|e| format!("could not run {program}: {e}"))?;
         let Some(out) = feed.output() else {
             feed.end();
