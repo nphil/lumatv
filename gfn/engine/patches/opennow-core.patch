@@ -1548,16 +1548,20 @@ index ae84bd82..83ff6865 100644
          context["surface"] = Value::Null;
          Ok(json!({
              "protocolVersion": STREAMER_PROTOCOL_VERSION,
-@@ -910,6 +924,8 @@ impl StreamerService {
+@@ -910,6 +924,12 @@ impl StreamerService {
              "toggle-fullscreen" => "fullscreen-toggle",
              "toggle-microphone" => "microphone-toggle",
              "anti-afk-pulse" => "anti-afk-pulse",
 +            "steam-overlay" => "steam-overlay",
 +            "save-clip" => "save-clip",
++            "replay-on" => "replay-on",
++            "replay-off" => "replay-off",
++            "record-start" => "record-start",
++            "record-stop" => "record-stop",
              _ => return Err(invalid("Unknown native streamer control action")),
          };
          self.reap_finished();
-@@ -2011,6 +2027,7 @@ fn streamer_context(mut session: Value, settings: &Value) -> Value {
+@@ -2011,6 +2031,7 @@ fn streamer_context(mut session: Value, settings: &Value) -> Value {
              normalized[key] = session["negotiatedStreamProfile"][key].clone();
          }
      }
@@ -1565,7 +1569,7 @@ index ae84bd82..83ff6865 100644
      if session["negotiatedStreamProfile"].is_null() {
          session["negotiatedStreamProfile"] = json!({"codec":codec.to_ascii_uppercase()});
      }
-@@ -2031,6 +2048,23 @@ fn streamer_context(mut session: Value, settings: &Value) -> Value {
+@@ -2031,6 +2052,23 @@ fn streamer_context(mut session: Value, settings: &Value) -> Value {
      })
  }
  
@@ -1589,7 +1593,7 @@ index ae84bd82..83ff6865 100644
  fn context_resolution(context: &Value) -> (u64, u64) {
      context["settings"]["resolution"]
          .as_str()
-@@ -4093,6 +4127,42 @@ mod tests {
+@@ -4093,6 +4131,42 @@ mod tests {
          assert_eq!(context_resolution(&context), (1920, 1080));
      }
  

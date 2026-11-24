@@ -129,10 +129,14 @@ pub enum Request {
     SteamOverlay {
         session: SessionId,
     },
-    /// Saves the last seconds of the session's stream as a clip on the recorder's destination, for an engine with `recorder` whose
-    /// recorder setting is on. Answered with `clip`.
-    SaveClip {
+    /// One thing the in-stream menu asks of the session's recorder, for an engine with `recorder` whose recorder setting is on.
+    /// `title` is the game's name: the receiver files a clip or recording in a folder of that name. Answered with `clip` for what
+    /// the viewer is told and `recorder` for the state that follows.
+    Recorder {
         session: SessionId,
+        action: RecorderAction,
+        #[serde(default)]
+        title: String,
     },
     /// The viewer pressed a key the engine never sees (the remote's, a keyboard's, an overlay pad key) over a running stream. The
     /// engine of a cloud service sends the far side one input for that press, so it counts as the activity its idle policy asks for.
@@ -207,6 +211,20 @@ word_enum! {
     unknown => Other
 }
 
+word_enum! {
+    /// What the in-stream menu asks of the recorder.
+    pub enum RecorderAction {
+        /// Saves the last minutes from the NAS's buffer while long replay reaches it, and the TV's own last seconds otherwise.
+        SaveClip => "save-clip",
+        /// Long replay for this session only; the setting keeps the default.
+        ReplayOn => "replay-on",
+        ReplayOff => "replay-off",
+        RecordStart => "record-start",
+        RecordStop => "record-stop",
+    }
+    unknown => Other
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Event {
@@ -257,12 +275,18 @@ pub enum Event {
     Overlay {
         session: SessionId,
     },
-    /// What became of a clip the viewer asked for with `save-clip`: `saved` says whether it reached the destination, and `text` is one
-    /// plain sentence for the screen (the file's name, or why nothing was saved).
+    /// One plain sentence of the recorder's for the screen: what became of a clip or recording the viewer asked for (`saved` says
+    /// whether it is on the NAS), or something the recorder has to say by itself, such as that long replay is paused.
     Clip {
         session: SessionId,
         saved: bool,
         text: String,
+    },
+    /// The session's recorder as it is now: whether long replay is on, and whether a recording runs.
+    Recorder {
+        session: SessionId,
+        replay: bool,
+        recording: bool,
     },
     /// The far side warns that the session ends for lack of input: `seconds` is what it left, and `None` clears the warning (input
     /// arrived, or the far side called it off). The warning is the engine's to forward, never the app's to invent.
@@ -853,7 +877,7 @@ mod tests {
             Request::Stats { session: SessionId(1), on: true, pad_timing: true },
             Request::RoundTrip { session: SessionId(1) },
             Request::SteamOverlay { session: SessionId(1) },
-            Request::SaveClip { session: SessionId(1) },
+            Request::Recorder { session: SessionId(1), action: RecorderAction::RecordStart, title: "Hades II".into() },
             Request::Activity { session: SessionId(1) },
             Request::Achievements { target: target(), game: game() },
             Request::Community { game: game(), mature: false },
@@ -920,7 +944,8 @@ mod tests {
             },
             Event::Key { key: PadKey::Back, down: true },
             Event::Overlay { session: SessionId(1) },
-            Event::Clip { session: SessionId(1), saved: true, text: "20260101-120000.mp4".into() },
+            Event::Clip { session: SessionId(1), saved: true, text: "Saved Hades II/2026-01-01 12.00.00.mp4, 15 s, 118 MB".into() },
+            Event::Recorder { session: SessionId(1), replay: true, recording: false },
             Event::IdleWarning { session: SessionId(1), seconds: Some(59) },
             Event::IdleWarning { session: SessionId(1), seconds: None },
             Event::Refresh { step: Some("Checking Steam".into()), note: None },

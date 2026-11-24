@@ -34,6 +34,10 @@ pub fn schema() -> SettingsSchema {
 pub fn recorder(values: &Values) -> recorder::Settings {
     recorder::Settings::from_values(&schema().resolve(values))
 }
+/// The bitrate cap the viewer chose; the recorder's receiver sizes long replay by it.
+pub fn bitrate_mbps(values: &Values) -> u32 {
+    number(&schema().resolve(values),"bitrate-mbps")
+}
 /// The pads shaped as the settings say: the pad crate applies the sticks' settings before a report goes to the host.
 pub fn pad_config(values: &Values) -> PadConfig {
     let values = schema().resolve(values);

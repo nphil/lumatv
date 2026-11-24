@@ -728,6 +728,7 @@ class Handler(BaseHTTPRequestHandler):
             "/save": lambda q: self.locked(lambda: r.find(q.get("session", "")).save(max(1, self.number(q, "seconds", 300)), q.get("game", ""))),
             "/record/start": lambda q: self.locked(lambda: r.find(q.get("session", "")).record_start(q.get("game", ""), self.number(q, "max"))),
             "/record/stop": lambda q: self.locked(lambda: r.find(q.get("session", "")).record_stop() or {"name": "", "seconds": 0, "bytes": 0}),
+            "/status": lambda q: self.locked(lambda: r.find(q.get("session", "")).status()),
         })
 
     def do_PUT(self):

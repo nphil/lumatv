@@ -414,26 +414,33 @@ fn clips(f:&mut FakeCore) -> Vec<(bool,String)> {
 }
 
 #[test]
-fn save_clip_needs_the_recorder_on_and_is_answered_by_the_streamers_clip_line() {
-    use lumagame_core::settings::Value;
+fn a_recorder_request_needs_the_recorder_on_and_is_answered_by_the_streamers_lines() {
+    use lumagame_core::{ipc::RecorderAction,settings::Value};
+    let ask=|action| Request::Recorder{session:SessionId(9),action,title:"Hades II".into()};
     let mut f=running();
-    f.send(40,Request::SaveClip{session:SessionId(9)});
+    f.send(40,ask(RecorderAction::SaveClip));
     f.collect();assert!(f.requests.is_empty(),"the recorder is off, so the streamer is not asked");
     assert_eq!(clips(&mut f).len(),1);
     assert!(!clips(&mut f)[0].0);
     assert!(f.adapter.runtime_prefs().get("recorder").is_none());
 
     let mut f=FakeCore::new(true);
-    f.send(4,Request::Settings{values:Values::from([("recorder".into(),Value::Bool(true)),("recorder-url".into(),Value::Text("http://nas:8765".into()))])});
+    f.send(4,Request::Settings{values:Values::from([("recorder".into(),Value::Bool(true)),("recorder-url".into(),Value::Text("http://nas:8765".into())),
+        ("recorder-replay".into(),Value::Bool(true)),("bitrate-mbps".into(),Value::Int(65))])});
     f.launch();
     f.reply("session.create",json!({"sessionId":"seat","status":2,"rtspsEndpoints":["rtsp://server"]}));
     f.reply("streamer.start",json!({"status":"running"}));
-    assert_eq!(f.adapter.runtime_prefs()["recorder"],json!({"url":"http://nas:8765","folder":"lumagame","seconds":15}));
-    f.send(41,Request::SaveClip{session:SessionId(9)});
-    assert_eq!(f.reply("streamer.control",json!({"action":"save-clip","streamerRunning":true}))["params"],json!({"action":"save-clip"}));
-    f.adapter.pad_line(&json!({"stream":"clip","saved":true,"text":"20260101-120000.mp4"}).to_string());
-    assert_eq!(clips(&mut f),[(true,"20260101-120000.mp4".to_owned())]);
-    f.send(42,Request::SaveClip{session:SessionId(9)});
+    let prefs=f.adapter.runtime_prefs()["recorder"].clone();
+    assert!(prefs["title"].is_string(),"the game's name goes with the prefs: {prefs}");
+    assert_eq!(json!({"url":prefs["url"],"seconds":prefs["seconds"],"replay":prefs["replay"],"reach":prefs["reach"],"mbps":prefs["mbps"],"recordMax":prefs["recordMax"]}),
+        json!({"url":"http://nas:8765","seconds":15,"replay":true,"reach":300,"mbps":65,"recordMax":7200}));
+    f.send(41,ask(RecorderAction::RecordStart));
+    assert_eq!(f.reply("streamer.control",json!({"action":"record-start","streamerRunning":true}))["params"],json!({"action":"record-start"}));
+    f.adapter.pad_line(&json!({"stream":"recorder","replay":true,"recording":true}).to_string());
+    f.adapter.pad_line(&json!({"stream":"clip","saved":true,"text":"Saved Hades II/a.mp4, 15 s, 118 MB"}).to_string());
+    assert_eq!(clips(&mut f),[(true,"Saved Hades II/a.mp4, 15 s, 118 MB".to_owned())]);
+    assert!(f.events.iter().any(|e| matches!(e.event,Event::Recorder{session:SessionId(9),replay:true,recording:true})));
+    f.send(42,ask(RecorderAction::SaveClip));
     f.reject("streamer.control","unknown_action");
     assert_eq!(clips(&mut f).len(),2);
     assert!(!clips(&mut f)[1].0);

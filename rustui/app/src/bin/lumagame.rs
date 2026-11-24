@@ -391,9 +391,9 @@ impl Shell {
                     if sent.is_err() { commands.extend(self.step(Input::EngineGone(engine), now_ms)); }
                     sent
                 }
-                Command::SaveClip(None) => Ok(()),
-                Command::SaveClip(Some((engine, session))) => {
-                    let sent = self.host.send(&engine, Request::SaveClip { session });
+                Command::Recorder(None, ..) => Ok(()),
+                Command::Recorder(Some((engine, session)), action, title) => {
+                    let sent = self.host.send(&engine, Request::Recorder { session, action, title });
                     if sent.is_err() { commands.extend(self.step(Input::EngineGone(engine), now_ms)); }
                     sent
                 }

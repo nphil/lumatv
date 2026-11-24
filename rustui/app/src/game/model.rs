@@ -191,8 +191,8 @@ pub enum Command {
     LowLatency(bool),
     /// The in-stream menu's Steam overlay, for the shell to hand the engine and to note in diagnostics; `None` when no session is open.
     SteamOverlay(Option<(EngineId, SessionId)>),
-    /// The in-stream menu's Save clip, for the shell to hand the engine; `None` when no session is open.
-    SaveClip(Option<(EngineId, SessionId)>),
+    /// A request from the Recorder drawer and the game's name, for the shell to hand the engine; `None` when no session is open.
+    Recorder(Option<(EngineId, SessionId)>, ipc::RecorderAction, String),
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Density {
@@ -379,6 +379,8 @@ pub enum Layer {
     // launch
     /// The Picture drawer over the stream: its stream, HDR and stats settings.
     Picture,
+    /// The Recorder drawer over the stream: Save clip, Record and the long replay switch.
+    Recorder,
     /// The achievements drawer over the stream.
     Achievements,
     /// Asks before the session ends; it opens on Keep playing.
@@ -396,7 +398,7 @@ impl Layer {
     /// Whether the layer is a sheet drawn over its page, which then takes no pointer hits. The game page's layers, the viewer and the
     /// layers over a stream are drawn by their page.
     pub fn is_sheet(self) -> bool {
-        !matches!(self, Self::Chooser | Self::Section(_) | Self::Reader | Self::Viewer | Self::Picture | Self::Achievements | Self::EndConfirm)
+        !matches!(self, Self::Chooser | Self::Section(_) | Self::Reader | Self::Viewer | Self::Picture | Self::Recorder | Self::Achievements | Self::EndConfirm)
     }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -493,6 +495,7 @@ pub struct View {
     pub keyboard_lower: bool,
     pub idle: Option<IdleWarning>,
     pub clip: Option<launch::ClipNote>,
+    pub recorder: launch::RecorderState,
 }
 impl Default for View {
     fn default() -> Self {
@@ -528,6 +531,7 @@ impl Default for View {
             keyboard_lower: false,
             idle: None,
             clip: None,
+            recorder: launch::RecorderState::default(),
         }
     }
 }
@@ -765,7 +769,8 @@ impl Model {
         self.foreground && !self.session_active()
     }
     pub fn wants_frames(&self) -> bool {
-        self.foreground && (self.view.page != Page::Running || !self.stream_bare() || self.hud_visible() || self.idle_left().is_some() || self.clip_fading())
+        self.foreground
+            && (self.view.page != Page::Running || !self.stream_bare() || self.hud_visible() || self.idle_left().is_some() || self.clip_fading() || self.rec_fading())
     }
     pub fn game(&self, id: GameId) -> Option<&Game> {
         self.games.iter().find(|g| g.id == id)
@@ -941,6 +946,7 @@ impl Model {
                 changed |= self.tick_navigation(before, &mut out);
                 changed |= self.quick_tick(before);
                 changed |= self.clip_tick(before);
+                changed |= self.rec_tick(before);
                 changed |= self.refresh_tick(second);
                 self.look_ahead(&mut out);
                 self.facts_ahead(&mut out);
@@ -1280,6 +1286,7 @@ impl Model {
                 | Layer::Auth
                 | Layer::SignOut
                 | Layer::Picture
+                | Layer::Recorder
                 | Layer::Achievements
                 | Layer::EndConfirm
                 | Layer::AddHost
@@ -1531,7 +1538,7 @@ impl Model {
                     self.session_input(session::Input::Cancel, out);
                 }
             }
-            Layer::Picture | Layer::Achievements | Layer::EndConfirm => return self.close_stream_layer(out),
+            Layer::Picture | Layer::Recorder | Layer::Achievements | Layer::EndConfirm => return self.close_stream_layer(out),
             _ => {}
         }
         self.pop_layer();
@@ -1669,6 +1676,11 @@ impl Model {
             ipc::Event::Clip { session, saved, text } => {
                 if self.session.as_ref().is_some_and(|s| s.id == session && s.source.engine == id) {
                     self.clip_told(saved, text);
+                }
+            }
+            ipc::Event::Recorder { session, replay, recording } => {
+                if self.session.as_ref().is_some_and(|s| s.id == session && s.source.engine == id) {
+                    self.recorder_told(replay, recording);
                 }
             }
             ipc::Event::IdleWarning { session, seconds } => {

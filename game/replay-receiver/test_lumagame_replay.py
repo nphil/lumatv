@@ -236,6 +236,7 @@ class Case(unittest.TestCase):
             piece = body[at:at + 1000]
             live.sendall(b"%x\r\n%s\r\n" % (len(piece), piece))
         self.wait(lambda: ask("GET", "/status?session=a")[1].get("held") == "6")
+        self.assertEqual(ask("POST", "/status?session=a")[1]["held"], "6")
         status, told = ask("POST", "/save?session=a&seconds=3&game=Hades")
         self.assertEqual((status, told["seconds"]), (200, "4"))
         self.assertEqual(ask("PUT", "/clip?game=Hades", body=b"clip")[0], 200)

@@ -174,7 +174,7 @@ impl Owner {
             Layer::Sort | Layer::Genre | Layer::PlaysOn => Self::Library,
             Layer::Delete => Self::Settings,
             Layer::Auth | Layer::SignOut => Self::Accounts,
-            Layer::Picture | Layer::Achievements | Layer::EndConfirm => Self::Launch,
+            Layer::Picture | Layer::Recorder | Layer::Achievements | Layer::EndConfirm => Self::Launch,
             Layer::AddHost | Layer::EditText => Self::Text,
             Layer::Quick | Layer::QuickSettings => Self::Quick,
         }

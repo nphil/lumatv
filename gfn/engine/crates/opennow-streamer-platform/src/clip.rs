@@ -1,34 +1,43 @@
 //! The game recorder in the streamer: when the engine's runtime prefs ask for it, the stream the feeder is given is also kept in a
-//! RAM ring (`lumagame-recorder`) and `save-clip` sends the last seconds to the receiver the viewer named. The tee itself sits in
-//! `FeederClient::send_media`; this file only builds the recorder from the prefs, owns it for the session and says what became of a
-//! clip on the engine's side socket.
+//! RAM ring (`lumagame-recorder`), sent on to the receiver while long replay or a recording is on, and saved as a clip on request.
+//! The tee itself sits in `FeederClient::send_media`; this file only builds the recorder from the prefs, owns it for the session,
+//! passes it the in-stream menu's requests and says what became of them on the engine's side socket.
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use lumagame_recorder::{HttpDestination, Recorder, RING_CAP};
+use lumagame_recorder::{Event, HttpDestination, Plan, Recorder, RING_CAP};
 
 struct Active {
     recorder: Arc<Recorder>,
     seconds: u32,
+    title: String,
 }
 
 static ACTIVE: Mutex<Option<Active>> = Mutex::new(None);
 
+/// The control commands that are the recorder's; the engine sends them as `streamer.control` actions of the same names.
+pub const RECORDER_ACTIONS: [&str; 5] = ["save-clip", "replay-on", "replay-off", "record-start", "record-stop"];
+
 #[derive(Debug, PartialEq, Eq)]
 struct Prefs {
     url: String,
-    folder: String,
+    /// The length of a clip from the ring.
     seconds: u32,
+    /// The game's name, which the receiver files under.
+    title: String,
+    plan: Plan,
 }
 
 /// The `recorder` object of the prefs the engine wrote for this launch; absent unless the viewer turned the recorder on.
 fn prefs(bytes: &[u8]) -> Option<Prefs> {
     let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
     let r = v.get("recorder")?;
+    let number = |key: &str, default: u32| r[key].as_u64().and_then(|n| u32::try_from(n).ok()).unwrap_or(default);
     Some(Prefs {
         url: r["url"].as_str().filter(|u| !u.is_empty())?.to_owned(),
-        folder: r["folder"].as_str().unwrap_or_default().to_owned(),
-        seconds: r["seconds"].as_u64().and_then(|n| u32::try_from(n).ok()).unwrap_or(15),
+        seconds: number("seconds", 15),
+        title: r["title"].as_str().unwrap_or_default().to_owned(),
+        plan: Plan { replay: r["replay"].as_bool().unwrap_or(false), reach_s: number("reach", 300), mbps: number("mbps", 0), record_max_s: number("recordMax", 7200) },
     })
 }
 
@@ -36,38 +45,61 @@ fn line(saved: bool, text: &str) -> String {
     serde_json::json!({"stream": "clip", "saved": saved, "text": text}).to_string()
 }
 
+fn state_line(replay: bool, recording: bool) -> String {
+    serde_json::json!({"stream": "recorder", "replay": replay, "recording": recording}).to_string()
+}
+
 /// Starts the recorder for a stream when the prefs ask for one. A destination that cannot be used is said once on the side socket and
 /// the stream plays on without a recorder.
 pub(crate) fn arm(prefs_file: Option<&Path>) -> Option<Arc<Recorder>> {
     let p = prefs(&std::fs::read(prefs_file?).ok()?)?;
-    let destination = match HttpDestination::new(&p.url, &p.folder) {
+    let destination = match HttpDestination::new(&p.url) {
         Ok(d) => d,
         Err(why) => {
             crate::runtime::stream_clip(line(false, &why));
             return None;
         }
     };
-    let recorder = Arc::new(Recorder::new(RING_CAP, "lumagame", Arc::new(destination), |event| {
-        if let Some((saved, text)) = event.sentence() {
-            crate::runtime::stream_clip(line(saved, &text));
-        }
+    crate::runtime::stream_clip(state_line(p.plan.replay, false));
+    let recorder = Arc::new(Recorder::new(RING_CAP, Arc::new(destination), p.plan, |event| {
+        crate::runtime::stream_clip(match (event.sentence(), event) {
+            (Some((saved, text)), _) => line(saved, &text),
+            (None, Event::State { replay, recording }) => state_line(replay, recording),
+            (None, _) => return,
+        });
     }));
-    *ACTIVE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Active { recorder: Arc::clone(&recorder), seconds: p.seconds });
+    *ACTIVE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Active { recorder: Arc::clone(&recorder), seconds: p.seconds, title: p.title });
     Some(recorder)
 }
 
-/// The stream ended: the recorder goes, with what it held.
+/// The stream ended: the recorder goes, with what it held. The receiver closes a recording when its stream ends.
 pub(crate) fn disarm() {
     *ACTIVE.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
-/// The in-stream menu's Save clip. The answer comes later as a `clip` line; a refusal comes at once.
-pub fn save_clip() {
-    let active = ACTIVE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|a| (Arc::clone(&a.recorder), a.seconds));
-    let refusal = match active {
+/// One of the in-stream menu's recorder requests ([`RECORDER_ACTIONS`]). The answer comes later as `clip` and `recorder` lines; a
+/// refusal comes at once.
+pub fn recorder_action(action: &str) {
+    let guard = ACTIVE.lock().unwrap_or_else(|e| e.into_inner());
+    let refusal = match guard.as_ref() {
         None => Some("The recorder is not running for this stream".to_owned()),
-        Some((recorder, seconds)) => recorder.save_last(seconds).err().map(|r| r.to_string()),
+        Some(a) => match action {
+            "save-clip" => a.recorder.save_clip(&a.title, a.seconds).err().map(|r| r.to_string()),
+            "replay-on" | "replay-off" => {
+                a.recorder.set_replay(action == "replay-on");
+                None
+            }
+            "record-start" => {
+                a.recorder.start_recording(&a.title);
+                None
+            }
+            _ => {
+                a.recorder.stop_recording();
+                None
+            }
+        },
     };
+    drop(guard);
     if let Some(text) = refusal {
         crate::runtime::stream_clip(line(false, &text));
     }
@@ -80,10 +112,15 @@ mod tests {
     #[test]
     fn the_recorder_starts_only_from_a_recorder_object_with_an_address() {
         assert_eq!(prefs(br#"{"deadzone":8}"#), None);
-        assert_eq!(prefs(br#"{"recorder":{"url":"","folder":"x","seconds":9}}"#), None);
+        assert_eq!(prefs(br#"{"recorder":{"url":"","seconds":9}}"#), None);
         assert_eq!(
-            prefs(br#"{"recorder":{"url":"http://nas:8765","folder":"lumagame","seconds":20}}"#),
-            Some(Prefs { url: "http://nas:8765".into(), folder: "lumagame".into(), seconds: 20 })
+            prefs(br#"{"recorder":{"url":"http://nas:8765","seconds":20,"replay":true,"reach":900,"mbps":65,"recordMax":3600,"title":"Hades II"}}"#),
+            Some(Prefs {
+                url: "http://nas:8765".into(),
+                seconds: 20,
+                title: "Hades II".into(),
+                plan: Plan { replay: true, reach_s: 900, mbps: 65, record_max_s: 3600 }
+            })
         );
     }
 }

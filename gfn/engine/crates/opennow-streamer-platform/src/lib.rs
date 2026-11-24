@@ -16,7 +16,7 @@ mod types;
 mod vrr_capture;
 
 pub use lumagame_feeder::{FeederClient, FeederMessage, Hdr, Load, Status as FeederStatus, decode as decode_feeder_message, msg as feeder_msg};
-pub use clip::save_clip;
+pub use clip::{RECORDER_ACTIONS, recorder_action};
 pub use microphone::{EncodedMicrophoneFrame, MICROPHONE_FRAME_SAMPLES, MICROPHONE_SAMPLE_RATE, MicrophoneReceiver, MicrophoneSession, MicrophoneStatus};
 pub use recording::{EncodedRecordingReceiver, ManualRecordingSummary, RecordingSummary, ReplaySnapshot, record_matroska, record_replay_matroska};
 pub use runtime::{FeederConfig, MainThreadHost, MediaControl, MediaRuntime, MediaRuntimeControl, MediaSession, MediaSink, controller_rumble, create_runtime, stream_ended, stream_idle, stream_telemetry};

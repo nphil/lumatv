@@ -23,7 +23,7 @@ use super::{
 };
 use crate::game::model::{
     Focus, Layer,
-    launch::{Achieved, RING_FRAMES, StripItem},
+    launch::{Achieved, PictureRow, RING_FRAMES, StripItem},
 };
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{
@@ -133,8 +133,10 @@ pub fn launch(p: &mut Paint<'_>) {
 
 /// The page while the stream runs: nothing, the strip with the figures, a drawer or the End prompt.
 pub fn running(p: &mut Paint<'_>) {
-    match p.model.view.top() {
-        Some(Layer::Picture) => picture(p),
+    let m = p.model;
+    match m.view.top() {
+        Some(Layer::Picture) => rows(p, "Picture", &m.picture_rows(), true),
+        Some(Layer::Recorder) => rows(p, "Recorder", &m.recorder_rows(), false),
         Some(Layer::Achievements) => achievements(p),
         Some(Layer::EndConfirm) => end(p),
         _ => bare(p),
@@ -147,7 +149,7 @@ fn icon(item: StripItem) -> Sign {
         StripItem::Picture => Sign::Icon(Icon::Sun),
         StripItem::Controller => Sign::Symbol(Symbol::Gamepad),
         StripItem::Achievements => Sign::Symbol(Symbol::Trophy),
-        StripItem::SaveClip => Sign::Icon(Icon::Camera),
+        StripItem::Recorder => Sign::Icon(Icon::Camera),
         StripItem::End => Sign::Icon(Icon::Power),
     }
 }
@@ -211,19 +213,22 @@ fn above_sheet(p: &mut Paint<'_>, from: usize) {
     }
 }
 
-fn picture(p: &mut Paint<'_>) {
+/// A drawer of setting rows: each a switch, or its value to step through when `steps` and to act on otherwise.
+fn rows(p: &mut Paint<'_>, title: &'static str, rows: &[PictureRow], steps: bool) {
     let m = p.model;
-    let content = drawer::open(p, Side::Right, drawer::WIDTH, "Picture");
+    let content = drawer::open(p, Side::Right, drawer::WIDTH, title);
     let from = p.plan.nodes.len();
     let mut y = content.y;
-    for (i, picture) in m.picture_rows().iter().enumerate() {
+    for (i, picture) in rows.iter().enumerate() {
         let frame = Frame::new(content.x, y, content.w, ROW_H);
         let line = Line { lead: Leading::Glyph(picture.icon), name: picture.label, sub: None };
         let (id, focused) = (ROWS + 20 * i as u64, p.focused(Focus::SheetRow(i)));
         if picture.switch {
             row::switch(p, id, frame, &line, picture.on, focused);
-        } else {
+        } else if steps {
             row::stepper(p, id, frame, &line, &picture.value, focused);
+        } else {
+            row::value(p, id, frame, &line, &picture.value, None, focused);
         }
         p.hit(Focus::SheetRow(i), frame);
         y += ROW_H + ROW_GAP;

@@ -114,8 +114,8 @@ word_enum! {
         OverlayKeys => "overlay-keys",
         /// Opens Steam's overlay over a running Steam game ([`crate::ipc::Request::SteamOverlay`]).
         SteamOverlay => "steam-overlay",
-        /// Keeps the stream's last seconds for a clip ([`crate::ipc::Request::SaveClip`]); the viewer turns it on in the engine's settings
-        /// ([`crate::recorder`]).
+        /// Keeps the stream for clips, long replay and recordings ([`crate::ipc::Request::Recorder`]); the viewer turns it on in the
+        /// engine's settings ([`crate::recorder`]).
         Recorder => "recorder",
         Rumble => "rumble",
         Keyboard => "keyboard",

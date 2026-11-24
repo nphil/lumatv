@@ -1,16 +1,16 @@
 //! OpenNOW's standalone streamer entry (native/opennow-streamer/crates/opennow-streamer/src/main.rs at the pinned revision) with
 //! three additions: a `controller-rumble` event is applied to the pad here, in the process that holds the pad, before it goes up the
 //! pipe; what the engine needs of the events the core does not pass on goes to the engine's side socket; and `input-paused` moves
-//! only the pads (`pause_pads_only`); `steam-overlay` types Shift+Tab into the game (`steam_overlay`); `save-clip` saves the game
-//! recorder's last seconds (`save_clip_command`). The binary keeps upstream's name because opennow-core looks for `opennow-streamer` beside
-//! itself.
+//! only the pads (`pause_pads_only`); `steam-overlay` types Shift+Tab into the game (`steam_overlay`); the game recorder's requests
+//! (`save-clip`, `replay-on`, `replay-off`, `record-start`, `record-stop`) go to the recorder (`recorder_command`). The binary keeps
+//! upstream's name because opennow-core looks for `opennow-streamer` beside itself.
 use std::io::{self, BufRead, Write};
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}, mpsc};
 use std::thread;
 use std::time::Duration;
 
 use opennow_streamer_core::Engine;
-use opennow_streamer_platform::{CapturedInput, MediaRuntime, controller_rumble, create_runtime, save_clip, stream_ended, stream_idle, stream_telemetry};
+use opennow_streamer_platform::{CapturedInput, MediaRuntime, RECORDER_ACTIONS, controller_rumble, create_runtime, recorder_action, stream_ended, stream_idle, stream_telemetry};
 use opennow_streamer_protocol::{Command, error, response};
 use serde_json::Value;
 
@@ -101,13 +101,13 @@ fn steam_overlay(command: &Command, playing: &Arc<AtomicBool>, play: impl FnOnce
     Some(response(command.id.as_str(), "ok"))
 }
 
-/// The in-stream menu's "Save clip": the game recorder starts the clip and the outcome, or a refusal, goes to the engine as a `clip`
-/// line on the side socket, so the command itself is answered at once.
-fn save_clip_command(command: &Command, save: impl FnOnce()) -> Option<Value> {
-    if command.kind != "save-clip" {
+/// The in-stream menu's recorder requests: the game recorder takes the request and the outcome, or a refusal, goes to the engine as
+/// `clip` and `recorder` lines on the side socket, so the command itself is answered at once.
+fn recorder_command(command: &Command, act: impl FnOnce(&str)) -> Option<Value> {
+    if !RECORDER_ACTIONS.contains(&command.kind.as_str()) {
         return None;
     }
-    save();
+    act(&command.kind);
     Some(response(command.id.as_str(), "ok"))
 }
 
@@ -154,7 +154,7 @@ fn run_protocol(media_runtime: MediaRuntime) -> io::Result<()> {
             write_message(&reply)?;
             continue;
         }
-        if let Some(reply) = save_clip_command(&command, save_clip) {
+        if let Some(reply) = recorder_command(&command, recorder_action) {
             write_message(&reply)?;
             continue;
         }
@@ -223,11 +223,14 @@ mod tests {
     }
 
     #[test]
-    fn save_clip_starts_the_recorder_and_is_answered_at_once() {
-        let mut saved = 0;
-        let reply = save_clip_command(&command(r#"{"id":"runtime-control","type":"save-clip"}"#), || saved += 1);
-        assert_eq!((reply, saved), (Some(response("runtime-control", "ok")), 1));
-        assert_eq!(save_clip_command(&command(r#"{"id":"stop","type":"stop"}"#), || unreachable!()), None);
+    fn a_recorder_request_goes_to_the_recorder_and_is_answered_at_once() {
+        let mut asked = Vec::new();
+        for kind in RECORDER_ACTIONS {
+            let reply = recorder_command(&command(&format!(r#"{{"id":"runtime-control","type":"{kind}"}}"#)), |action| asked.push(action.to_owned()));
+            assert_eq!(reply, Some(response("runtime-control", "ok")));
+        }
+        assert_eq!(asked, RECORDER_ACTIONS);
+        assert_eq!(recorder_command(&command(r#"{"id":"stop","type":"stop"}"#), |_| unreachable!()), None);
     }
 
     #[test]

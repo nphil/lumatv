@@ -162,7 +162,10 @@ impl Adapter {
     pub fn pad_stats_on(&self) -> bool { self.launch.as_ref().is_some_and(|l| l.running && l.pad_timing && !l.stopping) }
     pub fn data_dir(&self) -> &str { &self.hello.data_dir }
     pub fn runtime_prefs(&self) -> Value {
-        settings::runtime_prefs(self.launch.as_ref().map_or(&self.values, |l| &l.values))
+        let mut prefs = settings::runtime_prefs(self.launch.as_ref().map_or(&self.values, |l| &l.values));
+        // The game's name, which the receiver files clips and recordings under; a recorder request carries nothing to the streamer.
+        if let (Some(l), Some(rec)) = (&self.launch, prefs.get_mut("recorder")) { rec["title"] = json!(l.selection.title); }
+        prefs
     }
 
     pub fn drain(&mut self) -> Output { std::mem::take(&mut self.output) }
@@ -267,13 +270,13 @@ impl Adapter {
             Request::SteamOverlay { session } if self.launch.as_ref().is_some_and(|l| l.id == session && l.running) => {
                 self.enqueue("streamer.control",json!({"action":"steam-overlay"}),Purpose::Pause,seq);
             }
-            // The streamer's recorder holds the last seconds in memory and sends the clip to the receiver; it answers with a `clip` line
-            // on the pad bridge (`clip_line`). Without the setting on and an address there is nothing to ask.
-            Request::SaveClip { session } if self.launch.as_ref().is_some_and(|l| l.id == session && l.running) => {
+            // The streamer's recorder does the work (lumagame-recorder) and answers with `clip` and `recorder` lines on the pad bridge.
+            // It knows the game's name from its prefs. Without the setting on and an address there is nothing to ask.
+            Request::Recorder { session,action,.. } if self.launch.as_ref().is_some_and(|l| l.id == session && l.running) => {
                 if self.launch.as_ref().is_some_and(|l| recorder::Settings::from_values(&l.values).runs()) {
-                    self.enqueue("streamer.control",json!({"action":"save-clip"}),Purpose::Clip,seq);
+                    self.enqueue("streamer.control",json!({"action":action.as_str()}),Purpose::Clip,seq);
                 } else {
-                    self.clip(seq,false,"Turn on Save clips and set the receiver address in Settings");
+                    self.clip(seq,false,"Turn on Game recorder and set the receiver address in Settings");
                 }
             }
             // The remote's and a keyboard's keys never reach the stream (nor do the pad's while the overlay has it), so the far side's
@@ -283,7 +286,7 @@ impl Adapter {
                 self.enqueue("streamer.control",json!({"action":"anti-afk-pulse"}),Purpose::Pause,seq);
             }
             Request::Library { .. } | Request::Check { .. } | Request::Forget { .. } | Request::Stop { .. } | Request::Route { .. } | Request::Stats { .. }
-            | Request::RoundTrip { .. } | Request::SteamOverlay { .. } | Request::SaveClip { .. } | Request::Activity { .. } => {
+            | Request::RoundTrip { .. } | Request::SteamOverlay { .. } | Request::Recorder { .. } | Request::Activity { .. } => {
                 self.error(seq,ErrorCode::BadRequest,"The target or session is not current");
             }
             _ => self.error(seq,ErrorCode::Unsupported,"This operation is not supported by GeForce NOW"),
@@ -297,11 +300,16 @@ impl Adapter {
         let Some(session) = self.launch.as_ref().map(|l| l.id) else { return };
         self.emit(seq,Event::Clip { session,saved,text:text.chars().take(200).collect() });
     }
-    /// The streamer's recorder finished a clip (`{"stream":"clip","saved":bool,"text":...}` on the pad bridge); a recording's start and
-    /// stop come the same way.
+    /// One sentence of the streamer's recorder for the screen (`{"stream":"clip","saved":bool,"text":...}` on the pad bridge).
     fn clip_line(&mut self, v: &Value) {
         let (Some(saved),Some(text)) = (v["saved"].as_bool(),v["text"].as_str()) else { return };
         if self.launch.as_ref().is_some_and(|l| l.running && !l.stopping) { self.clip(None,saved,text); }
+    }
+    /// The streamer's recorder as it is now (`{"stream":"recorder","replay":bool,"recording":bool}`).
+    fn recorder_line(&mut self, v: &Value) {
+        let (Some(replay),Some(recording)) = (v["replay"].as_bool(),v["recording"].as_bool()) else { return };
+        let Some(session) = self.launch.as_ref().filter(|l| l.running && !l.stopping).map(|l| l.id) else { return };
+        self.emit(None,Event::Recorder { session,replay,recording });
     }
     /// One datagram from the streamer's pad bridge (`LUMATV_GFN_PAD_SIDE`). The PS button asks for the overlay, as it does on every
     /// engine; while the overlay has the pads their reports become its menu keys. The streamer's own telemetry and its end arrive the
@@ -313,6 +321,7 @@ impl Adapter {
         if v["stream"] == "ended" { self.stream_ended(&v); return; }
         if v["stream"] == "colour" { self.stream_colour(&v); return; }
         if v["stream"] == "clip" { self.clip_line(&v); return; }
+        if v["stream"] == "recorder" { self.recorder_line(&v); return; }
         let Some(l) = self.launch.as_mut().filter(|l| l.running && !l.stopping) else { return };
         let session = l.id;
         match v["pad"].as_str() {
@@ -749,7 +758,7 @@ impl Adapter {
                 self.enqueue("streamer.stop",json!({"reason":"the session request failed"}),Purpose::Pause,None);
             }
             Purpose::Hello | Purpose::Detect | Purpose::Setting => self.core_gone("GeForce NOW could not initialize the core and streamer"),
-            Purpose::Clip => self.clip(job.seq,false,"The streamer could not save the clip"),
+            Purpose::Clip => self.clip(job.seq,false,"The streamer did not take the recorder request"),
             _ => match refresh::classify(code) {
                 Some((kind,message)) => self.error(job.seq,kind,message),
                 None => self.error(job.seq,ErrorCode::Internal,format!("GeForce NOW refused {} ({code})",job.method)),

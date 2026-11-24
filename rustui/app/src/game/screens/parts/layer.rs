@@ -24,7 +24,7 @@ pub fn sheet(p: &mut Paint<'_>) {
         Layer::Delete => delete(p),
         Layer::Quick | Layer::QuickSettings => quick(p),
         // Drawn by their page in place of, or over, its own content.
-        Layer::Chooser | Layer::Section(_) | Layer::Reader | Layer::Viewer | Layer::Picture | Layer::Achievements | Layer::EndConfirm => {}
+        Layer::Chooser | Layer::Section(_) | Layer::Reader | Layer::Viewer | Layer::Picture | Layer::Recorder | Layer::Achievements | Layer::EndConfirm => {}
     }
 }
 

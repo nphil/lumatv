@@ -121,7 +121,8 @@ pub fn runtime_prefs(values: &Values) -> Value {
     // Present only while the recorder is on and has an address: the streamer starts a recorder exactly when it finds this.
     let rec = recorder::Settings::from_values(values);
     if rec.runs() {
-        prefs["recorder"] = json!({"url": rec.url, "folder": rec.folder, "seconds": rec.seconds});
+        prefs["recorder"] = json!({"url": rec.url, "seconds": rec.seconds, "replay": rec.replay, "reach": rec.reach_s,
+            "mbps": integer(values, "bitrate-mbps", 80), "recordMax": rec.record_max_s});
     }
     prefs
 }

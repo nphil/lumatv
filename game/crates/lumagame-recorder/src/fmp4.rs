@@ -382,7 +382,8 @@ impl<W: Write> Muxer<W> {
             self.video.push(prev);
         }
         let span = self.video.last().map_or(0, |s| s.dts + u64::from(s.duration)) - self.video.first().map_or(0, |s| s.dts);
-        if !self.video.is_empty() && (span >= ticks(FRAGMENT_NS, VIDEO_TIMESCALE) || self.pending_bytes >= FRAGMENT_BYTES) {
+        // A keyframe opens a fragment, so the receiver can start a clip or a recording on a fragment's first sample.
+        if !self.video.is_empty() && (unit.key || span >= ticks(FRAGMENT_NS, VIDEO_TIMESCALE) || self.pending_bytes >= FRAGMENT_BYTES) {
             self.flush()?;
         }
         Ok(())
@@ -575,6 +576,27 @@ mod tests {
         }
         assert_eq!((video, audio), (45, 90));
         assert_eq!(top[2..].len(), 4, "a second of video closes the first fragment, the rest the second");
+    }
+
+    #[test]
+    fn every_keyframe_opens_a_fragment() {
+        let mut m = Muxer::new(Vec::new(), h264_config()).unwrap();
+        for i in 0..20i64 {
+            let key = i % 10 == 0;
+            m.push(&unit(i as u64, Track::Video, 1000 + i * 33, key, if key { h264_key() } else { h264_delta(i as u8) })).unwrap();
+        }
+        let file = m.finish().unwrap();
+        let mut firsts = Vec::new();
+        for moof in boxes(&file, 0).into_iter().filter(|b| &b.ty == b"moof") {
+            for traf in boxes(moof.body, 0).into_iter().filter(|b| &b.ty == b"traf") {
+                let trun = child(&traf, b"trun", 0).unwrap();
+                let word = |at: usize| u32::from_be_bytes(trun.body[at..at + 4].try_into().unwrap());
+                if u32::from_be_bytes(child(&traf, b"tfhd", 0).unwrap().body[4..8].try_into().unwrap()) == 1 {
+                    firsts.push((word(4), word(20)));
+                }
+            }
+        }
+        assert_eq!(firsts, [(10, SYNC), (10, SYNC)], "a cut at any fragment starts on a keyframe");
     }
 
     #[test]

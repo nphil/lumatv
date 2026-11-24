@@ -285,7 +285,8 @@ impl GameUi {
         }
         self.art.poll();
         let dipped = self.step_art(model)?;
-        let bare_stream = model.view.page == Page::Running && model.stream_bare() && !model.hud_visible() && model.idle_left().is_none() && !model.clip_fading();
+        let bare_stream =
+            model.view.page == Page::Running && model.stream_bare() && !model.hud_visible() && model.idle_left().is_none() && !model.clip_fading() && !model.rec_fading();
         // A full-screen player in the frame app sits on the video plane under this window: the page and its art leave the screen clear.
         if bare_stream || model.video_full {
             self.art.want_warm(Vec::new());
@@ -696,6 +697,7 @@ fn plan_page(tokens: &Tokens, model: &Model, fonts: &mut ui::Fonts, scroll_posit
     p.finish();
     idle::show(&mut p);
     clip::show(&mut p);
+    clip::recording(&mut p);
     p.fit_focus();
     let sheet_start = p.plan.nodes.len();
     if view.top().is_some_and(crate::game::model::Layer::is_sheet) {
