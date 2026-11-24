@@ -14,15 +14,17 @@ Hogwarts Legacy and Cyberpunk show their HDR option greyed in a GeForce NOW sess
 - The display fields are complete since `b260254c` (`displayData`: 1000 nit peak, 200 nit frame average, 0.0005 nit black, P3-D65) and the Linux
   identity still got SDR, so they are not what decides the answer. The official LG client sends `clientDisplayHdrCapabilities: null` too.
 
-## Cause as far as the code shows
+## Cause
 
-The service grants HDR by client platform: only the Windows identity (`clientPlatformName` `Windows`, `nv-device-os` `WINDOWS`) was answered with
-HDR. Nothing in the request's display fields changes that. The default stays Linux because the Windows identity claims an OS the stream does not
-come from (`gfn/engine/patches/opennow-core.md`, Risks); that choice is the owner's, so it is not changed here.
+The service grants HDR by client platform, and the Windows PC identity (`clientPlatformName` `Windows`, `nv-device-os` `WINDOWS`) is set on the TV.
+The TV's streamer.log of 2026-11-24 under that identity: "the stream's tags say HDR10 (transfer 16) and the session answered hdr true", HEVC
+3840x2160 at 120 fps, 10-bit, moving between SDR (transfer 1) and HDR10 as the game switches. So the service does grant HDR to this client and the
+display fields are not the cause. The official LG GeForce NOW app has HDR, so the LG webOS identity is expected to work as well (untested here).
+What is left is the game's own option, which the test below checks.
 
 ## One-session TV test (Hogwarts Legacy, Settings › Stream › Client identity)
 
-1. Set Client identity to Windows PC, HDR on, 4K 120, HEVC. Launch the game. Read the core's `CloudMatch session created ... hdr in the response`
+1. With Client identity Windows PC, HDR on, 4K 120, HEVC, launch the game. Read the core's `CloudMatch session created ... hdr in the response`
    line and `stream_format` `vui.transfer` (16 is PQ).
 2. In the game's Graphics menu, note whether HDR is available, off, or greyed. Turn it on if it is available; the stream's tags should stay PQ.
 3. If it is greyed while the tags were PQ at launch: the game started before Windows HDR was on. Quit to Steam Big Picture (tags PQ there) and
