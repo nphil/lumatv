@@ -1,0 +1,111 @@
+== vdisp
+=== VDISP[0],5071e000 ===
+paused             : 0
+port               : 0(PORT0)
+clk_src            : 0x200(GSTC0)
+prev.pts           : 245070
+prev.compensated_pts : 245070
+phase_shift.errors : 3
+phase_shift.val    : 0
+is_film_mode       : 0
+freeze.status      : 0
+qlen               : 8
+frame_cnt          : 401
+- FRAME -
+    idx                : 10
+    y_addr             : 0x5dc61000
+    c_addr             : 0x5dcc1000
+    y_addr_bottom      : 0x00000000
+    c_addr_bottom      : 0x00000000
+    stride             : 2560
+    codec              : 11(HEVC)
+    dpb_map_mode       : 3(FBC_8BIT)
+    comp_mode          : 0(LOSSLESS)
+    frame_rate         : 72/1(72.00)
+    variable_framerate : 0
+    aspect_ratio       : 3
+    addr_extr_hdr      : 0x770c6260
+    width              : 2560
+    height             : 1440
+    crop(l,r,t,b)      : 0,0,0,0
+    scan_type          : 3(Progressive)
+    frame_format       : 0
+    discontinuity      : 0
+    pts                : 245070
+    enq_gstc           : 1448725689
+    uid                : 3965765448
+    display_period     : 1
+    afd                : 0
+    par(w,h)           : 1,1
+    disp_result        : 1
+
+
+#ENDOFREAD_0012
+== vrate
+===  VRATE[0] ===
+speed              : 1000
+intr_out_type      : 0
+framerate_max      : 120
+framerate_min      : 10
+
+- CONFIG -
+    -- original --
+    framerate          : 72/1(72.00)
+    duration           : 1250
+    -- current --
+    framerate          : 72/1(72.00)
+    duration           : 1250
+
+- CODEC -
+    -- original --
+    framerate          : 144/1(144.00)
+    duration           : 625
+    -- current --
+    framerate          : 144/1(144.00)
+    duration           : 625
+
+- PTS -
+    prev_stc           : 250650
+    changed            : 1
+    buf_idx            : 145
+    diff_stc_sum       : 160020
+    buf_cnt            : 256
+    framerate          : 23040000/160020(143.98)
+    duration           : 625
+    stable             : 0
+
+- FIXED -
+    use_fixed          : 0
+    framerate          : 0/0(0.00)
+    duration           : 0
+
+- STATUS -
+    rate_src           : CONF
+    framerate          : 72/1(72.00)
+    duration           : 1250
+
+
+#ENDOFREAD_0013
+== vsync
+=== VSYNC PORT[0] ===
+shared_mode        : 0
+framerate          : 72/1(72.00)
+interlaced         : 0
+phase_shift        : 0
+next_phase_shift   : 0
+intv               : 375000(13888us)
+base_intv          : 375000
+min_intv           : 374270
+max_intv           : 375730
+dco_intv           : 0
+max_phase_shift    : 10800
+    -- VSYNC[0] --
+    shared_mode        : 0
+    no_phase_shift     : 0
+    fixed_frame_rate   : 1
+    framerate          : 72/1(72.00)
+    interlaced         : 0
+    -----------------------------
+
+
+#ENDOFREAD_0014

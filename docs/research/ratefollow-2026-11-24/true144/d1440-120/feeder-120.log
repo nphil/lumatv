@@ -1,0 +1,25 @@
+AquireLogContext result = 0
+AquireLogContext result = 0AquireLogContext result = 0 
+gfn-feeder 16153599: smp: loaded H265 2560x1440 at 120, audio 0, sink main for com.webos.app.home in _Window_Id_13, media id _0iQGDU42CAJOP5
+gfn-feeder 16153599: playing /tmp/t144/m-2560x1440.h265: 432 units, 2560x1440 at 120 fps, codec 2, window _Window_Id_13, audio 0 packets, hdr 0, pts unit 1000000
+{"start":true,"file":"/tmp/t144/m-2560x1440.h265","units":432,"width":2560,"height":1440,"fps":120,"codec":2,"window":"_Window_Id_13","audio":0,"audio_route":"none","hdr":0,"pts_unit":1000000,"library":"libplayerAPIs.so.1","features":12}
+gfn-feeder 16153599: event 13 1 
+gfn-feeder 16153599: event 14 0 1
+gfn-feeder 16153599: event 5 0 0 video/x-h265 (null) (null) 2560 1440 (null) 120.000000 0 0 0
+gfn-feeder 16153599: event 17 0 {"context":"_0iQGDU42CAJOP5","resourceList":[{"type":"VDEC","portNumber":0}]}
+
+gfn-feeder 16153626: event 10001 0 {"serviceType":"video","videoSinkType":"main_video","audioSinkType":"unknown"}
+
+gfn-feeder 16153675: event 4 0 {"context":"_0iQGDU42CAJOP5","content":"movie","video":{"frameRate":144,"scanType":"VIDEO_PROGRESSIVE","width":2560,"height":1440,"pixelAspectRatio":{"width":1,"height":1},"bitRate":0,"adaptive":true
+gfn-feeder 16153675: event 37 1 
+gfn-feeder 16153676: event 22 0 true
+gfn-feeder 16153690: event 26 0 true
+
+(lumatv-gfn-feeder:32570): GLib-GObject-CRITICAL **: 11:34:52.091: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+gfn-feeder 16153955: event 18 600 {"errorCode":600,"errorText":"SUB_SCALER resource is released by policy action"}
+
+gfn-feeder 16153955: the pipeline reported an error; stopping
+gfn-feeder 16153976: event 10002 0 {"serviceType":"video","videoSinkType":"main_video","audioSinkType":"unknown","code":8}
+
+{"t":1,"fed":43,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":0,"mean":0.00,"p99":0,"samples":0},"wait_max_us":5188,"wait_p99_us":5188,"buffer_low":1,"buffer_full":0,"errors":1,"loaded":1,"playing":1,"cma_free_kb":14548,"mem_avail_kb":499460,"rss_kb":25996,"audio_avail":0}
+{"summary":true,"units":432,"fed":43,"dropped":0,"afed":0,"adropped":0,"retries":0,"seconds":0.38,"loaded_ms":327,"playing_ms":342,"loaded":1,"playing":1,"error":1,"audio_route":"none","adecode_errors":0,"events":{"4":1,"5":1,"13":1,"14":1,"17":1,"18":1,"22":1,"26":1,"37":1,"44":1},"video_info":"{\"context\":\"_0iQGDU42CAJOP5\",\"content\":\"movie\",\"video\":{\"frameRate\":144,\"scanType\":\"VIDEO_PROGRESSIVE\",\"width\":2560,\"height\":1440,\"pixelAspectRatio\":{\"width\":1,\"height\":1}","exit":6}

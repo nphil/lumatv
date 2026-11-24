@@ -1,0 +1,158 @@
+AquireLogContext result = 0
+AquireLogContext result = 0AquireLogContext result = 0 
+gfn-feeder 16102621: smp: loaded H265 2560x1440 at 72, audio 0, sink main for com.webos.app.home in _Window_Id_9, media id _LcSUNT4YyMBXxb
+gfn-feeder 16102621: playing /tmp/t144/m-2560x1440.h265: 432 units, 2560x1440 at 144 fps, codec 2, window _Window_Id_9, audio 0 packets, hdr 0, pts unit 1000000
+{"start":true,"file":"/tmp/t144/m-2560x1440.h265","units":432,"width":2560,"height":1440,"fps":144,"codec":2,"window":"_Window_Id_9","audio":0,"audio_route":"none","hdr":0,"pts_unit":1000000,"library":"libplayerAPIs.so.1","features":12}
+gfn-feeder 16102621: event 13 1 
+gfn-feeder 16102621: event 14 0 1
+gfn-feeder 16102621: event 5 0 0 video/x-h265 (null) (null) 2560 1440 (null) 72.000000 0 0 0
+gfn-feeder 16102621: event 17 0 {"context":"_LcSUNT4YyMBXxb","resourceList":[{"type":"VDEC","portNumber":0}]}
+
+gfn-feeder 16102632: event 10001 0 {"serviceType":"video","videoSinkType":"main_video","audioSinkType":"unknown"}
+
+gfn-feeder 16102686: event 4 0 {"context":"_LcSUNT4YyMBXxb","content":"movie","video":{"frameRate":144,"scanType":"VIDEO_PROGRESSIVE","width":2560,"height":1440,"pixelAspectRatio":{"width":1,"height":1},"bitRate":0,"adaptive":true
+gfn-feeder 16102692: event 37 1 
+gfn-feeder 16102692: event 22 0 true
+gfn-feeder 16102704: event 26 0 true
+
+(lumatv-gfn-feeder:24482): GLib-GObject-CRITICAL **: 11:34:01.107: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+gfn-feeder 16103221: event 48 7 
+gfn-feeder 16103221: event 49 8 
+gfn-feeder 16103221: event 0 112000000 
+gfn-feeder 16103421: event 48 15 
+gfn-feeder 16103421: event 49 14 
+gfn-feeder 16103421: event 0 313000000 
+gfn-feeder 16103621: event 48 15 
+gfn-feeder 16103621: event 49 14 
+gfn-feeder 16103621: event 0 521000000 
+{"t":1,"fed":145,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":0,"mean":0.00,"p99":0,"samples":0},"wait_max_us":2026,"wait_p99_us":429,"buffer_low":1,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":1524,"mem_avail_kb":496832,"rss_kb":26656,"audio_avail":0}
+gfn-feeder 16103822: event 48 13 
+gfn-feeder 16103822: event 49 15 
+gfn-feeder 16103822: event 0 709000000 
+gfn-feeder 16104022: event 48 15 
+gfn-feeder 16104022: event 49 14 
+gfn-feeder 16104022: event 0 910000000 
+gfn-feeder 16104222: event 48 14 
+gfn-feeder 16104222: event 49 15 
+gfn-feeder 16104222: event 0 1112000000 
+gfn-feeder 16104423: event 48 15 
+gfn-feeder 16104423: event 49 14 
+gfn-feeder 16104423: event 0 1313000000 
+{"t":2,"fed":144,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":0,"mean":0.00,"p99":0,"samples":0},"wait_max_us":680,"wait_p99_us":407,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":1896,"mem_avail_kb":495420,"rss_kb":26656,"audio_avail":0}
+gfn-feeder 16104623: event 48 15 
+gfn-feeder 16104623: event 49 15 
+gfn-feeder 16104623: event 0 1521000000 
+gfn-feeder 16104823: event 48 13 
+gfn-feeder 16104823: event 49 14 
+gfn-feeder 16104823: event 0 1709000000 
+gfn-feeder 16105023: event 48 16 
+gfn-feeder 16105023: event 49 14 
+gfn-feeder 16105023: event 0 1924000000 
+gfn-feeder 16105224: event 48 13 
+gfn-feeder 16105224: event 49 15 
+gfn-feeder 16105224: event 0 2112000000 
+gfn-feeder 16105424: event 48 15 
+gfn-feeder 16105424: event 49 14 
+gfn-feeder 16105424: event 0 2313000000 
+{"t":3,"fed":144,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":0,"mean":0.00,"p99":0,"samples":0},"wait_max_us":431,"wait_p99_us":300,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":1968,"mem_avail_kb":495752,"rss_kb":26656,"audio_avail":0}
+gfn-feeder 16105624: event 48 15 
+gfn-feeder 16105624: event 49 15 
+gfn-feeder 16105624: event 0 2521000000 
+gfn-feeder 16105825: event 48 13 
+gfn-feeder 16105825: event 49 14 
+gfn-feeder 16105825: event 0 2709000000 
+gfn-feeder 16106025: event 48 16 
+gfn-feeder 16106025: event 49 15 
+gfn-feeder 16106025: event 0 2924000000 
+gfn-feeder 16106225: event 48 13 
+gfn-feeder 16106225: event 49 14 
+gfn-feeder 16106225: event 0 3112000000 
+gfn-feeder 16106425: event 48 15 
+gfn-feeder 16106425: event 49 14 
+gfn-feeder 16106425: event 0 3313000000 
+{"t":4,"fed":144,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":0,"mean":0.00,"p99":0,"samples":0},"wait_max_us":436,"wait_p99_us":328,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":2148,"mem_avail_kb":497444,"rss_kb":26808,"audio_avail":0}
+gfn-feeder 16106626: event 48 15 
+gfn-feeder 16106626: event 49 15 
+gfn-feeder 16106626: event 0 3521000000 
+gfn-feeder 16106826: event 48 13 
+gfn-feeder 16106826: event 49 14 
+gfn-feeder 16106826: event 0 3709000000 
+gfn-feeder 16107027: event 48 16 
+gfn-feeder 16107027: event 49 15 
+gfn-feeder 16107027: event 0 3924000000 
+gfn-feeder 16107227: event 48 13 
+gfn-feeder 16107227: event 49 14 
+gfn-feeder 16107227: event 0 4112000000 
+gfn-feeder 16107427: event 48 15 
+gfn-feeder 16107427: event 49 15 
+gfn-feeder 16107427: event 0 4320000000 
+{"t":5,"fed":144,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":0,"mean":0.00,"p99":0,"samples":0},"wait_max_us":291,"wait_p99_us":290,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":2272,"mem_avail_kb":497044,"rss_kb":26808,"audio_avail":0}
+gfn-feeder 16107628: event 48 15 
+gfn-feeder 16107628: event 49 14 
+gfn-feeder 16107628: event 0 4521000000 
+gfn-feeder 16107829: event 48 13 
+gfn-feeder 16107829: event 49 14 
+gfn-feeder 16107829: event 0 4709000000 
+gfn-feeder 16108028: event 48 16 
+gfn-feeder 16108028: event 49 15 
+gfn-feeder 16108028: event 0 4924000000 
+gfn-feeder 16108229: event 48 13 
+gfn-feeder 16108229: event 49 14 
+gfn-feeder 16108229: event 0 5112000000 
+gfn-feeder 16108429: event 48 15 
+gfn-feeder 16108429: event 49 15 
+gfn-feeder 16108429: event 0 5320000000 
+{"t":6,"fed":144,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":0,"mean":0.00,"p99":0,"samples":0},"wait_max_us":250,"wait_p99_us":245,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":2272,"mem_avail_kb":497312,"rss_kb":26808,"audio_avail":0}
+gfn-feeder 16108629: event 48 15 
+gfn-feeder 16108629: event 49 14 
+gfn-feeder 16108629: event 0 5521000000 
+gfn-feeder 16108830: event 48 14 
+gfn-feeder 16108830: event 49 15 
+gfn-feeder 16108830: event 0 5723000000 
+gfn-feeder 16109030: event 48 15 
+gfn-feeder 16109030: event 49 14 
+gfn-feeder 16109030: event 0 5924000000 
+gfn-feeder 16109230: event 48 13 
+gfn-feeder 16109230: event 49 14 
+gfn-feeder 16109230: event 0 6112000000 
+gfn-feeder 16109431: event 48 15 
+gfn-feeder 16109431: event 49 15 
+gfn-feeder 16109431: event 0 6320000000 
+{"t":7,"fed":144,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":0,"mean":0.00,"p99":0,"samples":0},"wait_max_us":364,"wait_p99_us":218,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":2236,"mem_avail_kb":496728,"rss_kb":26808,"audio_avail":0}
+gfn-feeder 16109631: event 48 15 
+gfn-feeder 16109631: event 49 14 
+gfn-feeder 16109631: event 0 6521000000 
+gfn-feeder 16109831: event 48 14 
+gfn-feeder 16109831: event 49 15 
+gfn-feeder 16109831: event 0 6723000000 
+gfn-feeder 16110031: event 48 15 
+gfn-feeder 16110031: event 49 14 
+gfn-feeder 16110031: event 0 6924000000 
+gfn-feeder 16110232: event 48 14 
+gfn-feeder 16110232: event 49 14 
+gfn-feeder 16110232: event 0 7112000000 
+gfn-feeder 16110432: event 48 14 
+gfn-feeder 16110432: event 49 15 
+gfn-feeder 16110432: event 0 7320000000 
+{"t":8,"fed":144,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":0,"mean":0.00,"p99":0,"samples":0},"wait_max_us":1451,"wait_p99_us":382,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":2304,"mem_avail_kb":497604,"rss_kb":26808,"audio_avail":0}
+gfn-feeder 16110632: event 48 15 
+gfn-feeder 16110632: event 49 14 
+gfn-feeder 16110632: event 0 7521000000 
+gfn-feeder 16110832: event 48 14 
+gfn-feeder 16110833: event 49 15 
+gfn-feeder 16110833: event 0 7723000000 
+gfn-feeder 16111033: event 48 15 
+gfn-feeder 16111033: event 49 14 
+gfn-feeder 16111033: event 0 7924000000 
+gfn-feeder 16111233: event 48 15 
+gfn-feeder 16111233: event 49 15 
+gfn-feeder 16111233: event 0 8132000000 
+gfn-feeder 16111433: event 48 13 
+gfn-feeder 16111433: event 49 14 
+gfn-feeder 16111433: event 0 8320000000 
+{"t":9,"fed":144,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":0,"mean":0.00,"p99":0,"samples":0},"wait_max_us":328,"wait_p99_us":299,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":2304,"mem_avail_kb":496052,"rss_kb":27072,"audio_avail":0}
+gfn-feeder 16111634: event 48 15 
+gfn-feeder 16111634: event 49 14 
+gfn-feeder 16111634: event 0 8521000000 
+{"t":10,"fed":0,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":0,"mean":0.00,"p99":0,"samples":0},"wait_max_us":0,"wait_p99_us":0,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":2304,"mem_avail_kb":495800,"rss_kb":27072,"audio_avail":0}
+{"summary":true,"units":432,"fed":1297,"dropped":0,"afed":0,"adropped":0,"retries":0,"seconds":9.01,"loaded_ms":247,"playing_ms":259,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"0":43,"4":1,"5":1,"13":1,"14":1,"17":1,"22":1,"26":1,"37":1,"44":1,"48":43,"49":43},"video_info":"{\"context\":\"_LcSUNT4YyMBXxb\",\"content\":\"movie\",\"video\":{\"frameRate\":144,\"scanType\":\"VIDEO_PROGRESSIVE\",\"width\":2560,\"height\":1440,\"pixelAspectRatio\":{\"width\":1,\"height\":1}","exit":0}
