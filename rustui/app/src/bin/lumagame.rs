@@ -934,9 +934,10 @@ mod tests {
         receive.set_nonblocking(true).unwrap();
         let sink = MenuSink { active: AtomicBool::new(true), mode: AtomicU8::new(PadMode::Menu as u8), connected: AtomicU32::new(0), keys: Mutex::new(std::array::from_fn(|_| PadKeys::default())), lab: Mutex::new(LabBuffer::default()), send };
         let report = |buttons| PadEvent::Report { slot: 1, state: PadState { buttons, ..PadState::default() }, press: None };
+        // The key datagrams (index, down, slot); the repeat's push datagrams (state 2) are not what this test is about.
         let drain = || {
-            let mut bytes = [0; 3];
-            std::iter::from_fn(|| receive.recv(&mut bytes).ok().map(|_| bytes)).collect::<Vec<_>>()
+            let mut bytes = [0; 4];
+            std::iter::from_fn(|| receive.recv(&mut bytes).ok().map(|_| bytes)).filter(|b| b[1] != 2).map(|b| [b[0], b[1], b[2]]).collect::<Vec<_>>()
         };
         let (up, down) = (0, 1);
         sink.pad_event(1, report(button::DPAD_UP));
