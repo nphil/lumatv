@@ -417,6 +417,13 @@ SURFACES = [
      'open': '@switcher-open BACK:700 s0.9 RIGHTx2@0.2 LEFTx2@0.2 RIGHT:700 s0.2 LEFT:700 s0.2 BACK',
      'close': '@switcher-close', 'settle_s': 0.8, 'close_settle_s': 0.5,
      'thresholds': {'first_frame_ms': None, 'burst_end_ms': None}},
+    # `system-confirm`: the task manager (Back held), its System button, the sheet's Restart LumaTV (which asks "Restart LumaTV?" with Cancel focused),
+    # Right and Left across the two buttons, and Back out of the confirm, the sheet and the task manager. Nothing is confirmed. Needs an app
+    # running for the switcher's card row to hold focus first (Down reaches the buttons from it); no setup of its own, so it measures the apps the set has.
+    {'name': 'system-confirm', 'default': False, 'transition': False,
+     'open': '@system-confirm-open BACK:700 s0.9 DOWN s0.2 RIGHT s0.2 OK s0.5 OK s0.5 RIGHT s0.3 LEFT s0.3 RIGHT s0.3 BACK s0.5 BACK s0.5 BACK',
+     'close': '@system-confirm-close', 'settle_s': 0.8, 'close_settle_s': 0.5,
+     'thresholds': {'first_frame_ms': None, 'burst_end_ms': None}},
     # `transitions-netflix`, `transitions-settings`: an app launched and Home pressed in it, with smooth transitions on for the run (`lumatv
     # transitions on`, put back). The app is running already (setup), so the launch is a resume and the compositor's grow out of the tile (220 ms)
     # and shrink into it (180 ms) are what the windows hold; the key-to-first-frame and burst-end checks measure the app's resume and SAM's round

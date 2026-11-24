@@ -357,11 +357,12 @@ impl Service {
         // Live TV Tuner: the antenna tuner on the home network, a plugin of the helper's own. Nothing listens and the tuner is left alone
         // until the owner switches it on in Settings. Guide data: online listings laid over the TV's own guide, the tuner's `/xmltv.xml`
         // included, also off until switched on. Both read the TV's channel list through the same luna path.
-        // A device that takes the tuner from the TV's own Live TV is named in a toast of LumaTV's, and LumaTV's home takes the screen.
+        // A device that takes the tuner from the TV's own Live TV is named in a toast of LumaTV's, and Home takes the screen: launching the
+        // Home app (the compositor's Home stub) shows LumaTV's Home; launching `org.nphil.lumatv` shows that app's own page instead.
         let app = config.brand_app_id.clone().unwrap_or_else(|| "org.nphil.lumatv".to_owned());
         let tv: Arc<dyn lumatuner::Hardware> = Arc::new(lumatuner::webos::Tv::new(
             lumatuner::webos::WebosConfig {
-                home_app: Some(app.clone()),
+                home_app: Some("com.webos.app.home".to_owned()),
                 toast_source: Some(app),
                 ..config.hdhr.webos()
             },
