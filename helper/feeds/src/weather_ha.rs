@@ -2,7 +2,7 @@
 //! (`snapshot`: the entity's reading and its hourly and daily forecasts, in the units Home Assistant has the entity in).
 //!
 //! Pure: a snapshot in, [`WeatherDoc`] and [`MoreDoc`] out, so that the card and the view are drawn from them exactly as they are from Open-Meteo's. The
-//! place is the entity's name (a station has no zip code); the document carries the zip and units it is asked for, so that the saved-first cache
+//! place is empty (a station has no place name, and the entity's name is the integration's); the document carries the zip and units it is asked for, so that the saved-first cache
 //! rules hold. Wind is converted to mph and the temperature to the unit the card is set to (the entity's `temperature_unit` is read); a number the entity
 //! does not give is left out of the view rather than guessed.
 
@@ -61,7 +61,8 @@ pub fn documents(snap: &Value, cfg: &WeatherConfig, now_ms: u64) -> Option<(Weat
     let unit = reading.get("temperature_unit").and_then(Value::as_str).unwrap_or("\u{b0}C").to_owned();
     let wind_unit = reading.get("wind_speed_unit").and_then(Value::as_str).unwrap_or("km/h").to_owned();
     let want = |x: f64| if cfg.units == Units::Celsius { to_celsius(x, &unit) } else { to_fahrenheit(x, &unit) };
-    let place = snap.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
+    // a station has no place name: the entity's name says which integration it is (Pirate Weather, Met.no), which the widgets do not show
+    let place = String::new();
     let condition = snap.get("condition").and_then(Value::as_str).unwrap_or("");
     let code = wmo_of(condition);
     let day_now = condition != "clear-night" && snap.get("hourly").and_then(Value::as_array).and_then(|h| h.first()).and_then(|e| e.get("is_daytime")).and_then(Value::as_bool).unwrap_or(true);
@@ -200,7 +201,7 @@ mod tests {
     #[test]
     fn a_snapshot_becomes_the_cards_document_in_the_units_it_is_set_to() {
         let (doc, more) = documents(&snapshot(), &cfg(Units::Fahrenheit), 1_000).expect("documents");
-        assert_eq!(doc.display.place, "Pirate Weather");
+        assert_eq!(doc.display.place, "", "the entity's name is the integration's (Pirate Weather), not a place, and no widget shows it");
         assert_eq!(doc.display.temp, "61\u{b0}");
         assert_eq!(doc.display.cond, "Rain");
         assert_eq!(doc.display.now_kind, "rain");

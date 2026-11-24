@@ -111,7 +111,16 @@ fn rows(c: &Ctx) -> Vec<Row> {
     let mut tuner = theme_seg("tunerglyphs", 1, "antenna", "Tuner glyphs", &Place::WORDS, Place::CHOICES.iter().position(|p| *p == place), |i| json!({"layout": {"statusBar": {crate::tuner_use::PLACE_KEY: Place::CHOICES[i].key()}}}));
     tuner.help = "An antenna in the top bar while a player streams from the tuner, and a chip beside it while the stream is made into H.264. Which end of the bar has them, or off.".into();
     rows.push(tuner);
+    use crate::home::bar_date::Place as DatePlace;
+    let date_place = DatePlace::of(c.theme_str("layout.statusBar.date"));
+    let mut date = theme_seg("datepos", 1, "calendar", "Date in the top bar", &DatePlace::WORDS, DatePlace::CHOICES.iter().position(|p| *p == date_place), |i| json!({"layout": {"statusBar": {DatePlace::KEY: DatePlace::CHOICES[i].key()}}}));
+    date.help = "The weekday and date in the top bar: in the middle, at either end, or hidden; or under the time in the clock card.".into();
+    rows.push(date);
     rows.push(theme_toggle(c, ("twelvehour", 1, "clock", "12-hour clock", ""), "clock.twelveHour", true));
+    let monday = crate::home::clock::WeekStart::of(c.theme_str("clock.weekStart")) == crate::home::clock::WeekStart::Monday;
+    let mut week_start = theme_seg("weekstart", 1, "clock", "Week starts on", &["Monday", "Sunday"], Some(usize::from(!monday)), |i| json!({"clock": {"weekStart": if i == 0 { "monday" } else { "sunday" }}}));
+    week_start.help = "The first day of the clock's week and months. Until one is chosen, the TV's region decides.".into();
+    rows.push(week_start);
     rows.push(Row::link("homeassistant").tab(1).icon("house-wifi").label("Home Assistant").value(&super::homeassistant::words(c)).does(vec![Op::Open { page: "homeassistant".into(), arg: Default::default() }]));
     rows.push(Row::link("cameras").tab(1).icon("video").label("Cameras").value(&super::cameras::summary(c)).does(vec![Op::Open { page: "cameras".into(), arg: Default::default() }]));
     rows.push(theme_toggle(c, ("greeting", 1, "sunrise", "Greeting", "Good morning, afternoon or evening under the digital clock."), "clock.greeting", true));

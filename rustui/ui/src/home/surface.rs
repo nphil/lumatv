@@ -53,6 +53,16 @@ pub fn status_glass(glass: Glass, shadow: bool) -> Glass {
     Glass { depth: None, shadows: if shadow { glass.shadows } else { [None, None] }, ..glass }
 }
 
+/// The date in the top bar (`bar_date`): its words, and the glass of its own where the bar is only as wide as its buttons.
+struct BarDate {
+    key: String,
+    pane: Option<GlassLayer>,
+    /// Where the pane is, for fading it with the bar.
+    at: (f32, f32),
+    text: Text,
+    hidden: Option<bool>,
+}
+
 /// The scale a dock tile lifts to: `scale`, nudged so the lifted tile is an even number of pixels wider than at rest. Its edges, which
 /// grow about the tile's centre, then fall on whole pixels (120 px at 1.12 is 134.4 px, edges at -7.2; 134 px has them at -7).
 pub fn lift_scale(tile: f32, scale: f32) -> f32 {
@@ -343,6 +353,7 @@ pub struct HomeSurface {
     confirm: Option<ConfirmSurface>,
     popover: Option<PopoverSurface>,
     weather_view: Option<super::weather_view::WeatherSurface>,
+    bar_date: Option<BarDate>,
     onhome_sheet: Option<super::onhome::SheetSurface>,
     history_sheet: Option<super::onhome::sensor_surface::SensorSurface>,
     colour_sheet: Option<super::onhome::colour_surface::ColourSurface>,
@@ -400,6 +411,7 @@ impl HomeSurface {
             confirm: None,
             popover: None,
             weather_view: None,
+            bar_date: None,
             onhome_sheet: None,
             history_sheet: None,
             colour_sheet: None,
@@ -657,6 +669,7 @@ impl HomeSurface {
         }
         self.popover = None;
         self.weather_view = None;
+        self.bar_date = None;
         self.onhome_sheet = None;
         self.history_sheet = None;
         self.colour_sheet = None;
@@ -1220,9 +1233,10 @@ impl HomeSurface {
                     // the words and the picture of the card, and the sky's sprites, are made inside the card's group, which a lift of its own owns
                     let twelve = home.theme.pointer("/clock/twelveHour").and_then(Value::as_bool) != Some(false);
                     let scene = kit.ui.scene.clone();
+                    let look = home.weather_look(&c.id);
                     let pictures = &mut self.pictures;
                     let _ = c.lift.adopting(engine, &scene, || {
-                        w.set(kit, pictures, &home.weather, &home.weather_more, twelve);
+                        w.set(kit, pictures, &home.weather, &home.weather_more, twelve, look);
                         w.set_art(kit, &home.weather);
                     });
                 }
@@ -1612,6 +1626,39 @@ impl HomeSurface {
                 }
             }
         }
+        self.update_date(kit, home, now)?;
+        Ok(())
+    }
+
+    /// The date in the top bar: made again when its words, its place along the bar or the ink change, and faded out with the bar.
+    fn update_date(&mut self, kit: &mut Kit, home: &Home, now: u64) -> std::io::Result<()> {
+        let words = super::bar_date::words(&super::clock::civil(now));
+        let ink = kit.ui.look.ink2();
+        let style = role_style(kit, TypeRole::Label, Some(Weight::Medium), ink, Align::Left);
+        let width = width_of(kit, style, &words);
+        let spot = home.date_box(width);
+        let key = format!("{words}|{spot:?}|{:?}", (ink.0, ink.1, ink.2));
+        if self.bar_date.as_ref().is_none_or(|d| d.key != key) {
+            self.bar_date = None;
+            if let Some((f, own)) = spot {
+                let pane = own.then(|| kit.ui.scene.glass(f.w as u32, f.h as u32, Z_STATUS, status_glass(glass_of(kit, PaneKind::Pill, f.h, false, false), true), Props::at(f.x, f.y)));
+                let x = if own { f.x + ((f.w - width) / 2.0).round() } else { f.x };
+                let text = Text::line_at(kit, x, f.y + f.h / 2.0, width, Z_STATUS + 3, style, &words)?;
+                self.bar_date = Some(BarDate { key, pane, at: (f.x, f.y), text, hidden: None });
+            }
+        }
+        let hidden = (self.page_hidden && home.layer != Layer::Popover) || home.layer == Layer::Edit || home.layer == Layer::Search;
+        if let Some(d) = &mut self.bar_date
+            && d.hidden != Some(hidden)
+        {
+            d.hidden = Some(hidden);
+            let shown = |at: Props| Props { opacity: if hidden { 0.0 } else { 1.0 }, visible: !hidden, ..at };
+            if let Some(p) = &d.pane {
+                p.set(shown(Props::at(d.at.0, d.at.1)));
+            }
+            let at = d.text.at();
+            d.text.set_props(shown(at));
+        }
         Ok(())
     }
 
@@ -1675,6 +1722,9 @@ impl HomeSurface {
         for c in self.cards.iter().filter(|_| !matches!(home.layer, Layer::Popover | Layer::OnHome)) {
             let p = lint.panel(&c.id, c.frame, paint, true);
             c.content.words().lint(kit, &mut lint, &c.id, (c.frame.x, c.frame.y), Some(p));
+            if let Content::Weather(w) = &c.content {
+                w.lint_week(kit, &mut lint, &c.id, (c.frame.x, c.frame.y), Some(p));
+            }
             if let (Content::OnHome(oh), Some(s)) = (&c.content, home.smart_of(&c.id)) {
                 let (g, o) = (&s.plan().grid, s.offset() as f32);
                 let (sx, sy) = g.stride();
@@ -1889,7 +1939,7 @@ mod tests {
                 let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
                 fixtures(&mut home);
                 weather_page(&mut home);
-                for (i, key) in ["down", "right", "right", "ok"].into_iter().enumerate() {
+                for (i, key) in ["down", "right", "right", "ok", "up", "ok"].into_iter().enumerate() {
                     press(&mut home, key, 2000 + 100 * i as u64);
                 }
                 assert_eq!(home.layer, Layer::Weather, "{mode:?} at {scale}");
@@ -1909,6 +1959,29 @@ mod tests {
     }
 
     #[test]
+    fn the_weather_week_holds_two_layers_at_rest_three_with_the_focus_and_two_with_a_day_open() {
+        let (h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
+        let mut engine = Engine::new(&kit).expect("an engine");
+        let mut home = weather_week_home();
+        let mut s = HomeSurface::new(1000);
+        s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+        let layers = |s: &HomeSurface| s.cards.iter().find_map(|c| if let Content::Weather(w) = &c.content { w.week_layers() } else { None }).expect("the week is drawn");
+        s.apply(&mut kit, &mut engine, &mut home, EVENING).expect("Home drawn");
+        assert_eq!(layers(&s), 2, "the words and the picture");
+        assert!(home.focus.focus(home.widget_id("weather").expect("the weather card")), "the weather card takes the focus");
+        press(&mut home, "ok", 1100);
+        s.apply(&mut kit, &mut engine, &mut home, EVENING + 100).expect("Home drawn");
+        assert_eq!(layers(&s), 3, "and the plate under the focused day");
+        press(&mut home, "ok", 1200);
+        s.apply(&mut kit, &mut engine, &mut home, EVENING + 200).expect("Home drawn");
+        assert_eq!(layers(&s), 2, "an open day is its words and its picture, the week's are let go");
+        press(&mut home, "back", 1300);
+        s.apply(&mut kit, &mut engine, &mut home, EVENING + 300).expect("Home drawn");
+        assert_eq!(layers(&s), 3, "closed it is the week with the plate again");
+        std::mem::forget(h);
+    }
+
+    #[test]
     fn a_page_slides_in_from_the_side_the_key_went_and_the_one_it_replaces_is_let_go_when_it_is_out_of_sight() {
         let (h, mut kit) = testkit::kit_in(Mode::Dark, 1.0);
         let mut engine = Engine::new(&kit).expect("an engine");
@@ -1916,7 +1989,7 @@ mod tests {
         let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
         fixtures(&mut home);
         weather_page(&mut home);
-        for (i, key) in ["down", "right", "right", "ok"].into_iter().enumerate() {
+        for (i, key) in ["down", "right", "right", "ok", "up", "ok"].into_iter().enumerate() {
             press(&mut home, key, 2000 + 100 * i as u64);
         }
         let mut s = HomeSurface::new(1000);
@@ -1949,7 +2022,7 @@ mod tests {
         let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
         fixtures(&mut home);
         weather_page(&mut home);
-        for (i, key) in ["down", "right", "right", "ok", "right"].into_iter().enumerate() {
+        for (i, key) in ["down", "right", "right", "ok", "up", "ok", "right"].into_iter().enumerate() {
             press(&mut home, key, 2000 + 100 * i as u64);
         }
         assert!(home.radar.open, "the map page is up");
@@ -2066,7 +2139,7 @@ mod tests {
                     let (h, mut kit) = testkit::kit_in(mode, scale);
                     let mut engine = Engine::new(&kit).expect("an engine");
                     let mut theme = lumatv_tokens::Tokens::shipped().json().clone();
-                    lumatv_tokens::merge(&mut theme, &json!({"cardGlass": glass}));
+                    lumatv_tokens::merge(&mut theme, &json!({"cardGlass": glass, "clock": {"weekStart": "sunday"}}));
                     let mut home = Home::new(theme, super::super::grid::shipped(), json!({}));
                     fixtures(&mut home);
                     let mut s = HomeSurface::new(1000);
@@ -2074,9 +2147,9 @@ mod tests {
                     s.apply(&mut kit, &mut engine, &mut home, 2300).expect("Home drawn");
                     s.wall.sample = Some(wallpaper::Sample { luma, tint: None });
                     let lint = s.lint(&mut kit, &home);
-                    // the two accent words (today's date, the news tag) read under 3:1 on the clear glass over a mid-light picture (2.5 to 2.9): a text plate under just
+                    // the two accent words (today's number in the month, the news tag) read under 3:1 on the clear glass over a mid-light picture (2.5 to 2.9): a text plate under just
                     // those words is the mend, not built; every other word of Home passes
-                    let bad: Vec<String> = lint.findings().iter().filter(|f| f.subject != "clock.9" && f.subject != "news.0").map(|f| format!("{f:?}")).collect();
+                    let bad: Vec<String> = lint.findings().iter().filter(|f| f.subject != "clock.7" && f.subject != "news.0").map(|f| format!("{f:?}")).collect();
                     assert!(bad.is_empty(), "{mode:?} luma {luma} {glass} at {scale}: {}", bad.join("\n"));
                     std::mem::forget(h);
                 }
@@ -2089,7 +2162,7 @@ mod tests {
         for mode in [Mode::Dark, Mode::Light] {
             for scale in [1.0, 2.0] {
                 let (findings, words) = lint_home(mode, scale, json!({}));
-                assert!(words >= 12, "{mode:?} {scale}: only {words} words were drawn");
+                assert!(words >= 8, "{mode:?} {scale}: only {words} words were drawn");
                 let bad: Vec<String> = findings.iter().map(|f| format!("{f:?}")).collect();
                 assert!(bad.is_empty(), "{mode:?} at {scale}: {}", bad.join("\n"));
             }
@@ -3072,70 +3145,173 @@ mod tests {
         std::mem::forget(h);
     }
 
-    /// Home with the focus on the dock written as a 1920x1080 PNG when `DOCK_SHOTS` names a file, drawn by the real renderer on software GL
-    /// (`LIBGL_ALWAYS_SOFTWARE=1` on a machine with a GPU), 45 refreshes after the focus lands so that the spring has settled. Without the
-    /// variable the test does nothing.
-    #[test]
-    fn home_with_the_focus_on_the_dock_is_written_as_a_png_for_looking_at_when_a_file_is_named() {
-        use compositor_protocol::Event;
-        use lumatv_render::host::{Engine as Host, HostConfig};
-        use lumatv_render::{Gles, now_ns};
-        use std::time::{Duration, Instant};
-        use ui::lucent::material::MaterialTier;
-        use ui::testing::TempDir;
+    /// The real renderer on software GL (`LIBGL_ALWAYS_SOFTWARE=1` on a machine with a GPU) with Home drawn on it, for the tests that write a PNG to look at.
+    struct Shoot {
+        kit: Kit,
+        host: lumatv_render::host::Engine,
+        events: std::sync::mpsc::Receiver<compositor_protocol::Event>,
+        engine: Engine,
+        s: HomeSurface,
+        _shm: ui::testing::TempDir,
+    }
 
-        fn pump(kit: &mut Kit, host: &mut Host, events: &std::sync::mpsc::Receiver<Event>) {
-            while let Ok(event) = events.try_recv() {
-                kit.ui.scene.observe(&event);
+    impl Shoot {
+        fn new() -> Self {
+            use lumatv_render::Gles;
+            use lumatv_render::host::{Engine as Host, HostConfig};
+            use ui::lucent::material::MaterialTier;
+            let shm = ui::testing::TempDir::new("home-shots");
+            let gles = Gles::software_pbuffer(c"libEGL.so.1", 1920, 1080).expect("Mesa EGL");
+            let config = HostConfig { width: 1920, height: 1080, refresh_hz: 60.0, shm_dir: shm.path().to_owned(), direct: false, gpu_sync: false, idle_trim: false, pages: 0, reference: false, blit: false, external: false, system_z: i32::MAX };
+            let (mut host, end) = Host::new(gles, config).expect("the renderer");
+            let (scene, _, events) = ui::Scene::over_with(end, ui::SceneOptions { shm_dir: Some(shm.path().to_owned()), ..Default::default() }).expect("a scene");
+            host.finish_handshake().expect("the handshake");
+            let mut kit = Kit::new(scene, lumatv_tokens::Tokens::shipped(), Mode::Dark, MaterialTier::T1, 1.0).expect("a kit");
+            kit.icons = crate::kit::icon::Icons::new(&testkit::module_dir());
+            let engine = Engine::new(&kit).expect("an engine");
+            let mut s = HomeSurface::new(1000);
+            s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
+            Self { kit, host, events, engine, s, _shm: shm }
+        }
+
+        fn pump(&mut self) {
+            while let Ok(event) = self.events.try_recv() {
+                self.kit.ui.scene.observe(&event);
             }
-            if let Some(atlas) = kit.ui.text_atlas() {
+            if let Some(atlas) = self.kit.ui.text_atlas() {
                 atlas.pump();
             }
-            if kit.ui.scene.has_pending() {
-                kit.ui.try_commit().expect("a commit");
+            if self.kit.ui.scene.has_pending() {
+                self.kit.ui.try_commit().expect("a commit");
             }
-            assert!(!host.pump().expect("the renderer").closed, "the renderer closed");
+            assert!(!self.host.pump().expect("the renderer").closed, "the renderer closed");
         }
 
+        /// Home drawn for `home` once the glyphs are in, then 45 refreshes so that every spring has settled.
+        fn settle(&mut self, home: &mut Home, at: u64) {
+            self.flush(home, at);
+            self.frames(45);
+        }
+
+        /// Home drawn for `home` once the glyphs are in.
+        fn flush(&mut self, home: &mut Home, at: u64) {
+            use lumatv_render::now_ns;
+            use std::time::{Duration, Instant};
+            self.s.apply(&mut self.kit, &mut self.engine, home, at).expect("Home drawn");
+            let end = Instant::now() + Duration::from_secs(30);
+            loop {
+                self.pump();
+                self.host.apply_waiting(now_ns());
+                self.host.tidy();
+                if self.kit.ui.glyph_text_settled() && !self.kit.ui.scene.has_pending() && !self.host.tidy_more() {
+                    break;
+                }
+                assert!(Instant::now() < end, "the glyph atlas did not settle");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            self.s.apply(&mut self.kit, &mut self.engine, home, at + 1).expect("Home drawn");
+        }
+
+        /// `n` refreshes of 60 Hz.
+        fn frames(&mut self, n: usize) {
+            let mut ns = lumatv_render::now_ns();
+            for _ in 0..n {
+                ns += 16_666_667;
+                self.pump();
+                let cost = self.host.draw(ns);
+                self.host.frame_done(ns, &cost);
+                self.host.tidy();
+            }
+        }
+
+        /// The screen as a PNG, all of it or the `(x, y, w, h)` part.
+        fn write(&mut self, file: &str, part: Option<(usize, usize, usize, usize)>) {
+            let page = self.host.read_page(0);
+            let (x, y, w, h) = part.unwrap_or((0, 0, 1920, 1080));
+            let rows: Vec<u8> = (y..y + h).flat_map(|r| page[(r * 1920 + x) * 4..(r * 1920 + x + w) * 4].iter().copied()).collect();
+            let mut encoder = png::Encoder::new(std::io::BufWriter::new(std::fs::File::create(file).expect("the file")), w as u32, h as u32);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder.write_header().and_then(|mut w| w.write_image_data(&rows)).expect("the PNG");
+        }
+    }
+
+    /// Home with the focus on the dock written as a 1920x1080 PNG when `DOCK_SHOTS` names a file. Without the variable the test does nothing.
+    #[test]
+    fn home_with_the_focus_on_the_dock_is_written_as_a_png_for_looking_at_when_a_file_is_named() {
         let Ok(file) = std::env::var("DOCK_SHOTS") else { return };
-        let shm = TempDir::new("home-dock-shots");
-        let gles = Gles::software_pbuffer(c"libEGL.so.1", 1920, 1080).expect("Mesa EGL");
-        let config = HostConfig { width: 1920, height: 1080, refresh_hz: 60.0, shm_dir: shm.path().to_owned(), direct: false, gpu_sync: false, idle_trim: false, pages: 0, reference: false, blit: false, external: false, system_z: i32::MAX };
-        let (mut host, end) = Host::new(gles, config).expect("the renderer");
-        let (scene, _, events) = ui::Scene::over_with(end, ui::SceneOptions { shm_dir: Some(shm.path().to_owned()), ..Default::default() }).expect("a scene");
-        host.finish_handshake().expect("the handshake");
-        let mut kit = Kit::new(scene, lumatv_tokens::Tokens::shipped(), Mode::Dark, MaterialTier::T1, 1.0).expect("a kit");
-        kit.icons = crate::kit::icon::Icons::new(&testkit::module_dir());
-        let mut engine = Engine::new(&kit).expect("an engine");
+        let mut shoot = Shoot::new();
         let mut home = Home::new(lumatv_tokens::Tokens::shipped().json().clone(), super::super::grid::shipped(), json!({}));
         fixtures(&mut home);
-        let mut s = HomeSurface::new(1000);
-        s.dirs(&testkit::module_dir(), std::path::Path::new("/nonexistent"));
         assert!(home.focus.focus(Id(model::DOCK_ID + 1)), "a dock tile takes the focus");
-        s.apply(&mut kit, &mut engine, &mut home, 2000).expect("Home drawn");
-        let end = Instant::now() + Duration::from_secs(30);
-        loop {
-            pump(&mut kit, &mut host, &events);
-            host.apply_waiting(now_ns());
-            host.tidy();
-            if kit.ui.glyph_text_settled() && !kit.ui.scene.has_pending() && !host.tidy_more() {
-                break;
-            }
-            assert!(Instant::now() < end, "the glyph atlas did not settle");
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        s.apply(&mut kit, &mut engine, &mut home, 2001).expect("Home drawn");
-        let mut ns = now_ns();
-        for _ in 0..45 {
-            ns += 16_666_667;
-            pump(&mut kit, &mut host, &events);
-            let cost = host.draw(ns);
-            host.frame_done(ns, &cost);
-            host.tidy();
-        }
-        let mut encoder = png::Encoder::new(std::io::BufWriter::new(std::fs::File::create(&file).expect("the file")), 1920, 1080);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        encoder.write_header().and_then(|mut w| w.write_image_data(&host.read_page(0))).expect("the PNG");
+        shoot.settle(&mut home, 2000);
+        shoot.write(&file, None);
+    }
+
+    /// The owner's layout (the clock over 7 of the 12 columns, the weather over 5 by 2 rows), the week and 7 days of hours as the helper will give them.
+    fn weather_week_home() -> Home {
+        let layout = json!({"widgets": [
+            {"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 7, "rows": 1}, {"id": "home", "type": "homeassistant", "col": 0, "row": 1, "span": 7, "rows": 1, "title": "At home"},
+            {"id": "weather", "type": "weather", "col": 7, "row": 0, "span": 5, "rows": 2}, {"id": "dock", "type": "dock", "col": 0, "row": 2, "span": 12, "rows": 1, "tile": 120, "gap": 16, "padY": 40, "fade": 110}]});
+        let mut layout_all = super::super::grid::shipped();
+        layout_all["widgets"] = layout["widgets"].clone();
+        let mut home = Home::new(lumatv_tokens::Tokens::shipped().json().clone(), layout_all, json!({}));
+        fixtures(&mut home);
+        let week = [("Today", "partly-night", 64, 48, 0), ("Tue", "rain", 62, 47, 80), ("Wed", "drizzle", 58, 44, 45), ("Thu", "cloud", 60, 41, 10), ("Fri", "sun", 67, 43, 0), ("Sat", "partly", 71, 50, 5), ("Sun", "storm", 66, 52, 65)];
+        let days: Vec<Value> = week.iter().map(|(d, k, hi, lo, _)| json!({"day": d, "kind": k, "hi": format!("{hi}\u{b0}"), "lo": format!("{lo}\u{b0}")})).collect();
+        let daily: Vec<Value> = week.iter().enumerate().map(|(i, (_, _, hi, lo, rain))| json!({"date": format!("2026-11-{:02}", 23 + i), "code": 3, "hi": hi, "lo": lo, "rainPct": rain, "sunrise": "2026-11-23T07:12", "sunset": "2026-11-23T17:30", "uvMax": 3.0, "rainIn": 0.1})).collect();
+        let doc = json!({"doc": {"fetchedAt": 8, "lat": 33.75, "lon": -84.39, "place": "Atlanta", "current": {"time": "2026-11-23T20:31", "temp": 61.0, "feelsLike": 57.0, "code": 2, "isDay": false, "humidity": 53.0, "windMph": 6.0},
+            "daily": daily, "display": {"place": "Atlanta", "temp": "61\u{b0}", "cond": "Partly cloudy", "stats": "Feels like 57\u{b0} \u{b7} 53% humidity \u{b7} 6 mph", "nowKind": "partly-night", "days": days}}, "state": "fresh"});
+        home.update(&Input::Helper { topic: "weather".into(), data: doc }, 1006);
+        let hours: Vec<Value> = (0..168).map(|i| json!({"time": format!("2026-11-{:02}T{:02}:00", 23 + i / 24, i % 24), "temp": 50.0 + 12.0 * ((f64::from(i % 24) - 9.0) * std::f64::consts::PI / 12.0).sin().max(-0.3) - f64::from(i / 24),
+            "rainPct": ((i * 7) % 24) * 4, "code": if (i % 24) > 17 || (i % 24) < 6 { 2 } else { 3 }, "isDay": (6..18).contains(&(i % 24)), "windMph": 4.0 + f64::from((i * 5) % 11)})).collect();
+        let more = json!({"doc": {"fetchedAt": 8, "now": {}, "hourly": hours, "daily": daily, "alerts": []}});
+        home.update(&Input::Helper { topic: "weather.more".into(), data: more }, 1007);
+        home
+    }
+
+    /// Monday 23 November 2026, 20:31 in New York, in milliseconds since the epoch: the time the pictures of Home are drawn at.
+    const EVENING: u64 = 1_795_483_860_000;
+
+    fn key(home: &mut Home, name: &str, at: u64) {
+        home.update(&Input::Key { name: name.into(), down: true, repeat: false }, at);
+        home.update(&Input::Key { name: name.into(), down: false, repeat: false }, at + 30);
+    }
+
+    /// The weather card with its week, with a day opened and part of the way through that opening, written as PNGs into the directory `WEATHER_SHOTS` names
+    /// (`weather-weekly-final.png`, `weather-expanded-final.png`, `weather-morph-mid.png`): the card in the owner's 5 by 2 size, the focus on Wednesday.
+    /// Without the variable the test does nothing.
+    #[test]
+    fn the_weather_card_with_its_week_is_written_as_pngs_for_looking_at_when_a_directory_is_named() {
+        let Ok(dir) = std::env::var("WEATHER_SHOTS") else { return };
+        let mut shoot = Shoot::new();
+        let mut home = weather_week_home();
+        let part = Some((1121 - 24, 134 - 24, 735 + 48, 480 + 48));
+        assert!(home.focus.focus(home.widget_id("weather").expect("the weather card")), "the weather card takes the focus");
+        key(&mut home, "ok", 1100);
+        assert_eq!(home.inner.as_deref(), Some("weather"), "the card is entered");
+        key(&mut home, "down", 1200);
+        key(&mut home, "down", 1300);
+        shoot.settle(&mut home, EVENING);
+        shoot.write(&format!("{dir}/weather-weekly-final.png"), part);
+        key(&mut home, "ok", 1400);
+        shoot.flush(&mut home, EVENING + 10_000);
+        shoot.frames(9);
+        shoot.write(&format!("{dir}/weather-morph-mid.png"), part);
+        shoot.frames(45);
+        shoot.write(&format!("{dir}/weather-expanded-final.png"), part);
+    }
+
+    /// The clock card in the owner's 7 of 12 columns with the week starting on Monday, and the whole of Home with the date in the top bar, written as PNGs into
+    /// the directory `CALENDAR_SHOTS` names (`calendar-month.png`, `home-topbar-date.png`). Without the variable the test does nothing.
+    #[test]
+    fn the_clock_with_its_month_and_the_date_in_the_top_bar_are_written_as_pngs_for_looking_at_when_a_directory_is_named() {
+        let Ok(dir) = std::env::var("CALENDAR_SHOTS") else { return };
+        let mut shoot = Shoot::new();
+        let mut home = weather_week_home();
+        home.update(&Input::Fetched { tag: model::THEME_TAG, status: 200, data: json!({"clock": {"weekStart": "monday"}, "layout": {"statusBar": {"profile": "left"}}}) }, 1100);
+        shoot.settle(&mut home, EVENING);
+        shoot.write(&format!("{dir}/calendar-month.png"), Some((64 - 24, 134 - 24, 1037 + 48, 222 + 48)));
+        shoot.write(&format!("{dir}/home-topbar-date.png"), None);
     }
 }

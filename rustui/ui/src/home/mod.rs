@@ -4,6 +4,7 @@
 //! focusable. The models are pure ([`model::Home`] and its parts); [`surface::HomeSurface`] draws them with the kit.
 
 pub mod apps;
+pub mod bar_date;
 pub mod clock;
 pub mod dock;
 pub mod editor;
@@ -28,6 +29,7 @@ pub mod weather_card;
 pub mod weather_gfx;
 pub mod weather_sprites;
 pub mod weather_view;
+pub mod weather_week;
 pub mod widgets;
 
 pub use model::Home;

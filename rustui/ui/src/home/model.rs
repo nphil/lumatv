@@ -304,6 +304,8 @@ pub struct Home {
     persist: Option<Value>,
     pub inner: Option<String>,
     pub inner_index: Option<usize>,
+    /// The day of the weather card that is open, while the card is entered.
+    pub weather_open: Option<usize>,
     pointer_down: bool,
     /// A visible sample with the button up has been seen since the pointer last showed: only then is a button down a press seen (a button already down
     /// as the pointer appears, or a release with no press, is nothing).
@@ -427,6 +429,7 @@ impl Home {
             kept_profile: None,
             inner: None,
             inner_index: None,
+            weather_open: None,
             pointer_down: false,
             pointer_armed: false,
             click_press: None,
@@ -847,6 +850,28 @@ impl Home {
     pub fn status_row(&self) -> ui::geometry::Frame {
         let (sx, sy) = self.safe();
         ui::geometry::Frame::new(sx, sy, 1920.0 - 2.0 * sx, self.status_height())
+    }
+
+    /// Where the owner has the date (`layout.statusBar.date` of the theme, a profile's own key): the middle of the top bar until chosen.
+    pub fn date_place(&self) -> super::bar_date::Place {
+        super::bar_date::Place::of(self.theme.pointer("/layout/statusBar").and_then(|b| b.get(super::bar_date::Place::KEY)).and_then(Value::as_str))
+    }
+
+    /// The box of the date in the top bar for words `width` wide, and whether it needs a small glass of its own: on the bar's glass when that spans the row
+    /// (the date stands on it, clear of the chip, the buttons, the strip and the glyphs), on its own glass where the bar is only as wide as its buttons.
+    /// `None` with the date hidden or kept in the clock card, or with no clear place for it in the row.
+    pub fn date_box(&self, width: f32) -> Option<(ui::geometry::Frame, bool)> {
+        let row = self.status_row();
+        let (glass, group) = (self.status_pill(), self.status_group());
+        let own = glass.w <= group.w + 1.0;
+        let item_h = self.status_height() - 2.0 * STATUS_INSET;
+        let w = if own { width + 2.0 * (item_h * 0.5).round() } else { width };
+        let span = |x: f32, w: f32| (x, x + w);
+        let mut taken: Vec<(f32, f32)> = if own { vec![span(glass.x, glass.w)] } else { self.status_frames().iter().map(|f| span(f.0, f.2)).collect() };
+        taken.extend(self.tuner_frame().map(|f| span(f.0, f.2)));
+        taken.extend(self.mark_frame().map(|f| span(f.0, f.2)));
+        let x = super::bar_date::slot(self.date_place(), (row.x, row.w), w, &taken, 24.0 * self.text_scale.max(1.0))?;
+        Some(if own { (ui::geometry::Frame::new(x, group.y, w, self.status_height()), true) } else { (ui::geometry::Frame::new(x, group.y + STATUS_INSET, w, item_h), false) })
     }
 
     /// The status bar's buttons in their box, one square of the box's inner height each (the profile chip adds its name): `(x, y, w, h)` in the
@@ -1805,9 +1830,13 @@ impl Home {
                 self.smart_key(&wid, name, out);
                 return;
             }
+            if name == "back" && self.weather_open.take().is_some() {
+                return;
+            }
             if name == "back" || !self.inner_key(&wid, name, out) {
                 self.inner = None;
                 self.inner_index = None;
+                self.weather_open = None;
             }
             return;
         }
@@ -2107,8 +2136,17 @@ impl Home {
             Some("homeassistant") => !self.ha_items().is_empty(),
             Some("news") => true,
             Some("onhome") => self.smart_of(wid).is_some_and(|s| !s.items().is_empty()),
+            // with a week it is entered; without one (no reading yet) OK opens the full-screen view
+            Some("weather") => self.weather.pointer("/doc/display/days").and_then(Value::as_array).is_some_and(|d| !d.is_empty()),
             _ => false,
         }
+    }
+
+    /// What the person has done in the weather card `wid`: whether the focus is on the reading or on a day, and which day is open; nothing while the card is not entered.
+    pub fn weather_look(&self, wid: &str) -> super::weather_card::Look {
+        let mine = self.inner.as_deref() == Some(wid);
+        let i = self.inner_index.unwrap_or(1);
+        super::weather_card::Look { head: mine && i == 0, focus: (mine && i > 0).then(|| i - 1), open: if mine { self.weather_open } else { None } }
     }
 
     /// The type of the card `wid`.
@@ -2292,6 +2330,7 @@ impl Home {
         }
         self.inner = None;
         self.inner_index = None;
+        self.weather_open = None;
     }
 
     fn smart_hold(&mut self, out: &mut Vec<Effect>) {
@@ -2560,6 +2599,29 @@ impl Home {
     /// A key inside a card: the content's rows. Returns false when the content gives the keys back.
     fn inner_key(&mut self, wid: &str, name: &str, out: &mut Vec<Effect>) -> bool {
         let kind = self.cards().iter().find(|e| e.id == wid).map(|e| e.kind.clone()).unwrap_or_default();
+        if kind == "weather" {
+            let days = self.weather.pointer("/doc/display/days").and_then(Value::as_array).map_or(0, Vec::len).min(7);
+            if days == 0 {
+                return false;
+            }
+            // 0 is the reading (OK opens the full screen), 1 to 7 are the days; the card is entered on today
+            let i = self.inner_index.unwrap_or(1).min(days);
+            self.inner_index = Some(i);
+            match (self.weather_open.is_some(), name) {
+                (true, "left" | "right") => {
+                    let j = if name == "left" { i.saturating_sub(1).max(1) } else { (i + 1).min(days) };
+                    self.inner_index = Some(j);
+                    self.weather_open = Some(j - 1);
+                }
+                (true, "ok") => self.weather_open = None,
+                (false, "up") => self.inner_index = Some(i.saturating_sub(1)),
+                (false, "down") => self.inner_index = Some((i + 1).min(days)),
+                (false, "ok") if i == 0 => self.open_weather(out),
+                (false, "ok") => self.weather_open = Some(i - 1),
+                _ => {}
+            }
+            return true;
+        }
         let n = match kind.as_str() {
             "homeassistant" => self.ha_items().len(),
             "news" => self.news_items().len(),
@@ -2627,11 +2689,16 @@ impl Home {
             self.requests.push(Request::Cameras);
         }
         if kind == "weather" {
-            self.wview.open();
-            self.open_layer(Layer::Weather, SCOPE_WEATHER);
-            self.redraw(out);
+            self.open_weather(out);
         }
         out.push(Effect::Log(format!("card {wid} ({kind}) activated")));
+    }
+
+    /// The full-screen weather: the reading, the hours and the radar. It is reached from the weather card's header (Up from the first day, then OK).
+    fn open_weather(&mut self, out: &mut Vec<Effect>) {
+        self.wview.open();
+        self.open_layer(Layer::Weather, SCOPE_WEATHER);
+        self.redraw(out);
     }
 
     /// The chips of the At-home card: every connected plugin's cards but those Home draws in full elsewhere, the most urgent first.
@@ -2704,6 +2771,7 @@ impl Home {
         }
         self.inner = None;
         self.inner_index = None;
+        self.weather_open = None;
         self.menu_app = None;
         self.confirm = None;
     }
@@ -3614,6 +3682,74 @@ mod tests {
         assert_eq!(h.wview.page, super::super::weather_view::Page::Now);
         let out = h.update(&Input::Helper { topic: "weather.more".into(), data: json!({"doc": {"hourly": []}}) }, 3100);
         assert!(out.contains(&Effect::Redraw));
+    }
+
+    #[test]
+    fn the_weather_card_is_entered_on_today_walks_its_days_opens_one_and_is_the_week_again_when_left() {
+        let mut h = home();
+        let days: Vec<Value> = (0..7).map(|i| json!({"day": format!("D{i}"), "kind": "cloud", "hi": "60\u{b0}", "lo": "40\u{b0}"})).collect();
+        h.update(&Input::Helper { topic: "weather".into(), data: json!({"doc": {"display": {"place": "Atlanta", "days": days}}, "state": "fresh"}) }, 1050);
+        press(&mut h, "down", 1100);
+        for i in 0..6 {
+            if h.focus.current().and_then(|id| h.widget_of(id)) == Some("weather") {
+                break;
+            }
+            press(&mut h, "right", 1200 + i * 100);
+        }
+        press(&mut h, "ok", 2000);
+        assert_eq!(h.weather_look("weather"), super::super::weather_card::Look { head: false, focus: Some(0), open: None }, "entered on today");
+        press(&mut h, "down", 2100);
+        press(&mut h, "down", 2200);
+        assert_eq!(h.weather_look("weather").focus, Some(2), "Down walks the days");
+        press(&mut h, "ok", 2300);
+        assert_eq!(h.weather_look("weather").open, Some(2), "OK opens the day under the focus");
+        press(&mut h, "right", 2400);
+        assert_eq!(h.weather_look("weather"), super::super::weather_card::Look { head: false, focus: Some(3), open: Some(3) }, "Right opens the next day");
+        press(&mut h, "left", 2500);
+        press(&mut h, "left", 2600);
+        press(&mut h, "left", 2700);
+        assert_eq!(h.weather_look("weather").open, Some(0), "and stops at today");
+        press(&mut h, "ok", 2800);
+        assert_eq!(h.weather_look("weather"), super::super::weather_card::Look { head: false, focus: Some(0), open: None }, "OK closes the day, the focus stays");
+        press(&mut h, "ok", 2900);
+        press(&mut h, "back", 3000);
+        assert_eq!((h.weather_open, h.layer), (None, Layer::None), "Back closes the day first");
+        assert_eq!(h.inner.as_deref(), Some("weather"));
+        press(&mut h, "up", 3100);
+        assert!(h.weather_look("weather").head, "Up from today reaches the reading");
+        press(&mut h, "back", 3200);
+        assert!(h.inner.is_none() && h.inner_index.is_none() && h.weather_open.is_none(), "Back leaves the card");
+        press(&mut h, "ok", 3300);
+        assert_eq!(h.weather_look("weather"), super::super::weather_card::Look { head: false, focus: Some(0), open: None }, "entered again it is the week, on today");
+        press(&mut h, "up", 3400);
+        press(&mut h, "ok", 3500);
+        assert_eq!(h.layer, Layer::Weather, "OK on the reading opens the full-screen weather");
+    }
+
+    #[test]
+    fn the_date_stands_in_the_top_bar_where_the_theme_says_clear_of_the_buttons_and_is_not_there_hidden_or_in_the_card() {
+        let mut h = home();
+        assert_eq!(h.date_place(), super::super::bar_date::Place::Centre, "the middle until chosen");
+        let mut at = 1100;
+        let mut place = |h: &mut Home, p: &str| {
+            at += 100;
+            h.update(&Input::Fetched { tag: THEME_TAG, status: 200, data: json!({"layout": {"statusBar": {"profile": "left", "date": p}}}) }, at);
+            h.date_box(300.0)
+        };
+        let row = h.status_row();
+        let centre = place(&mut h, "centre").expect("a place in the middle").0;
+        assert!((centre.x + 150.0 - (row.x + row.w / 2.0)).abs() < 1.0, "centred on the row: {centre:?}");
+        let left = place(&mut h, "left").expect("a place at the left, past the chip").0;
+        let right = place(&mut h, "right").expect("a place at the right, before the buttons").0;
+        assert!(left.x < centre.x && right.x > centre.x, "{left:?} {centre:?} {right:?}");
+        for f in [centre, left, right] {
+            assert!(f.x >= row.x - 0.5 && f.right() <= row.x + row.w + 0.5, "inside the row: {f:?}");
+            for b in h.status_frames() {
+                assert!(f.right() <= b.0 + 0.5 || f.x >= b.0 + b.2 - 0.5, "{f:?} is on a button {b:?}");
+            }
+        }
+        assert!(place(&mut h, "hidden").is_none(), "hidden");
+        assert!(place(&mut h, "clock").is_none(), "in the clock card, not in the bar");
     }
 
     #[test]

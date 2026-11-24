@@ -22,6 +22,58 @@ const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "Jun
 const DAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const INITIALS: [&str; 7] = ["S", "M", "T", "W", "T", "F", "S"];
 
+/// The day a week starts on (`clock.weekStart`, a profile's own key).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WeekStart {
+    Monday,
+    Sunday,
+}
+
+/// What a cell of the month grid is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Day {
+    /// A day of the month before or after the shown one.
+    Other,
+    This,
+    Today,
+}
+
+/// The regions whose weeks start on a Sunday (CLDR's `firstDay`); everywhere else it is a Monday.
+const SUNDAY_REGIONS: &[&str] = &[
+    "AG", "AR", "AS", "AU", "BD", "BR", "BS", "BT", "BW", "BZ", "CA", "CO", "DM", "DO", "ET", "GT", "GU", "HK", "HN", "ID", "IL", "IN", "JM", "JP", "KE", "KH", "KR", "LA", "MH", "MM", "MO", "MT", "MX", "MZ", "NI", "NP", "PA", "PE",
+    "PH", "PK", "PR", "PT", "PY", "SA", "SG", "SV", "TH", "TT", "TW", "UM", "US", "VE", "VI", "WS", "YE", "ZA", "ZW",
+];
+
+impl WeekStart {
+    /// What the setting says (`monday` or `sunday`); with anything else, what the TV's locale uses.
+    pub fn of(setting: Option<&str>) -> Self {
+        match setting {
+            Some("monday") => Self::Monday,
+            Some("sunday") => Self::Sunday,
+            _ => Self::of_locale(["LC_ALL", "LC_TIME", "LANG"].iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())).as_deref()),
+        }
+    }
+
+    /// The week of a locale name (`en_US.UTF-8`): a Sunday in the regions that begin it so, a Monday otherwise and where there is no region.
+    pub fn of_locale(locale: Option<&str>) -> Self {
+        let region = locale.and_then(|l| l.split(['.', '@']).next()).and_then(|l| l.split(['_', '-']).nth(1));
+        if region.is_some_and(|r| SUNDAY_REGIONS.contains(&r.to_ascii_uppercase().as_str())) { Self::Sunday } else { Self::Monday }
+    }
+
+    /// Where `weekday` (0 is Sunday) falls in a week that starts here.
+    pub fn column(self, weekday: u32) -> u32 {
+        match self {
+            Self::Sunday => weekday % 7,
+            Self::Monday => (weekday + 6) % 7,
+        }
+    }
+
+    /// The initials of the seven days, the first of them the day a week starts on.
+    pub fn initials(self) -> [&'static str; 7] {
+        std::array::from_fn(|i| INITIALS[(i + usize::from(self == Self::Monday)) % 7])
+    }
+}
+
 /// The local civil time of `ms` since the epoch.
 pub fn civil(ms: u64) -> Civil {
     let t: libc::time_t = (ms / 1000) as libc::time_t;
@@ -75,39 +127,49 @@ impl Civil {
         }
     }
 
-    /// The week around today, Sunday first: the day of the month, its initial, whether it is today.
-    pub fn week(&self) -> [(u32, &'static str, bool); 7] {
+    /// The week around today: the day of the month, its initial, whether it is today.
+    pub fn week(&self, start: WeekStart) -> [(u32, &'static str, bool); 7] {
         let mut out = [(0, "", false); 7];
         let dim = days_in_month(self.year, self.month);
         let (py, pm) = if self.month == 1 { (self.year - 1, 12) } else { (self.year, self.month - 1) };
         let pdim = days_in_month(py, pm);
         for (i, slot) in out.iter_mut().enumerate() {
-            let offset = i as i32 - self.weekday as i32;
+            let offset = i as i32 - start.column(self.weekday) as i32;
             let mut d = self.day as i32 + offset;
             if d < 1 {
                 d += pdim as i32;
             } else if d > dim as i32 {
                 d -= dim as i32;
             }
-            *slot = (d as u32, INITIALS[i], offset == 0);
+            *slot = (d as u32, INITIALS[(i + usize::from(start == WeekStart::Monday)) % 7], offset == 0);
         }
         out
     }
 
-    /// A month's title and its cells (`None` before the first), this month and `offset` months on.
-    pub fn month(&self, offset: u32) -> (String, Vec<Option<(u32, bool)>>) {
-        let m0 = self.month as i32 - 1 + offset as i32;
-        let (y, m) = (self.year + m0.div_euclid(12), (m0.rem_euclid(12) + 1) as u32);
-        let first_wd = weekday_of(y, m, 1);
-        let dim = days_in_month(y, m);
-        let mut cells: Vec<Option<(u32, bool)>> = vec![None; first_wd as usize];
-        for d in 1..=dim {
-            cells.push(Some((d, offset == 0 && d == self.day)));
+    /// "November 2026".
+    pub fn month_title(&self) -> String {
+        format!("{} {}", MONTHS[(self.month as usize - 1).min(11)], self.year)
+    }
+
+    /// The month's six weeks as seven columns by six rows, the first column the `start` day: every cell is a day of the month (marked if it is today) or a
+    /// day of the month before or after, which fills the weeks out. Six rows hold every month whichever day the week starts on, so the grid never changes height.
+    pub fn month(&self, start: WeekStart) -> [(u32, Day); 42] {
+        let first = start.column(weekday_of(self.year, self.month, 1)) as i32;
+        let dim = days_in_month(self.year, self.month) as i32;
+        let (py, pm) = if self.month == 1 { (self.year - 1, 12) } else { (self.year, self.month - 1) };
+        let pdim = days_in_month(py, pm) as i32;
+        let mut cells = [(0, Day::Other); 42];
+        for (i, cell) in cells.iter_mut().enumerate() {
+            let d = i as i32 - first + 1;
+            *cell = if d < 1 {
+                ((pdim + d) as u32, Day::Other)
+            } else if d > dim {
+                ((d - dim) as u32, Day::Other)
+            } else {
+                (d as u32, if d as u32 == self.day { Day::Today } else { Day::This })
+            };
         }
-        while cells.len() % 7 != 0 {
-            cells.push(None);
-        }
-        (format!("{} {y}", MONTHS[(m - 1) as usize]), cells)
+        cells
     }
 }
 
@@ -245,20 +307,67 @@ mod tests {
         assert_eq!(t.weekday_name(), "Sunday");
         assert_eq!(weekday_of(2026, 10, 25), 0);
         assert_eq!(weekday_of(2026, 10, 1), 4);
-        let w = t.week();
+        let w = t.week(WeekStart::Sunday);
         assert_eq!(w[0], (25, "S", true));
         assert_eq!(w[6], (31, "S", false));
-        let (title, cells) = t.month(0);
-        assert_eq!(title, "October 2026");
-        assert_eq!(cells.len(), 35);
-        assert_eq!(cells[4], Some((1, false)));
-        assert_eq!(cells[28], Some((25, true)));
-        assert_eq!(t.month(3).0, "January 2027");
+        assert_eq!(t.month_title(), "October 2026");
+        let cells = t.month(WeekStart::Sunday);
+        assert_eq!(cells[4], (1, Day::This));
+        assert_eq!(cells[28], (25, Day::Today));
         assert_eq!(days_in_month(2028, 2), 29);
         let m = Civil { year: 2026, month: 1, day: 1, hour: 7, minute: 0, second: 0, weekday: 4 };
         assert_eq!(m.greeting(), "Good morning");
-        assert_eq!(m.week()[0].0, 28, "the week reaches into December");
+        assert_eq!(m.week(WeekStart::Sunday)[0].0, 28, "the week reaches into December");
         assert!(matches!(civil(0).year, 1969 | 1970));
+    }
+
+    #[test]
+    fn a_week_that_starts_on_monday_ends_on_the_sunday_and_the_month_leans_to_match() {
+        // Sunday 25 October 2026: the last day of its week when the week starts on Monday
+        let t = Civil { year: 2026, month: 10, day: 25, hour: 14, minute: 5, second: 0, weekday: 0 };
+        let w = t.week(WeekStart::Monday);
+        assert_eq!((w[0], w[6]), ((19, "M", false), (25, "S", true)));
+        assert_eq!(w.map(|d| d.1).concat(), "MTWTFSS");
+        // 1 October 2026 is a Thursday: the fourth cell of a Monday week, the fifth of a Sunday one
+        let monday = t.month(WeekStart::Monday);
+        assert_eq!((monday[3], monday[27]), ((1, Day::This), (25, Day::Today)));
+        assert_eq!(monday[0], (28, Day::Other), "the days before the first are September's");
+        assert_eq!(monday[41], (8, Day::Other), "and those after the last are November's");
+        // a week across a month's end, started on a Monday
+        let m = Civil { year: 2026, month: 1, day: 1, hour: 7, minute: 0, second: 0, weekday: 4 };
+        assert_eq!(m.week(WeekStart::Monday).map(|d| d.0), [29, 30, 31, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn every_month_fills_six_rows_with_its_own_days_in_order_whichever_day_the_week_starts_on() {
+        // 28, 29, 30 and 31 days; Feb 2026 starts on a Sunday, Feb 2027 on a Monday, Aug 2026 on a Saturday (it needs six weeks)
+        for (year, month, dim) in [(2026, 2, 28), (2027, 2, 28), (2028, 2, 29), (2026, 4, 30), (2026, 8, 31), (2026, 12, 31), (2027, 1, 31)] {
+            for start in [WeekStart::Monday, WeekStart::Sunday] {
+                let t = Civil { year, month, day: 15, hour: 9, minute: 0, second: 0, weekday: weekday_of(year, month, 15) };
+                let cells = t.month(start);
+                let own: Vec<u32> = cells.iter().filter(|c| c.1 != Day::Other).map(|c| c.0).collect();
+                assert_eq!(own, (1..=dim).collect::<Vec<u32>>(), "{year}-{month} {start:?}");
+                assert_eq!(cells.iter().filter(|c| c.1 == Day::Today).collect::<Vec<_>>(), [&(15, Day::Today)]);
+                let first = start.column(weekday_of(year, month, 1)) as usize;
+                assert_eq!(cells[first], (1, Day::This));
+                assert!(cells[..first].iter().chain(&cells[first + dim as usize..]).all(|c| c.1 == Day::Other));
+            }
+        }
+        let aug = Civil { year: 2026, month: 8, day: 31, hour: 9, minute: 0, second: 0, weekday: 1 };
+        assert_eq!(aug.month(WeekStart::Sunday)[36], (31, Day::Today), "a month of six weeks reaches the sixth row");
+        assert_eq!(WeekStart::Monday.initials().concat(), "MTWTFSS");
+        assert_eq!(WeekStart::Sunday.initials().concat(), "SMTWTFS");
+    }
+
+    #[test]
+    fn the_week_starts_as_the_setting_says_and_else_as_the_locale_does() {
+        assert_eq!(WeekStart::of(Some("monday")), WeekStart::Monday);
+        assert_eq!(WeekStart::of(Some("sunday")), WeekStart::Sunday);
+        assert_eq!(WeekStart::of_locale(Some("en_US.UTF-8")), WeekStart::Sunday);
+        assert_eq!(WeekStart::of_locale(Some("en-GB")), WeekStart::Monday);
+        assert_eq!(WeekStart::of_locale(Some("de_DE.UTF-8@euro")), WeekStart::Monday);
+        assert_eq!(WeekStart::of_locale(Some("C")), WeekStart::Monday);
+        assert_eq!(WeekStart::of_locale(None), WeekStart::Monday);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! What the full weather view shows beyond the card: the next 36 hours, the details of now (UV, gusts, wind direction, pressure, cloud,
+//! What the full weather view shows beyond the card: the next 168 hours (a week, which the card's days open out to), the details of now (UV, gusts, wind direction, pressure, cloud,
 //! visibility, rain so far), the next ten days (their condition, high and low, sunrise, sunset, UV and chance of rain), and the National
 //! Weather Service's active alerts for the place (the United States only; nothing for a place it does not cover).
 //!
@@ -13,8 +13,8 @@ use serde_json::Value;
 use crate::weather::{self, Geo, Units, WeatherConfig};
 use crate::{EXPIRE_MS, FeedError, REFRESH_MS, SCHEMA};
 
-/// The hours the document holds, and the days.
-pub const HOURS: usize = 36;
+/// The hours the document holds (a week of them: the weather card opens any of its seven days to its hours), and the days.
+pub const HOURS: usize = 168;
 pub const DAYS: usize = 10;
 /// The most alerts kept.
 pub const MAX_ALERTS: usize = 6;
@@ -298,7 +298,7 @@ mod tests {
         assert!(u.starts_with("https://api.open-meteo.com/v1/forecast?latitude=33.723&longitude=-84.4702&current=uv_index,"));
         assert!(u.contains("&hourly=temperature_2m,precipitation_probability,weather_code,is_day,wind_speed_10m"));
         assert!(u.contains("&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max,precipitation_sum"));
-        assert!(u.ends_with("&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=auto&forecast_days=10&forecast_hours=36"));
+        assert!(u.ends_with("&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=auto&forecast_days=10&forecast_hours=168"));
         assert_eq!(alerts_url(&geo()), "https://api.weather.gov/alerts/active?point=33.7230,-84.4702");
     }
 

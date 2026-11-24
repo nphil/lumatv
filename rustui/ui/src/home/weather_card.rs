@@ -17,6 +17,7 @@ use super::weather_art::{Card, Cond, Live, Stage};
 use super::weather_sprites::Pal;
 use super::weather_view::{SmartTone, hour_label, kind_of, legible, smart_line};
 use super::widgets::{Canvas, PAD_SIDE, PAD_TOP, Pictures, Words, art, warm};
+use super::weather_week::{Panel, Week};
 use crate::kit::Kit;
 use crate::kit::button::faded;
 use compositor_protocol::{Fill, Props, Rgba, Shape};
@@ -27,6 +28,9 @@ use ui::components::{Align, Style};
 use ui::geometry::Frame;
 use ui::scene::{ImageLayer, ShapeLayer};
 use ui::text::Weight;
+use week_view::WeekView;
+
+mod week_view;
 
 const HIDDEN: Props = Props { opacity: 0.0, visible: false, ..Props::at(0.0, 0.0) };
 
@@ -117,6 +121,9 @@ struct Plan {
     smart: Option<Slot>,
     hours: Option<Hours>,
     days: Option<Days>,
+    /// The week the card shows instead of the hours, and the day opened out of it over the room the week had.
+    week: Option<Week>,
+    panel: Option<Panel>,
     art: Art,
 }
 
@@ -334,7 +341,36 @@ fn plan(w: f32, h: f32, k: f32, data: Data) -> Plan {
             days = Some(week(0.0, y, w, rows));
         }
     }
-    Plan { w, split, hero_w, hero_bottom, place, temp, cond, feels, smart, hours, days, art }
+    Plan { w, split, hero_w, hero_bottom, place, temp, cond, feels, smart, hours, days, art, week: None, panel: None }
+}
+
+/// What the person has done in the card: the day the focus is on and the day that is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Look {
+    /// The reading is what is focused (OK opens the full-screen weather).
+    pub head: bool,
+    pub focus: Option<usize>,
+    pub open: Option<usize>,
+}
+
+/// The plan of a card that shows the week in place of the hours: the reading as a header, the week in the room that is left; `None` where that room is
+/// too small for the week, which the card then plans as it always has.
+fn plan_week(w: f32, h: f32, k: f32, data: Data) -> Option<Plan> {
+    let em = if data.wide_temp { 2.3 } else { 1.7 };
+    let art_w = 96.0 / k.sqrt() / k;
+    // a header of the temperature with the place, the condition and how it feels beside it, and the sky's picture at the right
+    let (temp_px, head): (f32, f32) = if h >= 380.0 { (84.0, 94.0) } else if h >= 280.0 { (72.0, 82.0) } else { (56.0, 64.0) };
+    let sx = (temp_px * em).ceil() + 22.0;
+    let room = if w >= 500.0 { 150.0 } else { art_w };
+    let sw = (w - sx - room - 8.0).max(60.0);
+    let place = Some(slot(sx, 0.0, sw, 30.0, 24.0, Weight::SemiBold, Align::Left));
+    let temp = slot(0.0, 4.0, sx - 22.0, temp_px, temp_px, Weight::SemiBold, Align::Left);
+    let cond = Some(slot(sx, 32.0, sw, 34.0, 26.0, Weight::Medium, Align::Left));
+    let feels = (head >= 90.0).then(|| slot(sx, 66.0, sw, 28.0, 22.0, Weight::Medium, Align::Left));
+    let art = Art { x0: w - room, x1: w + 20.0 / k, y0: -(PAD_TOP - 14.0) / k, y1: head - 6.0 };
+    let frame = Frame::new(14.0, head + GAP, w - 28.0, h - head - GAP);
+    let week = Week::list(frame)?;
+    Some(Plan { w, split: false, hero_w: sw, hero_bottom: head, place, temp, cond, feels, smart: None, hours: None, days: None, art, week: Some(week), panel: Panel::new(frame) })
 }
 
 /// The text of a line, and whose ink it is in.
@@ -373,6 +409,8 @@ pub struct Weather {
     stage: Stage,
     art_waits: bool,
     z: i32,
+    look: Look,
+    view: Option<WeekView>,
 }
 
 /// The sky's box and its hero in the card's coordinates: the padding is the card's own, so the sky reaches the card's edges. The sky is the top of the
@@ -426,10 +464,11 @@ impl Weather {
     pub fn new(kit: &mut Kit, w: f32, h: f32, z: i32, _theme: &Value) -> std::io::Result<Self> {
         let k = kit.text_scale.max(1.0);
         let data = Data::default();
-        let p = plan(w / k, h / k, k, data);
+        let p = plan_week(w / k, h / k, k, data).unwrap_or_else(|| plan(w / k, h / k, k, data));
         let (block, rows, lines) = Self::make(kit, &p, k, w, h, z)?;
+        let view = Self::view_of(kit, &p, k, w, h, z)?;
         let stage = sky_box(&p, k, w, h, kit.tokens.radius(Radius::Card));
-        Ok(Self { block, rows, w, h, k, plan: p, data, lines, at: HIDDEN, shown: None, art: None, wash: None, stage, art_waits: false, z })
+        Ok(Self { block, rows, w, h, k, plan: p, data, lines, at: HIDDEN, shown: None, art: None, wash: None, stage, art_waits: false, z, look: Look::default(), view })
     }
 
     /// The words and the picture of a plan.
@@ -489,12 +528,24 @@ impl Weather {
         Ok((block, rows, map))
     }
 
+    /// The plan for the box and the data: the week under the reading where the room holds it, else the hours and the next days.
+    fn planned(&self, data: Data) -> Plan {
+        let (w, h) = (self.w / self.k, self.h / self.k);
+        plan_week(w, h, self.k, data).unwrap_or_else(|| plan(w, h, self.k, data))
+    }
+
+    /// The layers of the week and of the day that opens out of it, where the plan has them.
+    fn view_of(kit: &mut Kit, p: &Plan, k: f32, w: f32, h: f32, z: i32) -> std::io::Result<Option<WeekView>> {
+        p.week.map(|wk| WeekView::new(kit, wk, p.panel, p.hero_bottom, k, (w, h), z)).transpose()
+    }
+
     /// The card is planned again for what data there is: its words and picture are made anew (the caller is inside the card's `adopting`).
     fn replan(&mut self, kit: &mut Kit, data: Data) -> std::io::Result<()> {
-        let p = plan(self.w / self.k, self.h / self.k, self.k, data);
+        let p = self.planned(data);
         let (block, rows, lines) = Self::make(kit, &p, self.k, self.w, self.h, self.z)?;
         self.block = block;
         self.rows = rows;
+        self.view = Self::view_of(kit, &p, self.k, self.w, self.h, self.z)?;
         self.lines = lines;
         self.stage = sky_box(&p, self.k, self.w, self.h, kit.tokens.radius(Radius::Card));
         self.plan = p;
@@ -505,6 +556,9 @@ impl Weather {
         self.wash = None;
         self.block.set_props(self.at);
         self.rows.set(self.at);
+        if let Some(v) = &mut self.view {
+            v.show(self.at);
+        }
         Ok(())
     }
 
@@ -517,6 +571,22 @@ impl Weather {
         }
         if let Some(a) = &mut self.art {
             a.place((at.x - PAD_SIDE, at.y - PAD_TOP));
+        }
+        if let Some(v) = &mut self.view {
+            v.show(at);
+        }
+    }
+
+    /// Layers the week holds on the screen now (the 120 Hz budget the week is held to).
+    #[cfg(test)]
+    pub fn week_layers(&self) -> Option<usize> {
+        self.view.as_ref().map(WeekView::visible_layers)
+    }
+
+    /// The week's words (or the open day's) for the lint, which the card's own block does not hold.
+    pub fn lint_week(&self, kit: &mut Kit, lint: &mut crate::kit::lint::Lint, name: &str, origin: (f32, f32), panel: Option<usize>) {
+        if let Some(v) = &self.view {
+            v.lint(kit, lint, name, origin, panel);
         }
     }
 
@@ -581,8 +651,9 @@ impl Weather {
 
     /// The helper's reading (`topic.doc`) and the details (`more.doc`, the hours and the alerts), drawn when either changed. The caller is inside the
     /// card's `adopting` (a change of what data there is plans the card again).
-    pub fn set(&mut self, kit: &mut Kit, pictures: &mut Pictures, topic: &Value, more: &Value, twelve: bool) {
-        let key = format!("{}|{}|{twelve}|{}", topic.pointer("/doc/fetchedAt").map(Value::to_string).unwrap_or_default(), more.pointer("/doc/fetchedAt").map(Value::to_string).unwrap_or_default(), self.k);
+    pub fn set(&mut self, kit: &mut Kit, pictures: &mut Pictures, topic: &Value, more: &Value, twelve: bool, look: Look) {
+        let stamp = format!("{}|{}|{twelve}|{}", topic.pointer("/doc/fetchedAt").map(Value::to_string).unwrap_or_default(), more.pointer("/doc/fetchedAt").map(Value::to_string).unwrap_or_default(), self.k);
+        let key = format!("{stamp}|{look:?}");
         if self.shown.as_deref() == Some(key.as_str()) {
             return;
         }
@@ -593,6 +664,7 @@ impl Weather {
             bars: hours.iter().take(8).any(|h| h.get("rainPct").and_then(Value::as_f64).is_some_and(|p| p >= 15.0)),
             wide_temp: temp_text.chars().count() >= 4,
         };
+        self.look = look;
         if data != self.data && self.replan(kit, data).is_err() {
             return;
         }
@@ -676,6 +748,11 @@ impl Weather {
         };
         let refs: Vec<(usize, &str, Rgba)> = changes.iter().map(|(i, t, c)| (*i, t.as_str(), colour(*c))).collect();
         self.block.set_many(kit, &refs);
+        if let Some(v) = &mut self.view {
+            let daily: Vec<Value> = more.pointer("/doc/daily").and_then(Value::as_array).cloned().unwrap_or_default();
+            let feed = week_view::Feed { doc, hours: &hours, days: &days, daily: &daily, twelve };
+            v.set(kit, pictures, &feed, &stamp, look);
+        }
         self.paint(kit, pictures, doc, &hours, &days);
     }
 
@@ -689,7 +766,7 @@ impl Weather {
         let p = &self.plan;
         let mut canvas = Canvas { px: self.rows.pixels_mut(), w, h };
         // the horizon the rain lands on: a hairline under the reading, where something follows it, that fades out at both ends
-        let below = if p.split { p.smart.is_some_and(|s| s.f.x == 0.0) } else { p.smart.is_some() || p.hours.is_some() || p.days.is_some() };
+        let below = if p.split { p.smart.is_some_and(|s| s.f.x == 0.0) } else { p.smart.is_some() || p.hours.is_some() || p.days.is_some() || p.week.is_some() };
         let line_w = ((if p.split { p.hero_w } else { p.w }) * k).round() as u32;
         let y = ((p.hero_bottom + 6.0) * k).round() as u32;
         let fade = (24.0 * k).min(line_w as f32 / 2.0).max(1.0);

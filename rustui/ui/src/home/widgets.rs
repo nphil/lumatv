@@ -5,7 +5,7 @@
 //! words are one [`Block`] (one layer, glyph quads) and its pictures one or two image layers painted on the CPU, so a card costs the
 //! compositor three or four layers; the pane and its lit glass are the surface's.
 
-use super::clock::{self, Civil};
+use super::clock::{self, Civil, Day, WeekStart};
 use crate::kit::Kit;
 use crate::panels::hub::Lane;
 use crate::kit::picture::{self, Fit, Picture};
@@ -64,6 +64,12 @@ impl Words {
     pub fn set_props(&mut self, at: Props) {
         self.at = at;
         self.block.set_props(at);
+    }
+
+    /// Sends the words to `to` on the compositor's clock; from wherever they are now, so a second call retargets the first.
+    pub fn animate_props(&mut self, to: Props, ms: u32, ease: compositor_protocol::Ease) {
+        self.at = to;
+        self.block.animate_props(to, ms, ease);
     }
 
     pub fn is_glyph_run(&self) -> bool {
@@ -313,7 +319,100 @@ pub struct Plan {
     face_centred: bool,
     info: Option<(Box, bool)>,
     strip: Option<(Box, f32)>,
-    months: Option<(Box, f32, usize)>,
+    grid: Option<Grid>,
+}
+
+/// The month: a header of the weekday initials (`hh` high), then six rows (`rh`) of seven columns (`cw`), the numbers `fs` px and the initials `hs`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Grid {
+    x: f32,
+    y: f32,
+    cw: f32,
+    hh: f32,
+    rh: f32,
+    fs: f32,
+    hs: f32,
+}
+
+impl Grid {
+    fn scaled(self, k: f32) -> Self {
+        Self { x: self.x * k, y: self.y * k, cw: self.cw * k, hh: self.hh * k, rh: self.rh * k, fs: self.fs * k, hs: self.hs * k }
+    }
+}
+
+impl Plan {
+    fn new(w: f32) -> Self {
+        Plan { mode: "regular", dia: 0.0, ts: 0.0, greet: false, date_on: false, face: Box { x: 0.0, y: 0.0, w }, face_centred: false, info: None, strip: None, grid: None }
+    }
+}
+
+/// The month in a box: the largest rows that fit (to 44 px), the columns no wider than the rows allow, centred in the box; `None` where the rows would be under
+/// 21 px (the numbers under 15 px), which is too small to read across a room.
+fn month_grid(x: f32, y: f32, w: f32, h: f32) -> Option<Grid> {
+    let rh = (h / 6.75).min(44.0).floor();
+    let cw = (w / 7.0).min(rh * 2.6).min(64.0).floor();
+    if rh < 21.0 || cw < 28.0 {
+        return None;
+    }
+    let hh = (rh * 0.75).round();
+    Some(Grid { x: x + ((w - 7.0 * cw) / 2.0).round(), y: y + ((h - hh - 6.0 * rh) / 2.0).round(), cw, hh, rh, fs: (rh * 0.72).clamp(15.0, 28.0), hs: (rh * 0.55).clamp(13.0, 20.0) })
+}
+
+/// The month beside the face (a wide card) or under it (a narrow, tall one), where the card has the room for a grid that reads; `None` leaves the card to the
+/// week strip. The date line stays only when `date` says the card keeps it (the top bar has it otherwise), and the greeting where the card is tall.
+fn month_plan(w: f32, h: f32, analog: bool, greeting: bool, token: f32, ampm: bool, date: bool) -> Option<Plan> {
+    let mut p = Plan::new(w);
+    if w < 560.0 {
+        if h < 300.0 {
+            return None;
+        }
+        p.mode = "column";
+        let mut y = 16.0;
+        if analog {
+            p.dia = clampi((h - 226.0 - if date { 64.0 } else { 0.0 }).min(200.0).min(w), 96.0, 200.0);
+            p.face = Box { x: ((w - p.dia) / 2.0).round(), y, w: p.dia };
+            y += p.dia + 16.0;
+            if date {
+                p.info = Some((Box { x: 0.0, y, w }, true));
+                y += 80.0;
+            }
+        } else {
+            p.greet = greeting;
+            p.date_on = date;
+            p.ts = fit_time(token, w, h, ampm, 0.0);
+            y += if p.greet { 43.0 } else { 0.0 } + p.ts + if date { 42.0 } else { 0.0 } + 16.0;
+            p.face = Box { x: 0.0, y: 16.0, w };
+            p.face_centred = true;
+        }
+        p.grid = Some(month_grid(0.0, y, w, h - y - 8.0)?);
+        return Some(p);
+    }
+    if h < 150.0 {
+        return None;
+    }
+    p.mode = "month";
+    let tall = h >= 230.0;
+    let info_on = date && tall;
+    let col_w;
+    if analog {
+        p.dia = clampi((h - if info_on { 84.0 } else { 16.0 }).min(220.0).min(w * 0.32), 96.0, 220.0);
+        col_w = if info_on { p.dia.max(190.0) } else { p.dia };
+        let y = ((h - p.dia - if info_on { 80.0 } else { 0.0 }) / 2.0).round();
+        p.face = Box { x: ((col_w - p.dia) / 2.0).round(), y, w: p.dia };
+        if info_on {
+            p.info = Some((Box { x: 0.0, y: y + p.dia + 14.0, w: col_w }, true));
+        }
+    } else {
+        p.greet = greeting && tall;
+        p.date_on = date;
+        let (gh, dh) = (if p.greet { 43.0 } else { 0.0 }, if date { 42.0 } else { 0.0 });
+        p.ts = fit_time(token, (w * 0.42).round(), h - gh - dh, ampm, 0.0);
+        col_w = time_w(p.ts, ampm);
+        p.face = Box { x: 0.0, y: ((h - gh - p.ts - dh) / 2.0).round(), w: col_w };
+    }
+    let rx = col_w + 48.0;
+    p.grid = Some(month_grid(rx, 0.0, w - rx, h)?);
+    Some(p)
 }
 
 fn time_w(ts: f32, ampm: bool) -> f32 {
@@ -328,8 +427,8 @@ fn clampi(v: f32, a: f32, b: f32) -> f32 {
     v.round().clamp(a, b)
 }
 
-pub fn plan(w: f32, h: f32, analog: bool, greeting: bool, token: f32, ampm: bool) -> Plan {
-    let mut p = Plan { mode: "regular", dia: 0.0, ts: 0.0, greet: false, date_on: false, face: Box { x: 0.0, y: 0.0, w }, face_centred: false, info: None, strip: None, months: None };
+pub fn plan(w: f32, h: f32, analog: bool, greeting: bool, token: f32, ampm: bool, date: bool) -> Plan {
+    let mut p = Plan::new(w);
     let gap = 36.0;
     if w < 260.0 || h < 120.0 {
         p.mode = "tiny";
@@ -347,6 +446,9 @@ pub fn plan(w: f32, h: f32, analog: bool, greeting: bool, token: f32, ampm: bool
             p.face = Box { x: 0.0, y: ((h - p.ts - if p.date_on { 34.0 } else { 0.0 }) / 2.0).round(), w };
         }
         return p;
+    }
+    if let Some(m) = month_plan(w, h, analog, greeting, token, ampm, date) {
+        return m;
     }
     if w < 560.0 && h >= 300.0 {
         p.mode = "column";
@@ -369,31 +471,6 @@ pub fn plan(w: f32, h: f32, analog: bool, greeting: bool, token: f32, ampm: bool
             p.face_centred = true;
             p.strip = Some((Box { x: ((w - 7.0 * cell) / 2.0).round(), y: y1 + fh + 24.0, w: 7.0 * cell }, cell));
         }
-        return p;
-    }
-    if w >= 560.0 && h >= 230.0 {
-        p.mode = "month";
-        let col_w;
-        if analog {
-            p.dia = clampi((h - 84.0).min(220.0).min(w * 0.32), 96.0, 220.0);
-            col_w = p.dia.max(190.0);
-            let y2 = ((h - (p.dia + 80.0)) / 2.0).round();
-            p.face = Box { x: ((col_w - p.dia) / 2.0).round(), y: y2, w: p.dia };
-            p.info = Some((Box { x: 0.0, y: y2 + p.dia + 14.0, w: col_w }, true));
-        } else {
-            p.greet = greeting;
-            p.ts = fit_time(token, (w * 0.45).round(), h, ampm, 0.0);
-            p.date_on = true;
-            col_w = time_w(p.ts, ampm);
-            let bh = if p.greet { 43.0 } else { 0.0 } + p.ts + 8.0 + 34.0;
-            p.face = Box { x: 0.0, y: ((h - bh) / 2.0).round(), w: col_w };
-        }
-        let rx = col_w + 48.0;
-        let rw = w - rx;
-        let cell = clampi((rw / 7.0).min(64.0).min((h - 44.0) / 7.0), 24.0, 64.0);
-        let count = clampi(((rw + 48.0) / (7.0 * cell + 48.0)).floor(), 1.0, 3.0) as usize;
-        let mw = count as f32 * 7.0 * cell + (count as f32 - 1.0) * 48.0;
-        p.months = Some((Box { x: rx + ((rw - mw) / 2.0).round(), y: 0.0, w: mw }, cell, count));
         return p;
     }
     if w >= 700.0 {
@@ -454,9 +531,16 @@ pub fn plan(w: f32, h: f32, analog: bool, greeting: bool, token: f32, ampm: bool
         p.greet = greeting && h >= 150.0;
         let gh = if p.greet { 43.0 } else { 0.0 };
         p.date_on = h >= gh + 52.0 + 41.0;
-        p.ts = fit_time(token, w, h + 10.0, ampm, gh + if p.date_on { 41.0 } else { 0.0 });
+        // the week stands beside the time where the card is wide enough for it
+        let cell = clampi(((w - 300.0 - gap) / 7.0).min(56.0), 0.0, 56.0);
+        let fw = if cell >= 36.0 { w - 7.0 * cell - gap } else { w };
+        p.ts = fit_time(token, fw, h + 10.0, ampm, gh + if p.date_on { 41.0 } else { 0.0 });
         p.date_on = p.date_on && h + 10.0 >= gh + p.ts + 41.0;
-        p.face = Box { x: 0.0, y: 0.0, w };
+        p.face = Box { x: 0.0, y: 0.0, w: fw };
+        if cell >= 36.0 {
+            let kc = (cell / 48.0).clamp(0.72, 1.17);
+            p.strip = Some((Box { x: fw + gap, y: ((h - 70.0 * kc) / 2.0).round(), w: 7.0 * cell }, cell));
+        }
     }
     p
 }
@@ -470,10 +554,14 @@ pub struct Clock {
     plan: Plan,
     analog: bool,
     twelve: bool,
+    start: WeekStart,
     second: Option<Rgba>,
     /// Which block lines are what: the greeting, the time, the ampm, the weekday, the date, the strip's initials and numbers, the months.
     lines: ClockLines,
     at: Props,
+    /// The plate under today in the month grid (the layer, its grid in pixels, its size), and which cell today is.
+    today_plate: Option<(ShapeLayer, Grid, f32, f32)>,
+    today_cell: Option<usize>,
     last: Option<(u32, u32, u32, u32)>,
 }
 
@@ -486,8 +574,8 @@ struct ClockLines {
     date: Option<usize>,
     /// (initial line, number line) per day of the strip.
     strip: Vec<(usize, usize)>,
-    /// Per month: the title line, then 42 cell lines.
-    months: Vec<(usize, Vec<usize>)>,
+    /// The weekday initials and the 42 days of the month grid.
+    grid: Option<([usize; 7], Vec<usize>)>,
 }
 
 impl Clock {
@@ -495,13 +583,20 @@ impl Clock {
         let style = entry.pointer("/settings/style").or_else(|| theme.pointer("/clock/style")).and_then(Value::as_str).unwrap_or("digital");
         let analog = style == "analog";
         let twelve = theme.pointer("/clock/twelveHour").and_then(Value::as_bool) != Some(false);
+        let start = WeekStart::of(theme.pointer("/clock/weekStart").and_then(Value::as_str));
         let greeting = theme.pointer("/clock/greeting").and_then(Value::as_bool) != Some(false);
         let token = theme.pointer("/type/clock").and_then(Value::as_f64).unwrap_or(92.0) as f32;
         let second = theme.pointer("/clock/secondHand").and_then(Value::as_str).and_then(lumatv_tokens::colour).map(|c| c.premultiply(0.0));
         // At a larger text size the card's room is planned as if it were that much smaller and the plan scaled up with the type:
         // every box grows with its words, and a card that is too small for a part at that size loses the part, as a smaller card does.
         let k = kit.text_scale.max(1.0);
-        let p = plan(w / k, h / k, analog, greeting, token, twelve);
+        let date = super::bar_date::Place::of(theme.pointer("/layout/statusBar/date").and_then(Value::as_str)) == super::bar_date::Place::Card;
+        let mut p = plan(w / k, h / k, analog, greeting, token, twelve, date);
+        if !date {
+            // the date is the top bar's: no line of it in the card
+            p.date_on = false;
+            p.info = None;
+        }
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
         let ink3 = kit.ui.look.ink3();
@@ -557,20 +652,19 @@ impl Clock {
                 map.strip.push((ii, ni));
             }
         }
-        if let Some((b, cell, count)) = p.months {
-            let fs = (cell * 0.42).clamp(15.0, 26.0);
-            for m in 0..count {
-                let mx = b.x + m as f32 * (7.0 * cell + 48.0);
-                let ti = lines.len();
-                lines.push((Frame::new(mx, 0.0, 7.0 * cell, 30.0), sized(kit, 22.0, Weight::SemiBold, ink, Align::Left), String::new()));
-                let mut cells = Vec::new();
-                for c in 0..42 {
-                    let (col, row) = (c % 7, c / 7);
-                    cells.push(lines.len());
-                    lines.push((Frame::new(mx + col as f32 * cell, 44.0 + row as f32 * cell, cell, cell), sized(kit, fs, Weight::Medium, ink2, Align::Centre), String::new()));
-                }
-                map.months.push((ti, cells));
+        if let Some(g) = p.grid {
+            let mut heads = [0; 7];
+            for (c, initial) in start.initials().into_iter().enumerate() {
+                heads[c] = lines.len();
+                lines.push((Frame::new(g.x + c as f32 * g.cw, g.y + (g.hh - g.hs * 1.3) / 2.0, g.cw, g.hs * 1.3), sized(kit, g.hs, Weight::SemiBold, ink2, Align::Centre), initial.to_owned()));
             }
+            let mut cells = Vec::with_capacity(42);
+            for i in 0..42 {
+                let (col, row) = ((i % 7) as f32, (i / 7) as f32);
+                cells.push(lines.len());
+                lines.push((Frame::new(g.x + col * g.cw, g.y + g.hh + row * g.rh + (g.rh - g.fs * 1.3) / 2.0, g.cw, g.fs * 1.3), sized(kit, g.fs, Weight::Medium, ink2, Align::Centre), String::new()));
+            }
+            map.grid = Some((heads, cells));
         }
         let _ = accent;
         warm(kit, types.into_inner());
@@ -587,6 +681,11 @@ impl Clock {
                 (mark, (b.x + cell / 2.0) * k - width as f32 / 2.0, (b.y + 65.0 * kc) * k, cell * k)
             })
         } else { None };
+        let today_plate = p.grid.map(|g| {
+            let g = g.scaled(k);
+            let (w, h) = ((g.cw * 0.8).min(g.rh * 2.0).round().max(1.0), (g.rh * 0.86).round().max(1.0));
+            (kit.ui.scene.shape(w as u32, h as u32, z + 1, plate::solid(ink, h / 2.0), HIDDEN), g, w, h)
+        });
         let p = Plan { dia: p.dia * k, face: Box { x: p.face.x * k, y: p.face.y * k, w: p.face.w * k }, ..p };
         let (dial, hands) = if analog {
             let side = p.dia.max(1.0) as u32;
@@ -598,13 +697,14 @@ impl Clock {
         } else {
             (None, None)
         };
-        Ok(Self { block, dial, hands, today_mark, today_index: None, plan: p, analog, twelve, second, lines: map, at: HIDDEN, last: None })
+        Ok(Self { block, dial, hands, today_mark, today_plate, today_cell: None, today_index: None, plan: p, analog, twelve, start, second, lines: map, at: HIDDEN, last: None })
     }
 
     fn show(&mut self, at: Props) {
         self.at = at;
         self.block.set_props(at);
         self.place_today_mark();
+        self.place_plate();
         let fx = self.plan.face.x;
         let fy = self.plan.face.y;
         if let Some(d) = &self.dial {
@@ -621,6 +721,14 @@ impl Clock {
         }
     }
 
+    /// The plate under today's number in the month: ink at 14 % (a quiet mark, as the glass a focus raises is quiet, with no ring).
+    fn place_plate(&self) {
+        if let (Some((layer, g, w, h)), Some(i)) = (&self.today_plate, self.today_cell) {
+            let (col, row) = ((i % 7) as f32, (i / 7) as f32);
+            layer.set(Props { x: self.at.x + g.x + col * g.cw + (g.cw - w) / 2.0, y: self.at.y + g.y + g.hh + row * g.rh + (g.rh - h) / 2.0, opacity: self.at.opacity * 0.14, ..self.at });
+        }
+    }
+
     /// The time now; drawn again only when a shown part changed (the minute, or the second when the hand shows).
     pub fn tick(&mut self, kit: &mut Kit, t: &Civil) {
         let key = (t.day, t.hour, t.minute, if self.analog && self.second.is_some() { t.second } else { 0 });
@@ -631,6 +739,7 @@ impl Clock {
         self.last = Some(key);
         let mut changes: Vec<(usize, String, Rgba)> = Vec::new();
         let ink = kit.ui.look.ink();
+        let ink3 = kit.ui.look.ink3();
         let ink2 = kit.ui.look.ink2();
         let accent = card_accent_text(kit);
         let (time, ampm) = t.time_words(self.twelve);
@@ -644,7 +753,7 @@ impl Clock {
             changes.push((i, ampm.to_owned(), ink2));
         }
         if day_changed {
-            self.today_index = Some(t.weekday);
+            self.today_index = Some(self.start.column(t.weekday));
             self.place_today_mark();
             if let Some(i) = self.lines.weekday {
                 changes.push((i, t.weekday_name().to_owned(), ink));
@@ -653,18 +762,20 @@ impl Clock {
                 changes.push((i, if self.lines.weekday.is_some() { t.date_line() } else { format!("{}, {}", t.weekday_name(), t.date_line()) }, ink2));
             }
             for (i, (ii, ni)) in self.lines.strip.iter().enumerate() {
-                let (n, initial, today) = t.week()[i];
+                let (n, initial, today) = t.week(self.start)[i];
                 changes.push((*ii, initial.to_owned(), ink2));
                 changes.push((*ni, n.to_string(), if today { accent } else { ink }));
             }
-            for (m, (ti, cells)) in self.lines.months.iter().enumerate() {
-                let (title, days) = t.month(m as u32);
-                changes.push((*ti, title, ink));
-                for (c, li) in cells.iter().enumerate() {
-                    match days.get(c).copied().flatten() {
-                        Some((n, today)) => changes.push((*li, n.to_string(), if today { accent } else { ink2 })),
-                        None => changes.push((*li, String::new(), ink2)),
-                    }
+            if let Some((_, cells)) = &self.lines.grid {
+                let month = t.month(self.start);
+                self.today_cell = month.iter().position(|c| c.1 == Day::Today);
+                self.place_plate();
+                for (li, (n, d)) in cells.iter().zip(month) {
+                    changes.push((*li, n.to_string(), match d {
+                        Day::Today => accent,
+                        Day::This => ink2,
+                        Day::Other => ink3,
+                    }));
                 }
             }
         }
@@ -1113,7 +1224,7 @@ mod tests {
                 news.set(&mut kit, &topic, 0, 0);
                 assert_eq!(news.block.lines[news.lines.tag].1.colour, expected);
             }
-            let mut clock = Clock::new(&mut kit, 520.0, 166.0, 1, &serde_json::json!({"clock": {"style": "analog"}}), &serde_json::json!({})).unwrap();
+            let mut clock = Clock::new(&mut kit, 520.0, 166.0, 1, &serde_json::json!({"clock": {"style": "analog", "weekStart": "sunday"}}), &serde_json::json!({})).unwrap();
             let t = Civil { year: 2026, month: 11, day: 1, hour: 12, minute: 0, second: 0, weekday: 0 };
             clock.tick(&mut kit, &t);
             assert_eq!(clock.block.lines[clock.lines.strip[0].1].1.colour, expected);
@@ -1131,16 +1242,26 @@ mod tests {
     }
 
     #[test]
+    fn a_digital_clock_shows_the_week_beside_the_time_where_the_card_is_wide_enough() {
+        let p = plan(671.0, 140.0, false, true, 92.0, true, true);
+        let (b, cell) = p.strip.expect("the week");
+        assert_eq!(p.mode, "regular");
+        assert!(cell >= 36.0 && b.x + b.w <= 671.0 && p.face.w + 36.0 <= b.x, "the week clear of the time, inside the card");
+        assert!(time_w(p.ts, true) <= p.face.w, "the time fits what the week leaves");
+        assert!(plan(520.0, 166.0, false, true, 92.0, true, true).strip.is_none(), "a narrow card keeps the time alone");
+    }
+
+    #[test]
     fn the_clock_plans_the_mocks_boxes_and_the_words_age() {
-        let p = plan(520.0, 166.0, true, true, 92.0, true);
+        let p = plan(520.0, 166.0, true, true, 92.0, true, true);
         assert_eq!((p.mode, p.dia), ("regular", 166.0));
         assert!(p.strip.is_some() && p.info.is_some());
-        let d = plan(520.0, 166.0, false, true, 92.0, true);
+        let d = plan(520.0, 166.0, false, true, 92.0, true, true);
         assert_eq!((d.mode, d.ts, d.greet), ("regular", 92.0, true));
-        assert_eq!(plan(200.0, 100.0, false, true, 92.0, true).mode, "tiny");
-        assert_eq!(plan(400.0, 400.0, false, true, 92.0, true).mode, "column");
-        assert_eq!(plan(900.0, 300.0, true, true, 92.0, true).mode, "month");
-        assert_eq!(plan(1200.0, 180.0, false, true, 92.0, true).mode, "zoned");
+        assert_eq!(plan(200.0, 100.0, false, true, 92.0, true, true).mode, "tiny");
+        assert_eq!(plan(400.0, 400.0, false, true, 92.0, true, true).mode, "column");
+        assert_eq!(plan(900.0, 300.0, true, true, 92.0, true, true).mode, "month");
+        assert_eq!(plan(1200.0, 140.0, false, true, 92.0, true, true).mode, "zoned");
         assert_eq!(ago(30_000), "Just now");
         assert_eq!(ago(12 * 60_000), "12 min ago");
         assert_eq!(ago(3 * 3_600_000), "3 h ago");
@@ -1148,6 +1269,35 @@ mod tests {
         assert_eq!(ago(4 * 86_400_000), "4 days ago");
         assert_eq!(Cameras::state_words("ready", 2), "2 cameras");
         assert_eq!(Cameras::state_words("offline", 2), "Can't reach Scrypted");
+    }
+
+    /// A month grid that holds: every cell and the header inside the box it was given, in rows of 21 px or more.
+    fn grid_in(p: &Plan, w: f32, h: f32) -> Grid {
+        let g = p.grid.expect("the month");
+        assert!(g.x >= 0.0 && g.x + 7.0 * g.cw <= w && g.y >= 0.0 && g.y + g.hh + 6.0 * g.rh <= h, "{g:?} inside {w}x{h}");
+        assert!(g.rh >= 21.0 && g.cw >= 28.0 && g.fs <= g.rh);
+        g
+    }
+
+    #[test]
+    fn every_size_of_clock_has_a_layout_and_the_month_shows_where_it_reads() {
+        // the owner's clock card (seven columns, one row): the time and the whole month, clear of each other
+        let p = plan(973.0, 166.0, false, true, 92.0, true, false);
+        assert_eq!(p.mode, "month");
+        let g = grid_in(&p, 973.0, 166.0);
+        assert!(time_w(p.ts, true) + 48.0 <= g.x && !p.date_on, "the time clear of the grid, and the date is the top bar's");
+        // with the date kept in the card the time and its date line stand left of the month
+        let d = plan(973.0, 166.0, false, true, 92.0, true, true);
+        assert!(d.date_on && d.ts + 42.0 <= 166.0 && grid_in(&d, 973.0, 166.0).x >= time_w(d.ts, true));
+        // analogue, a taller card, a column: each is a month beside or under the face, inside the card
+        for (w, h, analog) in [(973.0, 166.0, true), (900.0, 300.0, true), (700.0, 230.0, false), (560.0, 150.0, false), (1400.0, 400.0, false), (400.0, 400.0, false), (400.0, 520.0, true), (300.0, 420.0, false)] {
+            let p = plan(w, h, analog, true, 92.0, true, true);
+            grid_in(&p, w, h);
+        }
+        // below that the week strip, then the time alone
+        for (w, h) in [(671.0, 140.0), (1200.0, 140.0), (520.0, 166.0), (400.0, 280.0), (200.0, 100.0)] {
+            assert!(plan(w, h, false, true, 92.0, true, true).grid.is_none(), "{w}x{h}");
+        }
     }
 
     #[test]

@@ -20,7 +20,7 @@ use fetch::{FetchError, TlsFetch};
 use ha_link::endpoint::AddressPolicy;
 use lumatv_feeds::weather::{WeatherConfig, WeatherDoc};
 use lumatv_feeds::weather_ha;
-use lumatv_feeds::weather_more::{DAYS, HOURS, MoreDoc};
+use lumatv_feeds::weather_more::{DAYS, MoreDoc};
 use lumatv_feeds::FeedError;
 use parking_lot::{Condvar, Mutex};
 use serde_json::{Map, Value, json};
@@ -43,6 +43,8 @@ const FRESH: Duration = Duration::from_secs(60);
 /// The most hours and days the module sends, kept the same for a read over the link.
 const MAX_HOURS: usize = 48;
 const MAX_DAYS: usize = 10;
+/// The hours of a Home Assistant forecast the document keeps.
+const HOURS: usize = 36;
 /// The reading's attributes and a forecast entry's fields the module sends (`lumashow-ha` `weather.py`, `READING` and `ENTRY`).
 const READING: [&str; 17] = [
     "temperature",
