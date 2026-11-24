@@ -365,7 +365,7 @@ impl State {
     /// asked for (the feeder asks for the whole screen), and nowhere while it has no granted claim: its element is hidden and has no hole.
     fn exported_destination(&self, e: &Exported) -> Rect {
         match self.scene.window_of(e.surface).and_then(|w| self.scene.window(w)).filter(|w| w.kind == crate::window::WindowType::VideoWindow) {
-            Some(w) if w.vwin_live => w.vwin_rect,
+            Some(w) if w.vwin_live || w.vwin_quiet => w.vwin_rect,
             Some(_) => Rect::default(),
             None => e.destination,
         }
@@ -445,14 +445,16 @@ impl State {
     pub(crate) fn exported_changed(&mut self, window_id: &str) {
         let Some(e) = self.foreign.exported.get(window_id) else { return };
         let (surface, dest, source, original, contexts) = (e.surface, self.exported_destination(e), e.source, e.original, e.contexts.clone());
-        let expected = (!contexts.is_empty() && !dest.is_empty()).then_some(Hole { surface, rect: dest });
+        // The retime clip's window (`retime`) is placed where it says, but under the UI's own pixels: no hole is cut for it.
+        let quiet = self.scene.window_of(surface).and_then(|w| self.scene.window(w)).is_some_and(|w| w.vwin_quiet);
+        let expected = (!contexts.is_empty() && !dest.is_empty() && !quiet).then_some(Hole { surface, rect: dest });
         if self.scene.holes.iter().find(|h| h.surface == surface).copied() != expected {
             self.scene.invalidate_video_holes_for_surface(surface, &self.surfaces);
         }
         let out_rect = self.exported_output_rect(surface, dest);
         self.scene.holes.retain(|h| h.surface != surface);
-        if !contexts.is_empty() && !dest.is_empty() {
-            self.scene.holes.push(Hole { surface, rect: dest });
+        if let Some(hole) = expected {
+            self.scene.holes.push(hole);
         }
         self.shell_rust_sync_video();
         self.luna_notify_video_windows();

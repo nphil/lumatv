@@ -51,6 +51,7 @@ pub mod pointer;
 pub mod preload;
 pub mod refresh;
 pub mod render;
+pub mod retime;
 pub mod ring;
 pub mod saverguard;
 pub mod scanout;
