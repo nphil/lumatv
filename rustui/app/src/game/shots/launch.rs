@@ -299,17 +299,23 @@ fn the_idle_countdown_runs_on_the_model_clock_and_only_the_far_sides_clear_dismi
 }
 
 #[test]
-fn a_key_during_the_countdown_tells_the_engine_at_most_once_a_second_and_never_without_one() {
+fn a_key_tells_a_cloud_engine_at_most_once_a_second_during_the_countdown_and_once_in_30_seconds_otherwise() {
     let (mut m,session)=playing();
     let press=|m:&mut Model,key| activity(&m.step(Input::Key {key,down:true}));
-    assert_eq!(press(&mut m,Key::Ok),0,"no warning, no message");
-    event(&mut m,"gfn",ipc::Event::IdleWarning {session,seconds:Some(30)});
+    // 1000 ms on the model's clock: the first press of a session with no warning is sent, held keys are not.
     assert_eq!(press(&mut m,Key::Ok),1,"the remote's key never reaches the stream, so the engine is asked to send one");
     assert_eq!(press(&mut m,Key::Down),0,"held keys do not flood the link");
-    m.step(Input::Tick {now_ms:2100,unix_s:0});
+    m.step(Input::Tick {now_ms:20_000,unix_s:0});
+    assert_eq!(press(&mut m,Key::Ok),0,"no warning: once in 30 s");
+    m.step(Input::Tick {now_ms:31_100,unix_s:0});
+    assert_eq!(press(&mut m,Key::Ok),1);
+    // The countdown asks for more: one a second, so the prompt clears at once.
+    event(&mut m,"gfn",ipc::Event::IdleWarning {session,seconds:Some(30)});
+    assert_eq!(press(&mut m,Key::Ok),0,"a second has not passed");
+    m.step(Input::Tick {now_ms:32_200,unix_s:0});
     assert_eq!(press(&mut m,Key::Ok),1);
     // A key release is not a press.
-    m.step(Input::Tick {now_ms:4000,unix_s:0});
+    m.step(Input::Tick {now_ms:35_000,unix_s:0});
     assert_eq!(activity(&m.step(Input::Key {key:Key::Ok,down:false})),0);
     // The menu's pad keys count as well.
     assert_eq!(activity(&m.step(Input::PadKey {slot:0,key:Key::Down,down:true})),1);

@@ -265,13 +265,11 @@ impl Adapter {
             Request::SteamOverlay { session } if self.launch.as_ref().is_some_and(|l| l.id == session && l.running) => {
                 self.enqueue("streamer.control",json!({"action":"steam-overlay"}),Purpose::Pause,seq);
             }
-            // The remote's and a keyboard's keys never reach the stream, so a press during the idle countdown is sent to the far side
-            // as the one input the streamer's anti-AFK pulse is (upstream's F13 tap). It answers a press that happened; nothing here
-            // sends one on a timer.
+            // The remote's and a keyboard's keys never reach the stream (nor do the pad's while the overlay has it), so the far side's
+            // idle policy would count them as no input. The press is sent as the one input the streamer's anti-AFK pulse is (upstream's
+            // F13 tap). It answers a press that happened, which the app rate-limits; nothing here sends one on a timer.
             Request::Activity { session } if self.launch.as_ref().is_some_and(|l| l.id == session && l.running) => {
-                if self.launch.as_ref().is_some_and(|l| l.idle_until.is_some()) {
-                    self.enqueue("streamer.control",json!({"action":"anti-afk-pulse"}),Purpose::Pause,seq);
-                }
+                self.enqueue("streamer.control",json!({"action":"anti-afk-pulse"}),Purpose::Pause,seq);
             }
             Request::Library { .. } | Request::Check { .. } | Request::Forget { .. } | Request::Stop { .. } | Request::Route { .. } | Request::Stats { .. }
             | Request::RoundTrip { .. } | Request::SteamOverlay { .. } | Request::Activity { .. } => {

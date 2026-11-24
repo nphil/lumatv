@@ -16,12 +16,14 @@ const LAYER_QUIET_MS: u64 = 30_000;
 /// How long after the strip's time is up it still counts as on screen, so that it can leave with its animation.
 const STRIP_EXIT_MS: u64 = 250;
 
-/// The far side's idle countdown while it runs: when it ends by the model's clock, and when a press last told the engine.
+/// The far side's idle countdown while it runs: when it ends by the model's clock.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct IdleWarning {
     pub ends_ms: u64,
-    pub(super) sent_ms: Option<u64>,
 }
+/// How often a press tells the engine of a cloud session while the far side's countdown runs, and while it does not.
+const ACTIVITY_WARNED_MS: u64 = 1000;
+const ACTIVITY_QUIET_MS: u64 = 30_000;
 /// What moved the session towards its end, for diagnostics. It is read from the input that did it, so an engine's own wording never has to be parsed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cause { Owner, Close, Background, Engine, EngineExit, Timeout }
@@ -39,12 +41,14 @@ pub struct Run {
     pub(super) waking: bool,
     /// The pad is routed to the app, not the game, while the strip or a layer over the stream is up.
     pub(super) held: bool,
+    /// When a press last told the engine of the viewer's activity.
+    pub(super) activity_ms: Option<u64>,
     /// One quiet timer for the drawers and the End prompt: any key refreshes it.
     pub(super) quiet: AutoHide,
 }
 impl Default for Run {
     fn default() -> Self {
-        Self { began_ms: 0, waking: false, held: false, quiet: AutoHide::new(LAYER_QUIET_MS) }
+        Self { began_ms: 0, waking: false, held: false, activity_ms: None, quiet: AutoHide::new(LAYER_QUIET_MS) }
     }
 }
 /// What the start screen says: the step the launch is at and, under it, where it happens and how long it may wait.
@@ -170,6 +174,10 @@ impl Model {
             Phase::Done(Outcome::Failed { message, .. }) => Some(message),
             _ => None,
         }
+    }
+    /// The game's last session was ended by the far side for lack of input. Playing again is the page's one action then.
+    pub fn ended_idle(&self, id: GameId) -> bool {
+        self.session.as_ref().is_some_and(|s| s.game == id && matches!(s.phase(), Phase::Done(Outcome::Ended(ipc::EndReason::Idle))))
     }
     /// Whether the launch can still be called off: a stop that has begun cannot be.
     pub fn can_cancel(&self) -> bool {
@@ -313,15 +321,21 @@ impl Model {
             ("Leave the stream?", format!("The stream will close. {body}"), "Leave stream")
         }
     }
-    /// A key pressed while the far side's idle countdown runs. The remote and a keyboard never reach the stream, and an overlay
-    /// pad key is the menu's, so the engine sends the far side one input for that press: it is the activity the countdown asks for.
-    /// The prompt clears when the far side's own clear arrives, not on the press. At most one a second, whatever is held down.
+    /// A key pressed over a running stream. The remote and a keyboard never reach the stream, and an overlay pad key is the menu's, so
+    /// a cloud service that ends a session for lack of input would see none of them. The engine sends the far side one input for the
+    /// press, which is the activity its idle policy asks for. While the far side's countdown runs that is at most one a second, so
+    /// the prompt clears quickly; otherwise at most one every 30 s, and only for a cloud engine. Nothing is sent on a timer.
+    /// The prompt itself clears when the far side's own clear arrives, not on the press.
     pub(super) fn idle_activity(&mut self, out: &mut Vec<Command>) {
-        let (Some(warning), Some(s)) = (self.view.idle.as_mut(), self.session.as_ref()) else { return };
-        if warning.sent_ms.is_some_and(|at| self.now_ms < at + 1000) {
+        let Some(s) = self.session.as_ref().filter(|s| !s.is_done()) else { return };
+        let (gap, wanted) = match self.view.idle {
+            Some(_) => (ACTIVITY_WARNED_MS, true),
+            None => (ACTIVITY_QUIET_MS, self.integration(&s.source.engine).is_some_and(|e| e.manifest.kind == EngineKind::Cloud)),
+        };
+        if !wanted || self.run.activity_ms.is_some_and(|at| self.now_ms < at + gap) {
             return;
         }
-        warning.sent_ms = Some(self.now_ms);
+        self.run.activity_ms = Some(self.now_ms);
         Self::send(out, &s.source.engine, Request::Activity { session: s.id });
     }
     pub(super) fn set_stats(&mut self, mode: StatsMode, out: &mut Vec<Command>) {
@@ -810,6 +824,20 @@ mod tests {
         }
         assert_eq!((m.view.page, m.view.top(), m.view.notice.as_deref()), (Page::Game, None, Some("The game ended.")));
         assert!(!m.session_active(), "nothing is left for the end-stream prompt");
+        assert!(!m.ended_idle(GameId(1)));
+    }
+    #[test]
+    fn a_session_ended_for_inactivity_lands_on_the_page_with_play_focused_and_offered_as_a_relaunch() {
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("gfn", "GeForce NOW", EngineKind::Cloud)]);
+        describe(&mut m, "gfn", vec![], &[]);
+        m.session = Some(Session::start(SessionId(1), GameId(1), "gfn|main|1".parse().unwrap(), Presentation::Feeder, false, 0).0);
+        for state in [SessionState::Running { stream: None }, SessionState::Ended { reason: ipc::EndReason::Idle }] {
+            let event = ipc::Event::Session { session: SessionId(1), state };
+            m.step(Input::Engine { engine: EngineId::new("gfn").unwrap(), message: Box::new(FromEngine { re: None, event }) });
+        }
+        assert_eq!((m.view.page, m.view.focus), (Page::Game, Focus::Play));
+        assert_eq!(m.view.notice.as_deref(), Some("GeForce NOW ended the session after inactivity."));
+        assert!(m.ended_idle(GameId(1)) && !m.ended_idle(GameId(2)) && m.last_failure(GameId(1)).is_none());
     }
     #[test]
     fn a_failed_launch_ends_on_the_game_page_with_the_engines_words_and_keeps_them_for_retry() {

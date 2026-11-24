@@ -104,11 +104,17 @@ fn line_of(m: &Model, id: GameId) -> (String, Role) {
     (parts.join("  ·  "), Role::Ink2)
 }
 
-/// Play ("Try again" after a failed start) and the where-to-play button. Returns where they end.
+/// Play ("Try again" after a failed start, "Relaunch" after the far side ended the session for inactivity) and the where-to-play button. Returns where they end.
 fn actions(p: &mut Paint<'_>, id: GameId, y: f32) -> f32 {
     let y = y + 28.0;
     let on_art = has_hero(p, id);
-    let label = if p.model.last_failure(id).is_some() { "Try again" } else { "Play" };
+    let label = if p.model.last_failure(id).is_some() {
+        "Try again"
+    } else if p.model.ended_idle(id) {
+        "Relaunch"
+    } else {
+        "Play"
+    };
     let w = p.button(20, Focus::Play, label, Some(Icon::Play), p.x, y, true, on_art, 12);
     let target = target_label(p, id);
     p.button(30, Focus::Where, &target, Some(Icon::ChevronDown), p.x + w + CARD_GAP, y, false, on_art, 12);

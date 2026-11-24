@@ -312,16 +312,16 @@ fn a_stream_that_ends_after_its_countdown_ran_out_is_an_idle_end_and_one_that_en
 }
 
 #[test]
-fn the_idle_warning_is_forwarded_and_clears_and_a_press_sends_one_input_only_while_it_is_up() {
+fn the_idle_warning_is_forwarded_and_clears_and_every_press_sends_one_input() {
     let mut f=running();
     f.send(30,Request::Activity{session:SessionId(9)});
-    f.collect();assert!(f.requests.is_empty(),"no warning, nothing to answer");
+    assert_eq!(f.reply("streamer.control",json!({}))["params"],json!({"action":"anti-afk-pulse"}),"the policy may end the session without a warning");
     f.adapter.pad_line(&json!({"stream":"idle","seconds":59}).to_string());
     f.send(31,Request::Activity{session:SessionId(9)});
     assert_eq!(f.next("streamer.control")["params"],json!({"action":"anti-afk-pulse"}));
     f.adapter.pad_line(&json!({"stream":"idle","seconds":null}).to_string());
-    f.send(32,Request::Activity{session:SessionId(9)});
-    f.collect();assert!(f.requests.is_empty(),"the warning cleared");
+    f.send(32,Request::Activity{session:SessionId(8)});
+    f.collect();assert!(f.requests.is_empty(),"another session's press is refused");
     let seen:Vec<_>=f.events.iter().filter_map(|e| match &e.event {Event::IdleWarning{session:SessionId(9),seconds}=>Some(*seconds),_=>None}).collect();
     assert_eq!(seen,[Some(59),None]);
 }

@@ -1312,7 +1312,7 @@ impl Model {
         if !self.foreground {
             return false;
         }
-        if down && self.idle_left().is_some() {
+        if down && self.view.page == Page::Running && self.streaming() {
             self.idle_activity(out);
         }
         if self.pad_mode() == PadMode::Captured {
@@ -1663,8 +1663,7 @@ impl Model {
             }
             ipc::Event::IdleWarning { session, seconds } => {
                 if self.session.as_ref().is_some_and(|s| s.id == session && s.source.engine == id) {
-                    let sent_ms = self.view.idle.and_then(|w| w.sent_ms);
-                    self.view.idle = seconds.map(|s| IdleWarning { ends_ms: self.now_ms + u64::from(s) * 1000, sent_ms });
+                    self.view.idle = seconds.map(|s| IdleWarning { ends_ms: self.now_ms + u64::from(s) * 1000 });
                 }
             }
             ipc::Event::Key { key, down } => {

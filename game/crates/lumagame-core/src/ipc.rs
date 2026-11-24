@@ -129,8 +129,9 @@ pub enum Request {
     SteamOverlay {
         session: SessionId,
     },
-    /// The viewer pressed a key the engine never sees (the remote's, a keyboard's) while an idle warning is up. The engine sends the
-    /// far side one input for that press, so it counts as the activity it is. Never sent without a warning.
+    /// The viewer pressed a key the engine never sees (the remote's, a keyboard's, an overlay pad key) over a running stream. The
+    /// engine of a cloud service sends the far side one input for that press, so it counts as the activity its idle policy asks for.
+    /// The app sends it at most once a second while an idle warning is up and once every 30 s otherwise, and only to cloud engines.
     Activity {
         session: SessionId,
     },
