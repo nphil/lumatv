@@ -1756,3 +1756,31 @@ fn an_arm_that_fails_after_the_takeover_gives_lgs_mixer_back() {
     assert!(lg_mixer_connected(&rig));
     assert_eq!(rig.snap().session, None);
 }
+
+#[test]
+fn a_session_leaves_the_decoders_gain_and_mute_as_it_found_them_and_names_a_gain_lg_changed() {
+    // The route never writes a gain: a decoder found at half gain, through a takeover of LG's mixer input, reads back as the
+    // journal found it, Gain and Mute included.
+    let mut rig = lg_mixing();
+    rig.host.with(|sim| sim.adec_gain = "0x400000".into());
+    rig.arm().unwrap();
+    let found = rig
+        .host
+        .with(|sim| Journal::parse(&sim.files[JOURNAL]).unwrap().kernel);
+    assert!(found.contains("Gain=0x400000"), "{found}");
+    rig.run(10_000);
+    assert_eq!(rig.session().phase, Phase::Audible);
+    assert_eq!(rig.route.release(PID), Ok(true));
+    assert_restored(&rig, Why::Released);
+    rig.host.with(|sim| assert_eq!(sim.adec_gain, "0x400000"));
+
+    // A gain LG changed while the session held the decoder is named in the comparison after the restore.
+    let mut rig = Rig::audible();
+    rig.host.with(|sim| sim.adec_gain = "0x200000".into());
+    assert_eq!(rig.route.release(PID), Ok(true));
+    let after = rig.snap().after.expect("the difference is reported");
+    assert!(
+        after.contains("Gain=0x200000") && after.contains("Gain=0x800000"),
+        "{after}"
+    );
+}

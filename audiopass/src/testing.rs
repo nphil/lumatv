@@ -71,6 +71,8 @@ pub struct Sim {
     pub belief_muted: bool,
     /// Other decoder inputs LG has connected to the main output (an HDMI input or an app), by number.
     pub others: Vec<u8>,
+    /// The ADEC's kernel gain; only LG sets it.
+    pub adec_gain: String,
     /// LG's mixer input for a stream (`AMIXER<n>`), connected in audiooutputd and the kernel.
     pub mixer: Option<u8>,
     /// audiooutputd lists the mixer input from this time on, which may be a moment after the kernel shows it.
@@ -153,9 +155,10 @@ impl Sim {
 
     fn render_adec(&self) -> String {
         format!(
-            "Open=1 Connect={} Start={} Gain=0x800000 Mute={}\n",
+            "Open=1 Connect={} Start={} Gain={} Mute={}\n",
             self.adec_input,
             u8::from(self.adec_start),
+            self.adec_gain,
             u8::from(self.adec_mute)
         )
     }
@@ -308,6 +311,7 @@ impl FakeHost {
                 adec_mute: true,
                 belief_muted: false,
                 others: Vec::new(),
+                adec_gain: "0x800000".into(),
                 mixer: None,
                 listed_at: 0,
                 main_mixer: None,
