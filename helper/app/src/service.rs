@@ -230,6 +230,7 @@ impl Service {
         threads.push(("plugins", plugins.spawn(&ctx)?));
         threads.push(("gaming", crate::gaming::spawn(&ctx, plugins.shared().clone())?));
         threads.push(("multi-link", crate::multi_link::spawn(&ctx, plugins.shared().clone())?));
+        threads.push(("arp-guard", crate::multi_link::spawn_arp_guard(&ctx)?));
         threads.push((
             "audio-passthrough",
             crate::audio_passthrough::spawn(&ctx, plugins.shared().clone())?,

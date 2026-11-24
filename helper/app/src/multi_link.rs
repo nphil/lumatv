@@ -303,3 +303,18 @@ mod tests {
         assert_eq!(OPT_IN.spec.permissions, &["settings"]);
     }
 }
+
+/// Core ARP flux guard: runs whether or not Multi Link is on, since Multi Link's own
+/// restore writes the original (0) values back when it switches off.
+pub fn spawn_arp_guard(ctx: &Ctx) -> std::io::Result<JoinHandle<()>> {
+    let stop = ctx.stop.clone();
+    thread::Builder::new().name("arp-guard".into()).stack_size(128 * 1024).spawn(move || {
+        let mut last = String::new();
+        while !stop.is_set() {
+            let note = match multilink::arp::apply() { Ok(0) => String::new(), Ok(n) => format!("applied {n} ARP values"), Err(e) => e };
+            if !note.is_empty() && note != last { eprintln!("arp-guard: {note}"); }
+            last = note;
+            for _ in 0..10 { if stop.is_set() { return; } thread::sleep(Duration::from_millis(500)); }
+        }
+    })
+}

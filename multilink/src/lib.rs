@@ -1,6 +1,7 @@
 //! Source-bound downloads: the wired route carries requests, each source address receives its own replies.
 //! No bonding, policy routing, transparent proxy or application dependencies.
 
+pub mod arp;
 pub mod linux;
 mod journal;
 pub use journal::{FileJournal, Journal, JournalStore, Transaction};
