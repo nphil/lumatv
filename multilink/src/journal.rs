@@ -112,11 +112,12 @@ impl<D: Device, S: JournalStore> Transaction<D, S> {
         Ok(())
     }
 
-    /// Sysctls follow live interfaces. A borrowed host route stays wired until the transaction ends.
+    /// Sysctls and Wi-Fi pins (a host route placed on `wlan0`) follow the live links and the pinned server. A borrowed host route stays wired until the transaction ends.
     pub fn network(&mut self, desired: &[(Key, Value)]) -> Result<()> {
         for i in (0..self.journal.changes.len()).rev() {
             let c = &self.journal.changes[i];
-            if matches!(c.key, Key::Sysctl { .. }) && !desired.iter().any(|(key, _)| key == &c.key) { self.restore_index(i)?; }
+            let follows_links = matches!(c.key, Key::Sysctl { .. }) || matches!(&c.after, Value::Route(Some(r)) if r.interface == "wlan0");
+            if follows_links && desired.iter().find(|(key, _)| key == &c.key).is_none_or(|(_, value)| value != &c.after) { self.restore_index(i)?; }
         }
         for (key, value) in desired { self.set(key.clone(), value.clone())?; }
         Ok(())

@@ -128,7 +128,9 @@ pub struct Plan {
     pub settings: Vec<(Key, Value)>,
 }
 
-pub fn plan(snapshot: &Snapshot, wifi_allowed: bool) -> Result<Plan> {
+/// `pinned` is a server whose own traffic should ride the Wi-Fi link: it gets a /32 route through the wired gateway on that
+/// link while Wi-Fi is a candidate, and none (so the wire again) when it is not.
+pub fn plan(snapshot: &Snapshot, wifi_allowed: bool, pinned: Option<Ipv4Addr>) -> Result<Plan> {
     let wire = snapshot.links.iter().find(|l| l.interface == snapshot.default_interface && l.kind != Kind::Wifi && l.healthy())
         .ok_or("Waiting for a healthy wired default route")?;
     if !snapshot.gateway.is_private() || snapshot.all_arp_ignore > 1 || snapshot.all_arp_announce > 2 {
@@ -145,9 +147,13 @@ pub fn plan(snapshot: &Snapshot, wifi_allowed: bool) -> Result<Plan> {
             }
         }
     }
-    // A prior destination-only Wi-Fi workaround must not send Plex controls/ACKs over the radio.
+    let pin = pinned.filter(|ip| ip.is_private() && !snapshot.links.iter().any(|l| l.address == *ip))
+        .and_then(|destination| candidates.iter().find(|l| l.kind == Kind::Wifi).map(|wifi| Route {
+            destination, gateway: snapshot.gateway, interface: wifi.interface.clone(), source: Some(wifi.address), metric: 0, protocol: None }));
+    // Any other destination-only Wi-Fi workaround must not send its controls/ACKs over the radio.
     // Only private /32 routes using this same gateway are borrowed; connected, default and P2P routes stay LG's.
     for route in &snapshot.host_routes {
+        if pin.as_ref().is_some_and(|p| p.destination == route.destination) { continue; }
         if route.interface == "wlan0" && route.gateway == snapshot.gateway && route.destination.is_private() {
             let mut wired = route.clone();
             wired.interface.clone_from(&wire.interface);
@@ -155,6 +161,7 @@ pub fn plan(snapshot: &Snapshot, wifi_allowed: bool) -> Result<Plan> {
             settings.push((Key::HostRoute { destination: route.destination }, Value::Route(Some(wired))));
         }
     }
+    if let Some(route) = pin { settings.push((Key::HostRoute { destination: route.destination }, Value::Route(Some(route)))); }
     Ok(Plan { control: wire.interface.clone(), candidates, settings })
 }
 

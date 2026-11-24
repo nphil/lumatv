@@ -102,6 +102,26 @@ impl Linux {
     }
 }
 
+/// Remote private IPv4 addresses with an established TCP connection to `port` in a `/proc/net/tcp` table, first seen first.
+pub fn established_peers(table: &str, port: u16) -> Vec<Ipv4Addr> {
+    let mut peers = Vec::new();
+    for line in table.lines().skip(1) {
+        let fields: Vec<_> = line.split_whitespace().collect();
+        let Some((address, remote_port)) = fields.get(2).and_then(|f| f.split_once(':')) else { continue };
+        if fields.get(3) != Some(&"01") || u16::from_str_radix(remote_port, 16).ok() != Some(port) { continue; }
+        if let Some(ip) = hex_address(address).filter(Ipv4Addr::is_private) {
+            if !peers.contains(&ip) { peers.push(ip); }
+        }
+    }
+    peers
+}
+
+impl Linux {
+    pub fn peers(&self, port: u16) -> Result<Vec<Ipv4Addr>> {
+        Ok(established_peers(&fs::read_to_string("/proc/net/tcp").map_err(|e| e.to_string())?, port))
+    }
+}
+
 fn hex_address(s: &str) -> Option<Ipv4Addr> { Some(Ipv4Addr::from(u32::from_str_radix(s, 16).ok()?.to_le_bytes())) }
 
 pub fn default_route(table: &str) -> Option<(String, Ipv4Addr)> {

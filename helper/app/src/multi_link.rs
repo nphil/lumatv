@@ -3,11 +3,14 @@
 
 use crate::ctx::Ctx;
 use crate::plugins::local::{Local, OptIn, Spec};
+use crate::plex::PlexAccount;
 use crate::plugins::session::Shared;
 use multilink::{Device, FileJournal, Key, Kind, Meter, Result, Transaction, Value};
 use multilink::linux::{Linux, uptime_ms};
 use serde_json::{Value as Json, json};
 use std::fs;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -118,7 +121,7 @@ fn register() -> Json {
             field("usb","USB Ethernet","A supported gigabit adapter is the simplest way past the built-in 100 Mbps port. Plug it in and let LG obtain its address."),
             field("wifi","Wi-Fi","Uses the network already saved by LG. Weak signal or screen sharing removes Wi-Fi from new downloads."),
             field("bulk","Downloads","Supported apps try the fastest healthy link first and add a second only when needed. They leave room on the wire for controls."),
-            field("controls","Remote, voice and app controls","LG's wired default route is kept. Private Wi-Fi host routes using the same gateway are temporarily moved to it. IPv6 and special public routes are not changed.")]}]}})
+            field("controls","Remote, voice and app controls","LG's wired default route is kept. The Plex server's own traffic goes over Wi-Fi; other private Wi-Fi host routes using the same gateway are temporarily moved to the wire. IPv6 and special public routes are not changed.")]}]}})
 }
 
 fn confirmed_screen(ctx: &Ctx) -> bool {
@@ -131,7 +134,44 @@ fn inactive(ctx: &Ctx, enabled: bool, reason: &str, generation: u64) {
         "controlInterface":null,"candidates":[],"rates":[],"ipv4Only":true,"sourceProbeRequired":true}), &["sampledUptimeMs"]);
 }
 
-fn page_facts(page: &Option<Arc<Local>>, status: &Json, reason: &str) {
+/// The Plex server's current address. What an app actually has open to the server wins, since that is the address it was given;
+/// the last one seen survives a reboot and an idle spell, and plex.tv's account entry is the answer of last resort.
+struct PlexHost { file: PathBuf, seen: Option<Ipv4Addr>, next_check: u64 }
+
+/// The address kept stays while an app still has it open; another one takes over once it does not.
+fn follow(seen: Option<Ipv4Addr>, open: &[Ipv4Addr]) -> Option<Ipv4Addr> {
+    match open.first() {
+        Some(first) if !seen.is_some_and(|s| open.contains(&s)) => Some(*first),
+        _ => seen,
+    }
+}
+
+impl PlexHost {
+    const PORT: u16 = 32_400;
+
+    fn new(dir: PathBuf) -> Self {
+        let file = dir.join("plex-host");
+        let seen = fs::read_to_string(&file).ok().and_then(|t| t.trim().parse::<Ipv4Addr>().ok()).filter(Ipv4Addr::is_private);
+        Self { file, seen, next_check: 0 }
+    }
+
+    fn address(&mut self, now: u64, account: &PlexAccount) -> Option<Ipv4Addr> {
+        let listed = account.server().and_then(|s| s.address.parse::<SocketAddr>().ok());
+        if now >= self.next_check {
+            self.next_check = now.saturating_add(2_000);
+            let mut peers = Linux.peers(listed.map_or(Self::PORT, |a| a.port())).unwrap_or_default();
+            if listed.is_some_and(|a| a.port() != Self::PORT) { peers.extend(Linux.peers(Self::PORT).unwrap_or_default()); }
+            let now_seen = follow(self.seen, &peers);
+            if let Some(ip) = now_seen.filter(|ip| Some(*ip) != self.seen) {
+                self.seen = Some(ip);
+                let _ = fs::create_dir_all(self.file.parent().unwrap_or(&self.file)).and_then(|()| fs::write(&self.file, ip.to_string()));
+            }
+        }
+        self.seen.or_else(|| match listed?.ip() { IpAddr::V4(ip) if ip.is_private() => Some(ip), _ => None })
+    }
+}
+
+fn page_facts(page: &Option<Arc<Local>>, status: &Json, reason: &str, pinned: Option<Ipv4Addr>) {
     let Some(page) = page else { return };
     let links = status.get("candidates").and_then(Json::as_array);
     let rates = status.get("rates").and_then(Json::as_array);
@@ -144,7 +184,8 @@ fn page_facts(page: &Option<Arc<Local>>, status: &Json, reason: &str) {
     let bulk = links.filter(|l| !l.is_empty()).map(|l| l.iter().filter_map(|v| v["interface"].as_str()).collect::<Vec<_>>().join(" + ")).unwrap_or_else(|| "Normal wired connection".into());
     let controls = status["controlInterface"].as_str().unwrap_or("Normal wired connection");
     let _ = page.say(json!({"t":"facts.put","facts":{"status":reason,"ethernet":line("ethernet"),"usb":line("usb-ethernet"),
-        "wifi":line("wifi"),"bulk":format!("{bulk}; supported apps only"),"controls":controls}}));
+        "wifi":line("wifi"),"bulk":format!("{bulk}; supported apps only"),
+        "controls":pinned.map_or_else(|| controls.to_string(), |ip| format!("{controls}; Plex {ip} over Wi-Fi"))}}));
 }
 
 fn handler(local: &Local, message: plugin_api::wire::ToPlugin) {
@@ -157,15 +198,15 @@ fn handler(local: &Local, message: plugin_api::wire::ToPlugin) {
     }
 }
 
-pub fn spawn(ctx: &Ctx, shared: Arc<Shared>) -> std::io::Result<JoinHandle<()>> {
+pub fn spawn(ctx: &Ctx, shared: Arc<Shared>, plex: Arc<PlexAccount>) -> std::io::Result<JoinHandle<()>> {
     let hub = ctx.hub.clone();
     shared.offer(&OPT_IN, Arc::new(move || { hub.emit(WAKE, "switch", json!({})); }));
     let ctx = ctx.clone();
     let guard_shared = shared.clone();
-    crate::plugins::guard::spawn("multi-link", 256 * 1024, guard_shared, &[ID], ctx.stop.clone(), move |_| run(&ctx, &shared))
+    crate::plugins::guard::spawn("multi-link", 256 * 1024, guard_shared, &[ID], ctx.stop.clone(), move |_| run(&ctx, &shared, &plex))
 }
 
-fn run(ctx: &Ctx, shared: &Arc<Shared>) {
+fn run(ctx: &Ctx, shared: &Arc<Shared>, plex: &PlexAccount) {
     let open = || {
         let boot = fs::read_to_string("/proc/sys/kernel/random/boot_id").map_err(|e| e.to_string())?;
         Transaction::open(Lg { ctx: ctx.clone(), shared: shared.clone() }, FileJournal::new(ctx.paths.data_dir.join(ID)), boot.trim().into())
@@ -182,13 +223,15 @@ fn run(ctx: &Ctx, shared: &Arc<Shared>) {
                 if enabled && page.is_none() { page = Local::start(shared, &OPT_IN.spec, register(), Arc::new(handler)).ok(); }
                 if !enabled { page = None; }
                 inactive(ctx, enabled, &reason, 0);
-                if let Some(status) = ctx.hub.get(TOPIC) { page_facts(&page, &status, &reason); }
+                if let Some(status) = ctx.hub.get(TOPIC) { page_facts(&page, &status, &reason, None); }
                 seq = ctx.hub.wait_events(Some(seq), None, Some(&topics), Duration::from_secs(30)).seq;
             }
             return;
         }
     };
     let mut page = None;
+    let mut plex_host = PlexHost::new(ctx.paths.data_dir.join(ID));
+    let mut pinned = None;
     let mut meter = Meter::default();
     let mut generation = 0;
     let mut identity = Json::Null;
@@ -216,11 +259,12 @@ fn run(ctx: &Ctx, shared: &Arc<Shared>) {
             recovery = changes.restore().err();
             next_join = 0;
             meter = Meter::default();
+            pinned = None;
             if let Some(e) = &recovery { reason = format!("Restoration pending: {e}"); inactive(ctx, enabled, &reason, generation); }
         } else {
             match Linux.snapshot().and_then(|mut snapshot| {
                 // Joining never happens until Ethernet already owns the default route.
-                multilink::plan(&snapshot, false)?;
+                multilink::plan(&snapshot, false, None)?;
                 let now = uptime_ms()?;
                 if now >= next_join {
                     wifi_reason = match join_saved(&mut changes) {
@@ -232,7 +276,11 @@ fn run(ctx: &Ctx, shared: &Arc<Shared>) {
                 }
                 if !changes.device().allowed() { return Err("Network preparation is no longer enabled".into()); }
                 let now = uptime_ms()?;
-                let mut selected = multilink::plan(&snapshot, wifi_allowed)?;
+                let mut selected = multilink::plan(&snapshot, wifi_allowed, plex_host.address(now, plex))?;
+                pinned = selected.settings.iter().find_map(|(key, value)| match (key, value) {
+                    (Key::HostRoute { destination }, Value::Route(Some(r))) if r.interface == "wlan0" => Some(*destination),
+                    _ => None,
+                });
                 changes.network(&selected.settings)?;
                 let rates = meter.sample(now, &snapshot.links);
                 selected.candidates.sort_by(|a, b| {
@@ -257,19 +305,35 @@ fn run(ctx: &Ctx, shared: &Arc<Shared>) {
                     generation += u64::from(identity != Json::Null);
                     identity = Json::Null;
                     reason = format!("Wired only: {error}");
+                    pinned = None;
                     inactive(ctx, enabled, &reason, generation);
                     recovery = changes.restore().err();
                     next_join = 0;
                 }
             }
         }
-        if let Some(status) = ctx.hub.get(TOPIC) { page_facts(&page, &status, &reason); }
+        if let Some(status) = ctx.hub.get(TOPIC) { page_facts(&page, &status, &reason, pinned); }
         if ctx.stop.is_set() { break; }
         let wait = if active && recovery.is_none() { Duration::from_millis(500) } else { Duration::from_secs(30) };
         sequence = ctx.hub.wait_events(Some(sequence), None, Some(&topics), wait).seq;
     }
     let reason = changes.restore().err().map_or_else(|| "Helper stopped".into(), |e| format!("Restoration pending: {e}"));
     inactive(ctx, false, &reason, generation + 1);
+}
+
+/// Core ARP flux guard: runs whether or not Multi Link is on, since Multi Link's own
+/// restore writes the original (0) values back when it switches off.
+pub fn spawn_arp_guard(ctx: &Ctx) -> std::io::Result<JoinHandle<()>> {
+    let stop = ctx.stop.clone();
+    thread::Builder::new().name("arp-guard".into()).stack_size(128 * 1024).spawn(move || {
+        let mut last = String::new();
+        while !stop.is_set() {
+            let note = match multilink::arp::apply() { Ok(0) => String::new(), Ok(n) => format!("applied {n} ARP values"), Err(e) => e };
+            if !note.is_empty() && note != last { eprintln!("arp-guard: {note}"); }
+            last = note;
+            for _ in 0..10 { if stop.is_set() { return; } thread::sleep(Duration::from_millis(500)); }
+        }
+    })
 }
 
 #[cfg(test)]
@@ -293,6 +357,16 @@ mod tests {
     }
 
     #[test]
+    fn the_plex_address_follows_what_an_app_has_open_and_otherwise_stays() {
+        let (old, new): (Ipv4Addr, Ipv4Addr) = ("192.168.1.69".parse().unwrap(), "192.168.5.10".parse().unwrap());
+        assert_eq!(follow(None, &[new]), Some(new));
+        assert_eq!(follow(Some(old), &[new]), Some(new));
+        assert_eq!(follow(Some(old), &[new, old]), Some(old));
+        assert_eq!(follow(Some(old), &[]), Some(old));
+        assert_eq!(follow(None, &[]), None);
+    }
+
+    #[test]
     fn multi_link_page_uses_the_existing_schema_renderer_and_read_only_facts() {
         let register: plugin_api::wire::Register = serde_json::from_value(register()).unwrap();
         assert!(register.settings.is_some());
@@ -302,19 +376,4 @@ mod tests {
         assert!(fields.iter().all(|f| f["kind"]["type"] == "read-only"));
         assert_eq!(OPT_IN.spec.permissions, &["settings"]);
     }
-}
-
-/// Core ARP flux guard: runs whether or not Multi Link is on, since Multi Link's own
-/// restore writes the original (0) values back when it switches off.
-pub fn spawn_arp_guard(ctx: &Ctx) -> std::io::Result<JoinHandle<()>> {
-    let stop = ctx.stop.clone();
-    thread::Builder::new().name("arp-guard".into()).stack_size(128 * 1024).spawn(move || {
-        let mut last = String::new();
-        while !stop.is_set() {
-            let note = match multilink::arp::apply() { Ok(0) => String::new(), Ok(n) => format!("applied {n} ARP values"), Err(e) => e };
-            if !note.is_empty() && note != last { eprintln!("arp-guard: {note}"); }
-            last = note;
-            for _ in 0..10 { if stop.is_set() { return; } thread::sleep(Duration::from_millis(500)); }
-        }
-    })
 }
