@@ -37,6 +37,7 @@ typedef struct gf_pipe gf_pipe;     /* a driver's own object */
 typedef struct gf_pipe_opts {
     const char *sink;
     int low_delay;
+    unsigned declare_fps;               /* --declare-fps: the rate the starfish load declares (videoFpsValue, maxFrameRate) when it is not the feed rate; 0 = the feed rate */
     int64_t *load_ns;                   /* NDL records the clock at its Load call, before any wait */
     const gf_opus51 *opus51;
 } gf_pipe_opts;

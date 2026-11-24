@@ -108,7 +108,7 @@ struct feeder {
      * sub window beside an app's video; and the ES player's `lowDelayMode` (`--low-delay`, 1 as NDL's own load says). */
     const gf_pipe_ops *next_ops;
     char sink[16];
-    int low_delay;
+    int low_delay, declare_fps;
     const char *ui_home;        /* the installed app's directory: the 64-bit UI is started from it and owns the window */
     pid_t ui_pid;
     /* SAM's side (gf_sam.c): started when SAM launched the app (no arguments, or its launch object) or with --sam. `chan` is this end of
@@ -783,7 +783,7 @@ static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t 
             use.audio = GF_AUDIO_PCM_S16LE;
         }
         const char *ndl_app = f->ndl_app && f->ndl_app[0] ? f->ndl_app : f->app_id;
-        gf_pipe_opts opts = {.sink = f->sink, .low_delay = f->low_delay, .load_ns = &f->load_ns, .opus51 = f->has_opus51 ? &f->opus51 : NULL};
+        gf_pipe_opts opts = {.sink = f->sink, .low_delay = f->low_delay, .declare_fps = (unsigned)f->declare_fps, .load_ns = &f->load_ns, .opus51 = f->has_opus51 ? &f->opus51 : NULL};
         int rc = f->ops->start(f->pipe, ndl_app, f->window_id, &use, &opts, err, cap);
         if (rc == 0) break;
         f->ops->stop(f->pipe);
@@ -1830,7 +1830,7 @@ static int run_probe(struct feeder *f) {
 
 static void usage(void) {
     fprintf(stderr,
-            "usage: lumatv-gfn-feeder --probe | --play FILE [--codec h264|h265|av1] [--size WxH] [--fps N] [--seconds S] [--loop] [--hdr]\n"
+            "usage: lumatv-gfn-feeder --probe | --play FILE [--codec h264|h265|av1] [--size WxH] [--fps N] [--declare-fps N] [--seconds S] [--loop] [--hdr]\n"
             "         [--audio PKTS] [--audio-mode auto|opus|pcm] [--drop-threshold N] [--pts-unit ns|us|ms] [--full-wait-ms N] [--burst] [--no-ndl] [--stats FILE]\n"
             "         [--delay-load MS] (the window first, the load that much later: a claim can be made in between)\n"
             "         [--texture WxH] [--swdec-lib DIR] (the picture is decoded here and painted into the window's buffers at that size; DIR holds libavcodec-lumatv)\n"
@@ -1882,6 +1882,7 @@ int main(int argc, char **argv) {
                 return 2;
             }
         } else if (!strcmp(a, "--fps") && v) f.fps = atoi(argv[++i]);
+        else if (!strcmp(a, "--declare-fps") && v) f.declare_fps = atoi(argv[++i]);
         else if (!strcmp(a, "--seconds") && v) f.seconds = atoi(argv[++i]);
         else if (!strcmp(a, "--loop")) f.loop = 1;
         else if (!strcmp(a, "--hdr")) f.hdr = 1;

@@ -2,6 +2,7 @@
 # Rate-follow test (docs/research/decoded-vrr-4k.md, "Output rate following the source"). Runs on the set as root: plays a black clip through the
 # feeder's ES pipe at each rate in turn, under the UI, and samples the panel's rate and mute state every 100 ms. Writes no driver control or setting.
 #   rate_follow.sh OUT CLIP WxH RATE...
+# DECLARE_FPS=N makes the smp load declare N (videoFpsValue, maxFrameRate) while the clip is still fed at RATE.
 OUT=$1; CLIP=$2; SIZE=$3; shift 3
 FEEDER=/var/lib/lumatv/bin/lumatv-gfn-feeder
 WIN0=/proc/lg/de/win0/status
@@ -38,7 +39,7 @@ ctl() { "$COMP/lib/ld-linux-aarch64.so.1" --library-path "$COMP/lib" "$COMP/bin/
 # display engine the clip's rate: the ES and NDL pipes present 60 fps whatever --fps and LOWDELAY say (2026-11-24). CODEC is h264 unless set.
 play() { # play FPS SECONDS
   ctl vwin claim ratefollow pip 1280 720 480 270 org.nphil.lumatv.videocheck "${CODEC:-h264}" "$SIZE@$1" > "$OUT/claim-$1.json" 2>&1
-  XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 "$FEEDER" --play "$CLIP" --size "$SIZE" --codec "${CODEC:-h264}" --fps "$1" --seconds "$2" --loop \
+  XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 "$FEEDER" --play "$CLIP" --size "$SIZE" --codec "${CODEC:-h264}" --fps "$1" ${DECLARE_FPS:+--declare-fps "$DECLARE_FPS"} --seconds "$2" --loop \
     --pipe "${PIPE:-smp}" --low-delay "${LOWDELAY:-0}" -w video -a org.nphil.lumatv.videocheck --ndl-app com.webos.app.home > "$OUT/feeder-$1.log" 2>&1 &
   PID=$!
 }

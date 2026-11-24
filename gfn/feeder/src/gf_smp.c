@@ -231,6 +231,7 @@ static int smp_start(gf_pipe *p, const char *app_id, const char *window_id, cons
     }
     char payload[1700];
     unsigned fps = l->fps ? l->fps : 30;
+    unsigned declared = o->declare_fps ? o->declare_fps : fps;
     snprintf(payload, sizeof payload,
              "{\"args\":[{\"mediaTransportType\":\"BUFFERSTREAM\",\"option\":{\"appId\":\"%s\",\"windowId\":\"%s\",\"queryPosition\":false%s,"
              "\"externalStreamingInfo\":{\"contents\":{\"codec\":{\"video\":\"%s\"%s},"
@@ -240,9 +241,9 @@ static int smp_start(gf_pipe *p, const char *app_id, const char *window_id, cons
              "\"bufferingCtrInfo\":{\"preBufferByte\":0,\"bufferMinLevel\":0,\"bufferMaxLevel\":0,\"qBufferLevelAudio\":0,\"qBufferLevelVideo\":0,"
              "\"srcBufferLevelAudio\":{\"minimum\":1024,\"maximum\":32768},\"srcBufferLevelVideo\":{\"minimum\":1024,\"maximum\":1048576}}},"
              "\"adaptiveStreaming\":{\"audioOnly\":false,\"maxWidth\":%u,\"maxHeight\":%u,\"maxFrameRate\":%u}}}]}",
-             app_id, window_id, avsink, codec, l->audio == GF_AUDIO_OPUS ? ",\"audio\":\"OPUS\"" : "", fps, audio, l->width, l->height, fps);
+             app_id, window_id, avsink, codec, l->audio == GF_AUDIO_OPUS ? ",\"audio\":\"OPUS\"" : "", declared, audio, l->width, l->height, declared);
     char what[160];
-    snprintf(what, sizeof what, "%s %ux%u at %u, audio %u, sink %s", codec, l->width, l->height, fps, l->audio, sink[0] ? sink : "main");
+    snprintf(what, sizeof what, "%s %ux%u at %u, audio %u, sink %s", codec, l->width, l->height, declared, l->audio, sink[0] ? sink : "main");
     return starfish_load(s, "smp", payload, what, l, app_id, window_id, err, cap);
 }
 
