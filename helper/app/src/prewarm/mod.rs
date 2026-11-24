@@ -24,6 +24,7 @@
 //! Nothing is written to disk.
 
 pub mod policy;
+pub mod room;
 #[cfg(test)]
 mod tests;
 
@@ -70,6 +71,11 @@ impl Keep {
         let list = self.0.read();
         list.iter().position(|a| a == app).map_or(0, |i| list.len() - i)
     }
+
+    /// The list, first kept longest.
+    pub fn order(&self) -> Vec<String> {
+        self.0.read().clone()
+    }
 }
 
 impl Default for Keep {
@@ -86,6 +92,8 @@ pub trait Platform {
     fn close(&self, app: &str) -> bool;
     fn home(&self) -> bool;
     fn headroom_mb(&self) -> Option<u64>;
+    /// `CmaFree` in MB; `None` when unreadable.
+    fn cma_free_mb(&self) -> Option<u64>;
 }
 
 /// What the hub says about the moment.
@@ -95,6 +103,8 @@ pub struct Env {
     pub refresher: bool,
     pub game: bool,
     pub front: Option<String>,
+    /// A requester holds memory ([`room`]).
+    pub room: bool,
 }
 
 /// The policy with what it has been told about SAM, and the platform calls its actions make.
@@ -111,7 +121,18 @@ impl Driver {
     /// One step at `now_ms`; the topic's value.
     pub fn tick(&mut self, s: &Settings, env: &Env, plat: &dyn Platform, now_ms: u64) -> Value {
         if !s.on || !env.screen_on {
-            let idle = Inputs { now_ms, screen_on: false, refresher: false, game: false, front: None, running: &[], playing: None, headroom_mb: None };
+            let idle = Inputs {
+                now_ms,
+                screen_on: false,
+                refresher: false,
+                game: false,
+                front: None,
+                running: &[],
+                playing: None,
+                headroom_mb: None,
+                cma_free_mb: None,
+                room: false,
+            };
             self.policy.step(s, &idle);
             return self.policy.status(s, &self.running, None);
         }
@@ -119,7 +140,7 @@ impl Driver {
         let short = headroom.is_some_and(|h| h < policy::EVICT_BELOW_MB + 50);
         let moved = self.front != env.front;
         self.front.clone_from(&env.front);
-        if self.asked_at.is_none_or(|t| now_ms.saturating_sub(t) >= ASK_EVERY_MS) || short || moved || self.policy.watching() {
+        if self.asked_at.is_none_or(|t| now_ms.saturating_sub(t) >= ASK_EVERY_MS) || short || moved || env.room || self.policy.watching() {
             if let Some(running) = plat.running() {
                 self.running = running;
             }
@@ -135,6 +156,8 @@ impl Driver {
             running: &self.running,
             playing: self.playing.as_ref(),
             headroom_mb: headroom,
+            cma_free_mb: plat.cma_free_mb(),
+            room: env.room,
         };
         let actions = self.policy.step(s, &inputs);
         for action in actions {
@@ -183,6 +206,7 @@ fn env_of(hub: &Hub) -> Env {
         refresher: crate::refreshguard::refresher_current().get("running").and_then(Value::as_bool) == Some(true),
         game: game_mode || front_ids.iter().any(|id| GAMES.contains(&id.as_str())),
         front,
+        room: room::held(),
     }
 }
 
@@ -224,13 +248,18 @@ impl Platform for Sys {
         let available = self.os.available_kb().map(|kb| kb / 1024);
         usable.into_iter().chain(available).min()
     }
+
+    fn cma_free_mb(&self) -> Option<u64> {
+        self.os.cma_free_kb().map(|kb| kb / 1024)
+    }
 }
 
 pub fn spawn(ctx: &Ctx) -> std::io::Result<JoinHandle<()>> {
     let ctx = ctx.clone();
     thread::Builder::new().name("prewarm".to_owned()).stack_size(256 * 1024).spawn(move || {
         let send = ctx.config.luna.send.clone();
-        let sys = Sys { lg: Luna::new(&send), send, os: Fs::lg() };
+        let sys = Sys { lg: Luna::new(&send), send: send.clone(), os: Fs::lg() };
+        room::install(Box::new(Sys { lg: Luna::new(&send), send, os: Fs::lg() }));
         let mut driver = Driver::default();
         let started = Instant::now();
         let theme = ctx.paths.theme_file();
@@ -238,7 +267,9 @@ pub fn spawn(ctx: &Ctx) -> std::io::Result<JoinHandle<()>> {
             let settings = read_settings(&theme);
             KEEP.set(if settings.on { settings.order.clone() } else { Vec::new() });
             let now_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-            let status = driver.tick(&settings, &env_of(&ctx.hub), &sys, now_ms);
+            let env = env_of(&ctx.hub);
+            room::set_front(env.front.as_deref());
+            let status = driver.tick(&settings, &env, &sys, now_ms);
             ctx.hub.set(TOPIC, status);
             if ctx.stop.sleep(TICK) {
                 break;

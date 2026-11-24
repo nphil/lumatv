@@ -18,6 +18,9 @@ struct World {
     closes: Vec<(u64, String)>,
     homes: usize,
     now: u64,
+    /// `CmaFree`, when the world has one, and what each app takes out of it while it runs.
+    cma: Option<u64>,
+    pins: BTreeMap<&'static str, u64>,
 }
 
 struct Fake(Mutex<World>);
@@ -38,6 +41,8 @@ impl Platform for Fake {
         w.launches.push((now, app.to_owned()));
         w.running.push(app.to_owned());
         w.headroom -= w.cost[app];
+        let pin = w.pins.get(app).copied().unwrap_or(0);
+        w.cma = w.cma.map(|c| c.saturating_sub(pin));
         if w.shows.contains(&app) {
             w.front = app.to_owned();
         }
@@ -53,6 +58,8 @@ impl Platform for Fake {
         w.running.retain(|r| r != app);
         w.playing.remove(app);
         w.headroom += w.cost[app];
+        let pin = w.pins.get(app).copied().unwrap_or(0);
+        w.cma = w.cma.map(|c| c + pin);
         true
     }
     fn home(&self) -> bool {
@@ -63,6 +70,9 @@ impl Platform for Fake {
     }
     fn headroom_mb(&self) -> Option<u64> {
         Some(self.0.lock().headroom)
+    }
+    fn cma_free_mb(&self) -> Option<u64> {
+        self.0.lock().cma
     }
 }
 
@@ -88,6 +98,8 @@ fn rig() -> Rig {
         closes: vec![],
         homes: 0,
         now: 0,
+        cma: None,
+        pins: BTreeMap::from([(MARQUEE, 20), (NETFLIX, 40), (PRIME, 40), (APPLE_TV, 30), (LIVE_TV, 20)]),
     };
     Rig { driver: Driver::default(), plat: Fake(Mutex::new(world)), settings: Settings::default(), env: Env { screen_on: true, ..Env::default() } }
 }
@@ -164,8 +176,9 @@ fn an_app_that_is_running_is_never_launched_and_a_closed_one_comes_back() {
     assert_eq!(r.launched(), ids(&[NETFLIX, PRIME]));
     // The owner closes Netflix: it is launched again once Home has been quiet for a moment.
     r.plat.0.lock().running.retain(|a| a != NETFLIX);
-    r.plat.0.lock().headroom += 90;
-    r.run_to(80);
+    // gone without the policy's doing: it comes back after its backoff, and with the extra room of an app memory took
+    r.plat.0.lock().headroom += 200;
+    r.run_to(140);
     assert_eq!(r.launched(), ids(&[NETFLIX, PRIME, NETFLIX]));
 }
 
@@ -282,11 +295,11 @@ fn a_refused_launch_cools_the_app_off_and_launches_per_app_are_limited() {
     r.run_to(60);
     assert!(r.launched().is_empty(), "a refusal holds back the lower apps too");
     assert_eq!(r.run_to(61)["waiting"], "cooling off");
-    // Killed by LG every time it is launched: three launches, then ten minutes.
+    // Killed by LG every time it is launched: three launches, then ten minutes (the backoff between them is shorter than the rounds).
     let mut r = rig();
     r.settings.order = ids(&[NETFLIX]);
-    for round in 0..6 {
-        r.run_to(40 + round * 40);
+    for round in 0..5 {
+        r.run_to(40 + round * 130);
         r.plat.0.lock().running.retain(|a| a != NETFLIX);
         r.plat.0.lock().headroom = 700;
     }
@@ -319,4 +332,100 @@ fn the_topic_names_what_holds_launches_back() {
     r.env.game = false;
     r.env.refresher = true;
     assert_eq!(r.run_to(31)["waiting"], "pixel refresher");
+}
+
+#[test]
+fn an_app_is_launched_only_while_cma_stays_above_the_floor() {
+    let mut r = rig();
+    r.set_headroom(2000);
+    // Marquee takes 20 of 190 (needs 20 + 70), Netflix 40 of 170, Prime Video 40 of 130; Apple TV then needs 30 + 70 of the 90 left
+    r.plat.0.lock().cma = Some(190);
+    let topic = r.run_to(300);
+    assert_eq!(r.launched(), ids(&[MARQUEE, NETFLIX, PRIME]));
+    assert_eq!(topic["waiting"], "not enough CMA");
+    assert_eq!(r.plat.0.lock().cma, Some(90));
+}
+
+#[test]
+fn nothing_is_launched_while_memory_is_held_for_a_conversion() {
+    let mut r = rig();
+    r.env.room = true;
+    assert_eq!(r.run_to(90)["waiting"], "memory held for a conversion");
+    assert!(r.launched().is_empty());
+    r.env.room = false;
+    r.run_to(100);
+    assert_eq!(r.launched().first(), Some(&MARQUEE.to_owned()));
+}
+
+#[test]
+fn an_app_closed_for_a_conversion_comes_back_when_cma_allows() {
+    let mut r = rig();
+    r.set_headroom(2000);
+    r.plat.0.lock().running = ids(&[HOME, MARQUEE, NETFLIX, PRIME, APPLE_TV, LIVE_TV]);
+    r.plat.0.lock().cma = Some(30);
+    let closed = room::clear(&r.plat, &ids(&DEFAULT_ORDER), None, 40, &|| {});
+    assert_eq!(closed, Ok(ids(&[LIVE_TV])), "Live TV is the last of the list");
+    r.env.room = true;
+    r.run_to(60);
+    assert!(r.launched().is_empty(), "held");
+    r.env.room = false;
+    assert_eq!(r.run_to(90)["waiting"], "not enough CMA", "Live TV needs 20 + 70 and 50 are free");
+    assert!(r.launched().is_empty());
+    r.plat.0.lock().cma = Some(100);
+    r.run_to(120);
+    assert_eq!(r.launched(), ids(&[LIVE_TV]));
+}
+
+#[test]
+fn room_is_made_by_closing_the_kept_apps_last_of_the_list_first() {
+    let r = rig();
+    r.plat.0.lock().running = ids(&[HOME, MARQUEE, NETFLIX, PRIME, APPLE_TV, LIVE_TV]);
+    r.plat.0.lock().cma = Some(10);
+    let order = ids(&DEFAULT_ORDER);
+    // Live TV gives 20 (30 free), Apple TV 30 (60): enough
+    assert_eq!(room::clear(&r.plat, &order, None, 60, &|| {}), Ok(ids(&[LIVE_TV, APPLE_TV])));
+    assert_eq!(room::clear(&r.plat, &order, None, 60, &|| {}), Ok(vec![]), "the room is there");
+    // more than all of them hold: Marquee goes last, and the shortfall is said
+    let short = room::clear(&r.plat, &order, None, 500, &|| {}).unwrap_err();
+    assert_eq!(short, room::Short { free_mb: 160, closed: ids(&[PRIME, NETFLIX, MARQUEE]) });
+    assert_eq!(r.closed(), ids(&[LIVE_TV, APPLE_TV, PRIME, NETFLIX, MARQUEE]));
+}
+
+#[test]
+fn an_app_on_screen_or_making_sound_is_not_closed_for_room_and_an_unreadable_cma_asks_for_nothing() {
+    let r = rig();
+    r.plat.0.lock().running = ids(&[HOME, MARQUEE, NETFLIX, PRIME, APPLE_TV, LIVE_TV]);
+    r.plat.0.lock().playing.insert(NETFLIX.to_owned());
+    r.plat.0.lock().cma = Some(10);
+    let short = room::clear(&r.plat, &ids(&DEFAULT_ORDER), Some(MARQUEE), 500, &|| {}).unwrap_err();
+    assert_eq!(short, room::Short { free_mb: 100, closed: ids(&[LIVE_TV, APPLE_TV, PRIME]) });
+    r.plat.0.lock().cma = None;
+    assert_eq!(room::clear(&r.plat, &ids(&DEFAULT_ORDER), None, 500, &|| {}), Ok(vec![]));
+}
+
+#[test]
+fn an_app_that_keeps_vanishing_is_launched_less_and_less_often() {
+    let mut r = rig();
+    r.settings.order = ids(&[LIVE_TV]);
+    let (mut seen, mut last, mut gaps) = (0, 0, Vec::new());
+    for t in 1..3000 {
+        r.run_to(t);
+        let launches = r.plat.0.lock().launches.len();
+        if launches > seen {
+            seen = launches;
+            if last > 0 {
+                gaps.push(t - last);
+            }
+            last = t;
+            // LG's memory manager takes it again at once
+            let mut w = r.plat.0.lock();
+            w.running.retain(|a| a != LIVE_TV);
+            w.headroom += 40;
+        }
+        if gaps.len() == 3 {
+            break;
+        }
+    }
+    assert_eq!(gaps.len(), 3, "{gaps:?}");
+    assert!(gaps[0] >= 15 && gaps[1] >= 30 && gaps[2] >= 60, "{gaps:?}");
 }

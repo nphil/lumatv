@@ -356,10 +356,58 @@ static void test_sar_rewrite(void)
     }
     refused("no room for the two bytes it grows by", plain, plain_n, 40, 33, 1);
 
+    /* the set's encoder writes a VUI of its own, with timing_info and bitstream_restriction and no aspect ratio: the ratio goes in front of
+     * its fields, which stay as they are */
+    {
+        char tail[200] = "", vb[700], vin[700], vwant[700];
+        bs_put(tail, 0, 3);
+        bs_put(tail, 1, 1);
+        bs_put(tail, 1001, 32);
+        bs_put(tail, 60000, 32);
+        bs_put(tail, 1, 1);
+        bs_put(tail, 0, 3);
+        bs_put(tail, 3, 2);
+        bs_ue(tail, 2);
+        bs_ue(tail, 1);
+        bs_ue(tail, 15);
+        bs_ue(tail, 15);
+        bs_ue(tail, 0);
+        bs_ue(tail, 1);
+        struct sps_spec vsp = { .log2_fn = 4, .poc_type = 2, .refs = 1, .mbs_w = 45, .mbs_h = 30, .crop = 4 };
+        sps_bits(vb, &vsp);
+        snprintf(vin, sizeof(vin), "%s10%s", vb, tail);
+        uint8_t vin_nal[200], vwant_nal[200], vau[512], vexp[512];
+        size_t vin_n = bs_nal(vin, 0x67, vin_nal);
+        static const struct {
+            unsigned w, h, idc, rw, rh;
+        } vs[] = { { 40, 33, 5, 0, 0 }, { 10, 11, 3, 0, 0 }, { 32, 27, 255, 32, 27 } };
+        for (unsigned k = 0; k < 3; k++) {
+            snprintf(vwant, sizeof(vwant), "%s11", vb);
+            bs_put(vwant, vs[k].idc, 8);
+            if (vs[k].idc == 255) {
+                bs_put(vwant, vs[k].rw, 16);
+                bs_put(vwant, vs[k].rh, 16);
+            }
+            strcat(vwant, tail);
+            size_t vwant_n = bs_nal(vwant, 0x67, vwant_nal);
+            size_t vlen = sps_unit(vau, vin_nal, vin_n), vexp_len = sps_unit(vexp, vwant_nal, vwant_n);
+            size_t vgot = annexb_set_sar(vau, vlen, vlen + 64, vs[k].w, vs[k].h);
+            CHECK(vgot == vexp_len && !memcmp(vau, vexp, vexp_len), "%u:%u goes in front of the encoder's own VUI (returned %zu, wanted %zu)", vs[k].w, vs[k].h, vgot, vexp_len);
+        }
+        /* a VUI that already has a ratio, and a VUI with no room for its flags, are not touched */
+        snprintf(vin, sizeof(vin), "%s11", vb);
+        bs_put(vin, 1, 8);
+        strcat(vin, tail);
+        vin_n = bs_nal(vin, 0x67, vin_nal);
+        refused("an SPS whose VUI has a ratio", vin_nal, vin_n, 40, 33, 64);
+        snprintf(vin, sizeof(vin), "%s10", vb);
+        vin_n = bs_nal(vin, 0x67, vin_nal);
+        refused("an SPS whose VUI is cut off", vin_nal, vin_n, 40, 33, 64);
+    }
+
     /* what it leaves alone */
     uint8_t sps[160];
-    size_t n = hex("6764001eacb40581ed808800001f480007530078b175", sps);
-    refused("an SPS with a VUI already", sps, n, 40, 33, 64);
+    size_t n;
     char bits[700];
     struct sps_spec scaled = { .log2_fn = 4, .poc_type = 2, .refs = 1, .mbs_w = 44, .mbs_h = 30, .scaling = 1 };
     sps_bits(bits, &scaled);

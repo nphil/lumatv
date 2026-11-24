@@ -30,9 +30,11 @@ void annexb_summarize(const uint8_t *buf, size_t len, struct annexb_summary *s);
 int annexb_is_keyframe_unit(const uint8_t *buf, size_t len);
 
 /* Writes a pixel aspect ratio into the first SPS of the access unit `au` (`len` bytes in a buffer of `cap`): the VUI's aspect_ratio_info
- * (H.264 E.1.1), which the encoder's own SPS does not carry. The unit grows by a few bytes and everything after the SPS moves up. Returns
- * the unit's new length, or 0 with the unit untouched when there is no SPS it can rewrite (one with a VUI or scaling lists already, or one
- * that does not parse as the encoder writes them), the ratio is 0 or does not fit 16 bits, or `cap` is too small. */
+ * (H.264 E.1.1), which the encoder's own SPS does not carry. The set's encoder writes a VUI with timing_info and bitstream_restriction: the
+ * ratio goes in front of its other fields, which are kept; an SPS with no VUI gets one with the ratio alone. The unit grows by a few bytes and
+ * everything after the SPS moves up. Returns the unit's new length, or 0 with the unit untouched when there is no SPS it can rewrite (one with
+ * scaling lists or a ratio already, or one that does not parse as the encoder writes them), the ratio is 0 or does not fit 16 bits, or `cap`
+ * is too small. */
 size_t annexb_set_sar(uint8_t *au, size_t len, size_t cap, unsigned sar_w, unsigned sar_h);
 
 #endif

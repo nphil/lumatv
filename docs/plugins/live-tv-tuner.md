@@ -74,7 +74,7 @@ or 720x480 in 16:9 or 4:3, 1440x1080) is made at its own size and carries its pi
 so a player draws it in the station's shape; a shape within 2 % of square carries none. The stream is H.264 High with a key frame every
 2 s and the station's AC-3 sound passed through. A picture is never enlarged. With the setting on, a name not in the table is refused with
 400 and `802 Unknown Transcode Profile`. The first picture comes about 1.5 s after the request (3 s at most) and no slate is sent: the
-messages in the stream are MPEG-2. `mobile` is measured on the set; `heavy` and the `internet` profiles are tested on the host only.
+messages in the stream are MPEG-2. `mobile` and `heavy` are measured on the set (1080i, 720p60, 480i, 4:3 and 16:9 SD); the `internet` profiles are tested on the host only. The video chain needs about 30 MB of contiguous memory (CMA, `CmaFree`); when the apps kept ready hold it, the converter closes them for the stream (last in the Keep apps ready order first) and, when that cannot make the room, serves the station as it is sent.
 
 The video hardware is the TV's own, so the converter gives way. It converts only while Home or LumaTV is in front and no other program
 holds a video decoder; when an app takes the hardware the stream ends within a second and the page says `Paused` and why. A player

@@ -6,13 +6,21 @@
 //! hardware that never came back is `Wedged`, which turns it off until the helper restarts.
 
 use super::gate::Look;
+use crate::prewarm::room::{self, Lease};
 use lumatuner::mpeg2::Format;
 use lumatuner::{Codec, Convert, Fault, Profile, Unit, Want};
 use lumaxcode::{Au, Engine, H264Profile, JobSpec, Out, Output, Priority, PushError, Reason, Sink, Source, SourceCodec, StartError, Wait};
 
-/// What the helper's converter lists in `/status.json` (`transcode.profiles`), best picture first: the profiles measured on the set (`mobile`: a soak
-/// in `docs/research/hw-transcode.md`). The others are made when a request names them, and join this list when they have been measured.
-const MADE: [Profile; 1] = [Profile::Mobile];
+/// What the helper's converter lists in `/status.json` (`transcode.profiles`), best picture first: the profiles measured on the set (`heavy` and
+/// `mobile`: the measurements are in `docs/research/hw-transcode.md`). The others are made when a request names them, and join this list when
+/// they have been measured.
+const MADE: [Profile; 2] = [Profile::Heavy, Profile::Mobile];
+
+/// `CmaFree` the converter is given before it starts, MB: its chain at 1080 needs about 30 (bitstream buffers, four NV12 pictures, the encoder), at
+/// 720 and below about 24, and a start that finds the contiguous memory short has wedged the set, so each has about a third in hand.
+fn cma_needed_mb(source: &Format) -> u64 {
+    if source.height > 720 { 40 } else { 32 }
+}
 
 /// The converter the tuner is given while the plugin's setting is on.
 pub struct Converter {
@@ -31,6 +39,9 @@ impl Codec for Converter {
         let output = output_of(source, want);
         // the media server is asked once before the hardware is: a decoder an app took a moment ago closes the gate here
         self.look.now();
+        // the kept apps hold CMA the chain needs: they are closed for it, and stay closed while the stream runs
+        let need = cma_needed_mb(source);
+        let lease = room::open(need).map_err(|short| Fault::Unsupported(format!("{} MB of CMA is free and the converter needs {need}", short.free_mb)))?;
         let spec = JobSpec {
             owner: "tuner".to_owned(),
             priority: Priority::Live,
@@ -40,7 +51,7 @@ impl Codec for Converter {
             sink: Sink::Deliver,
         };
         match self.engine.start(spec) {
-            Ok(job) => Ok(Box::new(Live { job, units: Vec::new() })),
+            Ok(job) => Ok(Box::new(Live { job, units: Vec::new(), _room: Some(lease) })),
             Err(e) => Err(fault_of_start(e)),
         }
     }
@@ -171,6 +182,8 @@ struct Live<S: Session> {
     job: S,
     /// The units taken from the job, before they are the tuner's.
     units: Vec<Out>,
+    /// The memory held for the stream: the kept apps come back when it is dropped.
+    _room: Option<Lease>,
 }
 
 impl<S: Session> Convert for Live<S> {
@@ -334,7 +347,7 @@ mod tests {
     #[test]
     fn pictures_go_in_with_their_times_and_their_units_come_out_in_order() {
         let script = Script::default();
-        let mut live = Live { job: script.clone(), units: Vec::new() };
+        let mut live = Live { job: script.clone(), units: Vec::new(), _room: None };
         live.push(&[0, 0, 1, 0xB3, 1, 2, 3], 90_000).unwrap();
         live.push(&[0, 0, 1, 0x00, 0x00, 0x18, 0xFF, 0xF8], 93_003).unwrap();
         {
@@ -353,7 +366,7 @@ mod tests {
     #[test]
     fn a_job_that_ends_gives_its_last_units_and_then_its_reason() {
         let script = Script::default();
-        let mut live = Live { job: script.clone(), units: Vec::new() };
+        let mut live = Live { job: script.clone(), units: Vec::new(), _room: None };
         {
             let mut s = script.0.lock();
             s.ready.push_back(unit(7));

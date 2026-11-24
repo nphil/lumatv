@@ -31,6 +31,19 @@ fn assumed_cost(app: &str) -> u64 {
     }
 }
 
+/// What a preloaded app is assumed to pin in CMA (the contiguous memory the video chain and the compositor's buffers come from) until one launch
+/// has been measured, MB.
+fn assumed_cma_cost(app: &str) -> u64 {
+    match app {
+        MARQUEE => 20,
+        NETFLIX => 40,
+        PRIME => 40,
+        APPLE_TV => 30,
+        LIVE_TV => 20,
+        _ => 40,
+    }
+}
+
 /// Memory left for the app on screen after a launch: a launch needs this much headroom (`min(usable, MemAvailable)`) beyond its own
 /// cost. LG's memory level turns `medium` at 250 MB usable, and a 4K Dolby Vision title in Netflix holds 200 MB.
 pub const START_FLOOR_MB: u64 = 400;
@@ -39,6 +52,9 @@ pub const REARM_EXTRA_MB: u64 = 100;
 /// Below this headroom the lowest-priority app that is out of sight is closed, one every [`EVICT_GAP_MS`] (above LG's `medium`).
 pub const EVICT_BELOW_MB: u64 = 300;
 pub const EVICT_GAP_MS: u64 = 5_000;
+/// A preload launch leaves at least this much of CMA free (its own pin counted): the converter's 1080 chain needs about 30 MB of it and a
+/// normal video start about as much, and a decoder start that finds no contiguous memory has wedged the set.
+pub const CMA_FLOOR_MB: u64 = 70;
 /// Nothing is launched until the screen has been on this long (boot and wake settle), nor until Home has been in front this long.
 pub const SCREEN_DWELL_MS: u64 = 20_000;
 pub const HOME_DWELL_MS: u64 = 5_000;
@@ -53,6 +69,10 @@ pub const LAUNCH_GAP_MS: u64 = 3_000;
 pub const COOL_MS: u64 = 10 * 60_000;
 pub const WINDOW_MS: u64 = 10 * 60_000;
 pub const MAX_LAUNCHES: usize = 3;
+/// An app that vanishes without the policy having closed it (LG's memory manager, the owner, a crash) is left alone this long, doubled for each
+/// time it has vanished since it last stayed up for [`STABLE_MS`], at most [`COOL_MS`]: an app the set cannot hold does not cycle.
+pub const BACKOFF_MS: u64 = 15_000;
+pub const STABLE_MS: u64 = 10 * 60_000;
 
 /// The owner's setting: `system.prewarm` of theme.json, `{"on": true, "apps": [ids in priority order]}`; on, with the default
 /// order, when it is missing.
@@ -105,6 +125,10 @@ pub struct Inputs<'a> {
     pub playing: Option<&'a BTreeSet<String>>,
     /// `min(usable, MemAvailable)` in MB; `None` when unreadable.
     pub headroom_mb: Option<u64>,
+    /// `CmaFree` in MB; `None` when unreadable.
+    pub cma_free_mb: Option<u64>,
+    /// A requester holds memory (the converter): nothing is launched until it lets go.
+    pub room: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -119,6 +143,11 @@ pub enum Action {
 #[derive(Default)]
 struct Slot {
     cost_mb: Option<u64>,
+    /// Since when it has been seen running.
+    up_since: Option<u64>,
+    /// Times it vanished on its own since it last stayed up for [`STABLE_MS`].
+    losses: u32,
+    cma_cost_mb: Option<u64>,
     /// The app showed itself or made sound when preloaded: not launched again until the helper restarts.
     ignored: Option<&'static str>,
     cool_until: u64,
@@ -131,6 +160,7 @@ struct Pending {
     app: String,
     at: u64,
     before_mb: Option<u64>,
+    cma_before_mb: Option<u64>,
     checked: bool,
 }
 
@@ -162,6 +192,7 @@ impl Policy {
             return out;
         }
         self.check_pending(i, &mut out);
+        self.track(s, i);
         self.evict(s, i, &mut out);
         if out.is_empty() {
             self.launch(s, i, &mut out);
@@ -172,6 +203,27 @@ impl Policy {
     /// A launch is being watched, so SAM's list is wanted fresh.
     pub fn watching(&self) -> bool {
         self.pending.is_some()
+    }
+
+    /// An app seen running that is no longer, and that no eviction of this policy closed, is backed off.
+    fn track(&mut self, s: &Settings, i: &Inputs) {
+        for app in &s.order {
+            let up = i.running.iter().any(|r| r == app);
+            let slot = self.slots.entry(app.clone()).or_default();
+            match (up, slot.up_since) {
+                (true, None) => slot.up_since = Some(i.now_ms),
+                (true, Some(since)) if i.now_ms.saturating_sub(since) >= STABLE_MS => slot.losses = 0,
+                (false, Some(_)) => {
+                    slot.up_since = None;
+                    if i.now_ms >= slot.cool_until {
+                        slot.losses += 1;
+                        slot.cool_until = i.now_ms + (BACKOFF_MS << (slot.losses - 1).min(10)).min(COOL_MS);
+                        slot.evicted.get_or_insert(i.now_ms);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     /// SAM refused the launch: the app is left alone for [`COOL_MS`].
@@ -215,8 +267,15 @@ impl Policy {
                 (Some(before), Some(now)) => Some(before.saturating_sub(now).clamp(10, 300)),
                 _ => None,
             };
+            let cma = match (p.cma_before_mb, i.cma_free_mb) {
+                (Some(before), Some(now)) => Some(before.saturating_sub(now).min(300)),
+                _ => None,
+            };
             if let Some(c) = cost {
                 self.slot(&app).cost_mb = Some(c);
+            }
+            if let Some(c) = cma {
+                self.slot(&app).cma_cost_mb = Some(c);
             }
             self.pending = None;
         } else if !running && age >= LAUNCH_WAIT_MS {
@@ -253,6 +312,8 @@ impl Policy {
             "pixel refresher"
         } else if i.game {
             "game"
+        } else if i.room {
+            "memory held for a conversion"
         } else if self.screen_since.is_none_or(|t| i.now_ms.saturating_sub(t) < SCREEN_DWELL_MS) {
             "screen just on"
         } else if self.home_since.is_none_or(|t| i.now_ms.saturating_sub(t) < HOME_DWELL_MS) {
@@ -292,9 +353,15 @@ impl Policy {
                 self.waiting = "not enough memory";
                 break;
             }
+            if let Some(cma) = i.cma_free_mb {
+                if cma < slot.cma_cost_mb.unwrap_or_else(|| assumed_cma_cost(app)) + CMA_FLOOR_MB {
+                    self.waiting = "not enough CMA";
+                    break;
+                }
+            }
             slot.launched.push_back(i.now_ms);
             self.next_launch = i.now_ms + LAUNCH_GAP_MS;
-            self.pending = Some(Pending { app: app.clone(), at: i.now_ms, before_mb: Some(room), checked: false });
+            self.pending = Some(Pending { app: app.clone(), at: i.now_ms, before_mb: Some(room), cma_before_mb: i.cma_free_mb, checked: false });
             out.push(Action::Launch(app.clone()));
             return;
         }

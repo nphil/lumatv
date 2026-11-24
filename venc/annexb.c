@@ -231,16 +231,29 @@ size_t annexb_set_sar(uint8_t *au, size_t len, size_t cap, unsigned sar_w, unsig
         for (int i = 0; i < 4; i++)
             get_ue(&b);
     size_t vui_at = b.pos;
-    if (get_bit(&b)) /* vui_parameters_present_flag */
-        return 0;
-    /* nothing but the stop bit and its padding may follow, or this was not read as it was written */
-    if (!get_bit(&b))
-        return 0;
-    while (b.pos < b.nbits)
-        if (get_bit(&b))
+    /* The set's encoder writes a VUI of its own (timing_info and bitstream_restriction, no aspect ratio): its fields after the aspect flag are carried
+     * over bit for bit up to the stop bit. Without a VUI, the flags that follow the ratio are all written as absent. */
+    size_t keep_from = 0, keep_to = 0;
+    if (get_bit(&b)) { /* vui_parameters_present_flag */
+        if (get_bit(&b)) /* aspect_ratio_info_present_flag: the ratio is the encoder's, not ours to replace */
             return 0;
-    if (b.bad)
-        return 0;
+        keep_from = b.pos;
+        keep_to = n * 8;
+        while (keep_to > keep_from && !((rbsp[(keep_to - 1) >> 3] >> (7 - ((keep_to - 1) & 7))) & 1))
+            keep_to--;
+        if (keep_to <= keep_from + 8 || b.bad) /* a VUI is at least its eight flags */
+            return 0;
+        keep_to--; /* the stop bit */
+    } else {
+        /* nothing but the stop bit and its padding may follow, or this was not read as it was written */
+        if (!get_bit(&b))
+            return 0;
+        while (b.pos < b.nbits)
+            if (get_bit(&b))
+                return 0;
+        if (b.bad)
+            return 0;
+    }
 
     uint8_t out[SPS_MAX + 16] = { 0 };
     struct bitw w = { out, sizeof(out), 0, 0 };
@@ -254,8 +267,12 @@ size_t annexb_set_sar(uint8_t *au, size_t len, size_t cap, unsigned sar_w, unsig
         put_bits(&w, sar_w, 16);
         put_bits(&w, sar_h, 16);
     }
-    /* overscan_info, video_signal_type, chroma_loc_info, timing_info, nal_hrd, vcl_hrd, pic_struct and bitstream_restriction: none */
-    put_bits(&w, 0, 8);
+    if (keep_to > keep_from)
+        for (size_t i = keep_from; i < keep_to; i++)
+            put_bits(&w, (rbsp[i >> 3] >> (7 - (i & 7))) & 1, 1);
+    else
+        /* overscan_info, video_signal_type, chroma_loc_info, timing_info, nal_hrd, vcl_hrd, pic_struct and bitstream_restriction: none */
+        put_bits(&w, 0, 8);
     put_bits(&w, 1, 1); /* rbsp_stop_one_bit */
     while (w.pos & 7)
         put_bits(&w, 0, 1);

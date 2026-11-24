@@ -42,6 +42,10 @@ pub trait Os: Send + Sync {
     fn sample(&self) -> Option<Sample>;
     /// `MemAvailable` of `/proc/meminfo`, in kB.
     fn available_kb(&self) -> Option<u64>;
+    /// `CmaFree` of `/proc/meminfo`, in kB: what is left of the contiguous region the video chain and the compositor's buffers come from.
+    fn cma_free_kb(&self) -> Option<u64> {
+        None
+    }
     /// `Cached` + `Buffers` + `SReclaimable` of `/proc/meminfo`, in kB: what `drop_caches` can release.
     fn cache_kb(&self) -> Option<u64>;
     /// Free memory in contiguous blocks of at least `min_order` (4 KiB pages, 2^order each) from `/proc/buddyinfo`, in kB.
@@ -275,6 +279,10 @@ impl Os for Fs {
 
     fn available_kb(&self) -> Option<u64> {
         kb_of(&fs::read_to_string(self.proc.join("meminfo")).ok()?, "MemAvailable")
+    }
+
+    fn cma_free_kb(&self) -> Option<u64> {
+        kb_of(&fs::read_to_string(self.proc.join("meminfo")).ok()?, "CmaFree")
     }
 
     fn cache_kb(&self) -> Option<u64> {
