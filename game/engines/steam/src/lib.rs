@@ -5,7 +5,7 @@
 //! collections live in the Steam client and are out of reach.
 //!
 //! For one game's page it also reads the community's public pages when the app asks: reviews, news, how many play now, achievement
-//! rarity, pictures and videos, discussions and guides. That needs no sign-in, and what it reads is kept in memory for ten minutes only.
+//! rarity, pictures and videos, discussions and guides. That needs no sign-in, and what it reads is kept in memory for an hour only.
 //!
 //! [`Adapter`] is the whole engine without a process around it: it takes a request, answers with events, and says when it next has to
 //! run. The network and the clock are handed in, so every path is tried against fakes; [`runtime`] owns the pipes and the sleeping.
@@ -91,7 +91,7 @@ pub struct Adapter<H, C> {
     pub(crate) attempt: Option<Attempt>,
     pub(crate) snapshot: Option<Snapshot>,
     pub(crate) store: Option<Store>,
-    /// What the community pages answered in the last ten minutes. In memory only.
+    /// What the community pages answered in the last hour. In memory only.
     pub(crate) community: community::State,
     /// The owner asked for a refresh: the next start of a library round goes to Steam whatever the wait.
     pub(crate) refresh_wanted: bool,

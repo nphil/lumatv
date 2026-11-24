@@ -406,8 +406,9 @@ nothing.
 (`IAuthenticationService/BeginAuthSessionViaQR`), the TV shows its code, the owner scans it and approves in the app, and the engine
 polls the session until Steam hands over a refresh token. A matching short-lived access token from the approval is used directly for
 `IPlayerService/GetOwnedGames`; otherwise the engine requests one with `GenerateAccessTokenForApp`. The password and Steam Guard code never reach the TV and
-no key is typed on a remote. The token is stored like the GeForce NOW sign-in: `engines/steam/token.json`, 0600, read only by the
-engine and never logged. The sheet follows code rotations and waits for the final Steam check at the five-minute deadline.
+no key is typed on a remote. The refresh token and the latest access token are stored like the GeForce NOW sign-in:
+`engines/steam/token.json`, 0600, read only by the engine and never logged. A start reuses the saved access token until a minute before its
+end, so a normal day renews once. The sheet follows code rotations and waits for the final Steam check at the five-minute deadline.
 
 Rejected: a Web API key with the SteamID64 (a 32-character key typed with a remote, game details readable only on a public
 profile, and a long-lived secret that works from anywhere); Steam OpenID (proves who the owner is and returns no token, so private

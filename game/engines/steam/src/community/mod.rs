@@ -2,7 +2,7 @@
 //! achievement is, the store's pictures and trailers, what players share on the hub, and its discussions and guides. The data is public,
 //! so it is read the same signed in or out, and it is only ever sent to the app (see [`lumagame_core::community`]).
 //!
-//! Nothing here runs on its own: the app asks when the owner opens a page that shows it. The answer is kept in memory for ten minutes
+//! Nothing here runs on its own: the app asks when the owner opens a page that shows it. The answer is kept in memory for an hour
 //! and never written to disk. The pages are Steam's own and change without notice, so each section is fetched and read on its own and
 //! is present or absent with a reason; a page that changed costs its own section and nothing else.
 //!
@@ -25,8 +25,8 @@ use std::time::Duration;
 
 /// The app shows one language, and the words Steam supplies itself (a score's name, a hub's labels) follow this.
 const LANGUAGE: &str = "english";
-/// How long an answer is kept.
-const TTL_MS: u64 = 600_000;
+/// How long an answer is kept, in memory only: a game page opened again within the hour asks Steam for nothing.
+const TTL_MS: u64 = 3_600_000;
 /// The most the whole answer may take, and the most one call may. A call is not started with less than `MIN_CALL_MS` left.
 const BUDGET_MS: u64 = 12_000;
 const CALL_MS: u64 = 8_000;
@@ -187,7 +187,7 @@ fn sections(community: &Community) -> [(&'static str, Option<Absence>); 11] {
     ]
 }
 
-/// A section is due when it could not be reached last time. What Steam answered, even with nothing, is kept for the ten minutes.
+/// A section is due when it could not be reached last time. What Steam answered, even with nothing, is kept for the hour.
 fn due<T>(section: &Section<T>) -> bool {
     matches!(section, Section::Absent { reason: Absence::Unreachable })
 }
@@ -503,11 +503,11 @@ mod tests {
     }
 
     #[test]
-    fn an_answer_is_kept_for_ten_minutes_and_then_asked_for_again() {
+    fn an_answer_is_kept_for_an_hour_and_then_asked_for_again() {
         let mut rig = Rig::ready();
         script(&rig);
         let first = ask(&mut rig, false);
-        rig.clock.advance_s(599);
+        rig.clock.advance_s(3_599);
         assert_eq!(ask(&mut rig, false), first);
         assert_eq!(rig.http.sent().len(), 10, "the second ask came from memory");
         rig.clock.advance_s(2);
@@ -529,10 +529,10 @@ mod tests {
         let sent = rig.http.sent();
         assert_eq!(sent.len(), 1);
         assert!(sent[0].url.contains("GetGlobalAchievementPercentagesForApp"));
-        rig.clock.advance_s(601);
+        rig.clock.advance_s(3_601);
         rig.http.forget();
         ask(&mut rig, false);
-        assert_eq!(rig.http.sent().len(), 10, "after ten minutes from the first ask everything is asked for again");
+        assert_eq!(rig.http.sent().len(), 10, "after an hour from the first ask everything is asked for again");
     }
 
     #[test]
@@ -712,7 +712,7 @@ mod tests {
         assert_eq!((sent[0].url.as_str(), sent[0].headers.is_empty()), ("https://steamcommunity.com/app/1091500/discussions/0/565925967576627123/", true));
         assert_eq!(open(&mut rig, TOPIC, false), thread);
         assert_eq!(rig.http.sent().len(), 1, "from memory");
-        rig.clock.advance_s(601);
+        rig.clock.advance_s(3_601);
         open(&mut rig, TOPIC, false);
         assert_eq!(rig.http.sent().len(), 2);
         assert_eq!(rig.log.lines().last().map(String::as_str), Some("community thread 1091500: present"));

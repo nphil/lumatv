@@ -2,7 +2,7 @@
 //!
 //! Every game is a record, never a card: the app puts it on the game it already lists from another engine that shares its Steam id. The
 //! first request of a round, the one without a cursor, is the only one that may go to Steam, and only when what Steam last said is
-//! five minutes old or the owner asked for a refresh. What Steam last said is kept in `library.json` and served whenever Steam cannot
+//! an hour old or the owner asked for a refresh. What Steam last said is kept in `library.json` and served whenever Steam cannot
 //! be reached, so the app can ask as often as it likes and a missing connection costs nothing.
 
 use crate::auth::{Refusal, Trouble};
@@ -26,8 +26,8 @@ const CACHE_MAX: u64 = 4 << 20;
 /// Games in one page. A page of the widest entries there can be stays under three quarters of the protocol's line limit.
 const PAGE: usize = 200;
 const MAX_ENTRIES: usize = 1500;
-/// How long what Steam last said is served without asking again.
-const FRESH_S: u64 = 300;
+/// How long what Steam last said is served without asking again, across restarts: the owner's Refresh asks at once.
+const FRESH_S: u64 = 3_600;
 const TITLE_CHARS: usize = 160;
 const STALE_CURSOR: &str = "This library cursor is no longer current";
 
@@ -180,11 +180,14 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         if cursor.is_none() {
             let forced = std::mem::take(&mut self.refresh_wanted);
             let now = self.clock.unix_s();
-            if forced || self.snapshot.as_ref().is_none_or(|snapshot| snapshot.stale(now)) {
+            let due = forced || self.snapshot.as_ref().is_none_or(|snapshot| snapshot.stale(now));
+            if due {
                 refusal = self.refresh_library(&steamid).err();
             }
-            // The profile picture is looked up once after the engine starts, and again when the owner refreshes.
-            if forced || !std::mem::replace(&mut self.avatar_checked, true) {
+            // The profile picture is looked up when the library is, once after the engine starts, and when none is kept; the
+            // owner's refresh always looks it up. A start that serves the saved library asks Steam for nothing.
+            if forced || (!self.avatar_checked && (due || self.avatar.is_none())) {
+                self.avatar_checked = true;
                 self.refresh_avatar();
             }
         }
@@ -369,24 +372,43 @@ mod tests {
     }
 
     #[test]
-    fn steam_is_asked_at_most_every_five_minutes_and_a_restart_does_not_change_that() {
+    fn steam_is_asked_at_most_every_hour_and_a_restart_does_not_change_that() {
         let mut rig = rig_with(&fake::owned(&[(10, "Ten", 1, 1_700_000_000)]));
         let first = library(&mut rig);
-        rig.clock.advance_s(299);
+        rig.clock.advance_s(3_599);
         assert_eq!(library(&mut rig), [FromEngine::answer(rig.seq, page_event(&first))]);
-        assert_eq!(rig.http.count("GetOwnedGames"), 1, "299 seconds on: served from the saved copy");
+        assert_eq!(rig.http.count("GetOwnedGames"), 1, "an hour less a second on: served from the saved copy");
         rig.clock.advance_s(1);
         library(&mut rig);
-        assert_eq!(rig.http.count("GetOwnedGames"), 2, "at 300 seconds Steam is asked again");
+        assert_eq!(rig.http.count("GetOwnedGames"), 2, "at an hour Steam is asked again");
 
         rig.restart();
         rig.hello();
         let served = library(&mut rig);
         assert_eq!(rig.http.count("GetOwnedGames"), 2, "a new run serves the copy saved a moment ago");
         assert_eq!(page_of(&served).0.len(), 1);
-        rig.clock.advance_s(300);
+        rig.clock.advance_s(3_600);
         library(&mut rig);
         assert_eq!(rig.http.count("GetOwnedGames"), 3);
+    }
+
+    #[test]
+    fn a_start_with_a_fresh_library_and_a_kept_picture_asks_steam_for_nothing() {
+        let mut rig = rig_with(&fake::owned(&[(10, "Ten", 1, 1_700_000_000)]));
+        let page = "<profile><steamID><![CDATA[Rig]]></steamID><avatarMedium><![CDATA[https://avatars.steamstatic.com/one_medium.jpg]]></avatarMedium></profile>";
+        rig.http.on("xml=1", [fake::ok(page)]);
+        rig.http.on("one_medium", [Ok(crate::http::Resp { status: 200, eresult: None, body: vec![0xff, 0xd8, 0xff, 0xe0, 1, 2, 3] })]);
+        library(&mut rig);
+        assert!(rig.adapter.avatar.is_some());
+        rig.restart();
+        rig.hello();
+        rig.http.forget();
+        library(&mut rig);
+        assert!(rig.http.sent().is_empty(), "{:?}", rig.http.sent());
+        // An hour on, the library and the picture are looked up again.
+        rig.clock.advance_s(3_600);
+        library(&mut rig);
+        assert_eq!((rig.http.count("GetOwnedGames"), rig.http.count("xml=1")), (1, 1));
     }
 
     fn page_event(events: &[FromEngine]) -> Event {
@@ -433,7 +455,7 @@ mod tests {
         let mut rig = rig_with(&fake::owned(&[(10, "Ten", 1, 1_700_000_000)]));
         let first = page_of(&library(&mut rig));
         for failure in [fake::down(), fake::status(500), fake::eresult(3, "{}"), fake::ok("<html>"), fake::ok(r#"{"response":{"games":"x"}}"#)] {
-            rig.clock.advance_s(301);
+            rig.clock.advance_s(3_601);
             rig.http.on("GetOwnedGames", [failure]);
             let tries = rig.http.count("GetOwnedGames");
             assert_eq!(page_of(&library(&mut rig)), first, "an old copy beats an error");
@@ -465,7 +487,7 @@ mod tests {
         for refusal in [fake::status(401), fake::status(403), fake::eresult(15, r#"{"response":{}}"#)] {
             let mut rig = rig_with(&fake::owned(&[(10, "Ten", 1, 1_700_000_000)]));
             let first = page_of(&library(&mut rig));
-            rig.clock.advance_s(301);
+            rig.clock.advance_s(3_601);
             rig.http.on("GetOwnedGames", [refusal]);
             let events = library(&mut rig);
             assert_eq!(page_of(&events), first);
@@ -484,11 +506,11 @@ mod tests {
     fn an_account_with_no_games_is_an_empty_library_and_replaces_what_was_saved() {
         let mut rig = rig_with(&fake::owned(&[(10, "Ten", 1, 1_700_000_000)]));
         library(&mut rig);
-        rig.clock.advance_s(301);
+        rig.clock.advance_s(3_601);
         rig.http.on("GetOwnedGames", [fake::ok(r#"{"response":{}}"#)]);
         assert_eq!(page_of(&library(&mut rig)), (Vec::new(), None));
         rig.http.on("GetOwnedGames", [fake::ok(r#"{"response":{"game_count":0}}"#)]);
-        rig.clock.advance_s(301);
+        rig.clock.advance_s(3_601);
         assert_eq!(page_of(&library(&mut rig)), (Vec::new(), None));
         assert_eq!(message(&cursor(&mut rig, "200")).1, STALE_CURSOR);
     }
@@ -600,7 +622,7 @@ mod tests {
         assert!(entries[0].activity.genres.is_empty(), "no kinds yet, but the library is served");
         assert!(rig.log.lines().iter().any(|line| line.contains("kinds of game stopped") && line.contains("HTTP 500")), "{:?}", rig.log.lines());
 
-        rig.clock.advance_s(301);
+        rig.clock.advance_s(3_601);
         rig.http.on("IStoreBrowseService", [fake::ok(r#"{"response":{"store_items":[{"id":10,"success":1,"tagids":[19]}]}}"#)]);
         let (entries, _) = page_of(&library(&mut rig));
         assert_eq!(entries[0].activity.genres, ["Action"]);
@@ -632,10 +654,10 @@ mod tests {
     }
 
     #[test]
-    fn a_saved_library_goes_stale_after_five_minutes_and_when_dated_in_the_future() {
+    fn a_saved_library_goes_stale_after_an_hour_and_when_dated_in_the_future() {
         let snapshot = Snapshot { steamid: STEAMID.to_owned(), fetched_s: 10_000, entries: Vec::new() };
-        assert!(!snapshot.stale(10_000) && !snapshot.stale(10_299));
-        assert!(snapshot.stale(10_300), "five minutes old");
+        assert!(!snapshot.stale(10_000) && !snapshot.stale(13_599));
+        assert!(snapshot.stale(13_600), "an hour old");
         assert!(snapshot.stale(9_999), "a clock that was wrong is not trusted");
     }
 

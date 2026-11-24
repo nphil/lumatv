@@ -2,9 +2,9 @@
 //!
 //! Steam's authentication service runs the flow. `BeginAuthSessionViaQR` gives an address to show as a QR code,
 //! `PollAuthSessionStatus` is asked every few seconds until the owner approves in the Steam phone app, and approval hands back a
-//! long-lived refresh token. Only that token and the account's id are kept, in `token.json`. The web API wants an access token, which is
-//! made from the refresh token when needed and held in memory only. Steam also returns the login name with an approval; it is never
-//! read, so it cannot be kept or shown.
+//! long-lived refresh token. That token, the account's id and the latest access token are kept, in `token.json`. The web API wants an
+//! access token, which is made from the refresh token when none is kept that still has time left, so a start does not ask Steam for a
+//! new one. Steam also returns the login name with an approval; it is never read, so it cannot be kept or shown.
 
 use crate::http::{self, Http, HttpError, Resp};
 use crate::{Adapter, Clock, files};
@@ -157,13 +157,15 @@ fn base64url(text: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// What `token.json` holds. The login name is not in it, and neither is an access token.
+/// What `token.json` holds. The login name is not in it. The access token is the latest one made, kept so that a start can use it.
 #[derive(Deserialize)]
 struct TokenIn {
     refresh_token: String,
     steamid: String,
     #[serde(default)]
     persona: Option<String>,
+    #[serde(default)]
+    access_token: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -171,6 +173,15 @@ struct TokenOut<'a> {
     refresh_token: &'a str,
     steamid: &'a str,
     persona: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    access_token: Option<&'a str>,
+}
+
+/// An access token and its end of life, when it is this account's and has more than the renewal margin left.
+fn usable_access(token: String, steamid: &str, now: u64) -> Option<(String, u64)> {
+    let claims = claims(&token).filter(|claims| claims.steamid == steamid)?;
+    let exp = claims.exp.filter(|exp| *exp > now + RENEW_MARGIN_S)?;
+    Some((token, exp))
 }
 
 /// The signed-in account. It has no `Debug`: it holds the keys to the account.
@@ -186,7 +197,7 @@ pub struct Account {
     mobile: bool,
     /// Steam no longer accepts the refresh token. The file is kept: the library saved with it is still worth showing.
     pub expired: bool,
-    /// An access token and its end of life, in memory only.
+    /// An access token and its end of life; kept in `token.json` with the refresh token.
     access: Option<(String, u64)>,
     /// No renewal is asked for before this unix time, after Steam refused one.
     renew_after: u64,
@@ -205,11 +216,19 @@ impl Account {
     pub fn load(dir: &Path, now: u64) -> Option<Self> {
         let file: TokenIn = serde_json::from_slice(&files::read(dir, TOKEN_FILE, 64 << 10)?).ok()?;
         let claims = claims(&file.refresh_token).filter(|claims| claims.steamid == file.steamid)?;
-        Some(Self::new(file.refresh_token, claims, file.persona.as_deref().and_then(clean_name), now))
+        let access = file.access_token.and_then(|token| usable_access(token, &file.steamid, now));
+        let mut account = Self::new(file.refresh_token, claims, file.persona.as_deref().and_then(clean_name), now);
+        account.access = access;
+        Some(account)
     }
 
     pub fn save(&self, dir: &Path) -> io::Result<()> {
-        let file = TokenOut { refresh_token: &self.refresh_token, steamid: &self.steamid, persona: self.persona.as_deref() };
+        let file = TokenOut {
+            refresh_token: &self.refresh_token,
+            steamid: &self.steamid,
+            persona: self.persona.as_deref(),
+            access_token: self.access.as_ref().map(|(token, _)| token.as_str()),
+        };
         files::write(dir, TOKEN_FILE, &serde_json::to_vec(&file).map_err(io::Error::other)?)
     }
 
@@ -465,11 +484,7 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         let now = self.clock.unix_s();
         let mut account = Account::new(refresh_token, claims, None, now);
         // The approval's own access token serves the first reads; later ones are renewed from the refresh token.
-        account.access = access.and_then(|token| {
-            let claims = self::claims(&token)?;
-            let exp = claims.exp?;
-            (claims.steamid == account.steamid && exp > now).then_some((token, exp))
-        });
+        account.access = access.and_then(|token| usable_access(token, &account.steamid, now));
         if let Err(error) = account.save(&self.data) {
             self.note(&format!("sign-in: the token could not be saved ({:?})", error.kind()));
             return self.fail_auth(seq, AuthFail::Network, "The Steam sign-in could not be saved on the TV");
@@ -563,6 +578,11 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         let exp = claims(&token).and_then(|claims| claims.exp).unwrap_or(now);
         if let Some(account) = self.account.as_mut() {
             account.access = Some((token.clone(), exp));
+        }
+        if let Some(account) = &self.account
+            && let Err(error) = account.save(&self.data)
+        {
+            self.note(&format!("sign-in: the access token could not be saved ({:?})", error.kind()));
         }
         if let Err(error) = files::remove(&self.cache, REFUSED_FILE) {
             self.note(&format!("sign-in: the refusal record could not be deleted ({:?})", error.kind()));
@@ -781,7 +801,8 @@ mod tests {
         assert!(matches!(rig.tick()[0].event, Event::Auth { state: AuthState::Done { .. } }));
         assert!(matches!(library(&mut rig)[0].event, Event::Library { .. }));
         assert_eq!(rig.http.count("GenerateAccessTokenForApp"), 0);
-        assert!(!fs::read_to_string(rig.data().join(TOKEN_FILE)).unwrap().contains(&access));
+        let saved: Value = serde_json::from_slice(&fs::read(rig.data().join(TOKEN_FILE)).unwrap()).unwrap();
+        assert_eq!(saved["access_token"], access.as_str(), "the approval's access token is kept for the next start");
     }
 
     #[test]
@@ -1042,6 +1063,54 @@ mod tests {
         rig.send(Request::Library { target: id(), cursor: None })
     }
 
+    /// The owner's Refresh, then the library: Steam is asked whatever the age of the saved copy.
+    fn refreshed(rig: &mut Rig) -> Vec<FromEngine> {
+        rig.send(Request::Action { key: "refresh".into() });
+        library(rig)
+    }
+
+    #[test]
+    fn a_saved_access_token_is_used_by_the_next_start_until_a_minute_before_it_ends() {
+        let mut rig = library_rig(UNIX0 + 30 * 86_400);
+        let access = fake::jwt(STEAMID, Some(UNIX0 + 86_400));
+        rig.http.on("GenerateAccessTokenForApp", [fake::ok(&format!(r#"{{"response":{{"access_token":"{access}"}}}}"#))]);
+        library(&mut rig);
+        let path = rig.data().join(TOKEN_FILE);
+        let saved: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["access_token"], access.as_str());
+        assert_eq!(mode(&path), 0o600);
+        assert!(rig.log.lines().iter().all(|line| !line.contains(&access)), "never logged");
+
+        // Later starts, with the library due each time, renew nothing while the saved one has time.
+        rig.restart();
+        rig.hello();
+        rig.clock.advance_s(7_200);
+        library(&mut rig);
+        assert_eq!(rig.http.count("GenerateAccessTokenForApp"), 1);
+        assert!(rig.http.to("GetOwnedGames")[1].url.contains(&format!("access_token={access}")));
+
+        // Under a minute from its end it is renewed instead.
+        rig.restart();
+        rig.hello();
+        rig.clock.advance_s(86_400 - 7_200 - 30);
+        library(&mut rig);
+        assert_eq!(rig.http.count("GenerateAccessTokenForApp"), 2);
+    }
+
+    #[test]
+    fn a_saved_access_token_of_another_account_is_not_used() {
+        let mut rig = library_rig(UNIX0 + 30 * 86_400);
+        let renewed = fake::jwt(STEAMID, Some(UNIX0 + 86_400));
+        rig.http.on("GenerateAccessTokenForApp", [fake::ok(&format!(r#"{{"response":{{"access_token":"{renewed}"}}}}"#))]);
+        let mut file: Value = serde_json::from_slice(&fs::read(rig.data().join(TOKEN_FILE)).unwrap()).unwrap();
+        file["access_token"] = Value::from(fake::jwt("76561198000000009", Some(UNIX0 + 86_400)));
+        fs::write(rig.data().join(TOKEN_FILE), file.to_string()).unwrap();
+        rig.restart();
+        rig.hello();
+        library(&mut rig);
+        assert_eq!(rig.http.count("GenerateAccessTokenForApp"), 1);
+    }
+
     #[test]
     fn an_access_token_is_made_when_needed_and_used_until_a_minute_before_it_ends() {
         let mut rig = library_rig(UNIX0 + 30 * 86_400);
@@ -1058,13 +1127,13 @@ mod tests {
         );
 
         rig.clock.advance_s(1_000);
-        library(&mut rig);
+        refreshed(&mut rig);
         assert_eq!(rig.http.count("GenerateAccessTokenForApp"), 1, "still good");
         rig.clock.advance_s(2_000);
-        library(&mut rig);
+        refreshed(&mut rig);
         assert_eq!(rig.http.count("GenerateAccessTokenForApp"), 1, "still good with more than a minute left");
         rig.clock.advance_s(560);
-        library(&mut rig);
+        refreshed(&mut rig);
         assert_eq!(rig.http.count("GenerateAccessTokenForApp"), 2, "under a minute left: renewed");
     }
 
@@ -1076,6 +1145,7 @@ mod tests {
             let events = library(&mut rig);
             let [FromEngine { re: Some(2), event: Event::Error { code: error, .. } }] = events.as_slice() else { panic!("{events:?}") };
             assert_ne!(*error, ErrorCode::SignIn, "nothing tells the owner to sign in");
+            assert!(rig.log.lines().iter().any(|line| line.contains(&format!("(error {code})"))), "the code is logged");
             let events = rig.send(Request::Targets);
             let [FromEngine { event: Event::Targets { targets }, .. }] = events.as_slice() else { panic!("{events:?}") };
             assert_eq!(targets[0].link, Link::Linked);
@@ -1181,7 +1251,7 @@ mod tests {
         rig.http.on("GenerateAccessTokenForApp", [fake::ok(r#"{"response":{"access_token":"opaque"}}"#)]);
         library(&mut rig);
         rig.clock.advance_s(301);
-        library(&mut rig);
+        refreshed(&mut rig);
         assert_eq!(rig.http.count("GenerateAccessTokenForApp"), 2);
     }
 }

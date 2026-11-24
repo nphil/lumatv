@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The trace ring (`ctl ring`) gets one `L` line per drawn frame: the front app and whether the frame shows its saved picture (`snap`), its themed card (`card`), the picture dissolving over the live window (`fade`), the live window alone (`live`) or nothing (`none`), with the window's item and video-hole counts, whether a saved picture exists for it (`have`) and the open motion's opacity. An `S` line says when a leaving app's picture was saved, declined (with the reason) or dropped. A reopen's first frames can be read back with `ctl note MARK` and `ctl ring 1500` instead of captures.
+The Steam engine keeps its latest access token in `token.json` (0600) and reuses it until a minute before it ends, so a normal day renews once instead of at every start; a refused renewal logs Steam's error number. The saved library is served for an hour instead of five minutes, the profile picture is looked up only when the library is or none is kept, and game-page community data is kept in memory for an hour instead of ten minutes. A start with a fresh library now asks Steam for nothing.
+
+The trace ring (`ctl ring`) gets one `L` line per drawn frame: the front app and whether the frame shows its saved picture (`snap`), its themed card (`card`), the picture dissolving over the live window (`fade`), the live window alone (`live`) or nothing (`none`), with the window's item and video-hole counts and the open motion's opacity. A reopen's first frames can be read back with `ctl note MARK` and `ctl ring 1500` instead of captures.
 
 LumaGame no longer says the Steam sign-in has expired when Steam only refuses to renew access for a moment, or refuses one game's achievements. A refused renewal keeps the saved sign-in and the account as linked, is not repeated for 30 minutes, and is tried again at the next start; only a week of refusals with no success retires the sign-in. A game Steam refuses with a fresh access token shows no achievements and no warning, and an older access token that is refused is renewed once and the read tried again.
 
