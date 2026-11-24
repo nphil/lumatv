@@ -15,3 +15,7 @@ Installed on the set: helper 22a19fd1 -> 6e05f76d (live swap, compositor untouch
 
 ## 2026-11-23 weather install (main e85b765a)
 Installed on the C4: helper 6e05f76d -> 696e735f, lumatv-ui bdd2884c -> 686031e6. Profile nitin: clock.weekStart monday, layout.statusBar.date centre. Capture home-tv-weather-calendar.png: month grid, centred date and week list shown. Untested: weather day open/close and the 120 Hz frame gate (gate refuses: no compositor bundle in /tmp/lumatv).
+
+## 2026-11-23 helper install (main 6950ab31)
+
+Installed on the C4: helper 696e735f -> 2998ff4c (payload and bin, live swap, pid 25817 -> 9920, compositor untouched), carrying the TrueHD passthrough's takeover of LG's mixer input for the player's own stream. The running helper's exe reads 2998ff4c and `GET /v1/audio-passthrough/route` answers unarmed. Not yet tried on the set: the takeover, retake and give-back during a Marquee TrueHD Load; that uMS lists Marquee's pipeline holding `PCMMC4` (taken from its `smp_cb` resource list); audiooutputd's connect of `AMIXER4` without `pipelineAttribute`.
