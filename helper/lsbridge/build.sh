@@ -13,7 +13,6 @@ cat > "$out/stubs/ls2.c" <<'EOF'
 // Symbol stubs for the link only (never run): the set's libluna-service2.so.3 provides the real functions.
 #define S(name) void name(void) {}
 S(LSErrorInit) S(LSErrorFree) S(LSRegister) S(LSUnregister) S(LSGmainAttach) S(LSCall) S(LSCallCancel) S(LSMessageGetPayload)
-S(LSHandleSetDisconnectHandler)
 EOF
 cat > "$out/stubs/glib.c" <<'EOF'
 #define S(name) void name(void) {}

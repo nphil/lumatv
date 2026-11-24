@@ -1,5 +1,6 @@
 // Host tests for lumatv-lsbridge.c (built with -DLUMATV_LSBRIDGE_TEST, which includes this file in place of main): a fake
 // libluna-service2 records the calls, and the test answers them through the callbacks the bridge handed over.
+#include <poll.h>
 
 struct LSHandle { int unused; };
 struct LSMessage { const char *payload; };
@@ -27,6 +28,18 @@ bool LSCall(LSHandle *sh, const char *uri, const char *payload, LSFilterFunc cb,
 bool LSCallCancel(LSHandle *sh, LSMessageToken token, LSError *e) { (void)sh; (void)e; cancelled[ncancelled++] = token; return true; }
 const char *LSMessageGetPayload(LSMessage *m) { return m->payload; }
 void g_main_loop_quit(GMainLoop *l) { (void)l; quits++; }
+static int watched[8];
+static int nwatched;
+static int watched_condition;
+static GIOFunc watched_fn;
+GIOChannel *g_io_channel_unix_new(int fd) { return (GIOChannel *)(long)(fd + 1); }
+unsigned g_io_add_watch(GIOChannel *ch, int condition, GIOFunc fn, gpointer data) {
+    (void)data;
+    watched[nwatched++] = (int)(long)ch - 1;
+    watched_condition = condition;
+    watched_fn = fn;
+    return 1;
+}
 
 static int failed;
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d %s\n", __FILE__, __LINE__, #c); failed++; } } while (0)
@@ -36,7 +49,7 @@ static char out_path[] = "/tmp/lumatv-lsbridge-test-XXXXXX";
 static void reset(void) {
     memset(subs, 0, sizeof subs);
     memset(calls, 0, sizeof calls);
-    ncalls = ncancelled = quits = 0;
+    ncalls = ncancelled = quits = nwatched = 0;
     refuse_calls = false;
     inlen = 0;
     exit_code = 0;
@@ -159,6 +172,25 @@ int main(void) {
     reset();
     emit('X', 0, "gone");
     CHECK(!strcmp(output(), "X gone\n"));
+
+    // The bus hanging up ends the bridge. Of what is open once the library has registered, only the new stream sockets are watched.
+    reset();
+    int old_stream[2], bus_end[2], datagram[2], plain[2];
+    CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, old_stream) == 0);
+    fdmask before;
+    open_fds(before);
+    CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, bus_end) == 0);
+    CHECK(socketpair(AF_UNIX, SOCK_DGRAM, 0, datagram) == 0);
+    CHECK(pipe(plain) == 0);
+    CHECK(watch_bus_sockets(before) == 2);
+    CHECK(nwatched == 2 && watched[0] == bus_end[0] && watched[1] == bus_end[1]);
+    CHECK(watched_condition == (G_IO_HUP | G_IO_ERR | G_IO_NVAL));
+    struct pollfd pfd = { bus_end[0], 0, 0 };
+    CHECK(poll(&pfd, 1, 0) == 0); // the other end is open: nothing to report
+    close(bus_end[1]);
+    CHECK(poll(&pfd, 1, 0) == 1 && (pfd.revents & POLLHUP)); // a closed peer is a hang-up, which the watch waits for
+    CHECK(watched_fn(NULL, G_IO_HUP, NULL) == 0);
+    CHECK(!strcmp(output(), "X disconnected from the bus\n") && quits == 1 && exit_code == 4);
 
     if (failed) { fprintf(stderr, "%d check(s) failed\n", failed); return 1; }
     puts("lumatv-lsbridge host tests passed");

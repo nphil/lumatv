@@ -10,8 +10,9 @@
 //                      E <id> <text>             the call cannot be made: nothing more follows for <id>
 //                      X <text>                  it cannot run: it exits after this line
 // A reply is one line: the newlines in it are spaces (JSON has none inside a string). Stdin ending ends the bridge, so one cannot
-// outlive the helper, however the helper ends: the bus drops the calls with the connection. A call the service stops answering is
-// not ended here either, as with luna-send: the service's last reply says so (`returnValue:false`) and the helper ends the call.
+// outlive the helper, however the helper ends: the bus drops the calls with the connection. The bus hanging up ends it too, and the
+// helper starts another. A call the service stops answering is not ended here, as with luna-send: the service's last reply says so
+// (`returnValue:false`) and the helper ends the call.
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -20,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 // ---- luna-service2 (public API, webosose/luna-service2 lunaservice.h) ----
@@ -28,7 +30,6 @@ typedef struct LSMessage LSMessage;
 typedef unsigned long LSMessageToken;
 typedef struct LSError { int error_code; char *message; const char *file; int line; const char *func; void *padding; unsigned long magic; } LSError;
 typedef bool (*LSFilterFunc)(LSHandle *sh, LSMessage *reply, void *ctx);
-typedef void (*LSDisconnectHandler)(LSHandle *sh, void *ctx);
 typedef struct GMainLoop GMainLoop;
 bool LSErrorInit(LSError *e);
 void LSErrorFree(LSError *e);
@@ -38,14 +39,13 @@ bool LSGmainAttach(LSHandle *sh, GMainLoop *loop, LSError *e);
 bool LSCall(LSHandle *sh, const char *uri, const char *payload, LSFilterFunc cb, void *ctx, LSMessageToken *token, LSError *e);
 bool LSCallCancel(LSHandle *sh, LSMessageToken token, LSError *e);
 const char *LSMessageGetPayload(LSMessage *m);
-bool LSHandleSetDisconnectHandler(LSHandle *sh, LSDisconnectHandler handler, void *ctx, LSError *e);
 
 // ---- glib (only what the loop needs) ----
 typedef struct GIOChannel GIOChannel;
 typedef int gboolean;
 typedef void *gpointer;
 typedef gboolean (*GIOFunc)(GIOChannel *, int condition, gpointer);
-enum { G_IO_IN = 1, G_IO_ERR = 8, G_IO_HUP = 16 };
+enum { G_IO_IN = 1, G_IO_ERR = 8, G_IO_HUP = 16, G_IO_NVAL = 32 };
 GMainLoop *g_main_loop_new(void *context, gboolean running);
 void g_main_loop_run(GMainLoop *loop);
 void g_main_loop_quit(GMainLoop *loop);
@@ -187,10 +187,36 @@ static gboolean on_stdin(GIOChannel *ch, int condition, gpointer data) {
     }
 }
 
-static void on_disconnect(LSHandle *sh, void *ctx) {
-    (void)sh; (void)ctx;
+// The library reaches the bus over stream sockets. The set's libluna-service2 (3.21.2) has no disconnect handler to ask for, so those
+// sockets are watched instead: a Unix socket whose peer has closed reports a hang-up.
+#define MAX_FD 1024
+typedef unsigned long long fdmask[MAX_FD / 64];
+
+static void open_fds(fdmask set) {
+    memset(set, 0, sizeof(fdmask));
+    for (int fd = 0; fd < MAX_FD; fd++)
+        if (fcntl(fd, F_GETFD) != -1) set[fd / 64] |= 1ULL << (fd % 64);
+}
+
+static gboolean on_bus_gone(GIOChannel *ch, int condition, gpointer data) {
+    (void)ch; (void)condition; (void)data;
     emit('X', 0, "disconnected from the bus");
     quit(4);
+    return 0;
+}
+
+// Watches every stream socket that is open now and was not in `before`; returns how many.
+static int watch_bus_sockets(const fdmask before) {
+    int n = 0;
+    for (int fd = 0; fd < MAX_FD; fd++) {
+        if ((before[fd / 64] >> (fd % 64)) & 1) continue;
+        int type;
+        socklen_t len = sizeof type;
+        if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &len) != 0 || type != SOCK_STREAM) continue;
+        g_io_add_watch(g_io_channel_unix_new(fd), G_IO_HUP | G_IO_ERR | G_IO_NVAL, on_bus_gone, NULL);
+        n++;
+    }
+    return n;
 }
 
 #ifndef LUMATV_LSBRIDGE_TEST
@@ -202,6 +228,8 @@ int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
     LSError e;
     LSErrorInit(&e);
+    fdmask before;
+    open_fds(before); // the library's sockets are what is open after it registers and was not before
     if (!LSRegister(name, &bus, &e)) {
         char why[256];
         snprintf(why, sizeof why, "cannot register: %s", e.message ? e.message : "?");
@@ -215,7 +243,7 @@ int main(int argc, char **argv) {
         emit('X', 0, why);
         return 2;
     }
-    LSHandleSetDisconnectHandler(bus, on_disconnect, NULL, &e);
+    if (!watch_bus_sockets(before)) fprintf(stderr, "lumatv-lsbridge: no bus socket to watch, a lost bus will not be noticed\n");
     LSErrorFree(&e);
     int flags = fcntl(0, F_GETFL);
     if (flags >= 0) fcntl(0, F_SETFL, flags | O_NONBLOCK);

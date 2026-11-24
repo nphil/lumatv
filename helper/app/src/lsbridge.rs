@@ -84,14 +84,14 @@ pub struct Staged {
     pub hub_files_changed: bool,
 }
 
-/// The role: matched by the program's path, with the one anonymous name (what `luna-send` registers) and no restriction on what it may
-/// call: it calls what the helper's modules call through `luna-send`, with the permissions the hub gives that name.
+/// The role: LG's own for `luna-send` (`/usr/share/luna-service2/roles.d/com.webos.lunasend.role.json`) with this program's path. It is
+/// privileged, so the bridge reaches the same services `luna-send` does, under any name, on the same terms.
 fn role_text(exe: &Path) -> String {
     let role = json!({
         "exeName": exe,
-        "type": "regular",
-        "allowedNames": [""],
-        "permissions": [{ "service": "", "inbound": [], "outbound": ["*"] }],
+        "type": "privileged",
+        "allowedNames": ["*"],
+        "permissions": [{ "service": "*", "outbound": ["*"] }],
     });
     format!("{role:#}\n")
 }
@@ -221,6 +221,12 @@ impl Bridge {
             timing,
             state: Mutex::new(State::On { conn: None, failures: 0, retry_at: None }),
         }
+    }
+
+    /// Whether `program` is the `luna-send` this stands in for, as configured (`luna-send`) or as `which` found it (`/usr/bin/luna-send`).
+    fn stands_in_for(&self, program: &str) -> bool {
+        let name = Path::new(&self.replaces).file_name();
+        name.is_some() && name == Path::new(program).file_name()
     }
 
     /// Starts `uri` with `payload` as a subscription, starting the bridge if it is not running. `None` leaves the call to a `luna-send`
@@ -518,7 +524,7 @@ pub fn enable(data_dir: &Path, luna_send: &str) {
 
 /// A subscription held by the bridge, or `None` when it is not on or does not take this one.
 pub fn subscribe(program: &str, uri: &str, payload: &str) -> Option<Sub> {
-    let bridge = BRIDGE.get().filter(|b| b.replaces == program)?;
+    let bridge = BRIDGE.get().filter(|b| b.stands_in_for(program))?;
     bridge.subscribe(uri, payload)
 }
 
@@ -690,6 +696,17 @@ cat > /dev/null"#,
     }
 
     #[test]
+    fn luna_send_found_by_its_path_is_still_the_one_the_bridge_stands_in_for() {
+        let dir = tempfile::tempdir().unwrap();
+        let bridge = Bridge::with_timing(fake(dir.path(), ECHO), "luna-send", FAST);
+        assert!(bridge.stands_in_for("luna-send"));
+        assert!(bridge.stands_in_for("/usr/bin/luna-send"));
+        assert!(!bridge.stands_in_for("/usr/bin/luna-send-pub"));
+        assert!(!bridge.stands_in_for("curl"));
+        assert!(!bridge.stands_in_for(""));
+    }
+
+    #[test]
     fn the_program_the_role_and_the_manifest_are_written_once_and_again_when_they_differ() {
         let base = tempfile::tempdir().unwrap();
         let layout = Layout { dir: base.path().join("data/lsbridge"), ls2: base.path().join("ls2") };
@@ -698,7 +715,8 @@ cat > /dev/null"#,
         assert_eq!(fs::read(&first.exe).unwrap(), b"first");
         let role: serde_json::Value = serde_json::from_slice(&fs::read(layout.role()).unwrap()).unwrap();
         assert_eq!(role["exeName"], first.exe.to_str().unwrap());
-        assert_eq!(role["allowedNames"], json!([""]));
+        assert_eq!(role["type"], "privileged");
+        assert_eq!(role["allowedNames"], json!(["*"]));
         let manifest: serde_json::Value = serde_json::from_slice(&fs::read(layout.manifest()).unwrap()).unwrap();
         assert_eq!(manifest["roleFiles"], json!([layout.role().to_str().unwrap()]));
         let again = install(&layout, b"first").unwrap();
