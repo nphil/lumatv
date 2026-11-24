@@ -137,20 +137,22 @@ fn apps_are_launched_one_at_a_time_in_priority_order_until_memory_is_short() {
     r.run_to(19);
     assert!(r.launched().is_empty(), "the screen has been on only 19 s");
     r.run_to(20);
-    assert_eq!(r.launched(), ids(&[NETFLIX]));
+    assert_eq!(r.launched(), ids(&[MARQUEE]));
     r.run_to(29);
-    assert_eq!(r.launched(), ids(&[NETFLIX]), "the next waits for the first to settle");
+    assert_eq!(r.launched(), ids(&[MARQUEE]), "the next waits for the first to settle");
     r.run_to(200);
-    // Marquee and Apple TV show themselves when preloaded: never launched. 700 - 90 - 120 = 490 still leaves Live TV its 440.
-    assert_eq!(r.launched(), ids(&[NETFLIX, PRIME, LIVE_TV]));
+    // 700 - 50 - 90 - 120 = 440: Apple TV needs 100 + 400, so it waits and so does everything behind it.
+    assert_eq!(r.launched(), ids(&[MARQUEE, NETFLIX, PRIME]));
     let topic = r.run_to(201);
+    assert_eq!(topic["apps"][0], json!({"id": MARQUEE, "state": "ready", "costMb": 50, "note": null}));
     assert_eq!(topic["apps"][1], json!({"id": NETFLIX, "state": "ready", "costMb": 90, "note": null}));
-    assert_eq!(topic["apps"][0], json!({"id": MARQUEE, "state": "skipped", "costMb": null, "note": "opens normally the first time"}));
-    // 490 - 40 = 450: a sixth app that costs more than 50 MB does not fit.
+    assert_eq!(topic["apps"][3]["state"], "cold");
+    assert_eq!(topic["waiting"], "not enough memory");
+    // Live TV fits in the 440 left (its 40 + the 400 floor); then 400 are left and a 100 MB app needs 500.
     r.settings.order = ids(&[NETFLIX, PRIME, LIVE_TV, "tv.twitch"]);
     r.plat.0.lock().cost.insert("tv.twitch", 100);
     assert_eq!(r.run_to(260)["waiting"], "not enough memory");
-    assert_eq!(r.launched().len(), 3);
+    assert_eq!(r.launched().len(), 4);
 }
 
 #[test]
@@ -195,7 +197,7 @@ fn nothing_is_launched_while_a_gate_is_shut() {
     r.run_to(110);
     assert!(r.launched().is_empty());
     r.run_to(121);
-    assert_eq!(r.launched(), ids(&[NETFLIX]));
+    assert_eq!(r.launched(), ids(&[MARQUEE]));
 }
 
 #[test]
@@ -207,7 +209,7 @@ fn a_leaving_gate_waits_for_home_to_be_quiet() {
     r.run_to(64);
     assert!(r.launched().is_empty());
     r.run_to(66);
-    assert_eq!(r.launched(), ids(&[NETFLIX]));
+    assert_eq!(r.launched(), ids(&[MARQUEE]));
 }
 
 #[test]
@@ -233,7 +235,7 @@ fn pressure_closes_the_lowest_priority_app_first_one_every_five_seconds_and_spar
     assert_eq!(r.closed().len(), 4);
     assert!(r.launched().is_empty());
     r.run_to(700);
-    assert_eq!(r.launched(), ids(&[PRIME, LIVE_TV]), "Marquee and Apple TV are only kept");
+    assert_eq!(r.launched(), ids(&[MARQUEE, PRIME, APPLE_TV, LIVE_TV]), "all four come back, in priority order");
 }
 
 #[test]
@@ -265,6 +267,7 @@ fn an_app_that_shows_itself_is_sent_home_closed_and_left_out() {
 #[test]
 fn an_app_that_makes_sound_is_closed_and_left_out() {
     let mut r = rig();
+    r.settings.order = ids(&[NETFLIX, PRIME, LIVE_TV]);
     r.plat.0.lock().sounds = vec![NETFLIX];
     r.run_to(120);
     assert_eq!(r.closed(), ids(&[NETFLIX]));
@@ -274,6 +277,7 @@ fn an_app_that_makes_sound_is_closed_and_left_out() {
 #[test]
 fn a_refused_launch_cools_the_app_off_and_launches_per_app_are_limited() {
     let mut r = rig();
+    r.settings.order = ids(&[NETFLIX, PRIME, LIVE_TV]);
     r.plat.0.lock().refuse = vec![NETFLIX];
     r.run_to(60);
     assert!(r.launched().is_empty(), "a refusal holds back the lower apps too");

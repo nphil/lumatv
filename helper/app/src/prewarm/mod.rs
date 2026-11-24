@@ -16,9 +16,9 @@
 //! (`min(usable_pages, MemAvailable)`) would remain. Below 300 MB the lowest-priority app that is out of sight and silent is
 //! closed, one every five seconds, and it is not launched again for ten minutes. One launch at a time; at most three per app
 //! per ten minutes. An app that shows itself or makes sound when preloaded is closed, Home is asked for, and the app is left
-//! out until the helper restarts. Marquee and Apple TV are known to ignore the preload mode and come to the front, so they are
-//! never preloaded (`policy::shows_when_preloaded`); they stay where they are once the owner has opened them (a cached app is
-//! frozen, and a relaunch took 55 and 91 ms), and the order still decides who is closed first.
+//! out until the helper restarts. Marquee and Apple TV ignore the preload mode and ask for fullscreen as they start; the
+//! compositor holds the window of a process started as a preload until the app is launched, so they are preloaded like the
+//! others (without that hold they would show themselves and be left out).
 //!
 //! The `prewarm` topic: `{on, order, apps: [{id, state: ready|launching|cold|skipped, costMb, note}], headroomMb, waiting}`.
 //! Nothing is written to disk.

@@ -2,8 +2,9 @@
 //!
 //! Measured on the C4 (2026-11-23, Home only in front, 690-710 MB `MemAvailable`, 830 MB LG usable): a preload launch (`launch`
 //! with `preload: partial, launchHidden, noSplash`, the call LG's preload manager makes) costs Netflix 76-92 MB, Prime Video
-//! 113-122 MB, Live TV 32-40 MB; Marquee (49 MB) and Apple TV (98 MB) ignore the preload mode and come to the front, so they
-//! are not preloaded (see [`shows_when_preloaded`]).
+//! 113-122 MB, Live TV 32-40 MB, Marquee 49 MB and Apple TV 98 MB. Marquee and Apple TV ignore the preload mode and ask for fullscreen
+//! as they start; the compositor holds the window of a process started as a preload until the app is launched (`preload.rs` there), so
+//! they are preloaded like the others. An app that still shows itself or makes sound is closed and left out (`check_pending`).
 
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -17,12 +18,6 @@ pub const LIVE_TV: &str = "com.webos.app.livetv";
 /// The default order, first kept longest: Marquee, Netflix, Prime Video, Apple TV, Live TV.
 pub const DEFAULT_ORDER: [&str; 5] = [MARQUEE, NETFLIX, PRIME, APPLE_TV, LIVE_TV];
 pub const MAX_APPS: usize = 8;
-
-/// Apps measured to ignore the preload mode and come to the front when launched hidden (2026-11-23): they are never preloaded, only
-/// kept (not closed first) once the owner has opened them, until their own side or the compositor holds the card.
-pub fn shows_when_preloaded(app: &str) -> bool {
-    matches!(app, MARQUEE | APPLE_TV)
-}
 
 /// What the first launch is assumed to cost until one is measured, MB.
 fn assumed_cost(app: &str) -> u64 {
@@ -282,7 +277,7 @@ impl Policy {
                 continue;
             }
             let slot = self.slots.entry(app.clone()).or_default();
-            if slot.ignored.is_some() || shows_when_preloaded(app) {
+            if slot.ignored.is_some() {
                 continue;
             }
             while slot.launched.front().is_some_and(|t| i.now_ms.saturating_sub(*t) >= WINDOW_MS) {
@@ -312,7 +307,7 @@ impl Policy {
             .iter()
             .map(|app| {
                 let slot = self.slots.get(app);
-                let state = if slot.is_some_and(|sl| sl.ignored.is_some()) || (shows_when_preloaded(app) && !running.iter().any(|r| r == app)) {
+                let state = if slot.is_some_and(|sl| sl.ignored.is_some()) {
                     "skipped"
                 } else if self.pending.as_ref().is_some_and(|p| p.app == *app) {
                     "launching"
@@ -321,7 +316,7 @@ impl Policy {
                 } else {
                     "cold"
                 };
-                let note = slot.and_then(|sl| sl.ignored).or_else(|| shows_when_preloaded(app).then_some("opens normally the first time"));
+                let note = slot.and_then(|sl| sl.ignored);
                 json!({"id": app, "state": state, "costMb": slot.and_then(|sl| sl.cost_mb), "note": note})
             })
             .collect();
