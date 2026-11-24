@@ -109,18 +109,33 @@ fn carousel_motion_frames() -> io::Result<()> {
     }
     m.rebuild_navigation();
     let mut shots = Shots::new()?;
-    shots.shot(&m)?;
-    let key = if mode == "right" || mode == "1" { Key::Right } else { Key::Down };
-    let mut peak = (0, 0);
     let mut clock = 1_000;
+    // Frames a tick apart: the stage art waits on the model's clock, and a picture decodes on its own thread.
+    let mut rest = |shots: &mut Shots, m: &mut Model, frames: u32| -> io::Result<()> {
+        for _ in 0..frames {
+            clock += 17;
+            m.step(Input::Tick { now_ms: clock, unix_s: 100 });
+            shots.page.show(m)?;
+            shots.frame()?;
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        Ok(())
+    };
+    rest(&mut shots, &mut m, 60)?;
+    let key = if mode == "right" || mode == "1" { Key::Right } else { Key::Down };
+    if key == Key::Right {
+        // The next game's banner is decoded before the first press, so the run shows the morph and not the wait for the art.
+        press(&mut m, Key::Right);
+        rest(&mut shots, &mut m, 60)?;
+        press(&mut m, Key::Left);
+        rest(&mut shots, &mut m, 60)?;
+    }
+    let mut peak = (0, 0);
     for press in 0..8 {
         m.step(Input::Key { key, down: true });
         m.step(Input::Key { key, down: false });
-        for tick in 0..10 {
-            clock += 17;
-            m.step(Input::Tick { now_ms: clock, unix_s: 100 });
-            shots.page.show(&m)?;
-            shots.frame()?;
+        for tick in 0..22 {
+            rest(&mut shots, &mut m, 1)?;
             let (_, groups) = shots.page.retained_counts();
             let nodes = shots.page.ui.scene.live_layers();
             peak = (peak.0.max(nodes), peak.1.max(groups));

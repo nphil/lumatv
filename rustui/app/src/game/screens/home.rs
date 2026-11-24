@@ -9,7 +9,7 @@ use crate::game::model::{
     home::{Spot, TILES_SHOWN},
 };
 use crate::game::screens::{
-    paint::{Fill, H, Paint, ScrollGroup, W},
+    paint::{Body, Fill, H, Paint, ScrollGroup, W},
     parts::{
         Side,
         drawer,
@@ -32,8 +32,6 @@ const TILE_W: f32 = 200.0;
 const FEATURED_W: f32 = 640.0;
 const TILE_H: f32 = 300.0;
 const TILE_GAP: f32 = 28.0;
-/// How far past its box a tile's art may draw: the lit game grows 22 px a side and lifts.
-const REACH: f32 = 40.0;
 const STAGE_FOOT: f32 = 482.0;
 const LOGO_H: f32 = 150.0;
 const LOGO_W: f32 = 560.0;
@@ -126,13 +124,7 @@ fn tile(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, x: f32, w: f32) 
     let kinds: &[ArtKind] = if w == FEATURED_W { &[ArtKind::Hero, ArtKind::Cover] } else { &[ArtKind::Cover] };
     let art = kinds.iter().find_map(|&kind| m.art_url(game, kind).and_then(|url| m.art_path(&url)));
     match art {
-        Some(path) => {
-            p.image(id, path, f, p.tokens.radius(Radius::Tile), false, None, 10);
-            // The clip marks art that changes shape in place (`GameUi::keep`); at rest it is clear of the lit game's growth and lift.
-            if let Some(node) = p.plan.nodes.last_mut() {
-                node.props.clip = Some(compositor_protocol::Rect { x: x - REACH, y: ROW_Y - REACH, w: w + 2.0 * REACH, h: TILE_H + 2.0 * REACH });
-            }
-        }
+        Some(path) => p.image(id, path, f, p.tokens.radius(Radius::Tile), false, None, 10),
         None => {
             p.surface(id, f, Fill::Sheet, Radius::Tile, false, false, false, 10);
             let title = m.game(game).map_or("", |g| g.title.as_str());
@@ -150,6 +142,13 @@ fn tile(p: &mut Paint<'_>, id: u64, game: GameId, focus: Focus, x: f32, w: f32) 
     }
     let lit = p.focused(focus);
     focus::treat(p, from, id + 3, f, if w == FEATURED_W { Kind::Hero } else { Kind::Tile }, lit);
+    // The art's window is the box it shows in, lit growth and lift included: `GameUi::keep` morphs art whose window changes shape in
+    // place, and a window that is the art's own extents (a pixel over, for the edge's smoothing) clips nothing at rest.
+    if let Some(node) = p.plan.nodes.get_mut(from).filter(|node| matches!(node.body, Body::Image(_))) {
+        let (w, h) = (node.frame.w * node.props.scale, node.frame.h * node.props.scale);
+        let (x, y) = (node.props.x + (node.frame.w - w) / 2.0, node.props.y + (node.frame.h - h) / 2.0);
+        node.props.clip = Some(compositor_protocol::Rect { x: x - 1.0, y: y - 1.0, w: w + 2.0, h: h + 2.0 });
+    }
     if lit {
         // The lit glass fades in on the tile that takes focus and out on the one that gives it up, rather than appearing at full size.
         p.plan.enters.insert(id + 3, Enter::FADE);

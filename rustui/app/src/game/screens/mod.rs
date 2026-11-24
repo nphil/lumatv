@@ -17,7 +17,7 @@ mod stats;
 
 use crate::game::model::{Focus, Model, Page};
 use art::Key;
-use compositor_protocol::{Ease, Edges, GroupPose, PoseBinding, PoseProperties, Props, Rect};
+use compositor_protocol::{Ease, GroupPose, PoseBinding, PoseProperties, Props, Rect};
 use lumagame_meta::Image;
 use lumatv_tokens::{Tokens, TypeRole};
 use paint::{Body, Node, Paint};
@@ -61,8 +61,6 @@ pub struct GameUi {
     groups: BTreeMap<u32, Scroll>,
     /// The nodes the plan dropped that are still going off the screen with their layer, and when each is let go.
     leaving: Leaving,
-    /// How many layers have been left to fade out under a morph; their ids count down from `u64::MAX`.
-    ghosts: u64,
     /// How the nodes of the last plan that arrive with a layer (`Paint::arrives`) come on and go off.
     enters: BTreeMap<u64, Enter>,
     /// The last plan was drawn on a page the screen already showed: a node of a layer that is new to it arrives, where on a page that has
@@ -79,6 +77,8 @@ struct Kept {
     group: Option<u32>,
     /// How the node came onto the screen with its layer, so it goes off the same way.
     enter: Option<Enter>,
+    /// The art the node showed before it changed shape, while the change lands.
+    other: Option<Other>,
 }
 struct Scroll {
     clip: Group,
@@ -115,18 +115,39 @@ impl Layer {
         if animate { self.ease(props, ms, Ease::Spring) } else { self.jump(props) }
     }
 }
-/// The soft edge of the window a morphing tile opens through; the clip at rest is `REACH` clear of the art, so this never shows then.
-const MORPH_FEATHER: f32 = 28.0;
-/// Whether `new` is `old` changed in shape in place: art that opted into a clip (`home::REACH`), at the same height and place, of
-/// another width.
+/// Whether `new` is `old` changed in shape in place: art that opted into a window (`home::tile`) and is a picture of another size.
 fn reshaped(old: &Node, new: &Node) -> bool {
     matches!((&old.body, &new.body), (Body::Image(_), Body::Image(_)))
         && old.props.clip.is_some()
         && new.props.clip.is_some()
         && old.z == new.z
-        && old.frame.y == new.frame.y
-        && old.frame.h == new.frame.h
-        && old.frame.w != new.frame.w
+        && (old.frame.w != new.frame.w || old.frame.h != new.frame.h)
+}
+/// How `node`'s picture lies to fill `window` the way a cover fills its box: scaled about its centre by the larger of the two ratios
+/// and centred, so the crop keeps the middle of the art, and clipped to the window. Everything the compositor eases on the way from
+/// one such pose to another (the window, the centre, the scale) is linear in the spring's progress, and the larger of two linear
+/// ratios is never above the line between its ends, so the art covers the window all the way.
+fn fill(node: &Node, window: Rect, opacity: f32) -> Props {
+    let (w, h) = (node.frame.w, node.frame.h);
+    let scale = (window.w / w).max(window.h / h);
+    Props { scale, opacity, clip: Some(window), ..Props::at(window.x + (window.w - w) / 2.0, window.y + (window.h - h) / 2.0) }
+}
+/// The art a tile showed before it changed shape, still drawn under (or over) the tile's own while the morph lands.
+struct Other {
+    layer: Layer,
+    node: Node,
+    /// Drawn over the tile's own layer, which then is the opaque one and this the one that fades away; under it, the tile's own layer
+    /// fades in over this one, which stays opaque.
+    above: bool,
+    /// When it is let go: the spring's end and a frame.
+    until: u64,
+}
+impl Other {
+    /// Sends it to fill `window`, the tile's new box, on the spring the tile's own layer is on.
+    fn follow(&mut self, window: Rect, ms: u32, now_ms: u64) {
+        self.layer.ease(fill(&self.node, window, if self.above { 0.0 } else { 1.0 }), ms, Ease::Spring);
+        self.until = now_ms + u64::from(ms) + motion::LEAVE_SLACK_MS;
+    }
 }
 impl GameUi {
     /// How long a spring-eased move takes: the theme's focus time stretched to the spring's own period.
@@ -166,7 +187,6 @@ impl GameUi {
             page: None,
             groups: BTreeMap::new(),
             leaving: Leaving::default(),
-            ghosts: 0,
             enters: BTreeMap::new(),
             settled: false,
         })
@@ -203,7 +223,8 @@ impl GameUi {
     }
     /// How long until the page has to be shown again with nothing else changed: the next node to finish leaving.
     pub fn wake_ms(&self, now_ms: u64) -> Option<u64> {
-        self.leaving.wait_ms(now_ms)
+        let landing = self.nodes.values().filter_map(|kept| kept.other.as_ref()).map(|other| other.until.saturating_sub(now_ms)).min();
+        landing.into_iter().chain(self.leaving.wait_ms(now_ms)).min()
     }
     /// Lets go of the nodes whose way off the screen has ended; true when any went. The next plan then reaches the groups they held.
     fn expire(&mut self, now_ms: u64) -> bool {
@@ -214,7 +235,14 @@ impl GameUi {
         if !due.is_empty() {
             self.revision = None;
         }
-        !due.is_empty()
+        let mut landed = false;
+        for kept in self.nodes.values_mut() {
+            if kept.other.as_ref().is_some_and(|other| other.until <= now_ms) {
+                kept.other = None;
+                landed = true;
+            }
+        }
+        landed || !due.is_empty()
     }
     /// Drops the nodes the plan no longer has. One that arrived with a layer goes off the screen the way it came and is let go when that
     /// ends (`expire`); content and every other node go at once.
@@ -434,6 +462,24 @@ impl GameUi {
         });
         // Art that only changes shape in place (a cover becoming the banner and back) morphs: the old layer is let go by the new one.
         let morph = self.nodes.get(&node.id).filter(|kept| !reduced && self.settled && kept.group == group && reshaped(&kept.node, &node)).and_then(|kept| kept.node.props.clip);
+        // Changing back while the morph runs turns it round: the art that was leaving comes back as the tile's own, and the layers keep
+        // going from where they are, so nothing jumps.
+        if !reduced && self.settled {
+            let ms = self.spring_ms();
+            if let Some(kept) = self.nodes.get_mut(&node.id).filter(|kept| kept.group == group && kept.other.as_ref().is_some_and(|other| other.node.body == node.body && other.node.z == node.z)) {
+                let other = kept.other.as_mut().unwrap();
+                std::mem::swap(&mut kept.layer, &mut other.layer);
+                std::mem::swap(&mut kept.node, &mut other.node);
+                other.above = !other.above;
+                kept.layer.ease(node.props, ms, Ease::Spring);
+                if let Some(window) = node.props.clip {
+                    other.follow(window, ms, now_ms);
+                }
+                kept.enter = enter;
+                kept.node = node;
+                return Ok(());
+            }
+        }
         if recreate {
             let old = self.nodes.remove(&node.id);
             let mut layer = match &node.body {
@@ -473,19 +519,19 @@ impl GameUi {
                 };
                 result.map_err(|e| io::Error::other(e.to_string()))?;
             }
-            // A cover whose art arrives after its tile is shown fades in rather than popping; the stage art (below 100) is not a tile.
-            if let (Some(start), Some(mut old)) = (morph, old) {
-                // The tile changed shape in place: the new art opens out of the old box while the old art fades and closes on the new one.
+            // A tile that changed shape in place morphs: its new art starts as the old box's crop and the old art goes on to the new box's,
+            // under it, until the spring has landed. A cover whose art arrives after its tile is shown fades in rather than popping; the
+            // stage art (below 100) is not a tile.
+            let mut other = None;
+            if let (Some(window), Some(old)) = (morph, old) {
                 let ms = self.spring_ms();
-                let away = Props { opacity: 0.0, clip: Some(start), feather: Edges::horizontal(MORPH_FEATHER), ..node.props };
-                layer.jump(away);
+                layer.jump(fill(&node, window, 0.0));
                 layer.ease(node.props, ms, Ease::Spring);
-                let to = Rect { x: node.frame.x, y: node.frame.y, w: node.frame.w, h: node.frame.h };
-                old.layer.ease(Props { opacity: 0.0, clip: Some(to), ..old.node.props }, ms, Ease::Spring);
-                self.ghosts += 1;
-                let ghost = u64::MAX - self.ghosts;
-                self.leaving.begin(ghost, now_ms, ms);
-                self.nodes.insert(ghost, old);
+                let mut under = Other { layer: old.layer, node: old.node, above: false, until: 0 };
+                if let Some(window) = node.props.clip {
+                    under.follow(window, ms, now_ms);
+                }
+                other = Some(under);
             } else if !reduced && node.id >= 100 && matches!(node.body, Body::Image(_)) {
                 layer.set(Props { opacity: 0.0, ..node.props }, false, 0);
                 layer.ease(node.props, self.tokens.motion.focus_ms, Ease::Out);
@@ -497,7 +543,7 @@ impl GameUi {
                 layer.jump(come.away);
                 layer.ease(node.props, come.ms, come.ease);
             }
-            self.nodes.insert(node.id, Kept { node, layer, group, enter });
+            self.nodes.insert(node.id, Kept { node, layer, group, enter, other });
             return Ok(());
         }
         let kept = self.nodes.get_mut(&node.id).unwrap();
@@ -520,12 +566,17 @@ impl GameUi {
             kept.layer.ease(node.props, back.ms, back.ease);
         }
         if kept.node.props != node.props {
+            // A tile whose old art is still going keeps its move on the spring, however far the box has to go.
             let animate = !reduced
-                && (scrolled || !paint::LIVE.contains(&node.id))
-                && (kept.node.props.scale != node.props.scale
-                    || (kept.node.props.x - node.props.x).abs() < 100.0 && (kept.node.props.y - node.props.y).abs() < 100.0);
+                && (kept.other.is_some()
+                    || (scrolled || !paint::LIVE.contains(&node.id))
+                        && (kept.node.props.scale != node.props.scale
+                            || (kept.node.props.x - node.props.x).abs() < 100.0 && (kept.node.props.y - node.props.y).abs() < 100.0));
             let ms = motion::spring_ms(self.tokens.motion.focus_ms);
             kept.layer.set(node.props, animate, ms);
+            if let (Some(other), Some(window), true) = (&mut kept.other, node.props.clip, animate) {
+                other.follow(window, ms, now_ms);
+            }
         }
         kept.enter = enter;
         kept.node = node;
@@ -648,7 +699,35 @@ pub(super) fn plan_in(model: &Model, mode: ui::lucent::palette::Mode) -> paint::
 #[cfg(test)]
 mod tests {
     use super::scroll_settle;
+    use super::{Body, Node, fill};
+    use compositor_protocol::{Props, Rect};
     use compositor_protocol::motion::{MotionBounds, Track, Units};
+    use ui::geometry::Frame;
+
+    fn art(w: f32, h: f32) -> Node {
+        Node { id: 1, frame: Frame::new(0.0, 0.0, w, h), props: Props::at(0.0, 0.0), z: 10, body: Body::Qr(String::new()) }
+    }
+    fn window(x: f32, w: f32) -> Rect {
+        Rect { x, y: 0.0, w, h: 300.0 }
+    }
+
+    #[test]
+    fn art_fills_its_window_centred_by_the_larger_ratio_all_the_way_through_a_morph() {
+        let (cover, banner) = (art(200.0, 300.0), art(640.0, 300.0));
+        let grown = fill(&cover, window(0.0, 640.0), 1.0);
+        assert_eq!((grown.scale, grown.x + 100.0), (3.2, 320.0), "a cover in the banner's box: scaled to its width, on its centre");
+        let kept = fill(&banner, window(0.0, 200.0), 1.0);
+        assert_eq!((kept.scale, kept.x + 320.0), (1.0, 100.0), "the banner in a cover's box: cropped to the middle");
+        // The compositor eases the window, the centre and the scale in a straight line; the art never leaves the window bare.
+        let (from, to) = (window(500.0, 200.0), window(60.0, 640.0));
+        let (a, b) = (fill(&cover, from, 1.0), fill(&cover, to, 1.0));
+        for t in [0.1, 0.25, 0.5, 0.75, 0.9] {
+            let at = |a: f32, b: f32| a + (b - a) * t;
+            let (x, w, scale) = (at(from.x, to.x), at(from.w, to.w), at(a.scale, b.scale));
+            let (left, width) = (at(a.x, b.x) + 100.0 - 100.0 * scale, 200.0 * scale);
+            assert!(left <= x + 1e-3 && left + width >= x + w - 1e-3, "t {t}: art {left}..{} covers {x}..{}", left + width, x + w);
+        }
+    }
 
     /// One refresh at 120 Hz.
     const FRAME_NS: u64 = 8_333_333;

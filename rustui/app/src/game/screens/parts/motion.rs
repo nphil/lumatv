@@ -18,7 +18,7 @@ pub const ART_REST_MS: u32 = 250;
 /// One leg of the art's dip: it fades out, the next art takes its place, it fades in.
 pub const ART_DIP_MS: u32 = 100;
 /// A leaving layer is let go this long after its out ends, so a late frame never cuts the last of the fade.
-const LEAVE_SLACK_MS: u64 = 17;
+pub const LEAVE_SLACK_MS: u64 = 17;
 
 /// Where a node is away from its own pose, which it comes from and goes back to. It is always transparent there.
 #[derive(Clone, Copy, Debug, PartialEq)]

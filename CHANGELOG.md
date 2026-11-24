@@ -33,7 +33,7 @@ LumaGame's menus follow the controller first: the left stick counts as a directi
 
 LumaGame moves like LumaTV Home: focus travel, card scale and layers coming in use the compositor's critically damped spring on LumaTV Home's own times (260 ms focus and card, 220 ms layer; the game theme's faster 150/180 ms overrides are gone) instead of a short ease-out, and a press during a move retargets it from where it is.
 
-LumaGame's Home row morphs when focus moves: the portrait cover becoming the wide banner opens out of its own box while the art crossfades, and the banner closing back to a cover does the reverse (no jump); the lit banner grows to 1.07 (a cover 1.03), and the lit glass fades in and out between tiles.
+LumaGame's Home row morphs when focus moves: the portrait cover widens into the wide banner and the banner narrows back into a cover as one box, its window moving on the spring with the neighbours and both pictures cropped and scaled to fill it (cover-fit, on the middle of the art), with only a short blend between them inside the motion. A change of focus mid-flight turns the morph round from where it is, with no jump. The lit banner grows to 1.07 (a cover 1.03), and the lit glass fades in and out between tiles.
 
 LumaGame has one game page: Down from Home's row opens it (the cards of Home's Down state are gone), the Activity card also shows the newest post, and Back from the page is always Home on the same game.
 
