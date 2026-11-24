@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Settings' first open at 120 Hz makes the rail and the page 8 layers to a draw instead of 24, so no draw costs the UI thread more than a refresh on the set (13 ms measured for 24; one dropped refresh in 2 of 3 `settings-scroll` gate runs). The open takes more draws while Settings is still transparent.
-
 Reopening an app from Home shows its saved picture on the first frame of the open motion and dissolves into the live window over 140 ms once the window's first fresh frame is on screen, so no frame is black. Pictures are 960×540 and at most eight are kept (16.6 MB), freed when the app closes or the picture is evicted. An app whose video fills the screen, or whose window is only video (hardware or protected playback), is saved as a card in the active theme: its initial on an icon tile with its name over the panel colour. An app with a smaller video window keeps its interface with the video's place left transparent.
 
 `?transcode=heavy` makes progressive H.264 at the station's own size and rate: 1920x1080 at 29.97 from 1080i, 1280x720 at 59.94 from 720p60, and an SD or anamorphic station at its own size with its pixel aspect ratio written into the stream (the converter's child puts it in the SPS; the refusal of those shapes is gone). `GET /status.json` gains `transcode`: whether the converter is on and the profiles it makes, best picture first (`mobile` for now, the one measured on the set), for the phone apps to choose from. The docs no longer say `heavy` keeps interlacing, or that key frames come once a second (every 2 s). Tested on the host; not yet checked on the TV.

@@ -111,13 +111,12 @@ const RAIL_RAPID_MS: u64 = 200;
 /// How long the rail rests before the page that waited is made.
 const RAIL_REST_MS: u64 = 120;
 /// The layers Settings may make in one draw at 120 Hz while it makes the rail or a page new. A frame's GPU time on the set is about 1.5 ms and 0.085 ms for
-/// each layer it draws (`tests/host_budget.py`) and a refresh is 8.3 ms, so a page of 60 to 120 layers is several frames of layers, and the rows it
+/// each layer it draws (`tests/host_budget.py`) and a refresh is 8.3 ms, so a page of 60 to 120 layers is two or three frames of layers, and the rows it
 /// could not make in one are made in the draws of the frames after. The share follows the refresh and is not asked below [`INSTANT_MODAL_HZ`], where
-/// a refresh holds twice as much and the fade covers the making. On the host a draw of 24 took 3.5 ms of the shell's thread and 16 took 2.8; the set's
-/// thread is about 3.7 times slower, so 24 was 13 ms there and the compositor needed 8-11 ms to take it in: the first draw of an open cost one refresh
-/// in 2 of 3 gate runs of `settings-scroll` at 120 Hz (2, 0 and 1 dropped over 2285 flips, each 13-20 ms after the key). 8 is about 2 ms on the host,
-/// under a refresh on the set; the open takes more draws while Settings is still transparent.
-const FILL_LAYERS_120: usize = 8;
+/// a refresh holds twice as much and the fade covers the making. On the host (the gate's walk of Settings, owner's theme): 24 keeps a frame to 59 layers
+/// and 3.5 ms of the shell's thread, where a page made whole took 69 and 6.7; 16 takes 2.8 ms of the thread, but the draws after the first then cover more
+/// of what is made and reach 62 layers.
+const FILL_LAYERS_120: usize = 24;
 
 /// What one draw may make while a list is first filled, at this refresh: none to limit below 100 Hz.
 fn fill_cap(kit: &Kit) -> Option<usize> {
