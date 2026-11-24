@@ -797,6 +797,7 @@ impl State {
         self.land_flips();
         if drew {
             self.stats.frames_drawn += 1;
+            self.scene.note_layers(self.stats.frames_drawn);
             self.after_drawn_frame();
         }
         let State { surfaces, client_callbacks, .. } = &mut *self;

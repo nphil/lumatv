@@ -113,7 +113,7 @@ impl Scene {
         }
         let id = SnapshotId(self.snapshots.next());
         self.snapshots.pictures.push(Picture { id, window, root: w.surface, app: w.app_id().into(), layer: w.kind.layer(), order: w.map_serial,
-            resumable: true, resume: None, fade: None, video: capture != Capture::Ui, used: id.0 });
+            resumable: true, resume: None, fade: None, video: capture != Capture::Ui, card: capture == Capture::Card, used: id.0 });
         Some((id, capture))
     }
 
@@ -180,6 +180,34 @@ impl Scene {
         self.redraw_all |= was != self.snapshots.len();
     }
 
+    /// One trace-ring line (`L`, `ctl ring`) for a frame just drawn: what the front window is on screen as, so a reopen's first frames can be read
+    /// back without a capture (a capture takes 1.5 s while an app opens). `pic` is the saved picture (`snap`, `card`) or its dissolve (`fade`, live
+    /// window under it); `live` is the window's own items in the plan, `hole` its video holes, `trk` the open motion's opacity. `none` is a front
+    /// app with nothing to draw: a black frame.
+    pub(crate) fn note_layers(&self, frame: u64) {
+        if !crate::ring::is_open() { return; }
+        let Front::Card(window) = self.front else {
+            crate::ring::note(format_args!("L {frame} {}", if self.front == Front::Home { "home" } else { "-" }));
+            return;
+        };
+        let app = self.windows.get(&window).map_or("?", |w| w.app_id());
+        let live = self.plan.items.iter().filter(|i| i.window == window).count();
+        let hole = self.plan.holes.iter().filter(|h| self.plan.items.get(h.before).is_some_and(|i| i.window == window)).count();
+        let draw = self.plan.snapshots.iter().find(|d| d.window == window);
+        let layer = match draw {
+            Some(d) if d.fading => "fade",
+            Some(_) if self.snapshots.get(window).is_some_and(|p| p.card) => "card",
+            Some(_) => "snap",
+            None if live > 0 => "live",
+            None => "none",
+        };
+        let pic = draw.map_or(0.0, |d| d.pose.alpha);
+        match self.transitions.track_of(window) {
+            Some(t) => crate::ring::note(format_args!("L {frame} {app} {layer} pic={pic:.2} live={live} hole={hole} trk={:.2}", t.pose_at(self.plan_ns).alpha)),
+            None => crate::ring::note(format_args!("L {frame} {app} {layer} pic={pic:.2} live={live} hole={hole} trk=-")),
+        }
+    }
+
     pub(super) fn push_snapshot(&mut self, window: WindowId, now_ns: u64) {
         if self.transitions.suspended { return; }
         let Some(p) = self.snapshots.get(window) else { return };
@@ -244,7 +272,7 @@ mod tests {
         scene.set_mapped(root, true);
         let id = SnapshotId(scene.snapshots.next());
         scene.snapshots.pictures.push(Picture { id, window, root, app: "org.example.app".into(),
-            layer: Layer::Cards, order: 1, resumable: true, resume: None, fade: None, video: false, used: id.0 });
+            layer: Layer::Cards, order: 1, resumable: true, resume: None, fade: None, video: false, card: false, used: id.0 });
         (scene, surfaces, window, root)
     }
 

@@ -61,6 +61,8 @@ pub(crate) struct Picture {
     /// Made of a window that had video on the plane: its own layer around a transparent hole, or a card. Video arriving over it later
     /// does not invalidate it.
     pub video: bool,
+    /// Painted from the theme (`Capture::Card`), not copied from the app's pixels.
+    pub card: bool,
     pub used: u64,
 }
 
@@ -178,7 +180,7 @@ mod tests {
     fn saved() -> Snapshots {
         let mut s = Snapshots::default();
         s.pictures.push(Picture { id: SnapshotId(1), window: WindowId(2), root: SurfaceId(3), app: "app".into(),
-            layer: Layer::Cards, order: 1, resumable: true, resume: None, fade: None, video: false, used: 1 });
+            layer: Layer::Cards, order: 1, resumable: true, resume: None, fade: None, video: false, card: false, used: 1 });
         s.serial = 1;
         s
     }
