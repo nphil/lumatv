@@ -123,6 +123,9 @@ fn reshaped(old: &Node, new: &Node) -> bool {
         && old.z == new.z
         && (old.frame.w != new.frame.w || old.frame.h != new.frame.h)
 }
+/// The share of the spring the old art's copy takes to dissolve (an `Ease::In` fade, so it fades late in that time): 75 ms of a 346 ms
+/// spring, which ends past the spring's peak speed (at 1/7.25 of its time), where the box moves fastest.
+const BLEND: f32 = 0.22;
 /// How `node`'s picture lies to fill `window` the way a cover fills its box: scaled about its centre by the larger of the two ratios
 /// and centred, so the crop keeps the middle of the art, and clipped to the window. Everything the compositor eases on the way from
 /// one such pose to another (the window, the centre, the scale) is linear in the spring's progress, and the larger of two linear
@@ -432,6 +435,28 @@ impl GameUi {
         }
         Ok(cleared)
     }
+    /// The old art of a tile that changes shape, as a copy drawn over the tile's new layer: it follows the box for the first `BLEND` of
+    /// the spring and dissolves on the way, so the two pictures overlap only while the box moves fastest. It is kept until the morph
+    /// lands, hidden, so that a change back turns it round. None when the old picture is no longer held.
+    fn dissolve(&mut self, old: Node, from: Rect, to: Rect, group: Option<u32>, ms: u32, now_ms: u64) -> io::Result<Option<Other>> {
+        let Body::Image(key) = &old.body else { return Ok(None) };
+        let Some(cached) = self.images.get(key) else { return Ok(None) };
+        let image = &cached.image;
+        let start = fill(&old, from, 1.0);
+        let mut layer = self.ui.scene.image(image.width, image.height, old.z, start)?;
+        layer.pixels_mut().copy_from_slice(&image.rgba);
+        layer.damage(None);
+        if let Some(id) = group {
+            self.groups[&id].content.attach(&layer, start).map_err(|e| io::Error::other(e.to_string()))?;
+        }
+        let blend = (ms as f32 * BLEND).round() as u32;
+        let at = compositor_protocol::motion::ease(Ease::Spring, blend as f32 / ms as f32);
+        let lerp = |a: f32, b: f32| a + (b - a) * at;
+        let reach = Rect { x: lerp(from.x, to.x), y: lerp(from.y, to.y), w: lerp(from.w, to.w), h: lerp(from.h, to.h) };
+        let mut layer = Layer::Image(layer);
+        layer.ease(fill(&old, reach, 0.0), blend, Ease::In);
+        Ok(Some(Other { layer, node: old, above: true, until: now_ms + u64::from(ms) + motion::LEAVE_SLACK_MS }))
+    }
     fn keep(&mut self, node: Node, reduced: bool, scrolled: bool, group: Option<u32>, now_ms: u64) -> io::Result<()> {
         if let Body::Image(key) = &node.body {
             if key.spec.stage.is_some() {
@@ -519,19 +544,17 @@ impl GameUi {
                 };
                 result.map_err(|e| io::Error::other(e.to_string()))?;
             }
-            // A tile that changed shape in place morphs: its new art starts as the old box's crop and the old art goes on to the new box's,
-            // under it, until the spring has landed. A cover whose art arrives after its tile is shown fades in rather than popping; the
-            // stage art (below 100) is not a tile.
+            // A tile that changed shape in place morphs: its new art starts as the old box's crop and the old art, a copy drawn over it,
+            // goes on to the new box's while it dissolves in the first part of the spring, where the box moves fastest. A cover whose
+            // art arrives after its tile is shown fades in rather than popping; the stage art (below 100) is not a tile.
             let mut other = None;
             if let (Some(window), Some(old)) = (morph, old) {
                 let ms = self.spring_ms();
-                layer.jump(fill(&node, window, 0.0));
+                layer.jump(fill(&node, window, 1.0));
                 layer.ease(node.props, ms, Ease::Spring);
-                let mut under = Other { layer: old.layer, node: old.node, above: false, until: 0 };
-                if let Some(window) = node.props.clip {
-                    under.follow(window, ms, now_ms);
+                if let Some(target) = node.props.clip {
+                    other = self.dissolve(old.node, window, target, group, ms, now_ms)?;
                 }
-                other = Some(under);
             } else if !reduced && node.id >= 100 && matches!(node.body, Body::Image(_)) {
                 layer.set(Props { opacity: 0.0, ..node.props }, false, 0);
                 layer.ease(node.props, self.tokens.motion.focus_ms, Ease::Out);
