@@ -176,6 +176,8 @@ pub struct Model {
     now: u64,
     /// The look in force is the light one.
     light: bool,
+    /// How many of the rail's pages have had their reads asked in the quiet after start ([`Model::prefetch_next`]).
+    prefetched: usize,
 }
 
 fn merge_section(into: &mut Value, patch: &Value) {
@@ -224,6 +226,7 @@ impl Model {
             cache: RefCell::new(None),
             now: 0,
             light: false,
+            prefetched: 0,
         }
     }
 
@@ -483,6 +486,23 @@ impl Model {
         self.sync_theme_preview();
         out.push(Effect::Redraw);
         out
+    }
+
+    /// Asks the one-off reads of the next rail page while Settings is closed, so LG's keys, the helper's owners and the topics are in the stores when
+    /// Settings first opens and its rows are painted whole instead of dimmed or empty and then filled in. One page a call: LG's service answers one read at a
+    /// time, and a person who opens Settings meanwhile has the page in front read behind at most one page's reads. Subscriptions (`Watch`, the sleep timer)
+    /// are left to the page that shows them. Returns whether pages are left.
+    pub fn prefetch_next(&mut self, now: u64) -> (Vec<Effect>, bool) {
+        let mut out = Vec::new();
+        let Some(&idx) = self.sections.get(self.prefetched) else { return (out, false) };
+        self.prefetched += 1;
+        self.now = now;
+        let reads = {
+            let page = &self.pages[idx];
+            (page.reads)(&self.ctx(page.id, page.title, &PageArg::None))
+        };
+        self.run_reads(reads.into_iter().filter(|r| !matches!(r, Read::Watch { .. } | Read::Sleep)).collect(), now, &mut out);
+        (out, self.prefetched < self.sections.len())
     }
 
     /// Settings closes: the sheets go, the subscriptions are let go.
@@ -2502,5 +2522,18 @@ mod tests {
         assert!(m.local.get("receiver.write").get("requestId").is_none());
         m.update(&Input::Fetched { tag: second, status: 202, data: json!({"accepted":true,"requestId":"new","session":"same"}) }, 14_002);
         assert_eq!(m.local.get("receiver.write")["requestId"], "new");
+    }
+
+    #[test]
+    fn the_quiet_after_start_reads_each_rail_page_once_and_leaves_subscriptions_alone() {
+        let mut m = model();
+        assert!(!m.is_open());
+        let (first, more) = m.prefetch_next(1_000);
+        assert!(more && !first.is_empty(), "the first page's reads are asked while closed: {first:?}");
+        assert!(first.iter().all(|e| !matches!(e, Effect::Luna { subscribe: true, .. })));
+        let (second, more) = m.prefetch_next(1_400);
+        assert!(!more, "alpha and beta are the rail's pages");
+        assert!(second.is_empty(), "beta reads nothing: {second:?}");
+        assert!(m.prefetch_next(1_800).0.is_empty() && !m.prefetch_next(2_200).1, "nothing more after the last page");
     }
 }

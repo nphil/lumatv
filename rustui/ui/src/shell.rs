@@ -40,6 +40,11 @@ const OVERLAY_RELEASE_MS: u64 = 450;
 const ICON_WARM_AFTER_MS: u64 = 2_000;
 const ICON_WARM_STEP: usize = 3;
 const ICON_WARM_GAP_MS: u64 = 30;
+/// Settings' pages are read one at a time in the quiet after start, once the helper is up (or this long after the first try without it), so the first
+/// open paints values that are already here.
+const SETTINGS_PREFETCH_AFTER_MS: u64 = 6_000;
+const SETTINGS_PREFETCH_GAP_MS: u64 = 400;
+const SETTINGS_PREFETCH_PATIENCE_MS: u64 = 30_000;
 /// The longest a quiet tick (one that drew nothing and asked nothing) leaves the report unbuilt.
 const REPORT_HEARTBEAT_MS: u64 = 1000;
 /// The least time between two drawings for a refusal: a scene at its ceiling refuses what each drawing asks.
@@ -243,6 +248,9 @@ pub struct Shell {
     squeeze: bool,
     /// When the next icon masks are loaded.
     icons_warm_at: Option<u64>,
+    /// When the next of Settings' pages is read ahead, and when the first try was due.
+    settings_prefetch_at: Option<u64>,
+    settings_prefetch_from: u64,
     helper_up: bool,
     started: bool,
     /// The data directory (`theme/theme.json` is written under it) and the module's (`icons/`, `art/`).
@@ -342,6 +350,8 @@ impl Shell {
             hide_at: None,
             squeeze: false,
             icons_warm_at: None,
+            settings_prefetch_at: None,
+            settings_prefetch_from: 0,
             helper_up: false,
             started: false,
             data_dir: None,
@@ -371,6 +381,8 @@ impl Shell {
     pub fn dirs(&mut self, module: &Path, data: &Path) {
         self.kit.icons = crate::kit::icon::Icons::new(module);
         self.icons_warm_at = Some(crate::host::now_ms() + ICON_WARM_AFTER_MS);
+        self.settings_prefetch_from = crate::host::now_ms() + SETTINGS_PREFETCH_AFTER_MS;
+        self.settings_prefetch_at = Some(self.settings_prefetch_from);
         self.home_surface.dirs(module, data);
         self.data_dir = Some(data.to_path_buf());
     }
@@ -1255,6 +1267,19 @@ impl Shell {
         if self.icons_warm_at.is_some_and(|at| now >= at) {
             self.icons_warm_at = self.kit.icons.warm(ICON_WARM_STEP).then_some(now + ICON_WARM_GAP_MS);
         }
+        if self.settings_prefetch_at.is_some_and(|at| now >= at) {
+            self.settings_prefetch_at = if !self.kinds.settings {
+                None
+            } else if self.settings.is_open() || (!self.helper_up && now < self.settings_prefetch_from + SETTINGS_PREFETCH_PATIENCE_MS) {
+                Some(now + SETTINGS_PREFETCH_GAP_MS)
+            } else {
+                let (effects, more) = self.settings.prefetch_next(now);
+                for e in effects {
+                    self.carry(e, now, &mut acts);
+                }
+                more.then_some(now + SETTINGS_PREFETCH_GAP_MS)
+            };
+        }
         if self.glass_restyle_at.is_some_and(|at| now >= at) {
             self.apply_theme_look(now, &mut acts, false);
             self.glass_restyle_at = None;
@@ -1801,7 +1826,7 @@ impl Shell {
         let lab = if self.kinds.displaylab { self.lab.due_at() } else { None };
         let guide = if self.kinds.guide { self.guide.due_at() } else { None };
         let refused = (self.kit.ui.scene.refusals() != self.refusals_seen).then_some(self.refusal_redraw_at);
-        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, guide, self.vwin.due_at(), self.release_at, self.hide_at, self.icons_warm_at, self.glass_restyle_at, self.interactive_fades[0], self.interactive_fades[1], self.interactive_fades[2], refused].into_iter().flatten().min()
+        [due, self.sys.due_at(&self.kinds), self.panels.due_at(&self.kinds), cameras, settings, lab, guide, self.vwin.due_at(), self.release_at, self.hide_at, self.icons_warm_at, self.settings_prefetch_at, self.glass_restyle_at, self.interactive_fades[0], self.interactive_fades[1], self.interactive_fades[2], refused].into_iter().flatten().min()
     }
 
     pub fn is_live(&self) -> bool {

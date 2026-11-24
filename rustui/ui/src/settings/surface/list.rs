@@ -4,7 +4,7 @@
 //! seen: the rows that are in view or a row's reach from it. A long list (the apps, the networks) costs the rows in view and a little
 //! beside them, not the whole of it, so the scene's budget holds at 200 % text too.
 
-use super::layout::{Column, RowGeom, Sizes, follow, measure_row, whole_rows};
+use super::layout::{Column, RowGeom, Sizes, follow, measure_row_with, whole_rows};
 use super::paint::Paint;
 use super::rows::{Env, Moment, Placed, RowArt, other, signature};
 use crate::kit::focus::{Id, Region, Scope};
@@ -71,6 +71,8 @@ pub struct ListArt {
     pending: bool,
     /// The layers the last `apply` made.
     made: usize,
+    /// The widest each row's value has been while this list stood (by row id): the room beside it is kept at that width ([`measure_row_with`]).
+    value_reach: std::collections::HashMap<String, f32>,
 }
 
 /// The clip of the viewport over the rows from `y` for `h`: the window and what a lifted row (or one of its cards) stands out by, so the
@@ -86,7 +88,7 @@ impl ListArt {
         let viewport = scene.group(parent.map(Group::id), GroupPose { x: origin.0, y: origin.1, clip: rect_clip(Reach::lift(kit, Lift::Row, (size.0, 0.0)), size.0, 0.0, size.1), feather: Edges::NONE, ..GroupPose::IDENTITY }).map_err(other)?;
         let rest = GroupPose::IDENTITY;
         let scroll = scene.group(Some(viewport.id()), rest).map_err(other)?;
-        let mut me = ListArt { region, scope, z, id_base, tight, viewport, scroll, origin, size, zone: 0.0, slots: Vec::new(), col: Column::default(), offset: 0.0, extent: 0.0, key, budget: None, filling: true, pending: false, made: 0 };
+        let mut me = ListArt { region, scope, z, id_base, tight, viewport, scroll, origin, size, zone: 0.0, slots: Vec::new(), col: Column::default(), offset: 0.0, extent: 0.0, key, budget: None, filling: true, pending: false, made: 0, value_reach: Default::default() };
         me.rescroll(kit, engine, 0.0)?;
         Ok(me)
     }
@@ -212,7 +214,11 @@ impl ListArt {
                         }
                     }
                     {
-                        let mut g = measure_row(kit, r, w);
+                        let mut g = measure_row_with(kit, r, w, self.value_reach.get(&r.id).copied().unwrap_or(0.0));
+                        if r.kind == Kind::Value && r.value_icon.is_empty() && g.value_w > 0.0 {
+                            let e = self.value_reach.entry(r.id.clone()).or_insert(0.0);
+                            *e = e.max(g.value_w);
+                        }
                         if self.tight {
                             g.h = (g.h - sz.s2).max(sz.row);
                         }

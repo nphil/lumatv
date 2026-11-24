@@ -909,7 +909,7 @@ impl RowArt {
             self.selected_wash = Some(make_wash(env, rect, false));
         }
         if let Some(w) = &self.selected_wash {
-            w.set(if want_sel { Props::at(self.rect.x, self.rect.y) } else { hidden_at(&self.rect) });
+            w.put(if want_sel { Props::at(self.rect.x, self.rect.y) } else { hidden_at(&self.rect) });
         }
         let want_hover = moment.hovered && !moment.focused && self.focusable && !matches!(row.kind, Kind::Cards);
         if want_hover && self.hover_wash.is_none() {
@@ -917,7 +917,7 @@ impl RowArt {
             self.hover_wash = Some(make_wash(env, rect, true));
         }
         if let Some(w) = &self.hover_wash {
-            w.set(if want_hover { Props::at(self.rect.x, self.rect.y) } else { hidden_at(&self.rect) });
+            w.put(if want_hover { Props::at(self.rect.x, self.rect.y) } else { hidden_at(&self.rect) });
         }
         if self.moment.focused != moment.focused && self.mark.is_some() {
             self.paint_mark(env, moment.focused);

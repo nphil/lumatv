@@ -50,6 +50,11 @@ impl SettingsHost {
         self.model.open(page, now)
     }
 
+    /// The next rail page's reads, asked while Settings is closed (`Model::prefetch_next`).
+    pub fn prefetch_next(&mut self, now: u64) -> (Vec<Effect>, bool) {
+        self.model.prefetch_next(now)
+    }
+
     pub fn close(&mut self, now: u64) -> Vec<Effect> {
         self.redraw = true;
         self.model.close(now)

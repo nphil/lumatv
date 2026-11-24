@@ -159,12 +159,16 @@ pub struct SettingsSurface {
     saved_scroll: Option<(String, f32)>,
     /// The focus the next draw sets is lifted at once: Settings was made or came back (as a panel's first focus is, `panels::stage`).
     lift_at_once: bool,
+    /// Settings is being made from nothing in draws of a few layers each (from 100 Hz): it stays transparent until the rail and the page are whole and
+    /// then shows all of it on one frame, instead of the rows arriving a few at a time. A page or a look made new while Settings is up is made whole in
+    /// one draw, so no frame holds half of it.
+    reveal_wait: bool,
 }
 
 impl SettingsSurface {
     /// `system_z` is where stack 1 begins; Settings draws in its own band over it ([`z::SETTINGS`]).
     pub fn new(system_z: i32) -> Self {
-        SettingsSurface { z: system_z + z::SETTINGS, built: None, pointer: Pointer::new(), hover: None, last_xy: (0.0, 0.0), buttons: 0, closing_at: None, refresh_hz: None, row_ids: Vec::new(), view: None, page_shown: None, page_named: None, page_due: None, fill_due: None, room_at: 0, saved_scroll: None, lift_at_once: false }
+        SettingsSurface { z: system_z + z::SETTINGS, built: None, pointer: Pointer::new(), hover: None, last_xy: (0.0, 0.0), buttons: 0, closing_at: None, refresh_hz: None, row_ids: Vec::new(), view: None, page_shown: None, page_named: None, page_due: None, fill_due: None, room_at: 0, saved_scroll: None, lift_at_once: false, reveal_wait: false }
     }
 
     pub fn is_up(&self) -> bool {
@@ -232,6 +236,14 @@ impl SettingsSurface {
         false
     }
 
+    /// Settings shows: the fade in on the layer beat (none from [`INSTANT_MODAL_HZ`](crate::kit::motion::INSTANT_MODAL_HZ), where it shows on one frame).
+    fn open_fade(&self, kit: &Kit) {
+        let ms = kit.modal_beat_ms();
+        if let Some(b) = &self.built {
+            let _ = b.fade.settle(Some(1.0), if ms == 0 { Some(0.0) } else { None }, Settle::Timed(MotionToken { duration_ms: ms, ease: Ease::Out }));
+        }
+    }
+
     fn drop_all(&mut self, engine: &mut Engine) {
         if let Some(mut b) = self.built.take() {
             if let Some(l) = &mut b.list {
@@ -284,11 +296,12 @@ impl SettingsSurface {
                 self.drop_all(engine);
                 return Ok(false);
             }
-            if let Some(b) = &self.built {
+            if !self.reveal_wait && let Some(b) = &self.built {
                 let _ = b.fade.settle(Some(1.0), Some(0.0), Settle::Timed(MotionToken { duration_ms: 0, ease: Ease::Out }));
             }
         }
         if !view.open {
+            self.reveal_wait = false;
             if let Some(b) = &self.built
                 && self.closing_at.is_none()
             {
@@ -308,6 +321,7 @@ impl SettingsSurface {
         let scale_bits = kit.text_scale.to_bits();
         let needs_build = self.built.as_ref().is_none_or(|b| b.generation != kit.generation() || b.scale_bits != scale_bits || b.over_video != over_video);
         if needs_build {
+            let from_nothing = self.built.is_none();
             let keep_gallery = view.page.as_ref().is_some_and(|p| p.id == "themes")
                 && self.built.as_ref().is_some_and(|b| b.scale_bits == scale_bits && b.over_video == over_video);
             let mut gallery = if keep_gallery { self.built.as_mut().and_then(|b| b.list.take()) } else { None };
@@ -319,14 +333,13 @@ impl SettingsSurface {
             b.list = gallery;
             self.built = Some(b);
             self.lift_at_once = true;
-            let ms = kit.modal_beat_ms();
-            if let Some(b) = &self.built {
-                let _ = b.fade.settle(Some(1.0), if ms == 0 { Some(0.0) } else { None }, Settle::Timed(MotionToken { duration_ms: ms, ease: Ease::Out }));
+            self.reveal_wait = from_nothing && fill_cap(kit).is_some();
+            if !self.reveal_wait {
+                self.open_fade(kit);
             }
-        } else if reopening && !promoted && let Some(b) = &self.built {
+        } else if reopening && !promoted && !self.reveal_wait {
             self.lift_at_once = true;
-            let ms = kit.modal_beat_ms();
-            let _ = b.fade.settle(Some(1.0), if ms == 0 { Some(0.0) } else { None }, Settle::Timed(MotionToken { duration_ms: ms, ease: Ease::Out }));
+            self.open_fade(kit);
         }
         self.row_ids = view.page.as_ref().map(|p| p.rows.iter().map(|r| r.id.clone()).collect()).unwrap_or_default();
         let hover = self.hover;
@@ -358,7 +371,7 @@ impl SettingsSurface {
             b.rail = Some(rl);
         }
         if let Some(rl) = &mut b.rail {
-            rl.budget = share_left(kit, room_at);
+            rl.budget = if self.reveal_wait { share_left(kit, room_at) } else { None };
             rl.apply(kit, engine, paint, &rail_rows, rail_stop, rail_hover, 0, view.zone == Zone::Rail, now_ns, false)?;
         }
         // the page
@@ -404,6 +417,10 @@ impl SettingsSurface {
         let bounds = if matches!(view.sheet, Some(SheetView::Pick { .. })) && b.viewport.h > 0.0 { b.viewport } else { page_rect };
         b.sheets.apply(kit, engine, paint, view.sheet.as_ref(), anchor, bounds, pick_hover, now_ns)?;
         let waiting = b.rail.as_ref().is_some_and(ListArt::pending) || b.list.as_ref().is_some_and(ListArt::pending);
+        if self.reveal_wait && !waiting {
+            self.reveal_wait = false;
+            self.open_fade(kit);
+        }
         self.fill_due = waiting.then(|| now + fill_gap_ms(kit));
         self.sync_focus(kit, engine, view, now_ns);
         self.view = Some(view.clone());
@@ -463,7 +480,7 @@ impl SettingsSurface {
 
     /// The page: its head, its tabs and its rows, made again when what they are made of changed.
     fn page(&mut self, kit: &mut Kit, engine: &mut Engine, view: &View, page: &PageView, hover: Option<Id>, now_ns: u64) -> std::io::Result<()> {
-        let left = share_left(kit, self.room_at);
+        let left = if self.reveal_wait { share_left(kit, self.room_at) } else { None };
         let z = self.z;
         let b = self.built.as_mut().expect("built");
         let (sz, paint, geo) = (b.sz, b.paint, b.geo);
@@ -566,8 +583,8 @@ impl SettingsSurface {
         }
         if let Some((u, d)) = &b.chevrons {
             let x = viewport.x + ((viewport.w - side as f32) / 2.0).round();
-            u.set(if above { Props::at(x, viewport.y + ((zone - side as f32) / 2.0).round()) } else { HIDDEN });
-            d.set(if below { Props::at(x, viewport.bottom() - zone + ((zone - side as f32) / 2.0).round()) } else { HIDDEN });
+            u.put(if above { Props::at(x, viewport.y + ((zone - side as f32) / 2.0).round()) } else { HIDDEN });
+            d.put(if below { Props::at(x, viewport.bottom() - zone + ((zone - side as f32) / 2.0).round()) } else { HIDDEN });
         }
         let _ = view;
         Ok(())
@@ -980,5 +997,104 @@ mod tests {
         assert_eq!(fill_cap(&kit), Some(FILL_LAYERS_120));
         kit.refresh_hz = 240.0;
         assert_eq!(fill_cap(&kit), Some(FILL_LAYERS_120 / 2), "a share of the refresh");
+    }
+
+    /// A page of every kind of row the pages use, values included.
+    fn rows_of(tag: &str, n: usize) -> Vec<crate::settings::row::Row> {
+        use crate::settings::row::Row;
+        (0..n)
+            .map(|i| match i % 4 {
+                0 => Row::toggle(&format!("{tag}t{i}")).label(&format!("{tag} switch {i}")),
+                1 => Row::link(&format!("{tag}v{i}")).icon("settings").label(&format!("{tag} value {i}")).value("Connected"),
+                2 => Row::link(&format!("{tag}l{i}")).label(&format!("{tag} link {i}")).detail("what it holds"),
+                _ => Row::action(&format!("{tag}a{i}"), "Run").label(&format!("{tag} action {i}")),
+            })
+            .collect()
+    }
+
+    fn screen_of(page_id: &str, rows: usize, stop: usize) -> View {
+        use crate::settings::view::RailRow;
+        let mut screen = view(Zone::Page);
+        screen.rail = (0..9).map(|i| RailRow { id: format!("r{i}"), title: format!("Section {i}"), icon: "settings".into(), summary: "what it holds".into(), selected: i == 0, focused: false, lg: false }).collect();
+        let mut on = page(page_id);
+        on.title = page_id.into();
+        on.rows = rows_of(page_id, rows);
+        on.active = true;
+        on.stop = StopView::Row(stop);
+        screen.page = Some(on);
+        screen
+    }
+
+    /// Draws until nothing waits; each draw's (rows of the page made, opacity of the whole of Settings).
+    fn open_draws(kit: &mut Kit, engine: &mut Engine, surface: &mut SettingsSurface, screen: &View) -> Vec<(usize, f32)> {
+        let (mut now, mut seen) = (1_000u64, Vec::new());
+        loop {
+            let now_ns = kit.ui.scene.now_ns();
+            surface.apply(kit, engine, screen, false, now, now_ns).unwrap();
+            let b = surface.built.as_ref().unwrap();
+            seen.push((surface.row_count_built(), b.fade.value()));
+            let Some(due) = surface.due_at() else { return seen };
+            now = due;
+            surface.tick(engine, now);
+            assert!(seen.len() < 40, "it ends");
+        }
+    }
+
+    /// The first open at 120 Hz makes the rail and the page a few layers to a draw; no frame may show them half made.
+    #[test]
+    fn the_first_open_shows_nothing_until_the_rail_and_the_page_are_whole_and_then_all_of_it() {
+        let (_h, mut kit) = crate::kit::testkit::kit(1.0);
+        kit.refresh_hz = 120.0;
+        let mut engine = Engine::new(&kit).unwrap();
+        let mut surface = SettingsSurface::new(0);
+        let seen = open_draws(&mut kit, &mut engine, &mut surface, &screen_of("system", 10, 0));
+        assert!(seen.len() > 2, "made over several draws: {seen:?}");
+        let (last, early) = seen.split_last().unwrap();
+        assert_eq!(last.0, 10, "every row is made at the frame that shows it");
+        assert!(last.1 > 0.999, "shown on that frame");
+        assert!(early.iter().all(|(_, shown)| *shown < 0.001), "transparent on every frame before it: {seen:?}");
+    }
+
+    /// A page chosen while Settings is up is one draw: no frame holds a blank body or half its rows.
+    #[test]
+    fn a_page_chosen_while_settings_is_up_is_made_whole_in_one_draw() {
+        let (_h, mut kit) = crate::kit::testkit::kit(1.0);
+        kit.refresh_hz = 120.0;
+        let mut engine = Engine::new(&kit).unwrap();
+        let mut surface = SettingsSurface::new(0);
+        open_draws(&mut kit, &mut engine, &mut surface, &screen_of("system", 10, 0));
+        for (id, rows) in [("sound", 8), ("network", 10), ("system", 9)] {
+            let now_ns = kit.ui.scene.now_ns();
+            surface.apply(&mut kit, &mut engine, &screen_of(id, rows, 0), false, 10_000, now_ns).unwrap();
+            assert_eq!(surface.row_count_built(), rows, "{id}: every row in this draw");
+            assert!(surface.built.as_ref().unwrap().fade.value() > 0.999, "{id}: Settings stays shown");
+            assert_eq!(surface.due_at(), None, "{id}: nothing is left to make");
+        }
+    }
+
+    /// A draw of a view that did not change tells the compositor nothing, and a focus move re-shapes no text.
+    #[test]
+    fn a_frame_after_an_unchanged_one_changes_nothing_and_a_focus_move_shapes_no_text() {
+        use compositor_protocol::Request;
+        let (mut h, mut kit) = crate::kit::testkit::kit(1.0);
+        kit.refresh_hz = 120.0;
+        let mut engine = Engine::new(&kit).unwrap();
+        let mut surface = SettingsSurface::new(0);
+        open_draws(&mut kit, &mut engine, &mut surface, &screen_of("system", 10, 0));
+        h.commit();
+        // a spring that comes to rest tells the compositor once, whenever the clock gets there: that is not a change of the picture
+        let changes = |sent: &[Request]| sent.iter().filter(|r| !matches!(r, Request::Commit { .. } | Request::Stats | Request::MotionSettle { .. })).count();
+        let glyphs = |sent: &[Request]| sent.iter().filter(|r| matches!(r, Request::SetGlyphs { .. } | Request::Create { content: compositor_protocol::Content::Glyphs(_), .. })).count();
+        let still = screen_of("system", 10, 0);
+        let now_ns = kit.ui.scene.now_ns();
+        surface.apply(&mut kit, &mut engine, &still, false, 20_000, now_ns).unwrap();
+        let sent = h.commit();
+        assert_eq!(changes(&sent), 0, "an unchanged view: {sent:?}");
+        for stop in [1, 2, 3, 2] {
+            let now_ns = kit.ui.scene.now_ns();
+            surface.apply(&mut kit, &mut engine, &screen_of("system", 10, stop), false, 20_100, now_ns).unwrap();
+            let sent = h.commit();
+            assert_eq!(glyphs(&sent), 0, "focus on row {stop} shapes no text");
+        }
     }
 }

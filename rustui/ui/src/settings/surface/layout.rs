@@ -150,6 +150,12 @@ pub fn tab_height(kit: &Kit, sz: &Sizes) -> f32 {
 
 /// Measures `row` laid out `w` wide (a page's row, a rail's row).
 pub fn measure_row(kit: &mut Kit, row: &Row, w: f32) -> RowGeom {
+    measure_row_with(kit, row, w, 0.0)
+}
+
+/// [`measure_row`] for a row whose value has been as wide as `reserve` before: the room beside the value keeps that width (the value is right-aligned in
+/// it), so a value that changes (a speed, a state, a name that arrives) never re-wraps the label or changes the row's height.
+pub fn measure_row_with(kit: &mut Kit, row: &Row, w: f32, reserve: f32) -> RowGeom {
     let sz = Sizes::of(kit);
     let line_l = kit.line(TypeRole::Label);
     let line_c = kit.line(TypeRole::Caption);
@@ -232,7 +238,11 @@ pub fn measure_row(kit: &mut Kit, row: &Row, w: f32) -> RowGeom {
         }
         Kind::Value => {
             let show = row.chevron || row.selected;
-            let (trail, gap) = (if show { sz.chevron() } else { 0.0 }, if show && !row.value.is_empty() { sz.s4 } else { 0.0 });
+            let held = row.value_icon.is_empty() && reserve > 0.0;
+            let (trail, gap) = (if show { sz.chevron() } else { 0.0 }, if show && (!row.value.is_empty() || held) { sz.s4 } else { 0.0 });
+            if row.value.is_empty() && held {
+                g.value_w = reserve;
+            }
             if !row.value.is_empty() {
                 g.value = row.value.clone();
                 g.value_w = text_w(kit, &row.value, TypeRole::Label);
@@ -248,6 +258,7 @@ pub fn measure_row(kit: &mut Kit, row: &Row, w: f32) -> RowGeom {
                         g.value = ellipsise(&mut kit.ui.fonts, &row.value, ty, cap);
                         g.value_w = cap;
                     }
+                    g.value_w = g.value_w.max(reserve.min(cap));
                 }
             }
             (trail, gap)
@@ -264,7 +275,7 @@ pub fn measure_row(kit: &mut Kit, row: &Row, w: f32) -> RowGeom {
         _ => (0.0, 0.0),
     };
     g.trail_w = trail_w;
-    let value_room = if g.value.is_empty() || matches!(row.kind, Kind::Slider) { 0.0 } else if g.chip_w > 0.0 { g.chip_w + sz.s4 } else { g.value_w + sz.s4 };
+    let value_room = if (g.value.is_empty() && g.value_w == 0.0) || matches!(row.kind, Kind::Slider) { 0.0 } else if g.chip_w > 0.0 { g.chip_w + sz.s4 } else { g.value_w + sz.s4 };
     let info_mark = if row.help.is_empty() { 0.0 } else { (sz.target * 0.4).round() + sz.s3 };
     let room = (w - g.text_x - sz.s6 - trail_w - trail_gap - value_room).max(60.0);
     g.text_w = room;
@@ -447,5 +458,21 @@ mod tests {
         let mut grid = Row::cards("g", cards);
         grid.cols = 3;
         assert_eq!(measure_row(&mut kit, &grid, 1272.0).cards.unwrap().rows, 3);
+    }
+
+    /// A value that changes (a speed, a state that arrives) keeps the room beside it: the label does not re-wrap and the row keeps its height.
+    #[test]
+    fn a_value_that_gets_shorter_keeps_the_room_it_had() {
+        let (_h, mut kit) = crate::kit::testkit::kit(1.0);
+        let row = |value: &str| Row::link("net.state").icon("wifi").label("Connection to the home network and its name").value(value);
+        let wide = measure_row_with(&mut kit, &row("Connected to the home network"), 1272.0, 0.0);
+        let bare = measure_row_with(&mut kit, &row("Off"), 1272.0, 0.0);
+        let held = measure_row_with(&mut kit, &row("Off"), 1272.0, wide.value_w);
+        let empty = measure_row_with(&mut kit, &row(""), 1272.0, wide.value_w);
+        assert!(bare.text_w > wide.text_w, "without the reserve the label's room follows the value");
+        assert_eq!((held.text_w, held.h), (wide.text_w, wide.h));
+        assert_eq!((empty.text_w, empty.h), (wide.text_w, wide.h), "a value that is gone for a moment keeps it too");
+        assert_eq!(held.value, "Off");
+        assert!(empty.value.is_empty());
     }
 }

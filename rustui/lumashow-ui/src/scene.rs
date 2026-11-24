@@ -1044,6 +1044,14 @@ impl Layer {
             .push(Request::Set { id: self.id, props });
     }
 
+    /// [`Layer::set`] unless the layer is already at `props` (or on its way there): a surface that places its layers on every draw tells the compositor
+    /// only what moved.
+    pub fn put(&self, props: Props) {
+        if self.props.get() != props {
+            self.set(props);
+        }
+    }
+
     pub fn animate(&self, to: Props, duration_ms: u32, ease: Ease) {
         self.animate_stepped(to, duration_ms, ease, 0);
     }
