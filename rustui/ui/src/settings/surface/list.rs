@@ -368,15 +368,21 @@ impl ListArt {
         Ok(())
     }
 
-    /// Gives every row and the scroller back to the engine (the list is going).
-    pub fn release(&mut self, engine: &mut Engine) {
+    /// Gives every row and the scroller back to the engine while the rows stay where they are: a page that another is being made to replace
+    /// stays in sight as it was, and the new rows take the ids and the region.
+    pub fn retire(&self, engine: &mut Engine) {
         for s in &self.slots {
             if let Some(a) = &s.art {
                 a.release(engine, false);
             }
         }
-        self.slots.clear();
         engine.flow.drop_scroller(self.region);
+    }
+
+    /// Gives every row and the scroller back to the engine (the list is going).
+    pub fn release(&mut self, engine: &mut Engine) {
+        self.retire(engine);
+        self.slots.clear();
     }
 
     /// The cue of the pointer on one card of the row `row`.

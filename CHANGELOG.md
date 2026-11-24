@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A page or tab chosen while Settings is open is, at 120 Hz, made in the dark beside the page on screen, 24 layers a draw, and shown on one frame six refreshes after its last layer, so the frame that shows it makes and uploads nothing. Made and drawn in one frame, the 69-72 layer pages of the `settings-scroll` walk took 9.1-9.9 ms of GPU against 8.3 ms. A rail step within 200 ms of the last gives up the page being made, and the page the rail rests on is made 120 ms later. Below 100 Hz, or with under 160 layers or 64 groups left in the scene, a page is made where the other stands, as before.
+
 The Steam engine keeps its latest access token in `token.json` (0600) and reuses it until a minute before it ends, so a normal day renews once instead of at every start; a refused renewal logs Steam's error number. The saved library is served for an hour instead of five minutes, the profile picture is looked up only when the library is or none is kept, and game-page community data is kept in memory for an hour instead of ten minutes. A start with a fresh library now asks Steam for nothing.
 
 The trace ring (`ctl ring`) gets one `L` line per drawn frame: the front app and whether the frame shows its saved picture (`snap`), its themed card (`card`), the picture dissolving over the live window (`fade`), the live window alone (`live`) or nothing (`none`), with the window's item and video-hole counts and the open motion's opacity. A reopen's first frames can be read back with `ctl note MARK` and `ctl ring 1500` instead of captures.

@@ -34,7 +34,7 @@ use ui::components::plate;
 use ui::geometry::Frame;
 use ui::group::Group;
 use ui::motion::{Motion, MotionBounds, MotionToken, Settle, Units};
-use ui::scene::{ImageLayer, ShapeLayer};
+use ui::scene::{ImageLayer, Scene, ShapeLayer};
 
 pub const RAIL_ID: u32 = 1_000;
 pub const TAB_ID: u32 = 3_000;
@@ -92,15 +92,76 @@ struct Built {
     _rail_pane: Pane,
     _page_pane: Pane,
     rail: Option<ListArt>,
+    /// The page the model names: on screen, or made in the dark while `outgoing` is the one that is still on screen.
+    page: PageArt,
+    outgoing: Option<PageArt>,
+    chevrons: Option<(ImageLayer, ImageLayer)>,
+    sheets: Sheets,
+    over_video: bool,
+}
+
+/// What belongs to a page: its head, its tabs, the picture over its rows and its rows. Made for a page and a tab and set in place for what changes
+/// while the model names it. A page made in the dark hangs under a group of its own, inert until the page shows; any other hangs under Settings' own, so
+/// the first page takes the scene's groups it always took.
+struct PageArt {
+    /// The page and the tab the pieces were made for (empty before there are any).
+    sig: String,
+    group: Option<Group>,
     head: Option<Head>,
     tabs: Option<Tabs>,
     figure: Option<FigureArt>,
     /// Where the page's rows are on the screen (what a picker keeps to, so the picture over them stays in sight).
     viewport: Frame,
     list: Option<ListArt>,
-    chevrons: Option<(ImageLayer, ImageLayer)>,
-    sheets: Sheets,
-    over_video: bool,
+    /// Made in the dark: when it is whole and its textures have had the time to reach the compositor (ms).
+    ready_at: Option<u64>,
+}
+
+impl PageArt {
+    fn new(scene: &Scene, root: &Group, inert: bool) -> std::io::Result<Self> {
+        let group = if inert {
+            let group = scene.group(Some(root.id()), GroupPose::IDENTITY).map_err(other)?;
+            group.set_inert(true);
+            Some(group)
+        } else {
+            None
+        };
+        Ok(PageArt { sig: String::new(), group, head: None, tabs: None, figure: None, viewport: Frame::new(0.0, 0.0, 0.0, 0.0), list: None, ready_at: None })
+    }
+
+    /// What the pieces hang under.
+    fn parent<'a>(&'a self, root: &'a Group) -> &'a Group {
+        self.group.as_ref().unwrap_or(root)
+    }
+
+    /// Lets a page made in the dark be seen.
+    fn show(&self) {
+        if let Some(group) = &self.group {
+            group.set_inert(false);
+        }
+    }
+
+    /// Gives the engine back what the pieces hold of it (the rows' focus and lifts, the scroller, the way back, the tabs) while they stay in sight as they are.
+    fn retire(&self, engine: &mut Engine) {
+        if let Some(l) = &self.list {
+            l.retire(engine);
+        }
+        for i in 0..16 {
+            engine.focus.unregister(Id(TAB_ID + i));
+        }
+        engine.focus.unregister(Id(BACK_ID));
+    }
+
+    /// The pieces go; the group stays, empty.
+    fn release(&mut self, engine: &mut Engine) {
+        self.retire(engine);
+        self.head = None;
+        self.tabs = None;
+        self.figure = None;
+        self.list = None;
+        self.sig.clear();
+        self.ready_at = None;
+    }
 }
 
 /// A step of the rail within this long of the step before is a walk of the rail, not a choice of a page: the page waits for the rail to rest. A
@@ -117,6 +178,15 @@ const RAIL_REST_MS: u64 = 120;
 /// and 3.5 ms of the shell's thread, where a page made whole took 69 and 6.7; 16 takes 2.8 ms of the thread, but the draws after the first then cover more
 /// of what is made and reach 62 layers.
 const FILL_LAYERS_120: usize = 24;
+/// A page made in the dark is shown this many refreshes after its last layer was made: the compositor takes the textures of what is hidden in the time
+/// between frames, a couple of milliseconds of them at a time, and the frame that shows the page then has none left to take in.
+const STAGE_SETTLE_FRAMES: u64 = 6;
+/// The room the scene must have in its layers (the compositor's ceiling is 512) for a page to be made in the dark beside the one on screen. With less, the
+/// page is made where the other stands, whole in one draw.
+const STAGE_ROOM: usize = 160;
+/// The room the scene must have in its groups (the ceiling is 256) for the same: a page holds two groups to a row and a few more, and the page on screen
+/// keeps its own while the other is made. Short of it (a full Home dock leaves Settings 32) the page is made where the other stands.
+const STAGE_GROUPS: usize = 64;
 
 /// What one draw may make while a list is first filled, at this refresh: none to limit below 100 Hz.
 fn fill_cap(kit: &Kit) -> Option<usize> {
@@ -193,10 +263,16 @@ impl SettingsSurface {
 
 
     pub fn due_at(&self) -> Option<u64> {
-        [self.closing_at, self.page_due, self.fill_due].into_iter().flatten().min()
+        [self.closing_at, self.page_due, self.fill_due, self.reveal_due()].into_iter().flatten().min()
+    }
+
+    /// When the page made in the dark is whole and has had the time to reach the compositor's textures: the frame that shows it.
+    fn reveal_due(&self) -> Option<u64> {
+        self.built.as_ref().filter(|b| b.outgoing.is_some()).and_then(|b| b.page.ready_at)
     }
 
     /// The fade out is over: the layers go. The rail has rested: the page it chose is made. A frame has gone by: the rows that did not fit it are made.
+    /// The page made in the dark is ready: it is shown.
     pub fn tick(&mut self, engine: &mut Engine, now: u64) -> bool {
         if self.closing_at.is_some_and(|at| now >= at) {
             self.closing_at = None;
@@ -207,7 +283,8 @@ impl SettingsSurface {
         if fill {
             self.fill_due = None;
         }
-        self.page_tick(now) || fill
+        let reveal = self.reveal_due().is_some_and(|at| now >= at);
+        self.page_tick(now) || fill || reveal
     }
 
     /// The rail has rested: the frame that makes the page it chose is asked for, once.
@@ -246,7 +323,7 @@ impl SettingsSurface {
 
     fn drop_all(&mut self, engine: &mut Engine) {
         if let Some(mut b) = self.built.take() {
-            if let Some(l) = &mut b.list {
+            if let Some(l) = &mut b.page.list {
                 l.release(engine);
             }
             if let Some(l) = &mut b.rail {
@@ -280,7 +357,7 @@ impl SettingsSurface {
     }
 
     pub fn row_count_built(&self) -> usize {
-        self.built.as_ref().and_then(|b| b.list.as_ref()).map_or(0, ListArt::built)
+        self.built.as_ref().and_then(|b| b.page.list.as_ref()).map_or(0, ListArt::built)
     }
 
     // ---------------------------------------------------------------------------------------------------------------- drawing
@@ -324,13 +401,13 @@ impl SettingsSurface {
             let from_nothing = self.built.is_none();
             let keep_gallery = view.page.as_ref().is_some_and(|p| p.id == "themes")
                 && self.built.as_ref().is_some_and(|b| b.scale_bits == scale_bits && b.over_video == over_video);
-            let mut gallery = if keep_gallery { self.built.as_mut().and_then(|b| b.list.take()) } else { None };
+            let mut gallery = if keep_gallery { self.built.as_mut().and_then(|b| b.page.list.take()) } else { None };
             if let Some(list) = &mut gallery { list.reparent_restyle(None, engine)?; }
-            self.saved_scroll = self.built.as_ref().and_then(|b| b.list.as_ref()).map(|l| (l.key().to_string(), l.offset()));
+            self.saved_scroll = self.built.as_ref().and_then(|b| b.page.list.as_ref()).map(|l| (l.key().to_string(), l.offset()));
             self.drop_all(engine);
             let mut b = self.build(kit, engine, over_video)?;
             if let Some(list) = &mut gallery { list.reparent_restyle(Some(&b.root), engine)?; }
-            b.list = gallery;
+            b.page.list = gallery;
             self.built = Some(b);
             self.lift_at_once = true;
             self.reveal_wait = from_nothing && fill_cap(kit).is_some();
@@ -377,21 +454,24 @@ impl SettingsSurface {
         // the page
         match &view.page {
             Some(page) => {
-                if !self.page_waits(view, page, now) {
-                    self.page(kit, engine, view, page, hover, now_ns)?;
-                    if self.page_shown.as_deref() != Some(page.id.as_str()) {
+                if self.page_waits(view, page, now) {
+                    // the page made in the dark was for a step of a walk: the rail is not at rest on it
+                    let b = self.built.as_mut().expect("built");
+                    if b.outgoing.is_some() {
+                        b.page.release(engine);
+                    }
+                } else {
+                    self.page(kit, engine, page, hover, now, now_ns)?;
+                    if self.built.as_ref().is_some_and(|b| b.outgoing.is_none()) && self.page_shown.as_deref() != Some(page.id.as_str()) {
                         self.page_shown = Some(page.id.clone());
                     }
                 }
             }
             None => {
                 let b = self.built.as_mut().expect("built");
-                if let Some(l) = &mut b.list {
-                    l.release(engine);
-                }
-                b.list = None;
-                b.head = None;
-                b.tabs = None;
+                b.outgoing = None;
+                b.page.release(engine);
+                b.page.show();
                 if let Some((u, d)) = &b.chevrons {
                     u.set(HIDDEN);
                     d.set(HIDDEN);
@@ -403,20 +483,20 @@ impl SettingsSurface {
         let b = self.built.as_mut().expect("built");
         let page_rect = b.geo.page;
         let anchor = view.sheet.as_ref().and_then(|s| match s {
-            SheetView::Help { row, .. } => self.row_ids.iter().position(|r| r == row).and_then(|i| b.list.as_ref().and_then(|l| l.frame_of(i))),
+            SheetView::Help { row, .. } => self.row_ids.iter().position(|r| r == row).and_then(|i| b.page.list.as_ref().and_then(|l| l.frame_of(i))),
             _ => None,
         });
         let anchor = anchor.or_else(|| match (&view.sheet, &view.page) {
             (Some(SheetView::Pick { .. }), Some(p)) => match p.stop {
-                StopView::Row(i) => b.list.as_ref().and_then(|l| l.frame_of(i)),
+                StopView::Row(i) => b.page.list.as_ref().and_then(|l| l.frame_of(i)),
                 _ => None,
             },
             _ => None,
         });
         let pick_hover = hover.and_then(|h| row_of(PICK_ID, 64, h)).map(|(i, _)| i);
-        let bounds = if matches!(view.sheet, Some(SheetView::Pick { .. })) && b.viewport.h > 0.0 { b.viewport } else { page_rect };
+        let bounds = if matches!(view.sheet, Some(SheetView::Pick { .. })) && b.page.viewport.h > 0.0 { b.page.viewport } else { page_rect };
         b.sheets.apply(kit, engine, paint, view.sheet.as_ref(), anchor, bounds, pick_hover, now_ns)?;
-        let waiting = b.rail.as_ref().is_some_and(ListArt::pending) || b.list.as_ref().is_some_and(ListArt::pending);
+        let waiting = b.rail.as_ref().is_some_and(ListArt::pending) || b.page.list.as_ref().is_some_and(ListArt::pending);
         if self.reveal_wait && !waiting {
             self.reveal_wait = false;
             self.open_fade(kit);
@@ -452,6 +532,7 @@ impl SettingsSurface {
             let bar = Bar::new(kit, engine, &paint, &sz, &geo, z, over_video)?;
             Ok((scrim, bar, rail_pane, page_pane))
         })?;
+        let page = PageArt::new(&scene, &root, false)?;
         let built = Built {
             z,
             generation: kit.generation(),
@@ -466,11 +547,8 @@ impl SettingsSurface {
             _rail_pane: rail_pane,
             _page_pane: page_pane,
             rail: None,
-            head: None,
-            tabs: None,
-            figure: None,
-            viewport: Frame::new(0.0, 0.0, 0.0, 0.0),
-            list: None,
+            page,
+            outgoing: None,
             chevrons: None,
             sheets: Sheets::new(z + 100),
             over_video,
@@ -478,38 +556,57 @@ impl SettingsSurface {
         Ok(built)
     }
 
-    /// The page: its head, its tabs and its rows, made again when what they are made of changed.
-    fn page(&mut self, kit: &mut Kit, engine: &mut Engine, view: &View, page: &PageView, hover: Option<Id>, now_ns: u64) -> std::io::Result<()> {
-        let left = if self.reveal_wait { share_left(kit, self.room_at) } else { None };
+    /// The page: its head, its tabs and its rows, made again when what they are made of changed. From 100 Hz another page than the one on screen is made in the
+    /// dark (`staging`): a few layers to a draw in a group that is inert, while the old page stays as it was, and shown whole on one frame when it is made and its
+    /// textures have had [`STAGE_SETTLE_FRAMES`] to reach the compositor. Made and drawn in one frame, a page of 69-72 layers took 5.8-6.0 ms of the shell's
+    /// thread and 9.1-9.9 ms of GPU at the set against a refresh of 8.3 ms, in the middle of the rail's motion.
+    fn page(&mut self, kit: &mut Kit, engine: &mut Engine, page: &PageView, hover: Option<Id>, now: u64, now_ns: u64) -> std::io::Result<()> {
         let z = self.z;
-        let b = self.built.as_mut().expect("built");
-        let (sz, paint, geo) = (b.sz, b.paint, b.geo);
         let scene = kit.ui.scene.clone();
+        let sig = format!("{}|{}", page.id, page.tab);
+        let settle = fill_gap_ms(kit) * STAGE_SETTLE_FRAMES;
+        let b = self.built.as_mut().expect("built");
+        let spare = kit.room();
+        let staging = fill_cap(kit).is_some() && !self.reveal_wait && (b.outgoing.is_some() || (!b.page.sig.is_empty() && b.page.sig != sig && spare.layers >= STAGE_ROOM && spare.groups >= STAGE_GROUPS));
+        if staging {
+            if b.outgoing.is_none() {
+                // the page on screen stays as it is, out of the engine's hands, until the new one is shown
+                let dark = PageArt::new(&scene, &b.root, true)?;
+                let shown = std::mem::replace(&mut b.page, dark);
+                shown.retire(engine);
+                b.outgoing = Some(shown);
+            } else if !b.page.sig.is_empty() && b.page.sig != sig {
+                // another page was named while this one was made: that one is made instead
+                b.page.release(engine);
+            }
+        }
+        let left = if staging || self.reveal_wait { share_left(kit, self.room_at) } else { None };
+        let (sz, paint, geo) = (b.sz, b.paint, b.geo);
         // what the head, the tabs and the picture make of the draw's layers before the rows
         let mut made = 0usize;
         // the head
         let head_sig = format!("{}|{}|{}|{:?}|{}", page.title, page.subtitle, page.back.as_deref().unwrap_or(""), page.chip, page.id);
-        if b.head.as_ref().is_none_or(|h| h.sig != head_sig) {
+        if b.page.head.as_ref().is_none_or(|h| h.sig != head_sig) {
             engine.focus.unregister(Id(BACK_ID));
             let room = kit.ui.scene.layer_room();
-            let head = scene.adopting_view(&b.root, || Head::build(kit, engine, &paint, &sz, &geo, page, head_sig.clone(), z + 12))?;
+            let head = scene.adopting_view(b.page.parent(&b.root), || Head::build(kit, engine, &paint, &sz, &geo, page, head_sig.clone(), z + 12))?;
             made += room.saturating_sub(kit.ui.scene.layer_room());
-            b.head = Some(head);
+            b.page.head = Some(head);
         }
-        let head_h = b.head.as_ref().map_or(0.0, |h| h.height);
+        let head_h = b.page.head.as_ref().map_or(0.0, |h| h.height);
         // the tabs
         let tabs_y = geo.content.y + head_h + sz.s4;
         let tab_h = if page.tabs.len() > 1 { tab_height(kit, &sz) } else { 0.0 };
         let after_tabs = if page.tabs.len() > 1 { tabs_y + tab_h + sz.s4 } else { geo.content.y + head_h + sz.s4 };
         if page.tabs.len() > 1 {
             let sig = format!("{}|{}|{}", page.id, page.tabs.join(","), tabs_y);
-            if b.tabs.as_ref().is_none_or(|t| t.sig != sig) {
+            if b.page.tabs.as_ref().is_none_or(|t| t.sig != sig) {
                 let room = kit.ui.scene.layer_room();
-                let tabs = scene.adopting_view(&b.root, || Tabs::build(kit, engine, &paint, &sz, &geo, page, sig, tabs_y, z + 12))?;
+                let tabs = scene.adopting_view(b.page.parent(&b.root), || Tabs::build(kit, engine, &paint, &sz, &geo, page, sig, tabs_y, z + 12))?;
                 made += room.saturating_sub(kit.ui.scene.layer_room());
-                b.tabs = Some(tabs);
+                b.page.tabs = Some(tabs);
             }
-            if let Some(t) = &mut b.tabs {
+            if let Some(t) = &mut b.page.tabs {
                 let focus = page.active && page.stop == StopView::Tabs;
                 let hovered = hover.and_then(|h| h.0.checked_sub(TAB_ID)).filter(|i| (*i as usize) < page.tabs.len()).map(|i| i as usize);
                 t.update(kit, engine, &paint, &sz, page.tab, focus, hovered);
@@ -518,44 +615,42 @@ impl SettingsSurface {
             for i in 0..16 {
                 engine.focus.unregister(Id(TAB_ID + i));
             }
-            b.tabs = None;
+            b.page.tabs = None;
         }
         // the picture over the rows, when the page has one: it stays while the rows scroll under it
         let list_y = match &page.figure {
             Some(fig) => {
                 let fg = FigureGeo::of(kit, &sz, geo.content.x + sz.s6, after_tabs);
                 let sig = format!("{}|{}", page.id, FigureArt::signature(kit, fig, &fg));
-                let b = self.built.as_mut().expect("built");
-                if b.figure.as_ref().is_none_or(|f| f.sig() != sig) {
+                if b.page.figure.as_ref().is_none_or(|f| f.sig() != sig) {
                     let room = kit.ui.scene.layer_room();
-                    let art = scene.adopting_view(&b.root, || FigureArt::new(kit, &paint, &sz, &b.root, fg, fig, z + 14, sig.clone()))?;
+                    let art = scene.adopting_view(b.page.parent(&b.root), || FigureArt::new(kit, &paint, &sz, b.page.parent(&b.root), fg, fig, z + 14, sig.clone()))?;
                     made += room.saturating_sub(kit.ui.scene.layer_room());
-                    b.figure = Some(art);
+                    b.page.figure = Some(art);
                 }
-                if let Some(f) = &mut b.figure {
+                if let Some(f) = &mut b.page.figure {
                     f.update(kit, &paint, &sz, fig);
                 }
                 after_tabs + fg.height + sz.s4
             }
             None => {
-                self.built.as_mut().expect("built").figure = None;
+                b.page.figure = None;
                 after_tabs
             }
         };
-        let b = self.built.as_mut().expect("built");
         // the list: made again for another page or tab or head height
         let viewport = Frame::new(geo.content.x, list_y, geo.content.w, geo.content.bottom() - list_y);
-        b.viewport = viewport;
+        b.page.viewport = viewport;
         let key = format!("{}|{}|{}|{}", page.id, page.tab, list_y, viewport.h);
-        if b.list.as_ref().is_none_or(|l| l.key() != key) {
-            if let Some(l) = &mut b.list {
+        if b.page.list.as_ref().is_none_or(|l| l.key() != key) {
+            if let Some(l) = &mut b.page.list {
                 l.release(engine);
             }
-            let mut list = ListArt::new(kit, engine, Some(&b.root), key.clone(), (viewport.x, viewport.y), (viewport.w, viewport.h), REGION_PAGE, Scope::BASE, z + 20, list::ROW_ID, false)?;
+            let mut list = ListArt::new(kit, engine, Some(b.page.parent(&b.root)), key.clone(), (viewport.x, viewport.y), (viewport.w, viewport.h), REGION_PAGE, Scope::BASE, z + 20, list::ROW_ID, false)?;
             if let Some((saved_key, offset)) = self.saved_scroll.take() {
                 if saved_key == key { list.restore_offset(offset); }
             }
-            b.list = Some(list);
+            b.page.list = Some(list);
         }
         let stop = match page.stop {
             StopView::Row(i) => Some(i),
@@ -564,29 +659,41 @@ impl SettingsSurface {
         let hovered = hover.and_then(|h| row_of(list::ROW_ID, page.rows.len(), h));
         let (hov_row, hov_card) = (hovered.map(|(r, _)| r), hovered.and_then(|(r, c)| c.map(|c| (r, c))));
         let focused = page.active && stop.is_some();
-        if let Some(l) = &mut b.list {
+        if let Some(l) = &mut b.page.list {
             l.budget = left.map(|cap| cap.saturating_sub(made));
             l.apply(kit, engine, paint, &page.rows, stop, hov_row, page.seg, focused, now_ns, false)?;
             if let Some((r, c)) = hov_card {
                 l.set_card_hover(r, Id(list::id_at(list::ROW_ID, r).0 + 1 + c as u32), true);
             }
         }
-        // the chevrons: more rows that way
-        let (above, below, zone) = b.list.as_ref().map_or((false, false, 0.0), |l| (l.more_above(), l.more_below(), if l.total() > viewport.h { sz.s6 } else { 0.0 }));
-        let side = sz.s5.round() as u32;
-        if b.chevrons.is_none() {
-            let up = scene.adopting_view(&b.root, || make_chevron(kit, &paint, side, true, z + 24))?;
-            let down = scene.adopting_view(&b.root, || make_chevron(kit, &paint, side, false, z + 24))?;
-            if let (Some(u), Some(d)) = (up, down) {
-                b.chevrons = Some((u, d));
+        b.page.sig = sig;
+        if b.outgoing.is_some() {
+            // whole and settled: the old page goes and the new one shows, on this frame and no other
+            let whole = !b.page.list.as_ref().is_some_and(ListArt::pending);
+            b.page.ready_at = whole.then(|| b.page.ready_at.unwrap_or(now + settle));
+            if !staging || b.page.ready_at.is_some_and(|at| now >= at) {
+                b.page.show();
+                b.page.ready_at = None;
+                b.outgoing = None;
             }
         }
-        if let Some((u, d)) = &b.chevrons {
-            let x = viewport.x + ((viewport.w - side as f32) / 2.0).round();
-            u.put(if above { Props::at(x, viewport.y + ((zone - side as f32) / 2.0).round()) } else { HIDDEN });
-            d.put(if below { Props::at(x, viewport.bottom() - zone + ((zone - side as f32) / 2.0).round()) } else { HIDDEN });
+        // the chevrons: more rows that way (of the page that is on screen)
+        if b.outgoing.is_none() {
+            let (above, below, zone) = b.page.list.as_ref().map_or((false, false, 0.0), |l| (l.more_above(), l.more_below(), if l.total() > viewport.h { sz.s6 } else { 0.0 }));
+            let side = sz.s5.round() as u32;
+            if b.chevrons.is_none() {
+                let up = scene.adopting_view(&b.root, || make_chevron(kit, &paint, side, true, z + 24))?;
+                let down = scene.adopting_view(&b.root, || make_chevron(kit, &paint, side, false, z + 24))?;
+                if let (Some(u), Some(d)) = (up, down) {
+                    b.chevrons = Some((u, d));
+                }
+            }
+            if let Some((u, d)) = &b.chevrons {
+                let x = viewport.x + ((viewport.w - side as f32) / 2.0).round();
+                u.put(if above { Props::at(x, viewport.y + ((zone - side as f32) / 2.0).round()) } else { HIDDEN });
+                d.put(if below { Props::at(x, viewport.bottom() - zone + ((zone - side as f32) / 2.0).round()) } else { HIDDEN });
+            }
         }
-        let _ = view;
         Ok(())
     }
 
@@ -731,7 +838,7 @@ impl SettingsSurface {
         let (i, card) = row_of(list::ROW_ID, page.rows.len(), id)?;
         let row = page.rows.get(i)?;
         let b = self.built.as_ref()?;
-        let (_, control, info) = b.list.as_ref()?.control_of(i)?;
+        let (_, control, info) = b.page.list.as_ref()?.control_of(i)?;
         if info.is_some_and(|f| f.contains(x, y)) {
             return Some(Target::Info(row.id.clone()));
         }
@@ -747,7 +854,7 @@ impl SettingsSurface {
             Kind::Cards => Some(Target::Row { id: row.id.clone(), seg: card, value: None }),
             Kind::Seg => {
                 let c = control?;
-                let seg = if c.contains(x, y) { b.list.as_ref()?.art(i).and_then(|art| art.segment_at(x - c.x)) } else { None };
+                let seg = if c.contains(x, y) { b.page.list.as_ref()?.art(i).and_then(|art| art.segment_at(x - c.x)) } else { None };
                 Some(Target::Row { id: row.id.clone(), seg: Some(seg.unwrap_or(0)), value: None })
             }
             Kind::Slider => {
@@ -776,10 +883,13 @@ impl SettingsSurface {
             let rows: Vec<super::row::Row> = view.rail.iter().map(|r| super::row::Row::link(&r.id).icon(&r.icon).label(&r.title).detail(&r.summary).chevron(false)).collect();
             l.feed_lint(kit, &paint, &rows, lint, rail);
         }
-        if let (Some(l), Some(p)) = (&b.list, &view.page) {
+        // while a page is made in the dark the model's rows are the new page's, and the old page is what is on screen
+        if b.outgoing.is_none()
+            && let (Some(l), Some(p)) = (&b.page.list, &view.page)
+        {
             l.feed_lint(kit, &paint, &p.rows, lint, page);
         }
-        if let Some(f) = &b.figure {
+        if let Some(f) = &b.outgoing.as_ref().unwrap_or(&b.page).figure {
             for (name, frame) in f.frames() {
                 lint.panel(&format!("figure {name}"), frame, compositor_protocol::Rgba(0, 0, 0, 0), true);
             }
@@ -796,7 +906,7 @@ impl SettingsSurface {
             out.push(("bar".into(), b.geo.bar));
             out.push(("rail".into(), b.geo.rail));
             out.push(("page".into(), b.geo.page));
-            if let Some(l) = &b.list {
+            if let Some(l) = &b.outgoing.as_ref().unwrap_or(&b.page).list {
                 for (i, id) in l.ids().iter().enumerate() {
                     if let Some(f) = l.frame_of(i) {
                         out.push((format!("row:{id}"), f));
@@ -980,7 +1090,7 @@ mod tests {
             assert!(draws < 40, "it ends");
         }
         let b = surface.built.as_ref().unwrap();
-        ((b.rail.as_ref().unwrap().built(), b.list.as_ref().unwrap().built()), draws, most)
+        ((b.rail.as_ref().unwrap().built(), b.page.list.as_ref().unwrap().built()), draws, most)
     }
 
     #[test]
@@ -1055,21 +1165,132 @@ mod tests {
         assert!(early.iter().all(|(_, shown)| *shown < 0.001), "transparent on every frame before it: {seen:?}");
     }
 
-    /// A page chosen while Settings is up is one draw: no frame holds a blank body or half its rows.
+    /// What a draw leaves of the page: the page on screen (the one being replaced while another is made), whether the page the model names is made and
+    /// hidden, the rows made of the page named, and the rows of the page on screen.
+    fn page_now(surface: &SettingsSurface) -> (String, bool, usize, usize) {
+        let b = surface.built.as_ref().unwrap();
+        let shown = b.outgoing.as_ref().unwrap_or(&b.page);
+        (shown.sig.clone(), b.outgoing.is_some() && b.page.group.as_ref().is_some_and(Group::is_inert), surface.row_count_built(), shown.list.as_ref().map_or(0, ListArt::built))
+    }
+
+    type Draw = ((String, bool, usize, usize), u64, Vec<compositor_protocol::Request>);
+
+    /// Draws `screen` from `now` and at every time Settings asks to be drawn again until nothing waits: each draw's page state, its time and what it sent.
+    fn draws_until_quiet(h: &mut ui::testing::Harness, kit: &mut Kit, engine: &mut Engine, surface: &mut SettingsSurface, screen: &View, mut now: u64) -> Vec<Draw> {
+        let mut seen = Vec::new();
+        loop {
+            let now_ns = kit.ui.scene.now_ns();
+            surface.apply(kit, engine, screen, false, now, now_ns).unwrap();
+            seen.push((page_now(surface), now, h.commit()));
+            let Some(due) = surface.due_at() else { return seen };
+            now = due;
+            surface.tick(engine, now);
+            assert!(seen.len() < 40, "it ends");
+        }
+    }
+
+    /// A page chosen while Settings is up is made in the dark beside the page on screen, a few layers to a draw, and shown whole on one frame that makes
+    /// nothing: no frame holds a blank body or half its rows, and the page on screen is not touched while the other is made.
     #[test]
-    fn a_page_chosen_while_settings_is_up_is_made_whole_in_one_draw() {
-        let (_h, mut kit) = crate::kit::testkit::kit(1.0);
+    fn a_page_chosen_while_settings_is_up_is_made_in_the_dark_and_shown_whole_on_one_frame_that_makes_nothing() {
+        use compositor_protocol::Request;
+        let (mut h, mut kit) = crate::kit::testkit::kit(1.0);
         kit.refresh_hz = 120.0;
+        let mut engine = Engine::new(&kit).unwrap();
+        let mut surface = SettingsSurface::new(0);
+        open_draws(&mut kit, &mut engine, &mut surface, &screen_of("system", 10, 0));
+        h.commit();
+        let mut now = 10_000;
+        for (id, rows, before, before_rows) in [("sound", 8, "system", 10), ("network", 10, "sound", 8), ("system", 9, "network", 10)] {
+            let seen = draws_until_quiet(&mut h, &mut kit, &mut engine, &mut surface, &screen_of(id, rows, 0), now);
+            let (last, early) = seen.split_last().unwrap();
+            assert!(early.len() > 1, "{id}: made over several draws: {:?}", seen.iter().map(|d| (&d.0, d.1)).collect::<Vec<_>>());
+            for (state, ..) in early {
+                assert_eq!((state.0.as_str(), state.1, state.3), (format!("{before}|0").as_str(), true, before_rows), "{id}: the old page as it was, the new one hidden");
+            }
+            let (state, at, sent) = last;
+            assert_eq!((state.0.as_str(), state.1, state.2, state.3), (format!("{id}|0").as_str(), false, rows, rows), "{id}: whole on the frame that shows it");
+            assert!(!sent.iter().any(|r| matches!(r, Request::Create { .. } | Request::GroupCreate { .. } | Request::Damage { .. })), "{id}: nothing is made for it: {sent:?}");
+            let whole_at = early.iter().find(|d| d.0.2 == rows).map(|d| d.1).expect("whole before it shows");
+            assert!(*at >= whole_at + fill_gap_ms(&kit) * STAGE_SETTLE_FRAMES, "{id}: shown when its textures have had the time");
+            now = at + 1_000;
+        }
+    }
+
+    /// A page named while another is made in the dark is made instead: no frame shows the one given up.
+    #[test]
+    fn a_page_named_while_another_is_made_in_the_dark_is_made_instead_and_the_first_is_never_shown() {
+        let (mut h, mut kit) = crate::kit::testkit::kit(1.0);
+        kit.refresh_hz = 120.0;
+        let mut engine = Engine::new(&kit).unwrap();
+        let mut surface = SettingsSurface::new(0);
+        open_draws(&mut kit, &mut engine, &mut surface, &screen_of("system", 10, 0));
+        let now_ns = kit.ui.scene.now_ns();
+        surface.apply(&mut kit, &mut engine, &screen_of("sound", 8, 0), false, 10_000, now_ns).unwrap();
+        let (shown, hidden, made, _) = page_now(&surface);
+        assert_eq!((shown.as_str(), hidden, made < 8), ("system|0", true, true), "the first of its draws");
+        let seen = draws_until_quiet(&mut h, &mut kit, &mut engine, &mut surface, &screen_of("network", 10, 0), 10_009);
+        assert!(seen.iter().all(|d| d.0.0 != "sound|0"), "the page given up is never on screen");
+        assert_eq!(seen.last().map(|d| d.0.clone()), Some(("network|0".to_string(), false, 10, 10)));
+    }
+
+    /// The page made in the dark for a step of the rail's walk is given up when the next step comes at the walk's pace, and the page the rail rests on is
+    /// made after.
+    #[test]
+    fn a_page_made_in_the_dark_for_a_step_of_a_walk_is_given_up_at_the_next_step_and_the_page_the_rail_rests_on_is_made() {
+        let (mut h, mut kit) = crate::kit::testkit::kit(1.0);
+        kit.refresh_hz = 120.0;
+        let mut engine = Engine::new(&kit).unwrap();
+        let mut surface = SettingsSurface::new(0);
+        let rail = |id: &str, rows: usize| {
+            let mut screen = screen_of(id, rows, 0);
+            screen.zone = Zone::Rail;
+            screen
+        };
+        open_draws(&mut kit, &mut engine, &mut surface, &rail("system", 10));
+        // the first step after a rest: its page at once, in the dark
+        let now_ns = kit.ui.scene.now_ns();
+        surface.apply(&mut kit, &mut engine, &rail("sound", 8), false, 10_000, now_ns).unwrap();
+        assert!(page_now(&surface).1, "made in the dark");
+        // the next step, at the pace of a walk: the page of the first is given up and none is made until the rail rests
+        surface.apply(&mut kit, &mut engine, &rail("network", 10), false, 10_110, now_ns).unwrap();
+        assert_eq!(page_now(&surface), ("system|0".to_string(), true, 0, 10));
+        assert_eq!(surface.due_at(), Some(10_110 + RAIL_REST_MS));
+        let seen = draws_until_quiet(&mut h, &mut kit, &mut engine, &mut surface, &rail("network", 10), 10_110 + RAIL_REST_MS);
+        assert_eq!(seen.last().map(|d| d.0.clone()), Some(("network|0".to_string(), false, 10, 10)));
+    }
+
+    /// Below 100 Hz a page chosen while Settings is up is made whole in one draw, where the other stood.
+    #[test]
+    fn below_100_hz_a_page_chosen_while_settings_is_up_is_made_whole_in_one_draw() {
+        let (_h, mut kit) = crate::kit::testkit::kit(1.0);
+        kit.refresh_hz = 60.0;
         let mut engine = Engine::new(&kit).unwrap();
         let mut surface = SettingsSurface::new(0);
         open_draws(&mut kit, &mut engine, &mut surface, &screen_of("system", 10, 0));
         for (id, rows) in [("sound", 8), ("network", 10), ("system", 9)] {
             let now_ns = kit.ui.scene.now_ns();
             surface.apply(&mut kit, &mut engine, &screen_of(id, rows, 0), false, 10_000, now_ns).unwrap();
-            assert_eq!(surface.row_count_built(), rows, "{id}: every row in this draw");
-            assert!(surface.built.as_ref().unwrap().fade.value() > 0.999, "{id}: Settings stays shown");
+            assert_eq!(page_now(&surface), (format!("{id}|0"), false, rows, rows), "{id}: every row in this draw");
             assert_eq!(surface.due_at(), None, "{id}: nothing is left to make");
         }
+    }
+
+    /// With too little room in the scene's layers for two pages, a page chosen while Settings is up is made where the other stands.
+    #[test]
+    fn with_too_little_room_for_two_pages_a_page_is_made_where_the_other_stands() {
+        let (_h, mut kit) = crate::kit::testkit::kit(1.0);
+        kit.refresh_hz = 120.0;
+        let mut engine = Engine::new(&kit).unwrap();
+        let mut surface = SettingsSurface::new(0);
+        open_draws(&mut kit, &mut engine, &mut surface, &screen_of("system", 10, 0));
+        let spare = kit.ui.scene.layer_room().saturating_sub(STAGE_ROOM - 1);
+        let _held: Vec<_> = (0..spare).map(|_| plate::shape(&kit.ui, Frame::new(0.0, 0.0, 1.0, 1.0), 0, plate::solid(compositor_protocol::Rgba(0, 0, 0, 0), 0.0))).collect();
+        assert_eq!(kit.ui.scene.layer_room(), STAGE_ROOM - 1);
+        let now_ns = kit.ui.scene.now_ns();
+        surface.apply(&mut kit, &mut engine, &screen_of("sound", 8, 0), false, 10_000, now_ns).unwrap();
+        assert_eq!(page_now(&surface), ("sound|0".to_string(), false, 8, 8));
+        assert_eq!(surface.due_at(), None);
     }
 
     /// A draw of a view that did not change tells the compositor nothing, and a focus move re-shapes no text.
