@@ -1031,8 +1031,8 @@ impl Facade {
         busy_line(&claim, who.as_deref(), programme.as_deref())
     }
 
-    /// `/status.json`: the client whose stream has the tuner, or `null` while none has it, and the clients whose stream another device or
-    /// the TV took the tuner from in the last [`DISPLACED_FOR_MS`]. Nothing is asked of the TV.
+    /// `/status.json`: the client whose stream has the tuner, or `null` while none has it, the clients whose stream another device or the TV took the
+    /// tuner from in the last [`DISPLACED_FOR_MS`], and what the H.264 converter does ([`Facade::transcode_doc`]). Nothing is asked of the TV.
     pub(crate) fn status_doc(&self) -> Value {
         self.status_at(crate::webos::unix_ms())
     }
@@ -1080,7 +1080,15 @@ impl Facade {
                 })
             })
             .collect();
-        serde_json::json!({ "holder": holder, "viewers": viewers, "displaced": displaced, "sameRf": self.same_rf() })
+        serde_json::json!({ "holder": holder, "viewers": viewers, "displaced": displaced, "sameRf": self.same_rf(), "transcode": self.transcode_doc() })
+    }
+
+    /// `transcode` of the status: whether a converter is installed (the plugin's "make H.264 for players that ask" switch is on), and the profiles it
+    /// makes, best first. Without a converter a `?transcode=` request is served as the station sends it, so none is listed.
+    fn transcode_doc(&self) -> Value {
+        let codec = self.tuning.options.lock().codec.clone();
+        let profiles: Vec<Value> = codec.as_ref().map_or_else(Vec::new, |codec| codec.profiles().iter().map(|p| p.describe()).collect());
+        serde_json::json!({ "enabled": codec.is_some(), "profiles": profiles })
     }
 
     /// The channels that share an RF channel, so can be watched together (`sameRf`): from the lineup as last read, nothing is asked of the TV.
@@ -2982,7 +2990,7 @@ pub(crate) mod tests {
             panic!("not a plain stream");
         };
         let source = Format { width: 1920, height: 1080, rate: 4, aspect: 3, progressive: false };
-        let made = Want { width: 1280, height: 720, rate: (30000, 1001), progressive: true, kbps: 3500 };
+        let made = Want { width: 1280, height: 720, rate: (30000, 1001), kbps: 3500 };
         assert_eq!(codec.0.lock().opened, [(source, made)], "opened for the station's picture and what mobile is");
         let mut out = Vec::new();
         assert_eq!(stream.pump(&mut out, &AtomicBool::new(false)).unwrap(), End::Silent);

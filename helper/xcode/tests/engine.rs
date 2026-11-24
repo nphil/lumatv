@@ -25,7 +25,7 @@ fn ms(n: u64) -> Duration {
 }
 
 fn output() -> Output {
-    Output { width: 0, height: 0, keep_every: 1, fps: 30, kbps: 3500, cbr: true, gop: 60, profile: H264Profile::High }
+    Output { width: 0, height: 0, keep_every: 1, fps: 30, kbps: 3500, cbr: true, gop: 60, profile: H264Profile::High, sar: None }
 }
 
 fn spec(priority: Priority, wait: Wait, sink: Sink) -> JobSpec {
@@ -345,6 +345,24 @@ fn a_job_the_child_cannot_do_is_refused_before_any_child_starts() {
     unit.sink = Sink::Ring { max_bytes: 0, max_seconds: 0, pts_hz: 0 };
     assert!(matches!(engine.start(unit), Err(StartError::Unsupported(_))));
     assert_eq!(echo.spawned.load(SeqCst), 0);
+}
+
+#[test]
+fn a_pixel_aspect_ratio_goes_to_the_child_whole_and_half_of_one_is_refused() {
+    let (engine, echo) = echo_engine();
+    let square = engine.start(live()).unwrap();
+    let mut wide = live();
+    wide.output.sar = Some((40, 33));
+    let wide = engine.start(wide).unwrap();
+    let cfgs = echo.cfgs.lock().clone();
+    assert_eq!(cfgs.iter().map(|c| (c.sar_w, c.sar_h)).collect::<Vec<_>>(), [(0, 0), (40, 33)]);
+    for bad in [(0, 33), (40, 0)] {
+        let mut spec = live();
+        spec.output.sar = Some(bad);
+        assert!(matches!(engine.start(spec), Err(StartError::Unsupported(_))), "{bad:?}");
+    }
+    assert_eq!(echo.spawned.load(SeqCst), 2, "a refused job starts no child");
+    drop((square, wide));
 }
 
 // ---- shell children ----

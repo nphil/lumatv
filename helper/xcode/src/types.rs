@@ -133,6 +133,10 @@ pub struct Output {
     /// Pictures between IDRs; 0: only on `Job::force_idr`.
     pub gop: u32,
     pub profile: H264Profile,
+    /// The shape of one output pixel, width and height, when it is not square: the child writes it into the SPS of every key unit as the pixel aspect
+    /// ratio, so a player draws a 720x480 picture of a 16:9 show at 16:9 and not at 3:2. `None` writes none, and a player assumes square pixels.
+    /// Both numbers must be above 0.
+    pub sar: Option<(u16, u16)>,
 }
 
 /// What `Engine::start` does when the job cannot run now (the gate is closed, or a higher priority job has the encoder).

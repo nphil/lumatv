@@ -74,6 +74,10 @@ impl Rd<'_> {
         u32::from_le_bytes(self.take())
     }
 
+    fn u16(&mut self) -> u16 {
+        u16::from_le_bytes(self.take())
+    }
+
     fn u64(&mut self) -> u64 {
         u64::from_le_bytes(self.take())
     }
@@ -89,6 +93,10 @@ impl Wr<'_> {
             dst.copy_from_slice(src);
             self.0 = rest;
         }
+    }
+
+    fn u16(&mut self, v: u16) {
+        self.put(&v.to_le_bytes());
     }
 
     fn u32(&mut self, v: u32) {
@@ -148,7 +156,9 @@ pub struct Cfg {
     pub ncap: u32,
     pub nout: u32,
     pub out_size: u32,
-    pub reserved: u32,
+    /// The shape of one output pixel, written into the stream's SPS as its pixel aspect ratio (0, 0: square, nothing written). Both or neither.
+    pub sar_w: u16,
+    pub sar_h: u16,
 }
 
 impl Cfg {
@@ -171,10 +181,11 @@ impl Cfg {
             self.ncap,
             self.nout,
             self.out_size,
-            self.reserved,
         ] {
             w.u32(v);
         }
+        w.u16(self.sar_w);
+        w.u16(self.sar_h);
         out
     }
 
@@ -199,7 +210,8 @@ impl Cfg {
             ncap: r.u32(),
             nout: r.u32(),
             out_size: r.u32(),
-            reserved: r.u32(),
+            sar_w: r.u16(),
+            sar_h: r.u16(),
         })
     }
 }
@@ -495,7 +507,8 @@ mod tests {
             ncap: 0,
             nout: 0,
             out_size: 0,
-            reserved: 0,
+            sar_w: 40,
+            sar_h: 33,
         };
         let mut want = Vec::new();
         want.extend_from_slice(b"XCFG");
@@ -516,7 +529,7 @@ mod tests {
             [0; 4],
             [0; 4],
             [0; 4],
-            [0; 4],
+            [40, 0, 33, 0],
         ] {
             want.extend_from_slice(&word);
         }

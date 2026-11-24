@@ -13,18 +13,20 @@ srv=
 "$b/xcode_test" || fail "xcode unit tests"
 "$b/scale_test" || fail "scale tests"
 
-# the transcode child as the engine runs it: records on stdin, units on stdout, real pipes, the fake decoder and encoder
-python3 - "$tmp/x.in" <<'EOF' || fail "xcode input"
+# the transcode child as the engine runs it: records on stdin, units on stdout, real pipes, the fake decoder and encoder. Run twice: as it is, and
+# asked for the pixel aspect ratio 40:33 (the configuration's last word, 40 | 33 << 16) in the SPS.
+for sar in 0 2162728; do
+python3 - "$tmp/x.in" "$sar" <<'EOF' || fail "xcode input"
 import struct, sys
 def rec(magic, flags=0, pts=0, aux=0, payload=b''):
     return struct.pack('<4sIQII', magic, flags, pts, len(payload), aux) + payload
-out = rec(b'XCFG', payload=struct.pack('<16I', 1, 1, 640, 368, 0, 0, 1, 30, 3500, 0, 0, 0, 0, 0, 0, 0))
+out = rec(b'XCFG', payload=struct.pack('<16I', 1, 1, 640, 368, 0, 0, 1, 30, 3500, 0, 0, 0, 0, 0, 0, int(sys.argv[2])))
 for i in range(5):
     out += rec(b'XAUN', pts=900 * i, payload=b'FAKE' + struct.pack('<HHI', 640, 368, i))
 open(sys.argv[1], 'wb').write(out)
 EOF
 "$b/lumatv-venc" xcode <"$tmp/x.in" >"$tmp/x.out" 2>"$tmp/x.err" || fail "xcode exited $?: $(cat "$tmp/x.err")"
-python3 - "$tmp/x.out" <<'EOF' || fail "xcode output"
+python3 - "$tmp/x.out" "$sar" <<'EOF' || fail "xcode output (pixel aspect word $sar)"
 import struct, sys
 d = open(sys.argv[1], 'rb').read()
 recs = []
@@ -37,7 +39,12 @@ outs = [r for r in recs if r[0] == b'XOUT']
 assert [o[2] for o in outs] == [0, 900, 1800, 2700, 3600], [o[2] for o in outs]
 assert outs[0][1] == 1 and all(o[1] == 0 for o in outs[1:])
 assert outs[0][3][7] == 30, outs[0][3][7]  # the SPS says the stream's own level
+if int(sys.argv[2]):
+    assert outs[0][3][4:16].hex() == '6764001eacb40581ed828040' and len(outs[0][3]) == 4072, outs[0][3][:20].hex()  # and 40:33
+else:
+    assert len(outs[0][3]) == 4070, len(outs[0][3])  # the encoder's own unit
 EOF
+done
 
 # 0. the small steps, in the slot's order
 "$b/lumatv-venc" gate >"$tmp/g.out" || fail "gate"

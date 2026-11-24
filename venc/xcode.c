@@ -29,6 +29,7 @@
 #define RING 256 /* more than the pictures a decoder holds back */
 #define INITIAL_IN (256u * 1024u)
 #define READ_CHUNK (64u * 1024u)
+#define SPS_ROOM 64u /* what the SPS may grow by when it takes a pixel aspect ratio */
 /* The backlog the child lets build up unread input to: a whole record always fits, and a decoder that is slower than the engine
  * sends is felt by the engine through the pipe filling up rather than by memory growing here. */
 #define IN_MAX (XC_HEADER_LEN + XC_MAX_PAYLOAD + READ_CHUNK)
@@ -71,8 +72,9 @@ struct xc {
     int eof, pending, drained, last_seen;
     double t_drain;
 
-    uint8_t *key_buf; /* a copy of an IDR unit, whose SPS gets its level corrected; the encoder's ring is not ours to write */
+    uint8_t *key_buf; /* a copy of an IDR unit, whose SPS gets its level corrected and its pixel aspect ratio added; the encoder's ring is not ours to write */
     size_t key_cap;
+    int sar_said; /* the log has said that the SPS could not take the ratio */
 
     uint64_t seq, pic_no;
     uint64_t pts[RING];
@@ -297,6 +299,8 @@ static int check_config(struct xc *x)
         c->fps = 30;
     if (c->kbps < 64 || c->kbps > 20000)
         return fail(x, XC_EXIT_CONFIG, "bit rate out of range", NULL);
+    if (!c->sar_w != !c->sar_h)
+        return fail(x, XC_EXIT_CONFIG, "pixel aspect ratio out of range", NULL);
     if (!c->ncap)
         c->ncap = 6;
     if (!c->nout)
@@ -380,16 +384,24 @@ static int encode_picture(struct xc *x, const struct vdec_pic *pic)
         return 0;
     int rc;
     if (f.keyframe) {
-        if (x->key_cap < f.size) {
-            uint8_t *p = realloc(x->key_buf, f.size);
+        if (x->key_cap < f.size + SPS_ROOM) {
+            uint8_t *p = realloc(x->key_buf, f.size + SPS_ROOM);
             if (!p)
                 return fail(x, XC_EXIT_SETUP, "no memory for a keyframe", NULL);
             x->key_buf = p;
-            x->key_cap = f.size;
+            x->key_cap = f.size + SPS_ROOM;
         }
         memcpy(x->key_buf, f.data, f.size);
         patch_level(x->key_buf, f.size, x->level);
-        rc = emit(x, XC_OUT, XC_FLAG_KEY, pts, tenths, x->key_buf, f.size, NULL, 0);
+        size_t n = f.size;
+        if (x->cfg.sar_w) {
+            size_t grown = annexb_set_sar(x->key_buf, n, x->key_cap, x->cfg.sar_w, x->cfg.sar_h);
+            if (grown)
+                n = grown;
+            else if (!x->sar_said++)
+                logf_("the SPS cannot take the pixel aspect ratio %u:%u; the stream goes out without it", x->cfg.sar_w, x->cfg.sar_h);
+        }
+        rc = emit(x, XC_OUT, XC_FLAG_KEY, pts, tenths, x->key_buf, n, NULL, 0);
     } else {
         rc = emit(x, XC_OUT, 0, pts, tenths, f.data, f.size, NULL, 0);
     }

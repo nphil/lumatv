@@ -82,7 +82,7 @@ struct xc_cfg {
     uint32_t ncap;       /* picture buffers (0: 6) */
     uint32_t nout;       /* bitstream buffers (0: 4) */
     uint32_t out_size;   /* bytes of the largest access unit (0: 1.5 MiB) */
-    uint32_t reserved;
+    uint16_t sar_w, sar_h; /* the shape of one output pixel, written into the SPS's VUI as the pixel aspect ratio (0, 0: square, nothing written) */
 };
 
 struct xc_ready {

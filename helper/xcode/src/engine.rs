@@ -314,6 +314,11 @@ fn cfg_of(spec: &JobSpec) -> Result<Cfg, StartError> {
         }
     }
     let out = &spec.output;
+    let (sar_w, sar_h) = match out.sar {
+        None => (0, 0),
+        Some((w, h)) if w > 0 && h > 0 => (w, h),
+        Some((w, h)) => return Err(StartError::Unsupported(format!("a pixel aspect ratio of {w}:{h}: both numbers must be above 0"))),
+    };
     Ok(Cfg {
         version: proto::VERSION,
         codec: match codec {
@@ -334,6 +339,8 @@ fn cfg_of(spec: &JobSpec) -> Result<Cfg, StartError> {
             H264Profile::Main => proto::PROFILE_MAIN,
             H264Profile::Baseline => proto::PROFILE_BASELINE,
         },
+        sar_w,
+        sar_h,
         ..Cfg::default()
     })
 }

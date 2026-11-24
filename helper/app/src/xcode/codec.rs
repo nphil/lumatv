@@ -7,13 +7,12 @@
 
 use super::gate::Look;
 use lumatuner::mpeg2::Format;
-use lumatuner::{Codec, Convert, Fault, Unit, Want};
+use lumatuner::{Codec, Convert, Fault, Profile, Unit, Want};
 use lumaxcode::{Au, Engine, H264Profile, JobSpec, Out, Output, Priority, PushError, Reason, Sink, Source, SourceCodec, StartError, Wait};
 
-/// How far the shape of the picture the child will make may be from the shape the station signals before it is not made: an anamorphic
-/// picture comes out with square pixels at its coded size (the encoder's stream carries no pixel aspect and the child never enlarges), so
-/// 16:9 in 704x480 would show 17% too narrow, where 4:3 in 704x480 shows 10% too wide.
-const SHAPE_TOLERANCE: f32 = 0.15;
+/// What the helper's converter lists in `/status.json` (`transcode.profiles`), best picture first: the profiles measured on the set (`mobile`: a soak
+/// in `docs/research/hw-transcode.md`). The others are made when a request names them, and join this list when they have been measured.
+const MADE: [Profile; 1] = [Profile::Mobile];
 
 /// The converter the tuner is given while the plugin's setting is on.
 pub struct Converter {
@@ -29,7 +28,7 @@ impl Converter {
 
 impl Codec for Converter {
     fn open(&self, source: &Format, want: &Want) -> Result<Box<dyn Convert>, Fault> {
-        let output = output_of(source, want)?;
+        let output = output_of(source, want);
         // the media server is asked once before the hardware is: a decoder an app took a moment ago closes the gate here
         self.look.now();
         let spec = JobSpec {
@@ -45,12 +44,16 @@ impl Codec for Converter {
             Err(e) => Err(fault_of_start(e)),
         }
     }
+
+    fn profiles(&self) -> &'static [Profile] {
+        &MADE
+    }
 }
 
-/// What the child is asked to make for `want` from pictures of `source`: its size when that is smaller than the picture, every Nth picture
-/// of a rate above the one wanted, a keyframe every two seconds, constant bit rate. Refused (`Unsupported`) when the child would not make the
-/// shape the station signals.
-fn output_of(source: &Format, want: &Want) -> Result<Output, Fault> {
+/// What the child is asked to make for `want` from pictures of `source`: its size when that is smaller than the picture, every Nth picture of a
+/// rate above the one wanted, a keyframe every two seconds, constant bit rate, and the shape of its pixels when they are not square: the child never
+/// enlarges, so a 16:9 station in 720x480 comes out 720x480 and says its pixels are 32:27.
+fn output_of(source: &Format, want: &Want) -> Output {
     let (num, den) = source.frame_rate();
     let from = num as f64 / den as f64;
     let to = f64::from(want.rate.0) / f64::from(want.rate.1.max(1));
@@ -58,16 +61,8 @@ fn output_of(source: &Format, want: &Want) -> Result<Output, Fault> {
     let fps = to.round().clamp(1.0, 60.0) as u32;
     // the child makes the smaller of the picture and what is wanted in each direction, and none of it when nothing is smaller
     let (width, height) = (want.width.min(source.width), want.height.min(source.height));
-    let shape = f32::from(width) / f32::from(height.max(1));
-    let signalled = source.display_width() / f32::from(source.height.max(1));
-    if (shape - signalled).abs() > SHAPE_TOLERANCE * signalled {
-        return Err(Fault::Unsupported(format!(
-            "a {}x{} picture would come out {width}x{height}, in the wrong shape: the converter does not enlarge or signal a pixel aspect",
-            source.width, source.height
-        )));
-    }
     let whole = width == source.width && height == source.height;
-    Ok(Output {
+    Output {
         width: if whole { 0 } else { u32::from(width) },
         height: if whole { 0 } else { u32::from(height) },
         keep_every,
@@ -76,7 +71,36 @@ fn output_of(source: &Format, want: &Want) -> Result<Output, Fault> {
         cbr: true,
         gop: fps * 2,
         profile: H264Profile::High,
-    })
+        sar: pixel_aspect(source, width, height),
+    }
+}
+
+/// The shape of one pixel of a `width` x `height` picture made from `source`, which is meant to be shown in the shape it signals (4:3, 16:9, 2.21:1):
+/// `None` when the pixels are square, or within 2% of it, which no eye tells and which a stream that says nothing gives every player. A 16:9 station
+/// in 704x480 has 40:33 pixels, a 4:3 one in 704x480 has 10:11, a 16:9 one in 1440x1080 has 4:3.
+fn pixel_aspect(source: &Format, width: u16, height: u16) -> Option<(u16, u16)> {
+    let (across, down) = source.display_aspect();
+    let (mut num, mut den) = (u64::from(across) * u64::from(height), u64::from(down) * u64::from(width));
+    if num == 0 || den == 0 {
+        return None;
+    }
+    let divisor = gcd(num, den);
+    (num, den) = (num / divisor, den / divisor);
+    if num.abs_diff(den) * 50 < num.min(den) {
+        return None;
+    }
+    // the SPS has 16 bits for each
+    while num > u64::from(u16::MAX) || den > u64::from(u16::MAX) {
+        (num, den) = (num.div_ceil(2), den.div_ceil(2));
+    }
+    Some((num as u16, den as u16))
+}
+
+fn gcd(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
 }
 
 /// The engine's faults in the tuner's words.
@@ -171,7 +195,6 @@ impl<S: Session> Convert for Live<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lumatuner::Profile;
     use parking_lot::Mutex;
     use std::collections::VecDeque;
     use std::sync::Arc;
@@ -187,42 +210,70 @@ mod tests {
     #[test]
     fn the_profiles_ask_for_what_the_child_makes() {
         let hd = station(1920, 1080, 4, 3);
-        let heavy = output_of(&hd, &Profile::Heavy.want(&hd)).unwrap();
-        assert_eq!((sized(&heavy), heavy.keep_every, heavy.fps, heavy.kbps, heavy.gop), ((0, 0), 1, 30, 9000, 60), "1080 is made whole, with no scale");
+        let heavy = output_of(&hd, &Profile::Heavy.want(&hd));
+        assert_eq!(
+            (sized(&heavy), heavy.keep_every, heavy.fps, heavy.kbps, heavy.gop, heavy.sar),
+            ((0, 0), 1, 30, 9000, 60, None),
+            "1080i is made whole, as progressive 29.97 with square pixels and a keyframe every two seconds"
+        );
 
-        let mobile = output_of(&hd, &Profile::Mobile.want(&hd)).unwrap();
+        let mobile = output_of(&hd, &Profile::Mobile.want(&hd));
         assert_eq!((sized(&mobile), mobile.keep_every, mobile.fps, mobile.kbps), ((1280, 720), 1, 30, 3500));
         assert!(mobile.cbr && mobile.profile == H264Profile::High);
 
         let p60 = station(1280, 720, 7, 3);
-        let mobile = output_of(&p60, &Profile::Mobile.want(&p60)).unwrap();
+        let mobile = output_of(&p60, &Profile::Mobile.want(&p60));
         assert_eq!((sized(&mobile), mobile.keep_every, mobile.fps), ((0, 0), 2, 30), "720p60 is every other picture, unscaled");
-        let heavy = output_of(&p60, &Profile::Heavy.want(&p60)).unwrap();
-        assert_eq!((heavy.keep_every, heavy.fps, heavy.gop), (1, 60, 120));
+        let heavy = output_of(&p60, &Profile::Heavy.want(&p60));
+        assert_eq!((sized(&heavy), heavy.keep_every, heavy.fps, heavy.gop, heavy.kbps), ((0, 0), 1, 60, 120, 7500), "heavy keeps all 59.94 pictures");
 
-        let small = output_of(&hd, &Profile::Internet240.want(&hd)).unwrap();
+        let small = output_of(&hd, &Profile::Internet240.want(&hd));
         assert_eq!((sized(&small), small.kbps), ((432, 240), 400));
         let film = station(1920, 1080, 1, 3);
-        assert_eq!(output_of(&film, &Profile::Mobile.want(&film)).unwrap().fps, 24);
+        assert_eq!(output_of(&film, &Profile::Mobile.want(&film)).fps, 24);
     }
 
     #[test]
-    fn a_shape_the_child_would_get_wrong_is_not_made() {
-        // 16:9 in the two standard-definition frames, which are both close to 3:2
-        for wide_sd in [station(704, 480, 4, 3), station(720, 480, 4, 3)] {
-            for profile in [Profile::Heavy, Profile::Mobile, Profile::Internet480] {
-                let Err(Fault::Unsupported(why)) = output_of(&wide_sd, &profile.want(&wide_sd)) else {
-                    panic!("{profile:?}: 16:9 in {}x480 needs enlarging", wide_sd.width);
-                };
-                assert!(why.contains("wrong shape"), "{why}");
-            }
-        }
+    fn a_picture_that_is_not_made_in_its_shape_says_what_shape_its_pixels_are() {
+        let sar = |source: &Format, profile: Profile| output_of(source, &profile.want(source)).sar;
+        // 480i at its own size, in the two frames the stations use, 16:9 and 4:3
+        assert_eq!(sar(&station(704, 480, 4, 3), Profile::Heavy), Some((40, 33)));
+        assert_eq!(sar(&station(720, 480, 4, 3), Profile::Heavy), Some((32, 27)));
+        assert_eq!(sar(&station(704, 480, 4, 2), Profile::Heavy), Some((10, 11)));
+        assert_eq!(sar(&station(720, 480, 4, 2), Profile::Heavy), Some((8, 9)));
+        assert_eq!(sar(&station(640, 480, 4, 2), Profile::Heavy), None, "4:3 in 640x480 is square");
+        // what is not enlarged keeps its pixels' shape, what is scaled to the profile's box is square again
+        let wide_sd = station(704, 480, 4, 3);
+        assert_eq!(sar(&wide_sd, Profile::Mobile), Some((40, 33)));
+        assert_eq!(sar(&wide_sd, Profile::Internet480), Some((40, 33)), "848x480 would be an enlargement");
+        assert_eq!(sar(&wide_sd, Profile::Internet360), None);
+        assert_eq!(sar(&station(704, 480, 4, 2), Profile::Mobile), None, "4:3 in 704x480 is scaled to 640x480");
+        // 16:9 in 1440x1080, a frame some stations use
         let anamorphic_hd = station(1440, 1080, 4, 3);
-        assert!(output_of(&anamorphic_hd, &Profile::Heavy.want(&anamorphic_hd)).is_err());
-        assert_eq!(sized(&output_of(&anamorphic_hd, &Profile::Mobile.want(&anamorphic_hd)).unwrap()), (1280, 720), "scaled down it is square");
-        let sd = station(704, 480, 4, 2);
-        assert!(output_of(&sd, &Profile::Heavy.want(&sd)).is_ok(), "4:3 in 704x480 is 10% wide, which is let through");
-        assert_eq!(sized(&output_of(&sd, &Profile::Mobile.want(&sd)).unwrap()), (640, 480));
+        assert_eq!(sar(&anamorphic_hd, Profile::Heavy), Some((4, 3)));
+        assert_eq!(sar(&anamorphic_hd, Profile::Mobile), None, "scaled down to 1280x720 it is square");
+        // square pixels say nothing, and so does a shape the picture only misses by what no eye tells
+        for square in [station(1920, 1080, 4, 3), station(1280, 720, 7, 3), station(704, 480, 4, 1)] {
+            assert_eq!(sar(&square, Profile::Heavy), None, "{square:?}");
+        }
+        assert_eq!(sar(&station(1920, 1080, 4, 3), Profile::Internet240), None, "432x240 is 1.2% from 16:9");
+        assert_eq!(sar(&station(1920, 1080, 4, 4), Profile::Heavy), Some((1989, 1600)), "2.21:1");
+    }
+
+    #[test]
+    fn a_ratio_the_sps_cannot_hold_is_scaled_down_with_its_shape() {
+        // coprime sizes: the reduced ratio is about 1.95 million to 1.1 million, which 16 bits cannot hold
+        let source = Format { width: 1913, height: 1087, rate: 4, aspect: 1, progressive: false };
+        let (num, den) = pixel_aspect(&source, 1019, 1021).unwrap();
+        let (exact, held) = (f64::from(1913 * 1021) / f64::from(1087 * 1019), f64::from(num) / f64::from(den));
+        assert!(num > 1000 && den > 1000 && (held / exact - 1.0).abs() < 1e-3, "{num}:{den} is {held}, not {exact}");
+        assert_eq!(pixel_aspect(&source, 0, 480), None, "a picture of no width has no pixels to describe");
+    }
+
+    #[test]
+    fn the_profiles_listed_are_in_the_tuners_order() {
+        let at = |p: &Profile| Profile::ALL.iter().position(|a| a == p).expect("a profile of the tuner");
+        assert!(MADE.windows(2).all(|pair| at(&pair[0]) < at(&pair[1])), "{MADE:?}: best picture first, each once");
     }
 
     #[test]

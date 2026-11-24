@@ -17,40 +17,53 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::time::Duration;
 
-/// The profiles of `?transcode=` (SiliconDust's EXTEND): what picture the client is sent.
+/// The profiles of `?transcode=` (SiliconDust's EXTEND): what picture the client is sent. Every one is progressive: the TV's decoder deinterlaces in
+/// hardware, so the encoder is given whole frames.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Profile {
-    /// H.264 at the station's own size, rate and interlacing.
+    /// H.264 at the station's own size, whatever it is (1080i is 1920x1080, 720p is 1280x720, 480i keeps its 704x480 or 720x480 and says what shape
+    /// its pixels are), and at its own rate: 59.94 stays 59.94, 1080i and 480i come out at 29.97.
     Heavy,
-    /// Progressive, at most 1280x720, at most 30 frames a second.
+    /// At most 1280x720 and 30 frames a second.
     Mobile,
-    /// Progressive, at most 30 frames a second, at a lower bit rate, within 960x540 (4:3: 720x540), 848x480 (640x480), 640x360
-    /// (480x360) or 432x240 (320x240).
+    /// At most 30 frames a second, at a lower bit rate, within 960x540 (4:3: 720x540), 848x480 (640x480), 640x360 (480x360) or 432x240 (320x240).
     Internet540,
     Internet480,
     Internet360,
     Internet240,
 }
 
-/// What the converter is asked to make: the largest picture the profile allows for the station's, never larger than the station's.
+/// What the converter is asked to make: the largest picture the profile allows for the station's, never larger than the station's, always
+/// progressive.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Want {
-    /// Square pixels, a multiple of 16 wide: a coded size H.264 needs no padding for, and what the SiliconDust profiles name.
+    /// Square pixels, a multiple of 16 wide, for a profile with a box: a coded size H.264 needs no padding for, and what the SiliconDust profiles
+    /// name. `Heavy` is the station's own coded size, whose pixels may not be square.
     pub width: u16,
     pub height: u16,
     /// Frames a second as a numerator and a denominator (30000 and 1001 for 29.97).
     pub rate: (u32, u32),
-    pub progressive: bool,
     /// The video bit rate to aim for in kbit/s: a starting point to tune on the set, SiliconDust does not publish its own.
     pub kbps: u32,
 }
 
+/// The box a profile fits a station's picture in, for a 16:9 station and for a 4:3 one, and the bit rate it aims for in it.
+struct Fit {
+    wide: (u32, u32),
+    narrow: (u32, u32),
+    kbps: u32,
+}
+
+/// What `Heavy` aims for at 1080 lines, in kbit/s: a station's MPEG-2 is at most ATSC's 19.4 Mbit/s, and H.264 holds a picture in about half.
+const HEAVY_KBPS: u32 = 9000;
+
 impl Profile {
+    /// Every profile, the best picture first: the order `/status.json` lists the ones a converter makes in.
+    pub const ALL: [Self; 6] = [Self::Heavy, Self::Mobile, Self::Internet540, Self::Internet480, Self::Internet360, Self::Internet240];
+
     /// The profile `name` names, as `?transcode=` spells it.
     pub fn parse(name: &str) -> Option<Self> {
-        [Self::Heavy, Self::Mobile, Self::Internet540, Self::Internet480, Self::Internet360, Self::Internet240]
-            .into_iter()
-            .find(|p| p.name().eq_ignore_ascii_case(name))
+        Self::ALL.into_iter().find(|p| p.name().eq_ignore_ascii_case(name))
     }
 
     pub fn name(self) -> &'static str {
@@ -64,33 +77,51 @@ impl Profile {
         }
     }
 
-    /// What the profile asks for a station's picture. A rate above 30 frames a second is halved (59.94 becomes 29.97, 50 becomes 25),
-    /// which is every other picture: the decoder still decodes them all, they are references.
+    /// The box of a profile that has one: every profile but `Heavy`.
+    fn fit(self) -> Option<Fit> {
+        let (wide, narrow, kbps) = match self {
+            Self::Heavy => return None,
+            Self::Mobile => ((1280, 720), (960, 720), 3500),
+            Self::Internet540 => ((960, 540), (720, 540), 2000),
+            Self::Internet480 => ((848, 480), (640, 480), 1200),
+            Self::Internet360 => ((640, 360), (480, 360), 800),
+            Self::Internet240 => ((432, 240), (320, 240), 400),
+        };
+        Some(Fit { wide, narrow, kbps })
+    }
+
+    /// What `Heavy` aims for at `height` lines and the rate: `HEAVY_KBPS` above 720 lines, 7.5 Mbit/s for 720p60 and 5 for 720p30, 2.5 for standard
+    /// definition.
+    fn heavy_kbps(height: u16, rate: (u32, u32)) -> u32 {
+        match height {
+            721.. => HEAVY_KBPS,
+            481..=720 if rate.0 > 30 * rate.1 => 7500,
+            481..=720 => 5000,
+            _ => 2500,
+        }
+    }
+
+    /// The profile as `/status.json` lists it: `maxHeight` is `null` for the one that keeps the station's size, and `kbps` is what the profile aims for
+    /// at its largest picture (a smaller station picture gets less).
+    pub fn describe(self) -> serde_json::Value {
+        let (max_height, kbps) = match self.fit() {
+            Some(fit) => (Some(fit.wide.1), fit.kbps),
+            None => (None, HEAVY_KBPS),
+        };
+        serde_json::json!({ "name": self.name(), "codec": "h264", "maxHeight": max_height, "progressive": true, "kbps": kbps })
+    }
+
+    /// What the profile asks for a station's picture. A box profile halves a rate above 30 frames a second (59.94 becomes 29.97, 50 becomes 25),
+    /// which is every other picture: the decoder still decodes them all, they are references. `Heavy` keeps the rate.
     pub fn want(self, source: &Format) -> Want {
         let (num, den) = source.frame_rate();
         let (num, den) = (num as u32, den as u32);
         let height = source.height.min(1080);
-        let wide = source.display_width() / f32::from(source.height) > 1.5;
-        let (box_width, box_height, kbps) = match (self, wide) {
-            (Self::Heavy, _) => {
-                let kbps = match height {
-                    721.. => 9000,
-                    481..=720 => 6000,
-                    _ => 2500,
-                };
-                return Want { width: source.width, height, rate: (num, den), progressive: source.progressive, kbps };
-            }
-            (Self::Mobile, true) => (1280, 720, 3500),
-            (Self::Mobile, false) => (960, 720, 3500),
-            (Self::Internet540, true) => (960, 540, 2000),
-            (Self::Internet540, false) => (720, 540, 2000),
-            (Self::Internet480, true) => (848, 480, 1200),
-            (Self::Internet480, false) => (640, 480, 1200),
-            (Self::Internet360, true) => (640, 360, 800),
-            (Self::Internet360, false) => (480, 360, 800),
-            (Self::Internet240, true) => (432, 240, 400),
-            (Self::Internet240, false) => (320, 240, 400),
+        let Some(fit) = self.fit() else {
+            return Want { width: source.width, height, rate: (num, den), kbps: Self::heavy_kbps(height, (num, den)) };
         };
+        let wide = source.display_width() / f32::from(source.height) > 1.5;
+        let (box_width, box_height) = if wide { fit.wide } else { fit.narrow };
         // the box has the picture's own shape, so its height sets the width; a station's own height is a ceiling, nothing is enlarged
         let height = box_height.min(u32::from(height));
         let width = (height * box_width / box_height) & !15;
@@ -100,13 +131,7 @@ impl Profile {
             (true, true) => (num / 2, den),
             (true, false) => (num, 2 * den),
         };
-        Want {
-            width: width as u16,
-            height: height as u16,
-            rate,
-            progressive: true,
-            kbps,
-        }
+        Want { width: width as u16, height: height as u16, rate, kbps: fit.kbps }
     }
 }
 
@@ -154,6 +179,12 @@ pub trait Codec: Send + Sync {
     /// Opens a converter for pictures of the `source` format that makes `want`, and returns within a second or so, `Fault::Failed` or
     /// `Fault::Wedged` if it cannot.
     fn open(&self, source: &Format, want: &Want) -> Result<Box<dyn Convert>, Fault>;
+
+    /// The profiles this converter makes, the best picture first: what `/status.json` tells a client it may ask for. A request for another is still
+    /// answered, as well as the converter can.
+    fn profiles(&self) -> &'static [Profile] {
+        &Profile::ALL
+    }
 }
 
 /// When a converter may be tried: the one that failed rests, the one that hung is not tried again.
@@ -784,9 +815,11 @@ pub(crate) mod tests {
             let w = p.want(f);
             (w.width, w.height)
         };
-        assert_eq!(Profile::Heavy.want(&hd1080), Want { width: 1920, height: 1080, rate: (30000, 1001), progressive: false, kbps: 9000 });
-        assert_eq!(Profile::Heavy.want(&hd720).rate, (60000, 1001), "heavy keeps the rate and the interlacing");
-        assert_eq!(Profile::Mobile.want(&hd1080), Want { width: 1280, height: 720, rate: (30000, 1001), progressive: true, kbps: 3500 });
+        assert_eq!(Profile::Heavy.want(&hd1080), Want { width: 1920, height: 1080, rate: (30000, 1001), kbps: 9000 });
+        assert_eq!(Profile::Heavy.want(&hd720), Want { width: 1280, height: 720, rate: (60000, 1001), kbps: 7500 }, "heavy keeps the size and the rate");
+        assert_eq!(Profile::Heavy.want(&Format { rate: 4, ..hd720 }).kbps, 5000, "720p30 is half the pictures of 720p60");
+        assert_eq!(Profile::Heavy.want(&sd169), Want { width: 720, height: 480, rate: (30000, 1001), kbps: 2500 });
+        assert_eq!(Profile::Mobile.want(&hd1080), Want { width: 1280, height: 720, rate: (30000, 1001), kbps: 3500 });
         assert_eq!(Profile::Mobile.want(&hd720).rate, (30000, 1001), "59.94 is halved");
         assert_eq!(Profile::Mobile.want(&Format { rate: 6, ..hd720 }).rate, (25, 1), "and 50 is halved");
         assert_eq!(Profile::Mobile.want(&Format { rate: 5, ..hd720 }).rate, (30, 1), "30 is kept");
@@ -800,10 +833,35 @@ pub(crate) mod tests {
             "4:3 standard definition: square pixels, and nothing is enlarged"
         );
         assert_eq!(size(Profile::Mobile, &sd169), (848, 480));
-        assert_eq!(size(Profile::Heavy, &sd169), (720, 480), "heavy leaves the pixels as they are");
         assert_eq!(Profile::parse("Mobile"), Some(Profile::Mobile));
         assert_eq!(Profile::parse("internet240"), Some(Profile::Internet240));
         assert_eq!(Profile::parse("fast"), None);
+    }
+
+    #[test]
+    fn the_status_page_describes_each_profile_from_the_box_and_the_rate_want_uses() {
+        let json = |name: &str, max_height: Option<u32>, kbps: u32| {
+            serde_json::json!({ "name": name, "codec": "h264", "maxHeight": max_height, "progressive": true, "kbps": kbps })
+        };
+        assert_eq!(
+            Profile::ALL.map(Profile::describe),
+            [
+                json("heavy", None, 9000),
+                json("mobile", Some(720), 3500),
+                json("internet540", Some(540), 2000),
+                json("internet480", Some(480), 1200),
+                json("internet360", Some(360), 800),
+                json("internet240", Some(240), 400),
+            ]
+        );
+        for profile in Profile::ALL {
+            let (described, asked) = (profile.describe(), profile.want(&hd()));
+            assert_eq!(described["kbps"], asked.kbps, "{profile:?}: the top rate is what a 1080 station gets");
+            if profile != Profile::Heavy {
+                assert_eq!(described["maxHeight"], asked.height, "{profile:?}: the height of the biggest picture it makes");
+            }
+        }
+        assert_eq!(Profile::ALL.map(Profile::name), ["heavy", "mobile", "internet540", "internet480", "internet360", "internet240"]);
     }
 
     #[test]

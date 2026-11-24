@@ -18,7 +18,7 @@ On the TV's private address, port 5004 (`hdhr` in `helper.json`: `port`, `bind`,
 | `GET /discover.json` | the device: name, id, `TunerCount` 1, `BaseURL`, `LineupURL` |
 | `GET /lineup.json`, `/lineup_status.json` | the TV's antenna channels, one per number, and an antenna that is not scanning |
 | `GET /lineup.m3u` | the same lineup as an M3U playlist; `url-tvg` names the guide |
-| `GET /status.json` | who has the tuner, without tuning or asking the TV: `{"holder": {"ip", "name", "channel", "channelName", "since"}}` (`name` is `Plex` for the signed-in Plex server's address or a Plex user agent, else the user agent's product; `since` in Unix ms), or `{"holder": null}` while no client's stream has it; `displaced` lists who lost the tuner (below) |
+| `GET /status.json` | who has the tuner, without tuning or asking the TV: `{"holder": {"ip", "name", "channel", "channelName", "since"}}` (`name` is `Plex` for the signed-in Plex server's address or a Plex user agent, else the user agent's product; `since` in Unix ms), or `{"holder": null}` while no client's stream has it; `displaced` lists who lost the tuner (below); `transcode` says whether the converter is on and what it makes (below) |
 | `GET /xmltv.xml` | the TV's own guide, a day back to six days ahead, as XMLTV; with the Guide data plugin on, the online listings laid over it ([guide-data.md](guide-data.md)) |
 | `GET /auto/v<number>` | MPEG-TS of one channel (`/auto/v2.4`), starting with the program's PAT and PMT. With the tuner's messages on (the default) it is answered at once and opens with a slate while the channel tunes; otherwise it is answered once the channel's first whole picture has come, and starts with that picture |
 | `GET /auto/v<number>?transcode=<profile>` | the same channel as H.264 from the TV's own video hardware, when the owner has switched that on (*H.264 on request*, below) |
@@ -64,20 +64,23 @@ switches on *Make H.264 for players that ask* on the plugin's page: with it off 
 
 | Profile | Picture | Video |
 |---|---|---|
+| `heavy` | progressive at the station's own size and rate: 1920x1080 at 29.97 from 1080i, 1280x720 at 59.94 from 720p60, the SD size at 29.97 from 480i | 9 Mbit/s at 1080, 7.5 at 720p60, 5 at 720p30, 2.5 below |
 | `mobile` | progressive, at most 1280x720 (960x720 for a 4:3 station) and 30 frames a second | 3.5 Mbit/s |
 | `internet540`, `internet480`, `internet360`, `internet240` | progressive, at most 30 frames a second, within 960x540, 848x480, 640x360 or 432x240 (720x540, 640x480, 480x360 or 320x240 for 4:3) | 2, 1.2, 0.8 or 0.4 Mbit/s |
-| `heavy` | the station's own size and rate | 9 Mbit/s above 720 lines, 6 at 720, 2.5 below |
 
-The stream is H.264 High with a key frame once a second and the station's AC-3 sound passed through. A picture is never enlarged, and
-59.94 frames a second become 29.97. With the setting on, a name not in the table is refused with 400 and `802 Unknown Transcode
-Profile`. The first picture comes about 1.5 s after the request (3 s at most) and no slate is sent: the messages in the stream are MPEG-2.
+Every profile is progressive: the TV's decoder hands over whole pictures (it deinterlaces in hardware), so a 1080i or 480i station comes out
+at 29.97 frames a second. `heavy` keeps a 720p60 station's 59.94; the others make it 29.97. A picture whose pixels are not square (704x480
+or 720x480 in 16:9 or 4:3, 1440x1080) is made at its own size and carries its pixel shape in the H.264 stream (40:33 for 704x480 in 16:9),
+so a player draws it in the station's shape; a shape within 2 % of square carries none. The stream is H.264 High with a key frame every
+2 s and the station's AC-3 sound passed through. A picture is never enlarged. With the setting on, a name not in the table is refused with
+400 and `802 Unknown Transcode Profile`. The first picture comes about 1.5 s after the request (3 s at most) and no slate is sent: the
+messages in the stream are MPEG-2. `mobile` is measured on the set; `heavy` and the `internet` profiles are tested on the host only.
 
 The video hardware is the TV's own, so the converter gives way. It converts only while Home or LumaTV is in front and no other program
 holds a video decoder; when an app takes the hardware the stream ends within a second and the page says `Paused` and why. A player
 reconnects when a stream ends, and a request that comes while the hardware is taken is served as the station sends it. Also:
 
-- a station that is H.264 already, an SD picture in 16:9 and an anamorphic HD one are sent as the station sends them: the converter
-  would get their shape wrong;
+- a station that is H.264 already is sent as the station sends it: the converter makes H.264 from MPEG-2 only;
 - a converter that cannot start, or stalls, leaves the request as MPEG-2 and rests for a minute;
 - one that fails in mid-stream ends the stream, and the player's next request is MPEG-2;
 - one whose hardware call does not return stops until the helper restarts, and the page says so.
@@ -119,6 +122,12 @@ entry goes when the same client starts a stream again.
 `/status.json` also lists `"viewers": [{"ip", "name", "channel", "channelName", "since", "rf", "shared"}]` (every stream on the tuner, the
 first also as `"holder"`; `shared` is true while another viewer is on the RF channel) and `"sameRf": [{"rf", "channels": ["2.1", "2.4"]}]`
 (the lineup's channels grouped by RF channel, two or more each: these can be watched together).
+
+`/status.json` also says what the converter makes: `"transcode": {"enabled", "profiles": [{"name", "codec", "maxHeight", "progressive", "kbps"}]}`.
+`enabled` mirrors *Make H.264 for players that ask*. `profiles` lists the profiles measured on the set, best picture first, and is empty while
+the setting is off; a profile left out is still made when a request names it. `codec` is `h264`; `maxHeight` is the tallest picture in lines,
+`null` where the station's own size is kept; `progressive` is true for every profile; `kbps` is the video rate at the largest picture. Now:
+`[{"name": "mobile", "codec": "h264", "maxHeight": 720, "progressive": true, "kbps": 3500}]`.
 
 The tuner answers while the TV is on with any app in front, or off in Always Ready (Active Standby). A stream takes only the tuner and
 the section decoder: the app in front keeps its picture and sound (Netflix in 4K, which holds every video decoder, too), and the TV's

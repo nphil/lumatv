@@ -157,20 +157,20 @@ Encoder calls, in order (`/dev/venc`, `venc/venc_abi.h`):
 
 ### Geometry
 
-What the engine asks for (`Profile::want`, tested on the host). The first row needs no pixel work, so it is first light:
+What the engine asks for (`Profile::want`, tested on the host). The child always encodes progressive frames, and the decoder hands over whole pictures: its display DMA writes one field and interpolates the other field's lines (`kdriver/core/de/v4l2_gps.c`), so there is no CPU deinterlace, and 1080i cannot be made at 59.94 (the H1 needs 24.7 ms a frame at 1080 against 16.7 ms) [INFERENCE from the driver source; the frame check on the set is pending]:
 
 | Station | `heavy` | `mobile` | Pixel work |
 |---|---|---|---|
-| 720p60 | 1280x720 at 59.94, every picture | 1280x720 at 29.97: every other decoded picture is not encoded | none |
-| 1080i | 1920x1080 interlaced (H1 field mode: a CPU field split, 1.5 MB per frame) | 1280x720 at 29.97 from one field | CPU scale of a 1920x540 field; hardware scaling only if P3 shows a smaller capture is possible [INFERENCE] |
-| 480i | 720x480 interlaced | 640x480 (4:3) or 848x480 (16:9), square pixels | CPU deinterlace and scale; `heavy` needs the SPS aspect ratio written, the H1 wrapper has none |
+| 720p60 | 1280x720 at 59.94, every picture (the H1 needs 9.2 ms a frame at 720) | 1280x720 at 29.97: every other decoded picture is not encoded | none |
+| 1080i | 1920x1080 at 29.97 | 1280x720 at 29.97 | `mobile`: CPU scale; `heavy`: none |
+| 480i | its own size (704x480, 720x480 or 640x480) at 29.97, with its pixel aspect in the SPS | 640x480 (4:3) or 848x480 (16:9), square pixels | `mobile`: CPU scale |
 | 34.4 (H.264) | not touched | not touched | `Unsupported`: served as sent |
 
-A shape the backend was not taught answers `Unsupported` and the request goes out as MPEG-2, so the first build can ship 720p60 to `mobile` alone. Whether phones play field-coded H.264 for `heavy` 1080i is untested [INFERENCE]. The `internet` profiles are the same path with smaller boxes and lower rates; the kbit/s each asks for (`mobile` 3500, `heavy` 9000 at 1080) are starting points to tune on the set.
+A picture whose pixels are not square is made at its own size and the child writes the pixel aspect ratio into the SPS (`annexb_set_sar`: 40:33 for 704x480 in 16:9, 32:27 for 720x480, 10:11 and 8:9 in 4:3; within 2 % of square nothing is written; checked on the host with ffprobe), in place of refusing a shape the box does not hold. The kbit/s asked for (`heavy` 9000 at 1080, 7500 at 720p60, 5000 at 720p30, 2500 below; `mobile` 3500) are starting points to tune on the set. `heavy` through the helper, its 59.94 at 720p60 and its 1080 chain beside other apps have not been measured on the set; `/status.json` lists only the profiles that have been.
 
 ### The tuner's API (HDHomeRun EXTEND)
 
-- **Request:** `GET /auto/v<channel>?transcode=<profile>`. The names are SiliconDust's (`PUB:`): `heavy` (H.264 at the source's size, rate and interlacing), `mobile` (progressive, at most 1280x720 and 30 fps), `internet540`, `internet480`, `internet360`, `internet240` (progressive, at most 30 fps, within 960x540, 848x480, 640x360, 432x240; 4:3 stations within 720x540, 640x480, 480x360, 320x240). Case is ignored and `duration=` is ignored (the client closes the connection). Only a request that asks is converted: Plex and every other client keep MPEG-2 byte for byte.
+- **Request:** `GET /auto/v<channel>?transcode=<profile>`. The names are SiliconDust's (`PUB:`): `heavy` (H.264 at the source's size and rate, progressive), `mobile` (progressive, at most 1280x720 and 30 fps), `internet540`, `internet480`, `internet360`, `internet240` (progressive, at most 30 fps, within 960x540, 848x480, 640x360, 432x240; 4:3 stations within 720x540, 640x480, 480x360, 320x240). Case is ignored and `duration=` is ignored (the client closes the connection). Only a request that asks is converted: Plex and every other client keep MPEG-2 byte for byte.
 - **Errors** (`PUB:` numbers, as the tuner already answers 805): 802 Unknown Transcode Profile (HTTP 400) for a name that is none of these, before the tuner is touched; 806 Tune Failed (HTTP 502) when the converter fails while the stream runs. 801, 805 and 807 are as before.
 - **Gate:** the query is acted on only when a converter is installed in the engine (`Tuner::transcode(Some(codec))`); without one it is ignored, even a name nobody knows, so a client that always asks gets MPEG-2 from a tuner that cannot. The plugin's setting (off by default) arrives with the backend: a toggle with nothing behind it would do nothing.
 - **Output:** the station's PIDs; a PAT and a PMT whose video type is 0x1B (audio entries kept; the closed-caption descriptor dropped, since captions ride in the MPEG-2 user data and are lost); H.264 with a PTS and an access unit delimiter in front; nothing goes out before the first key unit (SPS, PPS, IDR); PCR regenerated from the pictures, with a 40 ms keepalive when they are slow. `discover.json` is unchanged: a player reads the PMT, and the transcode capability is not advertised since Plex gains nothing.

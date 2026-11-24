@@ -108,12 +108,18 @@ impl Format {
 
     /// How wide a square-pixel picture of the same height would be: what a coded pixel spans on the screen.
     pub fn display_width(&self) -> f32 {
-        let h = f32::from(self.height);
+        let (across, down) = self.display_aspect();
+        f32::from(self.height) * across as f32 / down as f32
+    }
+
+    /// The shape the picture is meant to be shown in, as a fraction (16 and 9): what `aspect_ratio_information` signals, or the coded size's own when it
+    /// signals square pixels.
+    pub fn display_aspect(&self) -> (u32, u32) {
         match self.aspect {
-            2 => h * 4.0 / 3.0,
-            3 => h * 16.0 / 9.0,
-            4 => h * 2.21,
-            _ => f32::from(self.width),
+            2 => (4, 3),
+            3 => (16, 9),
+            4 => (221, 100),
+            _ => (u32::from(self.width), u32::from(self.height)),
         }
     }
 }
@@ -543,6 +549,15 @@ mod tests {
             Some(Format { width: 1280, height: 720, rate: 7, aspect: 3, progressive: true })
         );
         assert_eq!(Format::of_sequence(&es[..10]), None, "cut short");
+    }
+
+    #[test]
+    fn the_signalled_shape_is_a_fraction_and_gives_the_width_of_a_square_pixel_picture() {
+        let shape = |aspect, width, height| Format { width, height, aspect, ..SD }.display_aspect();
+        assert_eq!([shape(2, 704, 480), shape(3, 704, 480), shape(4, 1920, 1080), shape(1, 640, 480)], [(4, 3), (16, 9), (221, 100), (640, 480)]);
+        assert_eq!(Format::FALLBACK.display_width(), 1920.0);
+        assert_eq!(Format { aspect: 2, ..SD }.display_width(), 640.0);
+        assert_eq!(Format { aspect: 1, width: 704, ..SD }.display_width(), 704.0);
     }
 
     #[test]

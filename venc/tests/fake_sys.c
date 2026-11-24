@@ -231,7 +231,8 @@ static uint32_t fake_encode(struct fd_state *s, const LX_VENC_ENC_ENCODE_T *e, u
     size_t n = 0;
     int intra = s->frames == 0 || (s->gop && s->gop_count >= (int)s->gop);
     if (intra) {
-        static const uint8_t sps[] = { 0, 0, 0, 1, 0x67, 100, 0, 41, 0xac, 0x2b, 0x40, 0x50, 0x1e, 0xd0, 0x80, 0 };
+        /* High profile 4:2:0, picture order type 2, one reference frame, 704x480, no VUI: an x264 SPS with its VUI cut off */
+        static const uint8_t sps[] = { 0, 0, 0, 1, 0x67, 100, 0, 41, 0xac, 0xb4, 0x05, 0x81, 0xec, 0x80, 0, 0 };
         static const uint8_t pps[] = { 0, 0, 0, 1, 0x68, 0xee, 0x38, 0x80 };
         memset(out, 0, VENC_SPS_PPS_BLOCK);
         memcpy(out, sps, sizeof(sps));

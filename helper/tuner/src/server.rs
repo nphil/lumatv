@@ -674,7 +674,8 @@ mod tests {
         let peers = vec![Cidr::parse("127.0.0.0/8").unwrap()];
         let server = Server::start(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), Arc::new(facade), peers).unwrap();
         let status = || serde_json::from_slice::<Value>(split(&get(&server, "GET /status.json HTTP/1.1\r\n\r\n")).1).unwrap();
-        assert_eq!(status(), serde_json::json!({"holder": null, "viewers": [], "displaced": [], "sameRf": []}));
+        let off = serde_json::json!({"enabled": false, "profiles": []});
+        assert_eq!(status(), serde_json::json!({"holder": null, "viewers": [], "displaced": [], "sameRf": [], "transcode": off}));
 
         let plex = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 69));
         let claim = crate::stream::Claim {
@@ -690,7 +691,7 @@ mod tests {
         let lease = tuning.take_stream(claim, "Plex".into(), 4, Duration::ZERO).unwrap();
         assert_eq!(
             status(),
-            serde_json::json!({"holder": {"ip": "192.168.1.69", "name": "Plex", "channel": "2.1", "channelName": "WSB-HD", "since": 1_794_000_000_000u64}, "viewers": [{"ip": "192.168.1.69", "name": "Plex", "channel": "2.1", "channelName": "WSB-HD", "since": 1_794_000_000_000u64, "rf": 32, "shared": false}], "displaced": [], "sameRf": []})
+            serde_json::json!({"holder": {"ip": "192.168.1.69", "name": "Plex", "channel": "2.1", "channelName": "WSB-HD", "since": 1_794_000_000_000u64}, "viewers": [{"ip": "192.168.1.69", "name": "Plex", "channel": "2.1", "channelName": "WSB-HD", "since": 1_794_000_000_000u64, "rf": 32, "shared": false}], "displaced": [], "sameRf": [], "transcode": off})
         );
 
         let (head, _) = split(&get(&server, "GET /auto/v7.1 HTTP/1.1\r\n\r\n"));
@@ -706,9 +707,54 @@ mod tests {
         drop(lease);
         assert_eq!(
             status(),
-            serde_json::json!({"holder": null, "viewers": [], "displaced": [], "sameRf": [{"rf": 32, "channels": ["2.1", "2.4"]}]}),
+            serde_json::json!({"holder": null, "viewers": [], "displaced": [], "sameRf": [{"rf": 32, "channels": ["2.1", "2.4"]}], "transcode": off}),
             "the channels that can be watched together"
         );
+    }
+
+    #[test]
+    fn status_json_says_whether_the_converter_is_on_and_the_profiles_it_makes_best_first() {
+        /// A converter that makes the two best profiles and nothing else.
+        struct Two;
+        impl crate::Codec for Two {
+            fn open(&self, _: &crate::mpeg2::Format, _: &crate::Want) -> Result<Box<dyn crate::Convert>, crate::Fault> {
+                Err(crate::Fault::Unsupported("test".to_owned()))
+            }
+
+            fn profiles(&self) -> &'static [crate::Profile] {
+                &[crate::Profile::Heavy, crate::Profile::Mobile]
+            }
+        }
+        let time = Time::default();
+        let tuning = served();
+        let facade = Facade::new(
+            Arc::new(Shared(fake_with(&time, rf32(&[]), vec![]))),
+            Identity { name: "LumaTV".into(), device_id: "0A1B2C3D".into() },
+            Limits::default(),
+            time.clock(),
+            tuning.clone(),
+            None,
+        );
+        let server = Server::start(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), Arc::new(facade), vec![Cidr::parse("127.0.0.0/8").unwrap()]).unwrap();
+        let transcode = || serde_json::from_slice::<Value>(split(&get(&server, "GET /status.json HTTP/1.1\r\n\r\n")).1).unwrap()["transcode"].clone();
+        assert_eq!(transcode(), serde_json::json!({"enabled": false, "profiles": []}), "no converter, nothing is made");
+
+        tuning.options.lock().codec = Some(Arc::new(Two));
+        assert_eq!(
+            transcode(),
+            serde_json::json!({
+                "enabled": true,
+                "profiles": [
+                    {"name": "heavy", "codec": "h264", "maxHeight": null, "progressive": true, "kbps": 9000},
+                    {"name": "mobile", "codec": "h264", "maxHeight": 720, "progressive": true, "kbps": 3500},
+                ]
+            })
+        );
+
+        tuning.options.lock().codec = Some(Arc::new(converter::Fake::default()));
+        let all = transcode();
+        let names: Vec<&str> = all["profiles"].as_array().unwrap().iter().map(|p| p["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["heavy", "mobile", "internet540", "internet480", "internet360", "internet240"], "a converter that does not say makes them all");
     }
 
     #[test]

@@ -6,6 +6,7 @@
 #include <math.h>
 #include <poll.h>
 #include <signal.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +14,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "../annexb.h"
 #include "../scale.h"
 #include "../sysops.h"
 #include "../venc_abi.h"
@@ -125,6 +127,263 @@ static void test_wire(void)
     static const uint8_t golden[24] = { 'X', 'A', 'U', 'N', 1, 0, 0, 0, 8, 7, 6, 5, 4, 3, 2, 1, 3, 0, 0, 0, 7, 0, 0, 0 };
     CHECK(sizeof(h) == XC_HEADER_LEN && !memcmp(&h, golden, sizeof(golden)), "record header bytes");
     CHECK(sizeof(struct xc_cfg) == 64 && sizeof(struct xc_ready) == 24 && sizeof(struct xc_event) == 32, "record sizes");
+    CHECK(offsetof(struct xc_cfg, out_size) == 56 && offsetof(struct xc_cfg, sar_w) == 60 && offsetof(struct xc_cfg, sar_h) == 62, "the pixel aspect ratio is the last word");
+}
+
+/* ---- the pixel aspect ratio written into the SPS ---- */
+
+/* What annexb_set_sar must write is built here the slow way, as strings of '0' and '1', so that it does not share the code's bit handling. */
+static void bs_put(char *s, unsigned v, unsigned n)
+{
+    size_t l = strlen(s);
+    while (n--)
+        s[l++] = ((v >> n) & 1) ? '1' : '0';
+    s[l] = 0;
+}
+
+/* ue(v): n zeros, then v + 1 in n + 1 bits */
+static void bs_ue(char *s, unsigned v)
+{
+    unsigned x = v + 1, n = 0;
+    while (x >> (n + 1))
+        n++;
+    bs_put(s, 0, n);
+    bs_put(s, x, n + 1);
+}
+
+/* a NAL: its header byte, then the bits with a stop bit and zero padding, 00 00 0x escaped as 00 00 03 0x */
+static size_t bs_nal(const char *bits, uint8_t header, uint8_t *out)
+{
+    char s[700];
+    snprintf(s, sizeof(s), "%s1", bits);
+    while (strlen(s) % 8)
+        strcat(s, "0");
+    size_t n = 0;
+    unsigned zeros = 0;
+    out[n++] = header;
+    for (size_t i = 0; s[i]; i += 8) {
+        uint8_t b = 0;
+        for (int k = 0; k < 8; k++)
+            b = (uint8_t)(b << 1 | (s[i + k] == '1'));
+        if (zeros >= 2 && b <= 3) {
+            out[n++] = 3;
+            zeros = 0;
+        }
+        out[n++] = b;
+        zeros = b ? 0 : zeros + 1;
+    }
+    return n;
+}
+
+static int has_escape(const uint8_t *p, size_t n)
+{
+    for (size_t i = 0; i + 2 < n; i++)
+        if (!p[i] && !p[i + 1] && p[i + 2] == 3)
+            return 1;
+    return 0;
+}
+
+static size_t hex(const char *s, uint8_t *out)
+{
+    size_t n = 0;
+    for (; s[0] && s[1]; s += 2)
+        out[n++] = (uint8_t)strtoul((char[3]) { s[0], s[1], 0 }, NULL, 16);
+    return n;
+}
+
+struct sps_spec {
+    unsigned sps_id, log2_fn, poc_type, refs, mbs_w, mbs_h, fields, crop, scaling;
+};
+
+/* an SPS as far as its VUI flag, which is not part of the string: the encoder's own is High, 4:2:0, picture order count type 2, progressive; the others
+ * are what the reader has to step over without being surprised */
+static void sps_bits(char *s, const struct sps_spec *c)
+{
+    s[0] = 0;
+    bs_put(s, 100, 8);
+    bs_put(s, 0, 8);
+    bs_put(s, 41, 8);
+    bs_ue(s, c->sps_id);
+    bs_ue(s, 1);
+    bs_ue(s, 0);
+    bs_ue(s, 0);
+    bs_put(s, 0, 1);
+    bs_put(s, c->scaling, 1);
+    bs_ue(s, c->log2_fn);
+    bs_ue(s, c->poc_type);
+    if (c->poc_type == 0) {
+        bs_ue(s, 2);
+    } else if (c->poc_type == 1) {
+        bs_put(s, 0, 1);
+        bs_ue(s, 3);
+        bs_ue(s, 0);
+        bs_ue(s, 2);
+        bs_ue(s, 7);
+        bs_ue(s, 1);
+    }
+    bs_ue(s, c->refs);
+    bs_put(s, 0, 1);
+    bs_ue(s, c->mbs_w - 1);
+    bs_ue(s, c->mbs_h - 1);
+    bs_put(s, c->fields ? 0 : 1, 1); /* frame_mbs_only_flag; with fields, mb_adaptive_frame_field_flag follows */
+    if (c->fields)
+        bs_put(s, 1, 1);
+    bs_put(s, 1, 1);
+    if (c->crop) {
+        bs_put(s, 1, 1);
+        bs_ue(s, c->crop);
+        bs_ue(s, c->crop);
+        bs_ue(s, 0);
+        bs_ue(s, 0);
+    } else {
+        bs_put(s, 0, 1);
+    }
+}
+
+/* an access unit as the encoder emits one: SPS, zero padding, PPS, zero padding, the IDR slice */
+static size_t sps_unit(uint8_t *au, const uint8_t *sps, size_t n)
+{
+    static const uint8_t pps[] = { 0, 0, 0, 1, 0x68, 0xee, 0x38, 0x80 };
+    static const uint8_t idr[] = { 0, 0, 0, 1, 0x65, 0x88, 0x84, 0x21, 0xa0, 0x10, 0x55, 0x80 };
+    size_t k = 0;
+    memcpy(au + k, "\0\0\0\1", 4);
+    k += 4;
+    memcpy(au + k, sps, n);
+    k += n;
+    memset(au + k, 0, 6);
+    k += 6;
+    memcpy(au + k, pps, sizeof(pps));
+    k += sizeof(pps);
+    memset(au + k, 0, 8);
+    k += 8;
+    memcpy(au + k, idr, sizeof(idr));
+    return k + sizeof(idr);
+}
+
+/* the unit comes back exactly as it went in */
+static void refused(const char *what, const uint8_t *sps, size_t n, unsigned w, unsigned h, size_t room)
+{
+    uint8_t au[512], before[512];
+    size_t len = sps_unit(au, sps, n);
+    memcpy(before, au, len);
+    size_t got = annexb_set_sar(au, len, len + room, w, h);
+    CHECK(got == 0 && !memcmp(au, before, len), "%s: refused and left alone (returned %zu)", what, got);
+}
+
+static void test_sar_rewrite(void)
+{
+    /* what the encoder's stream says of its pixel aspect ratio once this is done: aspect_ratio_idc (Table E-1), or 255 with the ratio in lowest terms */
+    static const struct {
+        unsigned w, h, idc, rw, rh;
+    } sars[] = {
+        { 1, 1, 1, 0, 0 },
+        { 10, 11, 3, 0, 0 },
+        { 40, 33, 5, 0, 0 },
+        { 80, 66, 5, 0, 0 },
+        { 4, 3, 14, 0, 0 },
+        { 32, 27, 255, 32, 27 },
+        { 64, 54, 255, 32, 27 },
+        { 1, 32768, 255, 1, 32768 }, /* ends the SPS in 23 zero bits: with the stop bit last in its byte, 00 00 01 wants an escape byte */
+        { 65535, 65534, 255, 65535, 65534 },
+    };
+    /* every combination of these is an SPS: 3 * 3 * 2 * 4 * 3 * 2 of them, 9 ratios each */
+    static const unsigned ids[] = { 0, 1, 4 }, frames[] = { 0, 4, 12 }, refs[] = { 1, 3 }, crops[] = { 0, 8, 255, 4095 };
+    unsigned flag_at = 0, escaped_in = 0, escaped_out = 0, bad = 0, cases = 0;
+    char first[200] = "";
+    for (unsigned v = 0; v < 3 * 3 * 2 * 4 * 3 * 2; v++) {
+        unsigned r = v;
+        struct sps_spec sp = { .sps_id = ids[r % 3] };
+        r /= 3;
+        sp.log2_fn = frames[r % 3];
+        r /= 3;
+        sp.refs = refs[r % 2];
+        r /= 2;
+        sp.crop = crops[r % 4];
+        r /= 4;
+        sp.poc_type = r % 3;
+        r /= 3;
+        sp.fields = r % 2;
+        sp.mbs_w = v & 1 ? 120 : 44;
+        sp.mbs_h = v & 1 ? 68 : 30;
+        char bits[700], in_bits[700], want_bits[700];
+        sps_bits(bits, &sp);
+        flag_at |= 1u << (strlen(bits) % 8);
+        snprintf(in_bits, sizeof(in_bits), "%s0", bits);
+        uint8_t in_nal[256], want_nal[256], au[512], want[512];
+        size_t in_n = bs_nal(in_bits, 0x67, in_nal);
+        escaped_in |= (unsigned)has_escape(in_nal, in_n);
+        for (unsigned k = 0; k < sizeof(sars) / sizeof(sars[0]); k++) {
+            snprintf(want_bits, sizeof(want_bits), "%s11", bits);
+            bs_put(want_bits, sars[k].idc, 8);
+            if (sars[k].idc == 255) {
+                bs_put(want_bits, sars[k].rw, 16);
+                bs_put(want_bits, sars[k].rh, 16);
+            }
+            bs_put(want_bits, 0, 8);
+            size_t want_n = bs_nal(want_bits, 0x67, want_nal);
+            escaped_out |= (unsigned)has_escape(want_nal, want_n);
+            size_t len = sps_unit(au, in_nal, in_n), want_len = sps_unit(want, want_nal, want_n);
+            size_t got = annexb_set_sar(au, len, len + 64, sars[k].w, sars[k].h);
+            cases++;
+            if ((got != want_len || memcmp(au, want, want_len)) && !bad++)
+                snprintf(first, sizeof(first), "variant %u with %u:%u: returned %zu, wanted %zu", v, sars[k].w, sars[k].h, got, want_len);
+        }
+    }
+    CHECK(!bad, "%u of %u rewrites differ from the reference; the first: %s", bad, cases, first);
+    CHECK(flag_at == 0xff, "the VUI flag fell at every bit of a byte: %#x", flag_at);
+    CHECK(escaped_in && escaped_out, "an escape byte was in the SPS read (%u) and in the SPS written (%u)", escaped_in, escaped_out);
+
+    /* an x264 SPS with its VUI cut off (its own stream, 704x480), the ratio written in, then read by ffprobe: 40:33 is 16:9, 10:11 is 4:3, and
+     * 32:27 on this picture is 704:405 */
+    static const struct {
+        unsigned w, h;
+        const char *sps;
+    } golden[] = {
+        { 40, 33, "6764001eacb40581ed828040" },
+        { 10, 11, "6764001eacb40581ed818040" },
+        { 4, 3, "6764001eacb40581ed870040" },
+        { 32, 27, "6764001eacb40581edff8010000d8040" },
+    };
+    uint8_t plain[16], au[512], before[512], want[16];
+    size_t plain_n = hex("6764001eacb40581ec80", plain);
+    for (unsigned k = 0; k < sizeof(golden) / sizeof(golden[0]); k++) {
+        size_t len = sps_unit(au, plain, plain_n), want_n = hex(golden[k].sps, want);
+        memcpy(before, au, len);
+        size_t got = annexb_set_sar(au, len, len + want_n - plain_n, golden[k].w, golden[k].h);
+        CHECK(got == len + want_n - plain_n && !memcmp(au, before, 4) && !memcmp(au + 4, want, want_n) &&
+                  !memcmp(au + 4 + want_n, before + 4 + plain_n, len - 4 - plain_n),
+              "%u:%u: the SPS is %s, and everything after it moves up unchanged", golden[k].w, golden[k].h, golden[k].sps);
+    }
+    refused("no room for the two bytes it grows by", plain, plain_n, 40, 33, 1);
+
+    /* what it leaves alone */
+    uint8_t sps[160];
+    size_t n = hex("6764001eacb40581ed808800001f480007530078b175", sps);
+    refused("an SPS with a VUI already", sps, n, 40, 33, 64);
+    char bits[700];
+    struct sps_spec scaled = { .log2_fn = 4, .poc_type = 2, .refs = 1, .mbs_w = 44, .mbs_h = 30, .scaling = 1 };
+    sps_bits(bits, &scaled);
+    strcat(bits, "0");
+    n = bs_nal(bits, 0x67, sps);
+    refused("an SPS with scaling lists", sps, n, 40, 33, 64);
+    struct sps_spec plain_spec = { .log2_fn = 4, .poc_type = 2, .refs = 1, .mbs_w = 44, .mbs_h = 30 };
+    sps_bits(bits, &plain_spec);
+    strcat(bits, "01");
+    n = bs_nal(bits, 0x67, sps);
+    refused("an SPS with more after its VUI flag", sps, n, 40, 33, 64);
+    refused("a ratio of 0", plain, plain_n, 0, 1, 64);
+    refused("a ratio of 1:0", plain, plain_n, 1, 0, 64);
+    refused("a ratio over 16 bits", plain, plain_n, 65536, 1, 64);
+    for (size_t cut = 1; cut < plain_n; cut++) {
+        uint8_t part[32] = { 0, 0, 0, 1 }, keep[32];
+        memcpy(part + 4, plain, cut);
+        memcpy(keep, part, 4 + cut);
+        CHECK(annexb_set_sar(part, 4 + cut, 4 + cut + 64, 40, 33) == 0 && !memcmp(part, keep, 4 + cut), "an SPS cut after %zu bytes is left alone", cut);
+    }
+    static const uint8_t no_sps[] = { 0, 0, 0, 1, 0x41, 0x9a, 0x00, 0x33, 0x80 };
+    uint8_t p_unit[sizeof(no_sps)];
+    memcpy(p_unit, no_sps, sizeof(no_sps));
+    CHECK(annexb_set_sar(p_unit, sizeof(p_unit), 128, 40, 33) == 0 && !memcmp(p_unit, no_sps, sizeof(no_sps)), "a unit with no SPS is left alone");
 }
 
 /* ---- the child, over pipes ---- */
@@ -304,14 +563,19 @@ static uint32_t picture_sum(uint32_t w, uint32_t h, uint32_t id, uint32_t ow, ui
     return sum;
 }
 
-/* the fake encoder renders its checksum into the unit's payload */
+/* the fake encoder renders its checksum into the unit's payload, behind the slice's NAL header; a key unit's SPS and PPS before it may have grown */
 static int unit_is(const struct rec *r, uint32_t sum)
 {
-    size_t off = (r->h.flags & XC_FLAG_KEY) ? VENC_SPS_PPS_BLOCK + 5 : 5;
-    if (r->h.size < off + 24)
+    size_t pos = 0;
+    struct annexb_nal nal;
+    while (annexb_next(r->data, r->h.size, &pos, &nal) && nal.type != 1 && nal.type != 5)
+        ;
+    if (nal.type != 1 && nal.type != 5)
+        return 0;
+    if (nal.len < 1 + 24)
         return 0;
     for (int i = 0; i < 24; i++)
-        if (r->data[off + i] != (uint8_t)(0x10 + ((sum >> i) & 0x3f)))
+        if (nal.p[1 + i] != (uint8_t)(0x10 + ((sum >> i) & 0x3f)))
             return 0;
     return 1;
 }
@@ -347,6 +611,7 @@ static void test_basic(void)
     }
     if (n) {
         CHECK(u[0]->h.size > 8 && u[0]->data[4] == 0x67 && u[0]->data[7] == 30, "the SPS says level %d, not the encoder's 4.1", u[0]->data[7]);
+        CHECK(u[0]->h.size == VENC_SPS_PPS_BLOCK + 5 + 4000 + 1, "without a pixel aspect ratio the unit is the encoder's own: %u bytes", u[0]->h.size);
     }
     run_free(&r);
 }
@@ -393,6 +658,46 @@ static void test_scaled(void)
         CHECK(unit_is(u[k], picture_sum(1920, 1080, 7 + (uint32_t)k, 1280, 720)), "unit %d is the picture scaled to 1280x720", k);
     if (n)
         CHECK(u[0]->data[7] == 31, "1280x720 at 30 fps says level %d", u[0]->data[7]);
+    run_free(&r);
+}
+
+static void test_pixel_aspect(void)
+{
+    /* the encoder's SPS (an x264 one without its VUI) with 40:33 added and the level said as 3.0 */
+    static const uint8_t golden[12] = { 0x67, 0x64, 0x00, 0x1e, 0xac, 0xb4, 0x05, 0x81, 0xed, 0x82, 0x80, 0x40 };
+    struct xc_cfg cfg = cfg_for(640, 368);
+    cfg.sar_w = 40;
+    cfg.sar_h = 33;
+    struct child c;
+    child_start(&c);
+    send_rec(&c, XC_CONFIG, 0, 0, 0, &cfg, sizeof(cfg));
+    for (uint32_t i = 0; i < 3; i++)
+        send_au(&c, 640, 368, i, i);
+    struct run r = { .n = 0 };
+    CHECK(finish(&c, &r) == XC_EXIT_OK, "exit");
+    const struct rec *u[MAX_RECS];
+    int n = units(&r, u, MAX_RECS);
+    CHECK(n == 3, "%d units", n);
+    if (n == 3) {
+        CHECK(u[0]->h.size == VENC_SPS_PPS_BLOCK + 5 + 4000 + 1 + 2 && !memcmp(u[0]->data + 4, golden, sizeof(golden)),
+              "the IDR's SPS carries 40:33: %u bytes", u[0]->h.size);
+        CHECK(unit_is(u[0], picture_sum(640, 368, 0, 640, 368)), "the slice behind the grown SPS is the encoder's");
+        CHECK(u[1]->h.size == 5 + 900 + 1 && u[2]->h.size == 5 + 900 + 1, "the other units are as the encoder made them");
+    }
+    run_free(&r);
+
+    /* an SPS that cannot take it (Main profile has no chroma and bit depth fields, so the fake's SPS does not read as one) goes out as it was */
+    cfg.profile = LX_VENC_H264_PROFILE_MAIN;
+    child_start(&c);
+    send_rec(&c, XC_CONFIG, 0, 0, 0, &cfg, sizeof(cfg));
+    for (uint32_t i = 0; i < 3; i++)
+        send_au(&c, 640, 368, i, i);
+    memset(&r, 0, sizeof(r));
+    CHECK(finish(&c, &r) == XC_EXIT_OK, "exit");
+    n = units(&r, u, MAX_RECS);
+    CHECK(n == 3, "%d units", n);
+    if (n == 3)
+        CHECK(u[0]->h.size == VENC_SPS_PPS_BLOCK + 5 + 4000 + 1 && u[0]->data[5] == 77, "the unit went out unchanged: %u bytes", u[0]->h.size);
     run_free(&r);
 }
 
@@ -556,6 +861,11 @@ static void test_failures(void)
     memset(&r, 0, sizeof(r));
     CHECK((rc = run_failure(&bad, NULL, NULL, &r)) == XC_EXIT_CONFIG, "odd output width: exit %d", rc);
     run_free(&r);
+    bad = cfg;
+    bad.sar_w = 40;
+    memset(&r, 0, sizeof(r));
+    CHECK((rc = run_failure(&bad, NULL, NULL, &r)) == XC_EXIT_CONFIG, "a pixel aspect ratio with no height: exit %d", rc);
+    run_free(&r);
     memset(&r, 0, sizeof(r));
     CHECK((rc = run_failure(NULL, NULL, NULL, &r)) == XC_EXIT_CONFIG, "input ended before a configuration: exit %d", rc);
     run_free(&r);
@@ -603,9 +913,11 @@ int main(void)
     alarm(30); /* a hang is a failure, not a stuck build */
     test_scale();
     test_wire();
+    test_sar_rewrite();
     test_basic();
     test_keep_every();
     test_scaled();
+    test_pixel_aspect();
     test_order_and_errors();
     test_requests();
     test_failures();
