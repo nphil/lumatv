@@ -48,7 +48,7 @@ snapshot_url() {
 
 extract_deb() {
   if command -v dpkg-deb >/dev/null 2>&1; then dpkg-deb -x "$1" "$2"
-  else (cd "$2" && ar p "$1" data.tar.xz | tar -xJ 2>/dev/null || ar p "$1" data.tar.zst | tar --zstd -x); fi
+  else (cd "$2" && ar p "$1" data.tar.xz | tar -xJ --no-same-owner 2>/dev/null || ar p "$1" data.tar.zst | tar --zstd -x --no-same-owner); fi
 }
 
 mkdir -p "$DL"

@@ -13,6 +13,6 @@ if [ ! -f "$dir/src/libavcodec/avcodec.h" ]; then
   echo "$sha  $tar" | sha256sum -c - >&2
   rm -rf "$dir/src"
   mkdir -p "$dir/src"
-  tar xJf "$tar" -C "$dir/src" --strip-components=1
+  tar xJf "$tar" --no-same-owner -C "$dir/src" --strip-components=1
 fi
 echo "$dir/src"

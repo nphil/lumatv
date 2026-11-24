@@ -17,6 +17,7 @@
 # zigbuild --locked --release --target aarch64-unknown-linux-gnu.2.36 -p lumagame-engine-gfn; game/engines/punktfunk/build.sh; game/engines/steam/build.sh;
 # gfx64/fetch-blob.sh and gfx64/build.sh.
 set -eu
+umask 022 # the package keeps the modes the installer gives (0755/0644) whatever the build host's umask is
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/.." && pwd)
 id=$(sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$here/package/appinfo.json" | head -1)

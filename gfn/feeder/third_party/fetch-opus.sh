@@ -13,6 +13,6 @@ if [ ! -f "$dir/src/include/opus.h" ]; then
   echo "$sha  $tgz" | sha256sum -c - >&2
   rm -rf "$dir/src"
   mkdir -p "$dir/src"
-  tar xzf "$tgz" -C "$dir/src" --strip-components=1
+  tar xzf "$tgz" --no-same-owner -C "$dir/src" --strip-components=1
 fi
 echo "$dir/src"
