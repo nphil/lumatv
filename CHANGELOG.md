@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The Live TV Tuner gives the tuner to whoever starts a stream last: a phone or tablet's request takes it from another device's stream and from the TV's own Live TV, where a toast names the device and LumaTV Home takes the screen. The displaced stream ends with a `Tuner taken by <device>` slate and `/status.json` lists the displaced client and who took it for 60 s; clients name themselves with `?device=` or `X-Luma-Device`. Plex's recordings keep the tuner.
+The Live TV Tuner shares the tuner between channels on the same RF channel: up to 4 viewers (`hdhr.viewers`) each get their own program from one tune, and the tuner is released when the last leaves. Only a request for a different RF channel takes the tuner: a phone or tablet's request then takes it from every viewer and from the TV's own Live TV, where a toast names the device and LumaTV Home takes the screen. Each displaced stream ends with a `Tuner taken by <device>` slate and `/status.json` lists the displaced client and who took it for 60 s; clients name themselves with `?device=` or `X-Luma-Device`. `/status.json` also lists `viewers` (with `rf` and `shared`) and `sameRf`, the channels grouped by RF channel. Plex's recordings share their RF channel and are never displaced. Sharing with the TV's own Live TV is behind `hdhr.shareLiveTv`, off until the probe on the set.
 
 LumaGame's focus draws no border: a focused banner, tile, row or button is raised glass (the wash, a soft sheen and one shadow, lifted and grown) with no light edge or lip around it. The focus edge colour (`glassFocusEdge`) is no longer used by LumaGame; LumaTV Home's own kit still draws it.
 

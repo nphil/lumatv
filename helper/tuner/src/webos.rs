@@ -32,6 +32,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 /// LG's legacy broadcast service, the one `utp`'s own drives.
 const BROADCAST: &str = "luna://com.webos.service.legacybroadcast.broadcast";
 const LIVE_TV: &str = "com.webos.app.livetv";
+const LIVE_TV_FRONT: &str = "Live TV is in front";
+const LIVE_TV_RUNNING: &str = "Live TV is running";
 /// The state of a broadcast pipeline that is its opener's: once Live TV opens, LG unrealizes the helper's.
 const RENDERING: &str = "BROADCAST_STATE_RENDERING";
 /// How long a luna call may take.
@@ -234,6 +236,10 @@ pub struct WebosConfig {
     /// closed with nothing in front of it and no toast.
     pub home_app: Option<String>,
     pub toast_source: Option<String>,
+    /// Live TV and the helper read one tuner on the same RF channel instead of the helper counting Live TV as using it. Off: LG's pipeline
+    /// manager unrealizes the helper's pipeline when Live TV opens (measured 2026-11-05), so it is on only once the probe on the set has
+    /// shown that Live TV and the helper's download both keep reading when they share an RF channel.
+    pub share_live_tv: bool,
 }
 
 impl Default for WebosConfig {
@@ -245,6 +251,7 @@ impl Default for WebosConfig {
             pipeline_file: std::env::temp_dir().join("lumatuner-pipeline"),
             home_app: None,
             toast_source: None,
+            share_live_tv: false,
         }
     }
 }
@@ -479,7 +486,7 @@ impl Inner {
             Err(f) => return Some(f.reason()),
         };
         if front["appId"].as_str() == Some(LIVE_TV) {
-            return Some("Live TV is in front".to_owned());
+            return Some(LIVE_TV_FRONT.to_owned());
         }
         match self.pipelines() {
             Ok(list)
@@ -487,7 +494,7 @@ impl Inner {
                     .iter()
                     .any(|p| p["currentAppId"].as_str() == Some(LIVE_TV)) =>
             {
-                Some("Live TV is running".to_owned())
+                Some(LIVE_TV_RUNNING.to_owned())
             }
             Ok(_) => None,
             Err(f) => Some(f.reason()),
@@ -631,6 +638,18 @@ impl Hardware for Tv {
 
     fn in_use(&self) -> Option<String> {
         self.inner.in_use()
+    }
+
+    fn in_use_for(&self, channel_id: &str) -> Option<String> {
+        let why = self.inner.in_use()?;
+        let live = why == LIVE_TV_FRONT || why == LIVE_TV_RUNNING;
+        if live && self.inner.cfg.share_live_tv {
+            let there = self.inner.last_channel().ok().and_then(|last| crate::stream::rf_of(&last));
+            if there.is_some() && there == crate::stream::rf_of(channel_id) {
+                return None;
+            }
+        }
+        Some(why)
     }
 
     fn tune(&self, channel_id: &str) -> Result<Box<dyn Tap>, Failure> {
@@ -783,6 +802,10 @@ impl Tap for Tuned {
         self.dvb.as_mut().ok_or_else(|| hw("no demux"))?.start(pids)
     }
 
+    fn route(&mut self, pids: &[u16]) -> Result<(), Failure> {
+        self.dvb.as_mut().ok_or_else(|| hw("no demux"))?.route(pids)
+    }
+
     fn taken(&mut self) -> Option<String> {
         match self.inner.state(&self.pipeline) {
             Ok(state) if state == RENDERING => None,
@@ -816,7 +839,7 @@ struct Dvb {
     /// The demux fd the channel's input is set on; the channel keeps it for as long as this lives.
     input: Option<File>,
     dvr: Option<File>,
-    taps: Vec<File>,
+    taps: Vec<(u16, File)>,
     rest: Vec<u8>,
     chunk: Vec<u8>,
     /// One-shot section filters asked for with `want` and not yet read: (`pid`, `table_id`, `section_number`) and the filter's fd.
@@ -941,19 +964,40 @@ impl Dvb {
         key.fill(0);
         certified.map_err(|e| hw(format!("the PVR download refused the certificate: {e}")))?;
         for &pid in pids {
-            let file = node(&self.cfg, "demux", true)?;
-            let mut q = PesFilter {
-                pid,
-                input: 0,
-                output: OUT_TS_TAP,
-                pes_type: PES_OTHER,
-                flags: IMMEDIATE_START,
-            };
-            ioctl(&file, DMX_SET_PES_FILTER, &mut q)
-                .map_err(|e| hw(format!("tap on PID 0x{pid:x}: {e}")))?;
-            self.taps.push(file);
+            let file = self.tap_on(pid)?;
+            self.taps.push((pid, file));
         }
         self.dvr = Some(dvr);
+        Ok(())
+    }
+
+    /// A demux filter that sends PID `pid`'s packets to the download.
+    fn tap_on(&self, pid: u16) -> Result<File, Failure> {
+        let file = node(&self.cfg, "demux", true)?;
+        let mut q = PesFilter {
+            pid,
+            input: 0,
+            output: OUT_TS_TAP,
+            pes_type: PES_OTHER,
+            flags: IMMEDIATE_START,
+        };
+        ioctl(&file, DMX_SET_PES_FILTER, &mut q).map_err(|e| hw(format!("tap on PID 0x{pid:x}: {e}")))?;
+        Ok(file)
+    }
+
+    /// Changes the routing to `pids` without stopping the download or dropping what it has: filters of PIDs no longer wanted close, and
+    /// the new ones open. Before the first `start` it is one.
+    fn route(&mut self, pids: &[u16]) -> Result<(), Failure> {
+        if self.dvr.is_none() {
+            return self.start(pids);
+        }
+        self.taps.retain(|(pid, _)| pids.contains(pid));
+        for &pid in pids {
+            if self.taps.iter().all(|(p, _)| *p != pid) {
+                let file = self.tap_on(pid)?;
+                self.taps.push((pid, file));
+            }
+        }
         Ok(())
     }
 

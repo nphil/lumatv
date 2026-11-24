@@ -404,7 +404,7 @@ impl Play<'_> {
         let lim = &f.limits;
         self.tuning(0, self.asked);
         self.tick(out)?;
-        let mut tap = match f.hw.tune(&self.entry.channel_id) {
+        let mut tap = match f.attach(&self.entry) {
             Ok(tap) => tap,
             Err(why @ Failure::NoSignal(_)) => {
                 self.read_signal();
@@ -536,7 +536,7 @@ impl Play<'_> {
             }
             if now.saturating_sub(last_owner) >= lim.owner_every {
                 last_owner = now;
-                let taken = f.hw.in_use().or_else(|| self.tap.as_mut().and_then(|t| t.taken()));
+                let taken = f.hw.in_use_for(&self.entry.channel_id).or_else(|| self.tap.as_mut().and_then(|t| t.taken()));
                 if let Some(why) = taken {
                     self.over.then = Status::Busy(why.clone());
                     self.lease.taken_by_tv(&f.hw.tv_name());
@@ -1080,12 +1080,12 @@ pub(crate) mod tests {
             recording: false,
             guide: "2.1".into(),
             name: "WSB-HD".into(),
-            channel_id: "1_32_2_1_0_0_0".into(),
+            channel_id: "1_25_2_1_0_0_0".into(),
             since_ms: 0,
         };
         let taker = {
             let f = f.clone();
-            thread::spawn(move || f.tuning.take_stream(claim, "Pixel".into(), Duration::from_secs(5)).map(drop))
+            thread::spawn(move || f.tuning.take_stream(claim, "Pixel".into(), 4, Duration::from_secs(5)).map(drop))
         };
         while !s.lease.replaced.load(Ordering::Acquire) {
             thread::yield_now();

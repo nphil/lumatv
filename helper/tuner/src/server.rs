@@ -660,6 +660,7 @@ mod tests {
     fn a_tuner_in_use_is_a_short_slate_with_slates_on_else_503_and_status_json_names_its_holder() {
         let time = Time::default();
         let fake = fake_with(&time, rf32(&[]), vec![]);
+        fake.rf25.store(true, Ordering::Relaxed);
         let tuning = served();
         let limits = Limits { last_word: Duration::from_millis(150), ..Limits::default() };
         let facade = Facade::new(
@@ -673,7 +674,7 @@ mod tests {
         let peers = vec![Cidr::parse("127.0.0.0/8").unwrap()];
         let server = Server::start(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), Arc::new(facade), peers).unwrap();
         let status = || serde_json::from_slice::<Value>(split(&get(&server, "GET /status.json HTTP/1.1\r\n\r\n")).1).unwrap();
-        assert_eq!(status(), serde_json::json!({"holder": null, "displaced": []}));
+        assert_eq!(status(), serde_json::json!({"holder": null, "viewers": [], "displaced": [], "sameRf": []}));
 
         let plex = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 69));
         let claim = crate::stream::Claim {
@@ -686,24 +687,28 @@ mod tests {
             channel_id: "1_32_2_1_0_0_0".into(),
             since_ms: 1_794_000_000_000,
         };
-        let lease = tuning.take_stream(claim, "Plex".into(), Duration::ZERO).unwrap();
+        let lease = tuning.take_stream(claim, "Plex".into(), 4, Duration::ZERO).unwrap();
         assert_eq!(
             status(),
-            serde_json::json!({"holder": {"ip": "192.168.1.69", "name": "Plex", "channel": "2.1", "channelName": "WSB-HD", "since": 1_794_000_000_000u64}, "displaced": []})
+            serde_json::json!({"holder": {"ip": "192.168.1.69", "name": "Plex", "channel": "2.1", "channelName": "WSB-HD", "since": 1_794_000_000_000u64}, "viewers": [{"ip": "192.168.1.69", "name": "Plex", "channel": "2.1", "channelName": "WSB-HD", "since": 1_794_000_000_000u64, "rf": 32, "shared": false}], "displaced": [], "sameRf": []})
         );
 
-        let (head, _) = split(&get(&server, "GET /auto/v2.4 HTTP/1.1\r\n\r\n"));
+        let (head, _) = split(&get(&server, "GET /auto/v7.1 HTTP/1.1\r\n\r\n"));
         assert!(head.starts_with("HTTP/1.1 503") && head.contains("805 All Tuners In Use"), "without slates: {head}");
 
         tuning.options.lock().look = Some(Arc::new(|| Some(crate::slate::tests::look())));
-        let answer = get(&server, "GET /auto/v2.4 HTTP/1.1\r\n\r\n");
+        let answer = get(&server, "GET /auto/v7.1 HTTP/1.1\r\n\r\n");
         let (head, body) = split(&answer);
         assert!(head.starts_with("HTTP/1.0 200 OK") && head.contains("video/mp2t"), "{head}");
         assert!(body.len() > 188 * 10 && body.len() % 188 == 0 && body[0] == 0x47, "a slate, then the end");
         assert!(fake.tuned.lock().is_empty(), "the tuner is not touched");
 
         drop(lease);
-        assert_eq!(status(), serde_json::json!({"holder": null, "displaced": []}));
+        assert_eq!(
+            status(),
+            serde_json::json!({"holder": null, "viewers": [], "displaced": [], "sameRf": [{"rf": 32, "channels": ["2.1", "2.4"]}]}),
+            "the channels that can be watched together"
+        );
     }
 
     #[test]

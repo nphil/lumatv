@@ -2,12 +2,14 @@
 //! program's packets) and what the tuner is doing. The hardware is behind two small traits so all of it runs in tests with a scripted fake
 //! and a fake clock.
 //!
-//! A client counts one tuner, so a new request from the client whose stream has the tuner means it gave that stream up: Plex asks for
-//! the next channel before it closes the last one. That request takes the tuner over: the old stream is told to end, and the TV is let
-//! go before it is tuned again. A stream that is over is only letting go of the TV (a pipeline to close, the channel to put back), so a
-//! request then waits for it too. Whoever starts last has the tuner otherwise: another client's running stream (not Plex's, which is a
-//! recording) is told to end and who took it, and the TV's own Live TV is asked to give way ([`Hardware::yield_to`]) unless the request is
-//! Plex's; `/status.json` says for [`DISPLACED_FOR_MS`] who was displaced and by whom.
+//! A request for a channel on the RF channel the tuner is on shares it (up to [`Limits::viewers`]): every viewer reads its own program from
+//! the one tune ([`crate::share`]), and the tuner is let go with the last. A client counts one tuner, so a new request from a client that
+//! has a stream means it gave that stream up: Plex asks for the next channel before it closes the last one. That stream is told to end
+//! (the new one joins at once when others stay on the RF channel; otherwise the TV is let go before it is tuned again). A stream that is
+//! over is only letting go of the TV (a pipeline to close, the channel to put back), so a request then waits for it too. A request that
+//! needs another RF channel takes the tuner from every viewer: each is told to end and who took it, and the TV's own Live TV is asked to
+//! give way ([`Hardware::yield_to`]) unless the request is Plex's, whose streams are recordings and are never displaced; `/status.json`
+//! says for [`DISPLACED_FOR_MS`] who was displaced and by whom.
 
 use crate::Status;
 use crate::docs::{self, Entry, Identity};
@@ -16,14 +18,15 @@ use crate::mpeg2::Format;
 use crate::psi::{self, PACKET};
 use crate::slate::{Look, Says};
 use crate::slated::Slated;
+use crate::share::Hub;
 use crate::transcode::{Breaker, Codec, Fault, Profile, Stage};
 use parking_lot::{Condvar, Mutex};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 use std::net::IpAddr;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant, SystemTime};
 
 /// Why a stream could not start, or had to end.
@@ -104,6 +107,12 @@ pub trait Hardware: Send + Sync + 'static {
     fn programmes(&self, channel_id: &str) -> Result<Value, Failure>;
     /// Who else has the tuner, if anyone: Live TV in front, or a pipeline of its own.
     fn in_use(&self) -> Option<String>;
+    /// [`Hardware::in_use`] for a request for LG's `channel_id`: a TV that can share the tuner with its own Live TV on the same RF channel
+    /// does not count Live TV as using it then.
+    fn in_use_for(&self, channel_id: &str) -> Option<String> {
+        let _ = channel_id;
+        self.in_use()
+    }
     /// Tunes LG's `channel_id` and returns the tap of what the antenna carries; the TV's own channel stays as it was. Dropping the tap
     /// lets go of the demux, then of the tuner, which may be kept a moment for the next tune ([`Hardware::release`]).
     fn tune(&self, channel_id: &str) -> Result<Box<dyn Tap>, Failure>;
@@ -238,6 +247,11 @@ pub trait Tap: Send {
     /// Routes these PIDs to the download; `read` gives their packets from here on. Routing again replaces the last routing and what it
     /// brought.
     fn start(&mut self, pids: &[u16]) -> Result<(), Failure>;
+    /// Adds to the routing: these PIDs are the ones routed from now on, and what the others read is not interrupted. The first routing is
+    /// [`Tap::start`]; a tap that cannot change its routing alone starts again.
+    fn route(&mut self, pids: &[u16]) -> Result<(), Failure> {
+        self.start(pids)
+    }
     /// Appends the whole 188-byte packets that arrived within `wait` (none is fine) to `out`.
     fn read(&mut self, out: &mut Vec<u8>, wait: Duration) -> Result<(), Failure>;
     /// Starts waiting for one section without blocking; [`Tap::arrived`] gives it once it has come. Asking again for one already asked
@@ -314,6 +328,8 @@ pub struct Limits {
     /// The meter: how often it reads the demodulator, and how long it goes on after a reading was last asked for.
     pub meter_every: Duration,
     pub meter_lease: Duration,
+    /// How many viewers share the tuner when their channels are on the same RF channel.
+    pub viewers: usize,
     /// With a converter ([`crate::transcode`]): how long pictures may go in without one coming back before the stream ends, and the
     /// longest one may take through it: past either the converter is stuck, or too slow for a live stream.
     pub convert_stall: Duration,
@@ -348,6 +364,7 @@ impl Default for Limits {
             convert_stall: Duration::from_secs(2),
             convert_lag: Duration::from_millis(1500),
             convert_rest: Duration::from_secs(60),
+            viewers: 4,
         }
     }
 }
@@ -363,6 +380,7 @@ pub fn real_clock() -> Clock {
 /// Who has the tuner: the client whose stream it is, the flag that ends that stream, whether the stream is over and only letting go
 /// of the TV, what the stream is (none for the meter and the reception check) and, once another client has displaced it, who.
 struct Holding {
+    id: u64,
     peer: IpAddr,
     replaced: Arc<AtomicBool>,
     over: bool,
@@ -407,27 +425,29 @@ pub(crate) struct Claim {
 /// The tuner, held: dropping it frees it and wakes whoever waits for it.
 pub(crate) struct Lease {
     tuning: Arc<Tuning>,
+    id: u64,
     /// Set when another request takes the tuner over.
     pub(crate) replaced: Arc<AtomicBool>,
 }
 
 impl Lease {
+    fn with<T>(&self, f: impl FnOnce(&mut Holding) -> T) -> Option<T> {
+        self.tuning.held.lock().iter_mut().find(|h| h.id == self.id).map(f)
+    }
+
     /// The stream is over: what is left is letting go of the TV, which a new request waits for instead of being refused.
     pub(crate) fn over(&self) {
-        if let Some(h) = self.tuning.held.lock().as_mut() {
-            h.over = true;
-        }
+        self.with(|h| h.over = true);
     }
 
     /// The device that displaced this stream, when another client did (the same client asking again is not that).
     pub(crate) fn taker(&self) -> Option<String> {
-        self.tuning.held.lock().as_ref().and_then(|h| h.taker.clone())
+        self.with(|h| h.taker.clone()).flatten()
     }
 
     /// The TV's own Live TV took the tuner from this stream: noted for the client to read.
     pub(crate) fn taken_by_tv(&self, tv: &str) {
-        let claim = self.tuning.held.lock().as_ref().and_then(|h| h.claim.clone());
-        if let Some(claim) = claim {
+        if let Some(claim) = self.with(|h| h.claim.clone()).flatten() {
             self.tuning.displaced(&claim, tv, "tv");
         }
     }
@@ -435,8 +455,16 @@ impl Lease {
 
 impl Drop for Lease {
     fn drop(&mut self) {
-        *self.tuning.held.lock() = None;
+        let empty = {
+            let mut held = self.tuning.held.lock();
+            held.retain(|h| h.id != self.id);
+            held.is_empty()
+        };
         self.tuning.freed.notify_all();
+        if empty {
+            // the last stream's end says what the tuner does next; this is for the ones that ended together and each left it to the other
+            self.tuning.change(|now| matches!(now, Status::Streaming { .. }).then_some(Status::Idle));
+        }
     }
 }
 
@@ -445,7 +473,11 @@ impl Drop for Lease {
 /// remembers of each channel.
 #[derive(Default)]
 pub(crate) struct Tuning {
-    held: Mutex<Option<Holding>>,
+    held: Mutex<Vec<Holding>>,
+    next_id: AtomicU64,
+    /// The multiplex that is tuned, for the streams of its RF channel to share ([`crate::share`]).
+    hub: Mutex<HubSlot>,
+    hub_ready: Condvar,
     freed: Condvar,
     status: Mutex<Status>,
     wake: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -531,50 +563,69 @@ impl Tuning {
     /// Takes the tuner for `peer`, who is nobody's stream (the meter, the reception check): a stream of the same client, or one that is
     /// over, is told to end and waited for, at most `wait`; a client's running stream keeps it.
     pub(crate) fn take(self: &Arc<Self>, peer: IpAddr, wait: Duration) -> Result<Lease, Failure> {
-        self.acquire(peer, None, wait)
+        self.acquire(peer, None, 1, wait)
     }
 
     /// Takes the tuner for a client's stream, `by` being what it is called. As [`Tuning::take`], and the last to start wins: another
     /// client's running stream that is not a recording is told to end, who took it noted, and waited for.
-    pub(crate) fn take_stream(self: &Arc<Self>, claim: Claim, by: String, wait: Duration) -> Result<Lease, Failure> {
-        self.acquire(claim.peer, Some((claim, by)), wait)
+    pub(crate) fn take_stream(self: &Arc<Self>, claim: Claim, by: String, viewers: usize, wait: Duration) -> Result<Lease, Failure> {
+        self.acquire(claim.peer, Some((claim, by)), viewers, wait)
     }
 
-    fn acquire(self: &Arc<Self>, peer: IpAddr, taker: Option<(Claim, String)>, wait: Duration) -> Result<Lease, Failure> {
+    /// A stream whose channel is on the RF channel the others are on shares the tuner with them, up to `viewers`. One that needs another
+    /// RF channel displaces every viewer (none that is a recording: then it is refused). A stream of the same client, or one that is over,
+    /// is told to end and waited for.
+    fn acquire(self: &Arc<Self>, peer: IpAddr, taker: Option<(Claim, String)>, viewers: usize, wait: Duration) -> Result<Lease, Failure> {
         let deadline = Instant::now() + wait;
+        let rf = taker.as_ref().and_then(|(c, _)| rf_of(&c.channel_id));
         let mut held = self.held.lock();
         loop {
-            match held.as_mut() {
-                None => {
-                    let replaced = Arc::new(AtomicBool::new(false));
-                    *held = Some(Holding {
-                        peer,
-                        replaced: replaced.clone(),
-                        over: false,
-                        claim: taker.as_ref().map(|(c, _)| c.clone()),
-                        taker: None,
-                    });
-                    if taker.is_some() {
-                        self.taken.lock().retain(|d| d.peer != peer);
-                    }
-                    return Ok(Lease {
-                        tuning: self.clone(),
-                        replaced,
-                    });
+            let leaving = |h: &Holding| h.over || h.peer == peer || h.replaced.load(Ordering::Acquire);
+            let on_rf = |h: &&Holding| rf.is_some() && h.claim.as_ref().and_then(|c| rf_of(&c.channel_id)) == rf;
+            let staying = held.iter().filter(|h| !leaving(h)).count();
+            if held.is_empty() || (staying > 0 && held.iter().filter(|h| !leaving(h)).all(|h| on_rf(&h))) {
+                if staying >= viewers.max(1) && !held.is_empty() {
+                    return Err(Failure::Busy);
                 }
-                Some(h) if h.over || h.peer == peer => h.replaced.store(true, Ordering::Release),
-                Some(h) if taker.is_some() && h.claim.as_ref().is_some_and(|c| !c.recording) => {
-                    if !h.replaced.swap(true, Ordering::AcqRel) {
-                        let (_, by) = taker.as_ref().expect("a stream's taker");
-                        h.taker = Some(by.clone());
-                        if let Some(old) = &h.claim {
-                            self.displaced(old, by, "app");
-                        }
-                    }
+                for h in held.iter().filter(|h| h.over || h.peer == peer) {
+                    h.replaced.store(true, Ordering::Release);
                 }
-                Some(_) => return Err(Failure::Busy),
+                let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+                let replaced = Arc::new(AtomicBool::new(false));
+                held.push(Holding {
+                    id,
+                    peer,
+                    replaced: replaced.clone(),
+                    over: false,
+                    claim: taker.as_ref().map(|(c, _)| c.clone()),
+                    taker: None,
+                });
+                if taker.is_some() {
+                    self.taken.lock().retain(|d| d.peer != peer);
+                }
+                return Ok(Lease {
+                    tuning: self.clone(),
+                    id,
+                    replaced,
+                });
             }
-            if self.freed.wait_until(&mut held, deadline).timed_out() && held.is_some() {
+            // another RF channel: every viewer gives way, and none may be a recording
+            let displaceable = |h: &Holding| taker.is_some() && h.claim.as_ref().is_some_and(|c| !c.recording);
+            if held.iter().any(|h| !leaving(h) && !displaceable(h)) {
+                return Err(Failure::Busy);
+            }
+            for h in held.iter_mut() {
+                if h.over || h.peer == peer {
+                    h.replaced.store(true, Ordering::Release);
+                } else if !h.replaced.swap(true, Ordering::AcqRel) {
+                    let (_, by) = taker.as_ref().expect("a stream's taker");
+                    h.taker = Some(by.clone());
+                    if let Some(old) = &h.claim {
+                        self.displaced(old, by, "app");
+                    }
+                }
+            }
+            if self.freed.wait_until(&mut held, deadline).timed_out() && !held.is_empty() {
                 return Err(Failure::Busy);
             }
         }
@@ -603,9 +654,19 @@ impl Tuning {
         taken.clone()
     }
 
-    /// The client's stream that has the tuner, if one has it and is not letting go of it.
+    /// The client's stream that has the tuner, if one has it and is not letting go of it; of several that share it, the first.
     pub(crate) fn holder(&self) -> Option<Claim> {
-        self.held.lock().as_ref().filter(|h| !h.over).and_then(|h| h.claim.clone())
+        self.holders().into_iter().next()
+    }
+
+    /// Every client's stream that has the tuner, in the order they started.
+    pub(crate) fn holders(&self) -> Vec<Claim> {
+        self.held.lock().iter().filter(|h| !h.over).filter_map(|h| h.claim.clone()).collect()
+    }
+
+    /// How many streams hold the tuner, those that are only letting go of it too.
+    pub(crate) fn streams(&self) -> usize {
+        self.held.lock().len()
     }
 
     pub(crate) fn status(&self) -> Status {
@@ -674,9 +735,24 @@ pub(crate) struct Over {
 impl Drop for Over {
     fn drop(&mut self) {
         let then = std::mem::replace(&mut self.then, Status::Idle);
-        self.tuning
-            .change(|now| matches!(now, Status::Streaming { .. }).then_some(then));
+        // other viewers of the multiplex still stream: the tuner is not idle yet (the last lease to go says it, if the last stream did not)
+        if self.tuning.streams() <= 1 {
+            self.tuning
+                .change(|now| matches!(now, Status::Streaming { .. }).then_some(then));
+        }
     }
+}
+
+/// The RF channel of LG's `channel_id`.
+pub(crate) fn rf_of(channel_id: &str) -> Option<u8> {
+    docs::parse_channel_id(channel_id).map(|(rf, _, _)| rf)
+}
+
+/// The multiplex tuned for streams to share, and whether one is being tuned.
+#[derive(Default)]
+pub(crate) struct HubSlot {
+    hub: Weak<Hub>,
+    tuning: bool,
 }
 
 /// The channels of a multiplex from its virtual channel table. Sections that come whole go into `have` (the first says how many there are)
@@ -829,6 +905,35 @@ impl Facade {
             .ok_or(Failure::UnknownChannel)
     }
 
+    /// The tap of `entry`'s channel for a stream. A stream whose channel is on the RF channel another stream has tuned reads that
+    /// multiplex with it ([`crate::share`]); otherwise the channel is tuned here, and the streams that start meanwhile on its RF channel
+    /// wait for the tune and share it.
+    pub(crate) fn attach(&self, entry: &Entry) -> Result<Box<dyn Tap>, Failure> {
+        let rf = rf_of(&entry.channel_id);
+        let mut slot = self.tuning.hub.lock();
+        loop {
+            if let Some(hub) = slot.hub.upgrade().filter(|h| rf.is_some() && h.rf == rf) {
+                return Ok(hub.view());
+            }
+            if !slot.tuning {
+                break;
+            }
+            self.tuning.hub_ready.wait(&mut slot);
+        }
+        slot.tuning = true;
+        drop(slot);
+        let tuned = self.hw.tune(&entry.channel_id);
+        let mut slot = self.tuning.hub.lock();
+        slot.tuning = false;
+        let view = tuned.map(|tap| {
+            let hub = Hub::new(tap, rf);
+            slot.hub = Arc::downgrade(&hub);
+            hub.view()
+        });
+        self.tuning.hub_ready.notify_all();
+        view
+    }
+
     /// Takes the tuner for `entry` for the client at `peer`: what a refusal answers is checked here, while nothing has been sent to the
     /// client and a failure is still an HTTP status. The last to start has the tuner: another client's stream gives way (told who took it),
     /// and so does the TV's own Live TV, to a device but not to Plex, whose streams are recordings.
@@ -846,8 +951,8 @@ impl Facade {
         let who = client_name(&claim, &self.tuning.options.lock().names);
         claim.recording = who.as_deref() == Some("Plex");
         let by = who.unwrap_or_else(|| peer.to_string());
-        let lease = self.tuning.take_stream(claim.clone(), by.clone(), self.limits.release)?;
-        if let Some(why) = self.hw.in_use()
+        let lease = self.tuning.take_stream(claim.clone(), by.clone(), self.limits.viewers, self.limits.release)?;
+        if let Some(why) = self.hw.in_use_for(&entry.channel_id)
             && (claim.recording || !self.hw.yield_to(&by))
         {
             self.tuning.refused(&why);
@@ -934,15 +1039,31 @@ impl Facade {
 
     fn status_at(&self, now_ms: u64) -> Value {
         let names = self.tuning.options.lock().names.clone();
-        let holder = self.tuning.holder().map(|c| {
+        let holders = self.tuning.holders();
+        let shared = holders.len() > 1;
+        let holder = holders.first().map(|c| {
             serde_json::json!({
                 "ip": c.peer.to_string(),
-                "name": client_name(&c, &names),
+                "name": client_name(c, &names),
                 "channel": c.guide,
                 "channelName": c.name,
                 "since": c.since_ms,
             })
         });
+        let viewers: Vec<Value> = holders
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "ip": c.peer.to_string(),
+                    "name": client_name(c, &names),
+                    "channel": c.guide,
+                    "channelName": c.name,
+                    "since": c.since_ms,
+                    "rf": rf_of(&c.channel_id),
+                    "shared": shared,
+                })
+            })
+            .collect();
         let displaced: Vec<Value> = self
             .tuning
             .displaced_since(now_ms)
@@ -959,7 +1080,25 @@ impl Facade {
                 })
             })
             .collect();
-        serde_json::json!({ "holder": holder, "displaced": displaced })
+        serde_json::json!({ "holder": holder, "viewers": viewers, "displaced": displaced, "sameRf": self.same_rf() })
+    }
+
+    /// The channels that share an RF channel, so can be watched together (`sameRf`): from the lineup as last read, nothing is asked of the TV.
+    fn same_rf(&self) -> Vec<Value> {
+        let mut groups: std::collections::BTreeMap<u8, Vec<String>> = std::collections::BTreeMap::new();
+        let hidden = self.tuning.options.lock().hidden.clone();
+        if let Some((_, entries)) = self.lineup.lock().as_ref() {
+            for e in entries.iter().filter(|e| !hidden.contains(&e.guide)) {
+                if let Some(rf) = rf_of(&e.channel_id) {
+                    groups.entry(rf).or_default().push(e.guide.clone());
+                }
+            }
+        }
+        groups
+            .into_iter()
+            .filter(|(_, channels)| channels.len() > 1)
+            .map(|(rf, channels)| serde_json::json!({ "rf": rf, "channels": channels }))
+            .collect()
     }
 
     /// A request without slates: the tuner taken, the channel tuned, its program found and its first whole picture waited for.
@@ -1030,7 +1169,7 @@ impl Facade {
             return Err(f);
         }
         let asked = (self.clock)();
-        let mut tap = self.hw.tune(&entry.channel_id)?;
+        let mut tap = self.attach(entry)?;
         let tuned = (self.clock)();
         let (found, start) = match self.cached_start(entry, tap.as_mut(), |f| Some(plain_pids(f))) {
             Some(cached) => cached,
@@ -1164,6 +1303,7 @@ impl Facade {
             limits: self.limits.clone(),
             clock: self.clock.clone(),
             guide: entry.guide.clone(),
+            channel_id: entry.channel_id.clone(),
             cc: None,
             counted: (0, 0),
             over: Over {
@@ -1471,6 +1611,7 @@ pub(crate) struct Stream {
     clock: Clock,
     /// The channel, and its picture's packets that came and that were lost, by continuity count, for its health.
     guide: String,
+    channel_id: String,
     cc: Option<u8>,
     counted: (u64, u64),
     over: Over,
@@ -1581,7 +1722,7 @@ impl Stream {
             }
             if now.saturating_sub(last_owner) >= lim.owner_every {
                 last_owner = now;
-                if let Some(why) = self.hw.in_use().or_else(|| self.tap.taken()) {
+                if let Some(why) = self.hw.in_use_for(&self.channel_id).or_else(|| self.tap.taken()) {
                     self.over.then = Status::Busy(why.clone());
                     self.lease.taken_by_tv(&self.hw.tv_name());
                     return Ok(End::Preempted(why));
@@ -1711,6 +1852,8 @@ pub(crate) mod tests {
         /// The devices Live TV was asked to give way to, and whether it does.
         pub(crate) yielded: Mutex<Vec<String>>,
         pub(crate) yields: AtomicBool,
+        /// The lineup also has a channel on RF 25.
+        pub(crate) rf25: AtomicBool,
         /// The channels `programmes` was asked for, and the ones it fails for.
         programmes_asked: Mutex<Vec<String>>,
         programmes_fail: Mutex<Vec<String>>,
@@ -1740,6 +1883,7 @@ pub(crate) mod tests {
                 taken: Mutex::default(),
                 yielded: Mutex::default(),
                 yields: AtomicBool::new(false),
+                rf25: AtomicBool::new(false),
                 tuned: Mutex::default(),
                 started: Mutex::default(),
                 released: AtomicU64::new(0),
@@ -1794,10 +1938,14 @@ pub(crate) mod tests {
             if self.0.list_fails.load(Ordering::Relaxed) {
                 return Err(Failure::Hardware("luna-send gave no answer".into()));
             }
-            Ok(json!({"channelList": [
-                {"channelId": "1_32_2_1_0_0_0", "channelName": "WSB-HD"},
-                {"channelId": "1_32_2_4_0_0_0", "channelName": "WEST"},
-            ]}))
+            let mut channels = vec![
+                json!({"channelId": "1_32_2_1_0_0_0", "channelName": "WSB-HD"}),
+                json!({"channelId": "1_32_2_4_0_0_0", "channelName": "WEST"}),
+            ];
+            if self.0.rf25.load(Ordering::Relaxed) {
+                channels.push(json!({"channelId": "1_25_7_1_0_0_0", "channelName": "OTHER-HD"}));
+            }
+            Ok(json!({"channelList": channels}))
         }
 
         fn programmes(&self, channel_id: &str) -> Result<Value, Failure> {
@@ -2119,14 +2267,20 @@ pub(crate) mod tests {
         }
     }
 
+    /// The tuner taken for `guide` by `device` at `peer`, nothing tuned.
+    fn leased(f: &Facade, guide: &str, peer: IpAddr, device: &str) -> Result<Lease, Failure> {
+        f.take_for(&f.entry(guide).unwrap(), peer, None, Some(device))
+    }
+
     #[test]
     fn another_client_is_refused_while_a_stream_runs_and_the_tuner_is_free_again_when_it_ends() {
         let time = Time::default();
         let fake = fake_with(&time, rf32(&[]), on_air());
+        fake.rf25.store(true, Ordering::Relaxed);
         let f = facade(&fake, &time);
         f.tuning.options.lock().names.insert(PLEX, "Plex".to_owned());
         let first = f.open("2.4", PLEX).unwrap();
-        assert_eq!(f.open("2.1", OTHER).err(), Some(Failure::Busy));
+        assert_eq!(f.open("7.1", OTHER).err(), Some(Failure::Busy));
         assert_eq!(
             fake.tuned.lock().len(),
             1,
@@ -2164,11 +2318,12 @@ pub(crate) mod tests {
     fn the_last_client_to_start_has_the_tuner_and_the_displaced_one_is_told_who_took_it_for_a_minute() {
         let time = Time::default();
         let fake = fake_with(&time, rf32(&[]), on_air());
+        fake.rf25.store(true, Ordering::Relaxed);
         let f = Arc::new(facade(&fake, &time));
         let mut phone = started(&f, "2.4", OTHER, "Pixel").unwrap();
         let next = {
             let f = f.clone();
-            thread::spawn(move || started(&f, "2.1", THIRD, "Living Room iPad").map(drop))
+            thread::spawn(move || leased(&f, "7.1", THIRD, "Living Room iPad").map(drop))
         };
         until_asked(&phone);
         let end = phone.pump(&mut Vec::new(), &AtomicBool::new(false)).unwrap();
@@ -2190,6 +2345,7 @@ pub(crate) mod tests {
     fn the_same_client_changing_channel_is_not_displaced_and_a_recording_is_not_taken_from() {
         let time = Time::default();
         let fake = fake_with(&time, rf32(&[]), on_air());
+        fake.rf25.store(true, Ordering::Relaxed);
         let f = Arc::new(facade(&fake, &time));
         let mut old = started(&f, "2.4", OTHER, "Pixel").unwrap();
         let next = {
@@ -2204,9 +2360,103 @@ pub(crate) mod tests {
 
         f.tuning.options.lock().names.insert(PLEX, "Plex".to_owned());
         let recording = f.open("2.4", PLEX).unwrap();
-        assert_eq!(started(&f, "2.1", THIRD, "Pixel").err(), Some(Failure::Busy), "a recording keeps the tuner");
+        assert_eq!(started(&f, "7.1", THIRD, "Pixel").err(), Some(Failure::Busy), "a recording keeps the tuner");
         assert!(!recording.lease.replaced.load(Ordering::Acquire));
         assert!(displaced_of(&f, crate::webos::unix_ms()).is_empty());
+    }
+
+    const FOURTH: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 72));
+    const FIFTH: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 73));
+
+    #[test]
+    fn channels_on_one_rf_share_the_tuner_up_to_the_cap_and_a_place_is_free_again_when_a_viewer_leaves() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), on_air());
+        let f = facade_with(&fake, &time, Limits { viewers: 3, ..Limits::default() });
+        let a = leased(&f, "2.1", OTHER, "Pixel").unwrap();
+        let b = leased(&f, "2.4", THIRD, "iPad").unwrap();
+        let c = leased(&f, "2.1", FOURTH, "Shield").unwrap();
+        assert_eq!(leased(&f, "2.4", FIFTH, "Laptop").err(), Some(Failure::Busy), "the cap is reached");
+        assert!([&a, &b, &c].iter().all(|l| !l.replaced.load(Ordering::Acquire)), "nobody is displaced");
+        drop(a);
+        let d = leased(&f, "2.4", FIFTH, "Laptop").unwrap();
+        assert_eq!(f.tuning.streams(), 3);
+        drop((b, c, d));
+        assert_eq!(f.tuning.streams(), 0);
+        assert_eq!(f.tuning.status(), Status::Idle);
+    }
+
+    #[test]
+    fn two_programs_of_one_rf_are_read_from_one_tune_and_the_tuner_goes_with_the_last_viewer() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), on_air());
+        let f = facade(&fake, &time);
+        let (first, second) = (f.entry("2.1").unwrap(), f.entry("2.4").unwrap());
+        let a = f.attach(&first).unwrap();
+        let b = f.attach(&second).unwrap();
+        assert_eq!(*fake.tuned.lock(), ["1_32_2_1_0_0_0"], "tuned once");
+        drop(a);
+        assert_eq!(fake.released.load(Ordering::Relaxed), 0, "the other viewer still has it");
+        drop(b);
+        assert_eq!(fake.released.load(Ordering::Relaxed), 1, "the last one lets go");
+    }
+
+    #[test]
+    fn a_request_on_another_rf_displaces_every_viewer_and_each_is_told_who_took_it() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), on_air());
+        fake.rf25.store(true, Ordering::Relaxed);
+        let f = Arc::new(facade_with(&fake, &time, Limits { release: Duration::from_secs(5), ..Limits::default() }));
+        let a = leased(&f, "2.1", OTHER, "Pixel").unwrap();
+        let b = leased(&f, "2.4", THIRD, "iPad").unwrap();
+        let taker = {
+            let f = f.clone();
+            thread::spawn(move || leased(&f, "7.1", FOURTH, "Shield").map(drop))
+        };
+        let end = Instant::now() + Duration::from_secs(5);
+        while !(a.replaced.load(Ordering::Acquire) && b.replaced.load(Ordering::Acquire)) {
+            assert!(Instant::now() < end, "nobody asked for the tuner");
+            thread::yield_now();
+        }
+        assert_eq!((a.taker(), b.taker()), (Some("Shield".into()), Some("Shield".into())));
+        assert_eq!(displaced_of(&f, crate::webos::unix_ms()).len(), 2, "each one has a record of who took it");
+        drop((a, b));
+        assert_eq!(taker.join().unwrap(), Ok(()));
+    }
+
+    #[test]
+    fn a_recording_shares_its_rf_with_viewers_and_keeps_the_tuner_from_another_rf() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), on_air());
+        fake.rf25.store(true, Ordering::Relaxed);
+        let f = facade(&fake, &time);
+        f.tuning.options.lock().names.insert(PLEX, "Plex".to_owned());
+        let recording = f.take_for(&f.entry("2.4").unwrap(), PLEX, None, None).unwrap();
+        let viewer = leased(&f, "2.1", OTHER, "Pixel").unwrap();
+        assert!(!recording.replaced.load(Ordering::Acquire) && !viewer.replaced.load(Ordering::Acquire));
+        assert_eq!(leased(&f, "7.1", THIRD, "iPad").err(), Some(Failure::Busy), "a recording is not displaced, nor are those that share it");
+        drop(viewer);
+        assert_eq!(leased(&f, "7.1", THIRD, "iPad").err(), Some(Failure::Busy));
+    }
+
+    #[test]
+    fn status_lists_the_viewers_with_their_rf_and_the_channels_that_share_one() {
+        let time = Time::default();
+        let fake = fake_with(&time, rf32(&[]), on_air());
+        fake.rf25.store(true, Ordering::Relaxed);
+        let f = facade(&fake, &time);
+        f.lineup().unwrap();
+        let a = leased(&f, "2.1", OTHER, "Pixel").unwrap();
+        let b = leased(&f, "2.4", THIRD, "iPad").unwrap();
+        let status = f.status_at(1_794_000_000_000);
+        assert_eq!(status["holder"]["name"], "Pixel");
+        let viewers = status["viewers"].as_array().unwrap();
+        assert_eq!(viewers.len(), 2);
+        assert!(viewers.iter().all(|v| v["rf"] == 32 && v["shared"] == true));
+        assert_eq!(status["sameRf"], serde_json::json!([{"rf": 32, "channels": ["2.1", "2.4"]}]));
+        drop(b);
+        assert_eq!(f.status_at(1_794_000_000_000)["viewers"][0]["shared"], false);
+        drop(a);
     }
 
     #[test]

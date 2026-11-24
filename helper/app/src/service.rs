@@ -377,7 +377,12 @@ impl Service {
         threads.push(("plex", plex_thread));
         let guide = Arc::new(crate::guidedata::GuideData::default());
         let tuner = Arc::new(
-            lumatuner::Tuner::new(tv.clone(), lumatuner::real_clock()).with_guide(guide.clone()),
+            lumatuner::Tuner::with_limits(
+                tv.clone(),
+                lumatuner::real_clock(),
+                lumatuner::Limits { viewers: config.hdhr.viewers, ..lumatuner::Limits::default() },
+            )
+            .with_guide(guide.clone()),
         );
         // The account's Plex server goes by "Plex" in the tuner's /status.json and on a refused request's slate.
         let name_plex = {

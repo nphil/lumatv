@@ -95,10 +95,15 @@ measurements.
 
 ## One tuner
 
-The TV has one tuner, so one stream runs at a time and whoever starts last has it. A device's request takes the tuner from another
-device's running stream and from the TV's own Live TV; Live TV opening takes it from a stream. The client whose stream has the tuner
-takes it over with its next request (a channel change). Plex's streams count as recordings and keep their rule: another client is
-refused (503) while Plex has the tuner, and Plex does not take it from Live TV (503 `The TV is using its tuner`).
+The TV has one tuner, which locks one RF channel (frequency); the stations on it (2.1, 2.4, ...) are programs of one multiplex. A
+request for a channel on the RF channel the tuner is on **shares** it: each viewer gets its own program (PAT, PMT and its PIDs) with its
+own start and stop, read from the one tune, and the tuner is let go when the last viewer leaves. Up to 4 viewers (`hdhr.viewers`); one
+more is refused (503). A request that needs a different RF channel takes the tuner: every viewer on the old one is displaced and told
+who took it, and Live TV opening takes it from the streams. A client's next request (a channel change) replaces its own stream. Plex's
+streams count as recordings: they share their RF channel too, are never displaced by a device, and a request for another RF channel is
+refused (503) while Plex has the tuner; Plex does not take it from Live TV (503 `The TV is using its tuner`). `?transcode=` converts per
+viewer, as many at once as the TV's encoder allows (not measured). Live TV in front keeps the tuner from the streams unless
+`hdhr.shareLiveTv` is on (off until the probe on the set shows Live TV and the helper both read one RF channel; untested).
 
 On the TV a device that takes the tuner from Live TV shows a LumaTV toast, `<Device> is now using the tuner` (it leaves by itself, in
 the theme's tokens), then LumaTV Home takes the screen and Live TV is closed.
@@ -110,6 +115,10 @@ product, else the address. A displaced stream ends cleanly: with slates on, a la
 `"displaced": [{"ip", "name", "by", "byKind", "at", "channel", "channelName"}]`: `name` is the displaced client, `by` the taker (the TV's
 own name for Live TV), `byKind` is `app` (a device on the network) or `tv`, `at` Unix ms. A client finds itself by `ip` or `name`; the
 entry goes when the same client starts a stream again.
+
+`/status.json` also lists `"viewers": [{"ip", "name", "channel", "channelName", "since", "rf", "shared"}]` (every stream on the tuner, the
+first also as `"holder"`; `shared` is true while another viewer is on the RF channel) and `"sameRf": [{"rf", "channels": ["2.1", "2.4"]}]`
+(the lineup's channels grouped by RF channel, two or more each: these can be watched together).
 
 The tuner answers while the TV is on with any app in front, or off in Always Ready (Active Standby). A stream takes only the tuner and
 the section decoder: the app in front keeps its picture and sound (Netflix in 4K, which holds every video decoder, too), and the TV's

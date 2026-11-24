@@ -225,6 +225,10 @@ pub struct HdhrConfig {
     pub channel: u8,
     /// Where the TV's own address is read from: the device id Plex keeps is made from it.
     pub mac_file: String,
+    /// How many viewers may share the tuner on one RF channel; one more is refused.
+    pub viewers: usize,
+    /// The TV's own Live TV and the helper share the tuner on one RF channel. Off until the probe on the set shows both keep reading.
+    pub share_live_tv: bool,
 }
 
 impl Default for HdhrConfig {
@@ -238,6 +242,8 @@ impl Default for HdhrConfig {
             dvb_dir: tv.dvb_dir,
             channel: tv.channel,
             mac_file: "/sys/class/net/eth0/address".to_owned(),
+            viewers: lumatuner::Limits::default().viewers,
+            share_live_tv: tv.share_live_tv,
         }
     }
 }
@@ -249,6 +255,7 @@ impl HdhrConfig {
             python: self.python.clone(),
             dvb_dir: self.dvb_dir.clone(),
             channel: self.channel,
+            share_live_tv: self.share_live_tv,
             ..lumatuner::webos::WebosConfig::default()
         }
     }
