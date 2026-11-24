@@ -30,6 +30,10 @@ use std::{
 };
 use ui::ImageLayer;
 
+/// How long the backdrops ahead wait after a page change before decoding goes on, so a decode does not run through the open or close
+/// animation (the first frame after Back ran 73 to 107 ms on the set with it starting at once; a close ran 43 ms at most without it).
+const AHEAD_REST_MS: u64 = 700;
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Stage {
     pub art_height: u32,
@@ -343,6 +347,8 @@ pub struct Art {
     z: i32,
     /// The model's clock at the last step.
     now: u64,
+    /// The model's clock until which the backdrops ahead wait: the last page change plus [`AHEAD_REST_MS`].
+    quiet_until: u64,
     /// Since a page began, until its first plan is done: art that is up by then appears as it is, later art fades in.
     fresh: bool,
     /// Whether the plan under way has art.
@@ -370,6 +376,7 @@ impl Art {
             props: Props::at(0.0, 0.0),
             z: 0,
             now: 0,
+            quiet_until: 0,
             fresh: true,
             seen: false,
             last: None,
@@ -462,12 +469,14 @@ impl GameUi {
     pub(super) fn step_art(&mut self, model: &Model) -> io::Result<bool> {
         if self.page != Some(model.view.page) {
             self.art.reset();
+            self.art.quiet_until = model.now_ms() + AHEAD_REST_MS;
         }
         self.art.now = model.now_ms();
         let told = self.run_art(model)?;
         let scrolling = self.groups.values().any(|g| g.motion.is_active());
         self.art.top_up();
-        self.art.ahead.run(matches!(model.view.page, Page::Home | Page::Library), scrolling);
+        let calm = !scrolling && self.art.now >= self.art.quiet_until;
+        self.art.ahead.run(matches!(model.view.page, Page::Home | Page::Library), !calm);
         Ok(told)
     }
     /// The end of a plan: a page that put up no art has none on a layer, and what the plan asked for runs at once.
