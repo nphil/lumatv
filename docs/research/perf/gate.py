@@ -409,6 +409,13 @@ SURFACES = [
              'DOWNx2@0.15 UPx2@0.15 UPx6@0.12',
      'close': '@home-widgets-close', 'settle_s': 0.6, 'close_settle_s': 0.5,
      'thresholds': {'burst_end_ms': None}},
+    # `weather-day`: the weather card from Home's top (Down to the clock's row, Right to the card): OK enters it, OK opens Today's by-time view, Back
+    # closes it, Down x3 and OK open a day further on, Back, Back leaves the card. Each open and close is a morph of the card drawn in the window.
+    {'name': 'weather-day', 'default': False, 'transition': False,
+     'prep': HOME_TOP + ' DOWN s0.15 RIGHT s0.15',
+     'open': '@weather-day-open OK s0.7 OK s0.9 BACK s0.7 DOWNx3@0.15 OK s0.9 BACK s0.7 BACK',
+     'close': '@weather-day-close', 'settle_s': 0.6, 'close_settle_s': 0.5,
+     'thresholds': {'burst_end_ms': None}},
     # `switcher`: the task manager (a Back held 600 ms) over Home with apps running (setup starts three), walked with Left and Right (taps, then
     # held), closed with Back. The key-to-first-frame and burst-end checks are off: the open comes 600 ms into the hold, and the frames over 20 ms
     # apart and the render cost are what is asked. The compositor marks its own opening `Q:switcher-show`.
