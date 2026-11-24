@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Settings' first open at 120 Hz makes the rail and the page 8 layers to a draw instead of 24, so no draw costs the UI thread more than a refresh on the set (13 ms measured for 24; one dropped refresh in 2 of 3 `settings-scroll` gate runs). The open takes more draws while Settings is still transparent.
+
 Passthrough audio starts about a second after a title does, down from about 7 s: the helper connects the decoder at the first Pass-Through instead of 3 s later, and unmutes it with a pair 0.5 s apart only when the kernel reads it muted. The route's `bypassing` phase is gone.
 
 GeForce NOW sessions no longer end for inactivity while the viewer uses the remote. Any remote, keyboard or overlay pad press over a GeForce NOW stream now sends the service one input (the streamer's anti-AFK tap), at most one a second while the "Still playing?" countdown runs and one every 30 s otherwise, where it was sent only during the countdown, which the service was not seen to send before a 600 s idle end. A session the service ended for inactivity returns to the game's page with Relaunch focused in place of Play. Not yet checked on a live session.
