@@ -83,38 +83,48 @@ impl Scene {
     /// Reserves a bounded slot before the last drawn app group is copied, never the output page, or before a card is painted for it.
     pub(crate) fn reserve_snapshot(&mut self, window: WindowId, surfaces: &Surfaces) -> Option<(SnapshotId, Capture)> {
         if !self.transitions.enabled() || self.transitions.suspended || self.last_front != Front::Card(window) {
-            return None;
+            return self.declined(window, "transitions off or suspended, or the window was not the last front");
         }
         let w = self.windows.get(&window)?;
         if w.app_id().is_empty() || w.app_id() == HOME_APP || !matches!(w.kind, WindowType::Card | WindowType::Overlay) || w.in_group {
-            return None;
+            return self.declined(window, "not an app card");
         }
-        let capture = self.capture_of(window, surfaces)?;
+        let Some(capture) = self.capture_of(window, surfaces) else { return self.declined(window, "input app") };
         // A picture the app never replaced is still the best one of it. A dissolving one is not: the live frame under it is newer.
         if self.snapshots.get(window).is_some_and(|p| p.root == w.surface && p.app == w.app_id() && p.resumable && p.fade.is_none()) {
             self.snapshots.park(window);
-            return None;
+            return self.declined(window, "the earlier picture is kept");
         }
         self.snapshots.forget(window);
         if capture != Capture::Card {
             // An undrawn commit may have replaced or changed the source since the last plan; use the ordinary transition instead of guessing.
             let full = Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32);
             let items = || self.plan.items.iter().filter(|i| i.window == window);
-            if !items().any(|i| i.surface == w.surface && i.rect == full)
-                || items().any(|i| i.xform || i.drift != (0, 0) || i.dim != 1.0 || !self.owns_surface(w.surface, i.surface, surfaces)
+            if !items().any(|i| i.surface == w.surface && i.rect == full) {
+                return self.declined(window, "no full-screen item of the window in the last plan");
+            }
+            if items().any(|i| i.xform || i.drift != (0, 0) || i.dim != 1.0 || !self.owns_surface(w.surface, i.surface, surfaces)
                     || !surfaces.get(i.surface).is_some_and(|s| !s.current.undrawn && s.current.buffer.as_ref() == Some(&i.buffer)))
                 || self.plan.gain_on || self.plan.masks.iter().any(|m| m.window == window)
             {
-                return None;
+                return self.declined(window, "the last plan moves, dims, masks or holds an undrawn commit");
             }
         }
         if !self.snapshots.make_room(|w| self.transitions.track_of(w).is_some()) {
-            return None;
+            return self.declined(window, "no room");
         }
         let id = SnapshotId(self.snapshots.next());
         self.snapshots.pictures.push(Picture { id, window, root: w.surface, app: w.app_id().into(), layer: w.kind.layer(), order: w.map_serial,
             resumable: true, resume: None, fade: None, video: capture != Capture::Ui, card: capture == Capture::Card, used: id.0 });
         Some((id, capture))
+    }
+
+    /// Why a leaving app got no picture, in the trace ring (`S` line), so a reopen that shows live pixels can be explained.
+    fn declined(&self, window: WindowId, why: &str) -> Option<(SnapshotId, Capture)> {
+        if crate::ring::is_open() {
+            crate::ring::note(format_args!("S {} no picture: {why}", self.windows.get(&window).map_or("?", |w| w.app_id())));
+        }
+        None
     }
 
     pub fn invalidate_snapshot(&mut self, window: WindowId) {
@@ -151,6 +161,9 @@ impl Scene {
                 }
             }
             for (window, video) in invalid.into_iter().flatten() {
+                if crate::ring::is_open() {
+                    crate::ring::note(format_args!("S {} picture dropped: {}", self.windows.get(&window).map_or("?", |w| w.app_id()), if video { "video arrived" } else { "window changed or switcher" }));
+                }
                 if video { self.transitions.stationary_video(window, now_ns); }
                 self.snapshots.forget(window);
             }
@@ -182,7 +195,7 @@ impl Scene {
 
     /// One trace-ring line (`L`, `ctl ring`) for a frame just drawn: what the front window is on screen as, so a reopen's first frames can be read
     /// back without a capture (a capture takes 1.5 s while an app opens). `pic` is the saved picture (`snap`, `card`) or its dissolve (`fade`, live
-    /// window under it); `live` is the window's own items in the plan, `hole` its video holes, `trk` the open motion's opacity. `none` is a front
+    /// window under it); `live` is the window's own items in the plan, `hole` its video holes, `have` whether a saved picture exists for it, `trk` the open motion's opacity. `none` is a front
     /// app with nothing to draw: a black frame.
     pub(crate) fn note_layers(&self, frame: u64) {
         if !crate::ring::is_open() { return; }
@@ -202,9 +215,10 @@ impl Scene {
             None => "none",
         };
         let pic = draw.map_or(0.0, |d| d.pose.alpha);
+        let have = u8::from(self.snapshots.get(window).is_some());
         match self.transitions.track_of(window) {
-            Some(t) => crate::ring::note(format_args!("L {frame} {app} {layer} pic={pic:.2} live={live} hole={hole} trk={:.2}", t.pose_at(self.plan_ns).alpha)),
-            None => crate::ring::note(format_args!("L {frame} {app} {layer} pic={pic:.2} live={live} hole={hole} trk=-")),
+            Some(t) => crate::ring::note(format_args!("L {frame} {app} {layer} pic={pic:.2} live={live} hole={hole} have={have} trk={:.2}", t.pose_at(self.plan_ns).alpha)),
+            None => crate::ring::note(format_args!("L {frame} {app} {layer} pic={pic:.2} live={live} hole={hole} have={have} trk=-")),
         }
     }
 
@@ -248,6 +262,9 @@ impl crate::State {
             (Capture::Card, None) => false,
             (Capture::Ui | Capture::Video, _) => self.output.freeze_app(id, window, self.scene.last_plan(), &self.scene.snapshots),
         };
+        if crate::ring::is_open() {
+            crate::ring::note(format_args!("S {} picture {}: {capture:?}", self.scene.window(window).map_or("?", |w| w.app_id()), if frozen { "saved" } else { "not saved" }));
+        }
         if !frozen {
             self.scene.invalidate_snapshot(window);
         } else if capture == Capture::Ui {
