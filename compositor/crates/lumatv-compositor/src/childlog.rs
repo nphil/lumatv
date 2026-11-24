@@ -4,46 +4,28 @@ use std::fs::File;
 use std::fmt;
 use std::io::Read;
 use std::os::fd::{FromRawFd, OwnedFd};
-use std::sync::Arc;
-
-use parking_lot::Mutex;
 
 pub fn pipe(tag: &'static str, prefix: &'static str) -> Option<OwnedFd> {
-    pipe_with(tag, prefix, None)
-}
-
-/// As [`pipe`], and the last line the child says is kept in `last` (the reason a child that failed gives, for a journal line).
-pub fn pipe_noting(tag: &'static str, prefix: &'static str, last: Arc<Mutex<String>>) -> Option<OwnedFd> {
-    pipe_with(tag, prefix, Some(last))
-}
-
-fn pipe_with(tag: &'static str, prefix: &'static str, last: Option<Arc<Mutex<String>>>) -> Option<OwnedFd> {
     let mut fds = [0; 2];
     // Only the child's write end is nonblocking: a stalled drain must never hold a UI or shutdown thread.
     if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } != 0 { return None; }
     let (mut reader, writer) = unsafe { (File::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
     if unsafe { libc::fcntl(fds[1], libc::F_SETFL, libc::O_NONBLOCK) } < 0 { return None; }
     std::thread::Builder::new().name("client-log".into()).spawn(move || {
-        let say = |bytes: &[u8], cut: bool| {
-            if let Some(last) = &last {
-                if !bytes.is_empty() { *last.lock() = NativeLine(bytes).to_string(); }
-            }
-            emit(tag, prefix, bytes, cut);
-        };
         let mut buf = [0; 8192];
         let mut line = [0; 4096];
         let mut len = 0;
         let mut cut = false;
         loop {
             let n = match reader.read(&mut buf) {
-                Ok(0) => { if len > 0 || cut { say(&line[..len], cut); } break; }
+                Ok(0) => { if len > 0 || cut { emit(tag, prefix, &line[..len], cut); } break; }
                 Ok(n) => n,
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => break,
             };
             for &byte in &buf[..n] {
                 if byte == b'\n' {
-                    say(&line[..len], cut);
+                    emit(tag, prefix, &line[..len], cut);
                     len = 0;
                     cut = false;
                 } else if len < line.len() { line[len] = byte; len += 1; }
