@@ -17,7 +17,8 @@ use lumaxcode::{Au, Engine, H264Profile, JobSpec, Out, Output, Priority, PushErr
 const MADE: [Profile; 2] = [Profile::Heavy, Profile::Mobile];
 
 /// `CmaFree` the converter is given before it starts, MB: its chain at 1080 needs about 30 (bitstream buffers, four NV12 pictures, the encoder), at
-/// 720 and below about 24, and a start that finds the contiguous memory short has wedged the set, so each has about a third in hand.
+/// 720 and below about 24, so each has about a third in hand. Started at 3-7 MB with the apps left open, one run in two took 1.6 s over its first
+/// picture and the engine ended it (`docs/research/cma-holders.md`).
 fn cma_needed_mb(source: &Format) -> u64 {
     if source.height > 720 { 40 } else { 32 }
 }

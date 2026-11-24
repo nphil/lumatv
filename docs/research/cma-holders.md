@@ -7,7 +7,8 @@ closed through SAM. Numbers are MB unless a unit is given.
 
 `CmaFree` (`nr_free_cma`, zone Movable) is the part of the 692 MB (`CmaTotal`) that is free. The kernel lends free CMA pages to ordinary
 movable allocations (an app's heap), so the figure falls as apps run and rises when they close. A request for contiguous memory
-(`cma_alloc`) takes the lent pages back by migrating them unless they are pinned (standard CMA behaviour, not tested on this set). The
+(`cma_alloc`) takes the lent pages back by migrating them unless they are pinned (standard CMA behaviour; the start at 3-7 MB under Decision
+tests it). The
 converter's wedge guard (`xcode/codec.rs`, 40 MB at 1080) and the broker (`prewarm/room.rs`) read `CmaFree` as a proxy for what a start can
 get; it is a conservative one.
 
@@ -75,10 +76,19 @@ cost CMA cost heap, not device memory.
 
 Changes that could make closing unnecessary, none built:
 
-1. The guard's proxy. `CmaFree` falls whenever an app runs, yet `cma_alloc` can migrate those pages. Whether the chain starts with `CmaFree`
-   near 3 MB is the one experiment that decides it: start a conversion with the guard off and the five kept apps resident, and read
-   `nr_alloc_cma` and `nr_free_cma` before, during and after. A start that finds the contiguous memory short has wedged the set before
-   (`xcode/codec.rs`), so it needs the owner's approval and a moment when nobody watches. If it starts, the broker and the app eviction go.
+1. The guard's proxy, tried and kept (2026-11-24 14:19-14:22 EST, helper `59688e98`: `9e66db9d` plus a flag file that skipped the broker and the
+   40 MB check; `9e66db9d` is back on the set). Marquee, Netflix, Prime Video and Live TV were resident and `CmaFree` was 3-7 MB. Two
+   `?transcode=heavy` starts on 11.11 (1080i) with nothing closed: the first reached the decoder's ready state in 610 ms and its first picture in
+   0.1 s (longest gap 115 ms); the second took 468 ms and 1.6 s, and the engine ended it at 5.7 s (`Stalled("a picture took 1632 ms")`). Neither
+   wedged the set or put a kernel warning in `dmesg`; `nr_alloc_cma` rose 9,806 pages (38 MiB) and returned, `pgmigrate_fail` did not move,
+   and `pswpout` rose 22,437 pages (88 MB) during the second. With the broker the same start takes 44 ms. A start at 3 MB migrates but can
+   stall past the engine's limit, so the broker and the 40 MB check stay. Not run: 720p60 and a third 1080i start.
+
+   Five apps do not stay resident at 3 MB. With LumaGame, Marquee, Netflix and Prime Video resident (`CmaFree` 3 MB, `MemAvailable` 343 MB), a
+   hidden launch of Apple TV was followed within 6 s by the close of every background app, itself included: SAM's `running` list was Home
+   only, four Wayland clients disconnected within 1 s, `dmesg` had no OOM message. [INFERENCE] LG's memory manager closing by launch
+   (`clearBackgroundApp`, `docs/research/lg-memchute.md` section 5); the launches were made by hand with prewarm off, so the policy's 400 MB
+   headroom floor was not in play.
 2. Marquee's window buffers. A hidden Marquee keeps 3 window buffers and its GL context (about 52 MB; [INFERENCE] system memory, not CMA, since
    `nr_alloc_cma` does not move). The change belongs to Marquee, not the compositor: on SAM's `hidden` state destroy the platform window
    (`QWindow::destroy()`, `QQuickWindow::releaseResources()`) and create it again on `relaunch`. The cost is the window's re-creation on the
@@ -91,3 +101,4 @@ Changes that could make closing unnecessary, none built:
 - Which driver holds the 270 MiB of `nr_alloc_cma`, and which of the pools in `/proc/hma/status` lie in the zone.
 - The converter beside a game stream (`docs/plugins/live-tv-tuner.md`, the gate): the game's pipeline owner id, `CmaFree` during the stream and
   whether the chain starts.
+- The converter at 3-7 MB on 720p60, and how often a start there stalls (one of two so far).
