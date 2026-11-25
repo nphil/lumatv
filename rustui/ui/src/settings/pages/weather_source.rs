@@ -14,6 +14,8 @@ use std::rc::Rc;
 const OWNER: &str = "base.weather";
 const LIST: &str = "wxents";
 const TAB: usize = 1;
+/// Open-Meteo's terms ask for attribution wherever its data is shown; Home Assistant's entity is not theirs.
+const CREDIT: &str = "Forecast data: Open-Meteo";
 
 /// The page's state: Home Assistant was chosen and no entity is saved yet; the list of entities was asked for.
 const CHOSEN: &str = "wxha";
@@ -148,7 +150,11 @@ pub fn rows(c: &Ctx) -> Vec<Row> {
             }),
         },
     ]);
-    vec![units, source, picker, place]
+    let mut rows = vec![units, source, picker, place];
+    if !on_ha {
+        rows.push(Row::note(CREDIT, TAB));
+    }
+    rows
 }
 
 #[cfg(test)]
@@ -180,7 +186,9 @@ mod tests {
         assert_eq!(row(&r, "wxsource").index, Some(0));
         assert!(row(&r, "wxzip").visible && !row(&r, "wxentity").visible);
         assert_eq!(row(&r, "wxzip").value, "30311");
-        assert!(r.iter().all(|x| x.tab == TAB && x.admin));
+        assert!(r.iter().all(|x| x.tab == TAB));
+        assert!(r.iter().filter(|x| x.focusable()).all(|x| x.admin));
+        assert!(r.iter().any(|x| x.text == CREDIT), "the built-in source credits Open-Meteo");
         let ops = (row(&r, "wxzip").act.as_ref().unwrap())(Arg::Press);
         let Some(Op::Entry { then, purpose, .. }) = ops.iter().find(|o| matches!(o, Op::Entry { .. })) else { panic!("{ops:?}") };
         assert_eq!(*purpose, PURPOSE_DIGITS);
@@ -234,6 +242,7 @@ mod tests {
         let r = rows(&w.ctx());
         assert_eq!(row(&r, "wxsource").index, Some(1));
         assert_eq!(row(&r, "wxentity").value, "Pirate Weather", "the entity by its name");
+        assert!(r.iter().all(|x| x.text != CREDIT), "no credit when Home Assistant is the source");
         assert_eq!(owner_writes(&(row(&r, "wxsource").act.as_ref().unwrap())(Arg::Index(0))), vec![("source".to_string(), json!("builtin"))]);
     }
 
