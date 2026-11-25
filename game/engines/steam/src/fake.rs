@@ -26,6 +26,11 @@ pub fn eresult(code: i32, body: &str) -> Result<Resp, HttpError> {
     Ok(Resp { status: 200, eresult: Some(code), body: body.as_bytes().to_vec() })
 }
 
+/// An answer with no result code, as the older web API endpoints give.
+pub fn reply(code: u16, body: &str) -> Result<Resp, HttpError> {
+    Ok(Resp { status: code, eresult: None, body: body.as_bytes().to_vec() })
+}
+
 /// A reply with an HTTP status and nothing else.
 pub fn status(code: u16) -> Result<Resp, HttpError> {
     Ok(Resp { status: code, eresult: None, body: Vec::new() })

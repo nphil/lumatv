@@ -16,6 +16,11 @@ pub fn avatar_url(body: &[u8]) -> Option<String> {
     let rest = &text[text.find("<avatarMedium>")? + "<avatarMedium>".len()..];
     let inner = rest[..rest.find("</avatarMedium>")?].trim();
     let url = inner.strip_prefix("<![CDATA[").and_then(|cdata| cdata.strip_suffix("]]>")).unwrap_or(inner).trim();
+    steam_image(url)
+}
+
+/// `url` when it is an https address on Steam's image hosts and names a JPEG or PNG.
+pub fn steam_image(url: &str) -> Option<String> {
     let host = url.strip_prefix("https://")?.split('/').next()?;
     let steam_host = host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
         && (host.ends_with(".steamstatic.com") || host.ends_with(".akamaihd.net"));
@@ -67,13 +72,19 @@ impl<H: Http, C: Clock> Adapter<H, C> {
 
     /// Keeps the picture the profile `page` names, unless that picture is already the one kept. Trouble leaves what was kept as it was.
     pub(crate) fn keep_avatar(&mut self, page: &[u8]) {
-        let Some(url) = avatar_url(page) else { return };
-        let Some(extension) = extension(&url) else { return };
-        let name = file_name(&url, extension);
+        if let Some(url) = avatar_url(page) {
+            self.keep_picture(&url);
+        }
+    }
+
+    /// Keeps the picture at `url`, an address `steam_image` accepted, unless it is the one already kept.
+    pub(crate) fn keep_picture(&mut self, url: &str) {
+        let Some(extension) = extension(url) else { return };
+        let name = file_name(url, extension);
         if self.avatar.as_ref().is_some_and(|kept| kept.file_name().is_some_and(|kept| kept == name.as_str())) {
             return;
         }
-        let Some(resp) = self.http.get(&url, MAX_BYTES).ok().filter(|resp| resp.status == 200 && is_image(&resp.body, extension)) else {
+        let Some(resp) = self.http.get(url, MAX_BYTES).ok().filter(|resp| resp.status == 200 && is_image(&resp.body, extension)) else {
             return self.note("avatar: the picture could not be fetched");
         };
         if let Err(error) = files::write(&self.cache, &name, &resp.body) {
@@ -86,6 +97,9 @@ impl<H: Http, C: Clock> Adapter<H, C> {
 
     /// The signed-in account's picture is looked up again: once after the engine starts, and whenever the owner asks for a refresh.
     pub(crate) fn refresh_avatar(&mut self) {
+        if self.key.is_some() {
+            return self.refresh_profile_by_key();
+        }
         let Some(account) = self.account.as_ref().filter(|account| !account.expired) else { return };
         let steamid = account.steamid.clone();
         if let Some(page) = self.profile_page(&steamid) {

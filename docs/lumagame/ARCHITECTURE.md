@@ -70,7 +70,7 @@ is a new directory and program.
 | Engine | id | Targets | Linking | Picture | Built from | Licence |
 |---|---|---|---|---|---|---|
 | GeForce NOW | `gfn` | accounts | device code | feeder | shim over `opennow-core` and `opennow-streamer` (`gfn/engine`) | MIT |
-| Steam | `steam` | account | QR scanned in the Steam phone app | none: adds play data to games other engines list | `ureq` over Steam's HTTPS interfaces (`game/engines/steam`, own workspace) | MIT |
+| Steam | `steam` | account | QR scanned in the Steam phone app, or a Web API key and SteamID typed on the TV (`docs/research/steam-web-api-key.md`) | none: adds play data to games other engines list | `ureq` over Steam's HTTPS interfaces (`game/engines/steam`, own workspace) | MIT |
 | Punktfunk | `punktfunk` | PCs | PIN typed on the TV, or approval on the PC | feeder | `punktfunk-core`, `pf-client-core`, client-webos session logic | MIT OR Apache-2.0 |
 | Sunshine, Apollo | `gamestream` | PCs | PIN typed on the PC | feeder | moonlight-common-c, in its own repository | GPL-3.0 |
 | TV games | `native` | this TV | none | the game's own app | inside the UI process | MIT |
@@ -81,7 +81,7 @@ Contract (`lumagame_core::engine`, `::ipc`, protocol 1):
 
 - `Engine` is a message-passing trait: `send(ToEngine)`, `poll() -> Option<FromEngine>`. An in-process engine implements it; a
   process is reached through an adapter that writes and reads lines. Tests script one.
-- Requests: `hello`, `settings`, `targets`, `add-target`, `forget`, `wake`, `auth`, `auth-pin`, `auth-cancel`, `library`, `check`,
+- Requests: `hello`, `settings`, `targets`, `add-target`, `forget`, `wake`, `auth`, `auth-pin`, `auth-key`, `auth-cancel`, `library`, `check`,
   `launch`, `stop`, `route`, `stats`, `action`. Events: `ready`, `targets`, `auth`, `library`, `readiness`, `session`, `stats`, `key`,
   `overlay`, `error`.
 - Session states are the ones the app shows: checking, sign-in, queue, starting, running, ended, failed.

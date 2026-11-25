@@ -15,12 +15,38 @@ pub struct LinkFlow {
     pub since_ms: u64,
     /// A PC engine searched for [`PC_SEARCH_MS`] without offering a PC to pair.
     pub no_pcs: bool,
+    /// Set while the Web API key form is the flow.
+    pub key_form: Option<KeyForm>,
+}
+/// The steps of the Web API key form: what the key is, the key, the account, then Steam's answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum KeyStep {
+    #[default]
+    Intro,
+    Key,
+    Account,
+    Checking,
+}
+/// A Web API key is 32 hex characters; a Steam ID, profile address or name is at most this long.
+pub const KEY_LEN: usize = 32;
+pub const ACCOUNT_LEN: usize = 128;
+/// What was typed into the form. The key is a secret: it has no `Debug` of its own, and it lives only as long as the flow.
+#[derive(Clone, Default)]
+pub struct KeyForm {
+    pub step: KeyStep,
+    pub key: String,
+    pub account: String,
+}
+impl std::fmt::Debug for KeyForm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyForm").field("step", &self.step).finish_non_exhaustive()
+    }
 }
 /// How long "Pair a PC" waits for a PC engine to find one before offering an address and a retry.
 pub const PC_SEARCH_MS: u64 = 20_000;
 impl LinkFlow {
     pub(super) fn new(engine: EngineId, target: Option<TargetId>, now_ms: u64) -> Self {
-        Self { engine, target, state: None, expires_ms: None, pin: String::new(), since_ms: now_ms, no_pcs: false }
+        Self { engine, target, state: None, expires_ms: None, pin: String::new(), since_ms: now_ms, no_pcs: false, key_form: None }
     }
 }
 pub struct Rules;
@@ -143,6 +169,9 @@ impl Model {
             let linked = e.targets.iter().find(|t| t.link == Link::Linked);
             let (sub, state) = match linked {
                 Some(t) => (format!("{}, {} games matched", t.name, self.games_from(id)), Shows::State("Linked", Tone::Positive)),
+                None if e.targets.iter().any(|t| t.link == Link::Expired && t.detail.as_deref() == Some("Web API key")) => {
+                    ("Steam did not accept the key".into(), Shows::State("Check key", Tone::Warning))
+                }
                 None if e.targets.iter().any(|t| t.link == Link::Expired) => ("Sign-in has expired".into(), Shows::State("Sign in again", Tone::Warning)),
                 None => ("Play time, achievements and friends".into(), Shows::State("Sign in", Tone::Warning)),
             };
@@ -169,6 +198,9 @@ impl Model {
                 EngineKind::Native => {}
                 kind if !e.targets.iter().any(|t| t.link == Link::Linked) => {
                     entries.push(Entry::Row(Item::new(Act::Link(id.clone(), None), glyph(kind), name, Shows::Opens).sub("Sign in")));
+                    if e.descriptor.as_ref().is_some_and(|d| d.capabilities.auth.contains(&AuthMethod::ApiKey)) {
+                        entries.push(Entry::Row(Item::new(Act::LinkKey(id.clone()), Glyph::Setting, format!("{name} Web API key"), Shows::Opens).sub("No sign-in needed; read-only")));
+                    }
                 }
                 _ => {}
             }
@@ -216,7 +248,10 @@ impl Model {
                 }
                 match linked {
                     Some(t) => {
-                        rows.push(Entry::Row(Item::new(Act::None, Glyph::Account, "Account", Shows::Value(t.name.clone()))));
+                        let how = t.detail.as_deref().filter(|d| *d == "Web API key").map(|_| "Linked with a Web API key");
+                        let mut account_row = Item::new(Act::None, Glyph::Account, "Account", Shows::Value(t.name.clone()));
+                        account_row.sub = how.map(str::to_owned);
+                        rows.push(Entry::Row(account_row));
                         let found = self.games_from(id);
                         let shows = if account { format!("{found} of {}", self.games().len()) } else { found.to_string() };
                         rows.push(Entry::Row(Item::new(Act::None, Glyph::Games, if account { "Games matched" } else { "Games" }, Shows::Value(shows))));
@@ -234,6 +269,9 @@ impl Model {
                         let qr = e.descriptor.as_ref().is_some_and(|d| d.capabilities.auth.first() == Some(&AuthMethod::Qr));
                         let sub = if qr { "With the Steam app on a phone".to_owned() } else { format!("Link a {} account", e.manifest.name) };
                         rows.push(Entry::Row(Item::new(Act::Link(id.clone(), None), if qr { Glyph::Qr } else { glyph(kind) }, "Sign in", Shows::Opens).sub(sub)));
+                        if e.descriptor.as_ref().is_some_and(|d| d.capabilities.auth.contains(&AuthMethod::ApiKey)) {
+                            rows.push(Entry::Row(Item::new(Act::LinkKey(id.clone()), Glyph::Setting, "Use a Web API key", Shows::Opens).sub("No sign-in needed; read-only")));
+                        }
                     }
                 }
             }
@@ -302,6 +340,19 @@ impl Model {
                 let manual = self.view.auth.as_ref().and_then(|a| self.integration(&a.engine)).and_then(|e| e.descriptor.as_ref()).is_some_and(|d| d.capabilities.has(Feature::ManualHost));
                 rows.push(if manual { vec![Focus::SheetAction(0), Focus::SheetAction(1)] } else { vec![Focus::SheetAction(0)] });
             }
+            Some(Layer::Auth) if self.key_step() == Some(KeyStep::Intro) => rows.push(vec![Focus::SheetAction(0)]),
+            Some(Layer::Auth) if self.key_step() == Some(KeyStep::Key) => {
+                for i in (0..18).step_by(6) {
+                    rows.push((i..i + 6).map(Focus::Keyboard).collect());
+                }
+                rows.push(vec![Focus::SheetAction(0)]);
+            }
+            Some(Layer::Auth) if self.key_step() == Some(KeyStep::Account) => {
+                for i in (0..45).step_by(10) {
+                    rows.push((i..(i + 10).min(45)).map(Focus::Keyboard).collect());
+                }
+                rows.push(vec![Focus::SheetAction(0)]);
+            }
             // A step that waits on a phone or the PC has nothing to press: Back cancels it.
             Some(Layer::Auth) if self.view.auth.as_ref().is_some_and(|a| matches!(a.state, Some(AuthState::Failed { .. }))) => rows.push(vec![Focus::SheetAction(0)]),
             Some(Layer::SignOut) => rows.push(vec![Focus::SheetAction(0), Focus::SheetAction(1)]),
@@ -311,6 +362,7 @@ impl Model {
     }
     fn accounts_activate(&mut self, f: Focus, out: &mut Vec<Command>) {
         match f {
+            Focus::Keyboard(i) if self.key_step().is_some() => self.key_keyboard(i, out),
             Focus::Keyboard(i) => self.keyboard(i, out),
             Focus::SheetAction(i) if self.view.top() == Some(Layer::Auth) => self.auth_action(i, out),
             Focus::SheetAction(i) if self.view.top() == Some(Layer::SignOut) => {
@@ -423,6 +475,9 @@ impl Model {
         let Some(a) = &self.view.auth else {
             return;
         };
+        if a.key_form.is_some() && !matches!(a.state, Some(AuthState::Failed { .. })) {
+            return self.key_action(out);
+        }
         if a.no_pcs {
             let engine = a.engine.clone();
             Self::send(out, &engine, Request::AuthCancel);
@@ -440,6 +495,7 @@ impl Model {
         }
         match &a.state {
             Some(AuthState::EnterPin { digits }) if a.pin.len() == usize::from(*digits) => Self::send(out, &a.engine, Request::AuthPin { pin: a.pin.clone() }),
+            Some(AuthState::Failed { .. }) if a.key_form.is_some() => self.key_retry(),
             Some(AuthState::Failed { .. }) => {
                 let id = a.engine.clone();
                 let target = a.target.clone();
@@ -448,6 +504,119 @@ impl Model {
             Some(AuthState::EnterPin { .. }) => {}
             _ => self.go_back(out),
         }
+    }
+    /// The Web API key form's step while it is on screen.
+    pub fn key_step(&self) -> Option<KeyStep> {
+        if self.view.top() != Some(Layer::Auth) {
+            return None;
+        }
+        self.view.auth.as_ref().filter(|a| a.state.is_none()).and_then(|a| a.key_form.as_ref()).map(|f| f.step)
+    }
+    /// Opens the Web API key form for `engine`; nothing is sent until the Steam ID is entered.
+    pub fn begin_key_link(&mut self, engine: EngineId, out: &mut Vec<Command>) {
+        let mut flow = LinkFlow::new(engine.clone(), None, self.now_ms);
+        flow.key_form = Some(KeyForm::default());
+        self.view.auth = Some(flow);
+        self.push_layer(Layer::Auth, Focus::SheetAction(0));
+        if !self.enabled(&engine) {
+            self.state.engines.entry(engine.clone()).or_default().enabled = true;
+            out.push(Command::Enable { engine, on: true });
+            out.push(Command::SaveState);
+        }
+    }
+    fn key_form(&mut self) -> Option<&mut KeyForm> {
+        self.view.auth.as_mut().filter(|a| a.state.is_none()).and_then(|a| a.key_form.as_mut())
+    }
+    /// What the form's button (or Done on its keyboard) does: on to the next step, or, on the last, ask the engine to check the key.
+    fn key_action(&mut self, out: &mut Vec<Command>) {
+        let Some(a) = self.view.auth.as_mut() else { return };
+        let engine = a.engine.clone();
+        let Some(form) = a.key_form.as_mut() else { return };
+        match form.step {
+            KeyStep::Intro => {
+                form.step = KeyStep::Key;
+                self.view.focus = Focus::Keyboard(0);
+            }
+            KeyStep::Key if form.key.len() == KEY_LEN => {
+                form.step = KeyStep::Account;
+                self.view.focus = Focus::Keyboard(0);
+            }
+            KeyStep::Account if !form.account.trim().is_empty() => {
+                form.step = KeyStep::Checking;
+                let request = Request::AuthKey { key: ipc::Secret::new(form.key.clone()), account: form.account.trim().to_owned() };
+                self.view.focus = Focus::None;
+                Self::send(out, &engine, request);
+            }
+            _ => {}
+        }
+    }
+    /// A refused check goes back to the key, with what was typed kept.
+    fn key_retry(&mut self) {
+        if let Some(a) = self.view.auth.as_mut() {
+            a.state = None;
+            if let Some(form) = a.key_form.as_mut() {
+                form.step = KeyStep::Key;
+            }
+        }
+        self.view.focus = Focus::Keyboard(0);
+    }
+    /// Back from the Steam ID returns to the key; on any other step Back closes the form.
+    pub(super) fn key_back(&mut self) -> bool {
+        let Some(form) = self.key_form().filter(|f| f.step == KeyStep::Account) else { return false };
+        form.step = KeyStep::Key;
+        self.view.focus = Focus::Keyboard(0);
+        true
+    }
+    fn key_keyboard(&mut self, i: usize, out: &mut Vec<Command>) {
+        const HEX: &str = "0123456789ABCDEF";
+        const UPPER: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/_";
+        const LOWER: &str = "abcdefghijklmnopqrstuvwxyz0123456789.-:/_";
+        let lower = self.view.keyboard_lower;
+        let Some(form) = self.key_form() else { return };
+        match form.step {
+            KeyStep::Key => {
+                if let Some(c) = HEX.chars().nth(i) {
+                    if form.key.len() < KEY_LEN {
+                        form.key.push(c);
+                    }
+                } else if i == HEX.len() {
+                    form.key.pop();
+                } else {
+                    self.key_action(out);
+                }
+            }
+            KeyStep::Account => {
+                let chars = if lower { LOWER } else { UPPER };
+                if let Some(c) = chars.chars().nth(i) {
+                    if form.account.chars().count() < ACCOUNT_LEN {
+                        form.account.push(c);
+                    }
+                } else if i == chars.len() {
+                    form.account.pop();
+                } else if i == chars.len() + 2 {
+                    self.key_action(out);
+                } else if i == chars.len() + 3 {
+                    self.view.keyboard_lower = !lower;
+                }
+            }
+            KeyStep::Intro | KeyStep::Checking => {}
+        }
+    }
+    /// Typed text (a keyboard on the TV's remote or a paste) into the form; false when no form is open.
+    pub(super) fn key_type(&mut self, text: &str) -> bool {
+        let Some(form) = self.key_form() else { return false };
+        match form.step {
+            KeyStep::Key => {
+                let room = KEY_LEN.saturating_sub(form.key.len());
+                form.key.extend(text.chars().filter(char::is_ascii_hexdigit).map(|c| c.to_ascii_uppercase()).take(room));
+            }
+            KeyStep::Account => {
+                let room = ACCOUNT_LEN.saturating_sub(form.account.chars().count());
+                form.account.extend(text.chars().filter(|c| !c.is_control()).take(room));
+            }
+            KeyStep::Intro | KeyStep::Checking => {}
+        }
+        true
     }
 }
 #[cfg(test)]
@@ -801,5 +970,98 @@ mod tests {
         m.step(Input::Engine { engine: id, message: Box::new(FromEngine { re: None, event: ipc::Event::Auth { state: cancelled } }) });
         assert_eq!(m.view.top(), Some(Layer::AddHost), "the answer to the cancel leaves the address entry open");
     }
+    fn steam_with_key() -> (Model, EngineId) {
+        let mut m = Model::new(State::default(), Listing::default(), vec![manifest("steam", "Steam", EngineKind::Account)]);
+        describe(&mut m, "steam", vec![AuthMethod::Qr, AuthMethod::ApiKey], &[]);
+        let steam = EngineId::new("steam").unwrap();
+        m.open_settings(settings::Place::Accounts);
+        m.open_service(steam.clone(), None, &mut Vec::new());
+        (m, steam)
+    }
+    #[test]
+    fn a_web_api_key_is_typed_on_the_tv_and_sent_with_the_account_only_when_both_are_complete() {
+        const KEY: &str = "0123456789ABCDEF0123456789ABCDEF";
+        let (mut m, steam) = steam_with_key();
+        let sheet = m.settings_sheet();
+        let row = sheet.rows().into_iter().find(|&i| sheet.item(i).unwrap().act == Act::LinkKey(steam.clone())).expect("the key row beside Sign in");
+        m.view.focus = Focus::Setting(row);
+        m.rebuild_navigation();
+        assert!(sent(&key(&mut m, Key::Ok)).is_empty(), "opening the form sends nothing");
+        assert_eq!((m.key_step(), m.view.focus), (Some(KeyStep::Intro), Focus::SheetAction(0)));
+        key(&mut m, Key::Ok);
+        assert_eq!((m.key_step(), m.view.focus), (Some(KeyStep::Key), Focus::Keyboard(0)));
 
+        m.step(Input::Text("0123 4567-89ab xyz".into()));
+        key(&mut m, Key::Ok);
+        assert_eq!(m.view.auth.as_ref().unwrap().key_form.as_ref().unwrap().key, "0123456789AB0", "only hex digits, upper-case, and the key on screen adds its digit");
+        m.view.focus = Focus::Keyboard(16);
+        key(&mut m, Key::Ok);
+        m.view.focus = Focus::SheetAction(0);
+        key(&mut m, Key::Ok);
+        assert_eq!(m.key_step(), Some(KeyStep::Key), "Next waits for all 32 characters");
+        m.step(Input::Text(format!("{}ff", KEY[12..].to_lowercase())));
+        assert_eq!(m.view.auth.as_ref().unwrap().key_form.as_ref().unwrap().key, KEY, "typing stops at 32");
+        key(&mut m, Key::Ok);
+        assert_eq!(m.key_step(), Some(KeyStep::Account));
+        assert!(!format!("{:?}", m.view.auth).contains(KEY), "the key has no place in a debug line");
+
+        m.view.focus = Focus::SheetAction(0);
+        assert!(sent(&key(&mut m, Key::Ok)).is_empty() && m.key_step() == Some(KeyStep::Account), "the account is asked for before anything is sent");
+        m.step(Input::Text("76561198000000000".into()));
+        let commands = key(&mut m, Key::Ok);
+        let requests = sent(&commands);
+        let [Request::AuthKey { key: secret, account }] = requests[..] else { panic!("one request, got {requests:?}") };
+        assert_eq!((secret.expose(), account.as_str()), (KEY, "76561198000000000"));
+        assert_eq!((m.key_step(), m.view.focus), (Some(KeyStep::Checking), Focus::None));
+    }
+    #[test]
+    fn a_refused_key_returns_to_the_form_with_what_was_typed_and_back_steps_out_one_screen_at_a_time() {
+        let (mut m, steam) = steam_with_key();
+        m.begin_key_link(steam.clone(), &mut Vec::new());
+        key(&mut m, Key::Ok);
+        m.step(Input::Text("0123456789abcdef0123456789abcdef".into()));
+        m.view.focus = Focus::SheetAction(0);
+        key(&mut m, Key::Ok);
+        m.step(Input::Text("rig".into()));
+        key(&mut m, Key::Back);
+        assert_eq!((m.view.top(), m.key_step()), (Some(Layer::Auth), Some(KeyStep::Key)), "Back from the account returns to the key");
+        m.view.focus = Focus::SheetAction(0);
+        key(&mut m, Key::Ok);
+        m.view.focus = Focus::SheetAction(0);
+        key(&mut m, Key::Ok);
+        let failed = AuthState::Failed { reason: ipc::AuthFail::BadKey, message: "Steam did not accept this key.".into() };
+        engine_says(&mut m, "steam", ipc::Event::Auth { state: failed });
+        assert_eq!(m.view.focus, Focus::SheetAction(0), "a refusal offers Try again");
+        assert!(sent(&key(&mut m, Key::Ok)).is_empty(), "Try again sends nothing and does not start a QR sign-in");
+        let form = m.view.auth.as_ref().unwrap().key_form.as_ref().unwrap();
+        assert_eq!((m.key_step(), form.key.len(), form.account.as_str()), (Some(KeyStep::Key), 32, "rig"));
+        assert!(matches!(sent(&key(&mut m, Key::Back))[..], [Request::AuthCancel]));
+        assert!(m.view.auth.is_none() && m.view.top().is_none(), "Back from the key closes the form and drops what was typed");
+
+        m.begin_key_link(steam, &mut Vec::new());
+        let done = ipc::Event::Auth { state: AuthState::Done { target: TargetId::new("76561198000000000").unwrap() } };
+        assert!(matches!(sent(&engine_says(&mut m, "steam", done))[..], [Request::Targets]));
+        assert!(m.view.auth.is_none() && m.view.top().is_none());
+    }
+    #[test]
+    fn an_account_linked_with_a_key_says_so_and_a_refused_key_asks_for_a_new_one() {
+        let (mut m, steam) = steam_with_key();
+        let mut target = linked("76561198000000000");
+        target.name = "Rig".into();
+        target.detail = Some("Web API key".into());
+        engine_says(&mut m, "steam", ipc::Event::Targets { targets: vec![target.clone()] });
+        let account = m.settings_sheet().entries.iter().find_map(|e| match e {
+            Entry::Row(item) if item.name == "Account" => Some(item.sub.clone()),
+            _ => None,
+        });
+        assert_eq!(account, Some(Some("Linked with a Web API key".into())));
+
+        target.link = Link::Expired;
+        engine_says(&mut m, "steam", ipc::Event::Targets { targets: vec![target] });
+        let sheet = m.settings_sheet();
+        let names: Vec<_> = sheet.entries.iter().filter_map(|e| if let Entry::Row(item) = e { Some(&item.act) } else { None }).collect();
+        assert!(names.contains(&&Act::LinkKey(steam.clone())) && names.contains(&&Act::Link(steam, None)), "both ways are offered again");
+        let places = m.accounts_sheet();
+        assert!(places.entries.iter().any(|e| matches!(e, Entry::Row(item) if item.sub.as_deref() == Some("Steam did not accept the key"))));
+    }
 }

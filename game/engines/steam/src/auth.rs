@@ -89,6 +89,10 @@ pub enum Refusal {
     /// Steam refused to renew the access token just now. The saved sign-in is kept and nothing is shown to the owner; a renewal is
     /// tried again later and on the next start.
     Renewal,
+    /// Steam does not accept the Web API key: the owner has to make a new one.
+    Key,
+    /// Steam answered the library read with nothing, which is what it does for an account whose game details are private.
+    Hidden,
     Trouble(Trouble),
 }
 
@@ -492,12 +496,19 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         // A new sign-in starts without the old one's refusals.
         let _ = files::remove(&self.cache, REFUSED_FILE);
         // A saved library belongs to the account it came from.
-        if self.account.as_ref().is_none_or(|old| old.steamid != account.steamid) {
+        if self.steamid().as_deref() != Some(account.steamid.as_str()) {
             self.snapshot = None;
             self.forget_avatar();
             if let Err(error) = files::remove(&self.cache, crate::library::CACHE_FILE) {
                 self.note(&format!("sign-in: the earlier account's library could not be deleted ({:?})", error.kind()));
             }
+        }
+        // The newest link wins: a Web API key for another account goes.
+        if self.key.as_ref().is_some_and(|key| key.steamid != account.steamid) {
+            if let Err(error) = files::remove(&self.data, crate::webkey::KEY_FILE) {
+                self.note(&format!("sign-in: the earlier key could not be deleted ({:?})", error.kind()));
+            }
+            self.key = None;
         }
         let page = self.profile_page(&account.steamid);
         account.persona = page.as_deref().and_then(persona_name);

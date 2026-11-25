@@ -93,6 +93,8 @@ pub enum Act {
     /// A diagnostics row, by its place in the pane: on, level, server, topic, token, clear the token, test.
     Diag(usize),
     Link(EngineId, Option<TargetId>),
+    /// Links an account with a key typed on the TV (Steam's Web API key) rather than a sign-in.
+    LinkKey(EngineId),
     AddHost(EngineId),
     SignOut,
     /// A field of the open integration's schema, by its place in the schema.
@@ -578,6 +580,7 @@ impl Model {
             }
             Act::Diag(row) => self.diagnostics_action(row, out),
             Act::Link(engine, target) => self.begin_link(engine, target, out),
+            Act::LinkKey(engine) => self.begin_key_link(engine, out),
             Act::AddHost(engine) => {
                 self.view.selected_engine = Some(engine);
                 self.view.address.clear();

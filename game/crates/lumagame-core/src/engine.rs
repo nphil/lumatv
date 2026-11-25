@@ -59,6 +59,8 @@ word_enum! {
         Approval => "approval",
         /// The TV shows a QR code; the owner scans it with the service's phone app and approves there (Steam).
         Qr => "qr",
+        /// The owner types in a key the service issued and the account it reads (Steam's Web API key): nothing to renew.
+        ApiKey => "api-key",
     }
     unknown => Other
 }

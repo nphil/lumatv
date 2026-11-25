@@ -162,6 +162,7 @@ fn entry(p: &mut Paint<'_>) {
         placeholder: "Name or address",
         secret: false,
         numeric: false,
+        hex: false,
         lower: true,
         action: Some(("Add", Icon::Plus)),
         notice: None,

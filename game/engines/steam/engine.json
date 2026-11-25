@@ -1,7 +1,7 @@
 {
   "id": "steam",
   "name": "Steam",
-  "summary": "Brings last played, play time and genres from a Steam account into the library. Sign in by scanning the code on the TV with the Steam mobile app.",
+  "summary": "Brings last played, play time and genres from a Steam account into the library. Sign in by scanning the code on the TV with the Steam mobile app, or link with a Steam Web API key.",
   "kind": "account",
   "protocol": 1,
   "exec": "bin/lumagame-engine-steam",

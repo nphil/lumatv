@@ -6,7 +6,7 @@ use crate::game::screens::{
     paint::{Fill, H, Mark, Paint, W},
     parts::motion::Enter,
 };
-use crate::game::{helper::LeadjoyState, model::{Focus, Layer, settings::Pane}};
+use crate::game::{helper::LeadjoyState, model::{Focus, Layer, accounts::KeyStep, settings::Pane}};
 use lumatv_tokens::{Radius, TypeRole as Type};
 use ui::{components::{Form, Icon}, geometry::Frame, lucent::palette::PaletteRole as Role};
 use crate::game::screens::parts::dialog::*;
@@ -21,6 +21,8 @@ pub struct TextEntry<'a> {
     pub placeholder: &'a str,
     pub secret: bool,
     pub numeric: bool,
+    /// The sixteen hex digits, six across.
+    pub hex: bool,
     /// Lower-case letters rather than capitals.
     pub lower: bool,
     pub action: Option<(&'a str, Icon)>,
@@ -29,23 +31,26 @@ pub struct TextEntry<'a> {
 
 /// Whether the keys of the Diagnostics page's fields are wanted: they add `_`.
 fn diagnostic(p: &Paint<'_>) -> bool {
-    p.model.in_diagnostics() && p.model.view.top() == Some(Layer::EditText)
+    let account = p.model.key_step() == Some(KeyStep::Account);
+    account || p.model.in_diagnostics() && p.model.view.top() == Some(Layer::EditText)
 }
 
 /// The key grid at `id` (see [`grid`]): digits six across, or letters ten across with `_` among them for the Diagnostics page's fields.
 pub fn keyboard(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, numeric: bool) {
-    let keys = labels(numeric, p.model.view.keyboard_lower, diagnostic(p));
+    let keys = labels(numeric, false, p.model.view.keyboard_lower, diagnostic(p));
     grid(p, id, x, y, w, if numeric { 6 } else { 10 }, &keys, 31);
 }
 /// The keys' labels in focus order: `Focus::Keyboard(i)` is the `i`th.
-fn labels(numeric: bool, lower: bool, diagnostic: bool) -> Vec<String> {
+fn labels(numeric: bool, hex: bool, lower: bool, diagnostic: bool) -> Vec<String> {
     let letters = match (lower, diagnostic) {
         (true, true) => "abcdefghijklmnopqrstuvwxyz0123456789.-:/_",
         (false, true) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/_",
         (true, false) => "abcdefghijklmnopqrstuvwxyz0123456789.-:/",
         (false, false) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:/",
     };
-    if numeric {
+    if hex {
+        "0123456789ABCDEF".chars().map(|n| n.to_string()).chain(["⌫".into(), "Done".into()]).collect()
+    } else if numeric {
         "1234567890".chars().map(|n| n.to_string()).chain(["⌫".into(), "Done".into()]).collect()
     } else {
         letters
@@ -57,7 +62,7 @@ fn labels(numeric: bool, lower: bool, diagnostic: bool) -> Vec<String> {
 }
 /// The letter keys `columns` across, without the Diagnostics page's `_`.
 pub fn flat(p: &mut Paint<'_>, id: u64, x: f32, y: f32, w: f32, columns: usize, z: i32) {
-    let keys = labels(false, p.model.view.keyboard_lower, false);
+    let keys = labels(false, false, p.model.view.keyboard_lower, false);
     grid(p, id, x, y, w, columns, &keys, z);
 }
 /// `keys` `columns` across as words on the sheet beneath them: one text layer for every key, and only the focused key gets its own
@@ -141,6 +146,7 @@ pub fn edit_text(p: &mut Paint<'_>) {
             placeholder: if editing { "Enter a value" } else { "IP address or hostname" },
             secret,
             numeric: false,
+            hex: false,
             lower: model.view.keyboard_lower,
             action: Some(if editing { ("Save", Icon::Tick) } else { ("Add PC", Icon::Plus) }),
             notice: model.view.notice.as_deref(),
@@ -154,7 +160,10 @@ pub fn plan(p: &mut Paint<'_>, entry: &TextEntry<'_>) {
     let (width, height) = if p.scale > 1.0 { (1728.0, 972.0) } else { (1500.0, 850.0) };
     p.plan.nodes.retain(|n| n.id != 8000);
     p.arrives(Frame::new(0.0, 0.0, W, H), Enter::FADE);
-    curtain(p);
+    // The key form hides the page as the other sign-in modals do, under the modal's own veil id so that stepping between the form's
+    // screens keeps one full-screen layer rather than fading two against each other (the layer budget allows one over Settings).
+    let hides = p.model.key_step().is_some();
+    veil(p, if hides { 8810 } else { 8000 }, Frame::new(0.0, 0.0, W, H), hides);
     p.arrives(Frame::new((W - width) / 2.0, (H - height) / 2.0, width, height), Enter::slide(0.0, 24.0));
     let f = panel(p, width, height);
     let x = f.x + 40.0;
@@ -177,8 +186,8 @@ pub fn plan(p: &mut Paint<'_>, entry: &TextEntry<'_>) {
         false,
         33,
     );
-    let keys = labels(entry.numeric, entry.lower, diagnostic(p));
-    grid(p, 8100, x, y + input_h + 16.0, w, if entry.numeric { 6 } else { 10 }, &keys, 31);
+    let keys = labels(entry.numeric, entry.hex, entry.lower, diagnostic(p));
+    grid(p, 8100, x, y + input_h + 16.0, w, if entry.numeric || entry.hex { 6 } else { 10 }, &keys, 31);
     let button_h = p.tokens.target.max(p.line(Type::Label) + 24.0);
     if let Some((label, icon)) = entry.action {
         p.button(8500, Focus::SheetAction(0), label, Some(icon), x, f.y + f.h - 34.0 - button_h, true, false, 34);
@@ -194,7 +203,7 @@ mod tests {
     use crate::game::screens::{paint::Body, parts::painted};
 
     fn entry<'a>() -> TextEntry<'a> {
-        TextEntry { title: "Add a PC", label: "", value: "", placeholder: "IP address or hostname", secret: false, numeric: false, lower: false, action: Some(("Add PC", Icon::Plus)), notice: None }
+        TextEntry { title: "Add a PC", label: "", value: "", placeholder: "IP address or hostname", secret: false, numeric: false, hex: false, lower: false, action: Some(("Add PC", Icon::Plus)), notice: None }
     }
     fn texts(p: &Paint<'_>, id: u64) -> Vec<String> {
         match &p.plan.nodes.iter().find(|n| n.id == id).unwrap_or_else(|| panic!("node {id}")).body {

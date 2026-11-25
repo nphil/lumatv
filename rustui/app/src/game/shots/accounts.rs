@@ -97,6 +97,49 @@ pub(super) fn steam_screens(base: &Model) -> Vec<(String, Model)> {
             out.push((format!("{name}{suffix}"), m));
         }
     }
+    out.extend(key_screens(base));
+    out
+}
+/// The Web API key form at each step, and the Steam page once a key is linked, in both themes at 100% and 200% text.
+fn key_screens(base: &Model) -> Vec<(String, Model)> {
+    use crate::game::model::tests::{SteamShot, key, linked, with_steam};
+    let steam = EngineId::new("steam").unwrap();
+    let mut out = Vec::new();
+    for (stage, name) in ["intro", "key", "account", "checking", "refused", "linked"].into_iter().enumerate() {
+        for (suffix, light, text) in [("", false, 100), ("-light", true, 100), ("-200", false, 200), ("-200-light", true, 200)] {
+            let mut m = with_steam(base.clone(), if stage == 5 { SteamShot::SignedIn } else { SteamShot::SignedOut });
+            if stage == 5 {
+                let mut target = linked("76561198000000000");
+                target.name = "Nitin".into();
+                target.detail = Some("Web API key".into());
+                event(&mut m, "steam", ipc::Event::Targets { targets: vec![target] });
+            } else {
+                m.begin_key_link(steam.clone(), &mut Vec::new());
+            }
+            if (1..=4).contains(&stage) {
+                key(&mut m, Key::Ok);
+                m.step(Input::Text("0123456789ABCDEF0123".into()));
+            }
+            if stage >= 2 {
+                m.step(Input::Text("456789ABCDEF".into()));
+                m.view.focus = Focus::SheetAction(0);
+                key(&mut m, Key::Ok);
+                m.step(Input::Text("76561198000000000".into()));
+            }
+            if stage >= 3 {
+                m.view.focus = Focus::SheetAction(0);
+                key(&mut m, Key::Ok);
+            }
+            if stage == 4 {
+                let failed = AuthState::Failed { reason: ipc::AuthFail::BadKey, message: "Steam did not accept this key. Check that all 32 characters were typed.".into() };
+                event(&mut m, "steam", ipc::Event::Auth { state: failed });
+            }
+            m.prefs.light = light;
+            m.prefs.text_percent = text;
+            m.rebuild_navigation();
+            out.push((format!("steam-key-{name}{suffix}"), m));
+        }
+    }
     out
 }
 /// The sign-out question and the sign-in sheet opened from the Steam page and closed with Back, each leaving focus where it was.
@@ -119,6 +162,14 @@ pub(super) fn walks() -> Vec<super::budget::Walk> {
     script.extend(taps(&[(Key::Back, 300)]));
     script.push(Step::Expect("back on the Steam page", |m, _| m.view.top().is_none() && m.view.pane == Some(Pane::Service)));
     walks.push(Walk { name: "accounts-sign-in-open-close".into(), base: signed_out, script });
+    let mut keyed = with_steam(fixture(), SteamShot::SignedOut);
+    focus_row(&mut keyed, |act| matches!(act, Act::LinkKey(..)));
+    keyed.rebuild_navigation();
+    let mut script = taps(&[(Key::Ok, 300)]);
+    script.push(Step::Expect("the key form's first screen", |m, _| m.key_step() == Some(crate::game::model::accounts::KeyStep::Intro)));
+    script.extend(taps(&[(Key::Ok, 300), (Key::Right, 150), (Key::Down, 150), (Key::Back, 300)]));
+    script.push(Step::Expect("back on the Steam page", |m, _| m.view.top().is_none() && m.view.pane == Some(Pane::Service)));
+    walks.push(Walk { name: "accounts-key-form-open-close".into(), base: keyed, script });
     walks
 }
 

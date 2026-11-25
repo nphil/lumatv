@@ -997,6 +997,7 @@ impl Model {
                 self.rebuild_filter();
             }
             Input::Text(text) => match self.view.top() {
+                Some(Layer::Auth) if self.key_type(&text) => {}
                 Some(Layer::Auth) => {
                     if let Some(a) = &mut self.view.auth {
                         let max = match a.state {
@@ -1550,6 +1551,7 @@ impl Model {
     fn close_layer(&mut self, layer: Layer, out: &mut Vec<Command>) {
         match layer {
             Layer::EditText if self.in_diagnostics() => self.view.address.clear(),
+            Layer::Auth if self.key_back() => return,
             Layer::Auth => {
                 if let Some(a) = self.view.auth.take() {
                     Self::send(out, &a.engine, Request::AuthCancel);
@@ -1669,7 +1671,7 @@ impl Model {
                     };
                     if matches!(state, AuthState::EnterPin { .. }) {
                         self.view.focus = Focus::Keyboard(0);
-                    } else if a.no_pcs {
+                    } else if a.no_pcs || matches!(state, AuthState::Failed { .. }) {
                         self.view.focus = Focus::SheetAction(0);
                     }
                     a.no_pcs = false;

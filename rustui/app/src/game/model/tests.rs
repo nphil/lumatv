@@ -69,7 +69,7 @@ pub(crate) fn with_steam(mut m: Model, shot: SteamShot) -> Model {
     m.view.pane = Some(settings::Pane::Service);
     m.view.selected_engine = Some(EngineId::new("steam").unwrap());
     m.view.focus = Focus::Setting(0);
-    describe(&mut m, "steam", vec![lumagame_core::engine::AuthMethod::Qr], &[]);
+    describe(&mut m, "steam", vec![lumagame_core::engine::AuthMethod::Qr, lumagame_core::engine::AuthMethod::ApiKey], &[]);
     m.view.focus = Focus::Setting(1);
     match shot {
         SteamShot::SignedOut => {}

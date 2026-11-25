@@ -49,29 +49,37 @@ impl<H: Http, C: Clock> Adapter<H, C> {
     /// What the owner has unlocked in `game`. A game without stats, a private profile and a refusal that is not about the sign-in all
     /// answer with an empty list: no progress is shown, nothing is invented, and the sign-in is never given up over one game.
     pub(crate) fn achievements(&mut self, seq: u64, target: TargetId, game: ProviderGameId) {
-        let Some(account) = &self.account else {
+        let Some(steamid) = self.steamid() else {
             return self.error(seq, ErrorCode::BadRequest, "No Steam account is signed in");
         };
-        if account.steamid != target.as_str() {
+        if steamid != target.as_str() {
             return self.error(seq, ErrorCode::BadRequest, "That is not the signed-in Steam account");
         }
-        let steamid = account.steamid.clone();
         let Some(appid) = game.as_str().parse::<u32>().ok().filter(|appid| *appid != 0) else {
             return self.error(seq, ErrorCode::BadRequest, "That is not a Steam game");
         };
         let appid = appid.to_string();
-        let reply = self.read_with_access(
-            |token| {
-                let query = http::form(&[("access_token", token), ("steamid", &steamid), ("appid", &appid), ("format", "json")]);
-                http::api(&format!("/ISteamUserStats/GetPlayerAchievements/v1/?{query}"))
-            },
-            http::SMALL_BODY,
-        );
+        let reply = if self.reads_with_key() {
+            self.read_with_key("/ISteamUserStats/GetPlayerAchievements/v1/", &[("steamid", &steamid), ("appid", &appid)], http::SMALL_BODY)
+        } else if self.key.is_some() && self.account.as_ref().is_none_or(|account| account.steamid != steamid) {
+            Err(Refusal::Key)
+        } else {
+            self.read_with_access(
+                |token| {
+                    let query = http::form(&[("access_token", token), ("steamid", &steamid), ("appid", &appid), ("format", "json")]);
+                    http::api(&format!("/ISteamUserStats/GetPlayerAchievements/v1/?{query}"))
+                },
+                http::SMALL_BODY,
+            )
+        };
         let resp = match reply {
             Ok(resp) => resp,
             Err(Refusal::Expired) => return self.error(seq, ErrorCode::SignIn, "Sign in again to renew Steam access"),
-            // Steam would not renew access just now; the sign-in is kept and the page shows no progress until the next start.
-            Err(Refusal::Renewal | Refusal::ReadDenied) => return self.answer(seq, Event::Achievements { target, game, unlocked: Vec::new() }),
+            // Steam would not renew access just now, or does not accept the key; the account's own state tells the owner, and the page
+            // shows no progress until it is mended.
+            Err(Refusal::Renewal | Refusal::ReadDenied | Refusal::Key | Refusal::Hidden) => {
+                return self.answer(seq, Event::Achievements { target, game, unlocked: Vec::new() });
+            }
             Err(Refusal::Trouble(_)) => return self.error(seq, ErrorCode::Network, "Steam is not reachable"),
         };
         // A refusal of a freshly made access token is Steam's answer for this game (no stats, private details), not for the sign-in.

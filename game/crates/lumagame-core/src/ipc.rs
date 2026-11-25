@@ -85,6 +85,12 @@ pub enum Request {
         pin: String,
     },
     AuthCancel,
+    /// A service key typed in, for `api-key`. `account` is what names the account the key reads: an id, a profile address or a
+    /// profile name, as the service takes them. Answered with `auth`: `done`, or `failed`.
+    AuthKey {
+        key: Secret,
+        account: String,
+    },
     /// One page of a target's library. `cursor` is the `next` of the page before; absent for the first.
     Library {
         target: TargetId,
@@ -171,6 +177,28 @@ pub enum Request {
         #[serde(default)]
         mature: bool,
     },
+}
+
+/// A credential in transit. Its `Debug` hides it, so no log line made from a request can hold it; [`Secret::expose`] is the one way
+/// to read it.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Secret(String);
+
+impl Secret {
+    pub fn new(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Secret(..)")
+    }
 }
 
 /// The first message: where the engine may keep things and what the TV can show.
@@ -499,6 +527,8 @@ word_enum! {
         Denied => "denied",
         WrongPin => "wrong-pin",
         Network => "network",
+        /// The service did not accept the key or the account that was typed in.
+        BadKey => "bad-key",
     }
     unknown => Other
 }
@@ -853,6 +883,13 @@ mod tests {
     }
 
     #[test]
+    fn a_secret_travels_as_plain_text_and_prints_as_nothing() {
+        let request = Request::AuthKey { key: Secret::new("KEYMARKER"), account: "x".into() };
+        assert!(encode(&ToEngine { seq: 1, request: request.clone() }).contains("\"key\":\"KEYMARKER\""));
+        assert!(!format!("{request:?}").contains("KEYMARKER"));
+    }
+
+    #[test]
     fn every_request_and_event_reads_back_as_it_was_written() {
         let hello = Hello {
             protocol: PROTOCOL,
@@ -875,6 +912,7 @@ mod tests {
             Request::Auth { target: None, method: AuthMethod::Qr },
             Request::Auth { target: Some(target()), method: AuthMethod::EnterPin },
             Request::AuthPin { pin: "1234".into() },
+            Request::AuthKey { key: Secret::new("0123456789ABCDEF0123456789ABCDEF"), account: "76561198000000001".into() },
             Request::AuthCancel,
             Request::Library { target: target(), cursor: Some("p2".into()) },
             Request::Check { target: target(), game: game() },

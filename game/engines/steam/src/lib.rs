@@ -1,8 +1,8 @@
 //! LumaGame's Steam account engine: a program the app starts and talks to in [`lumagame_core::ipc`] on its standard streams.
 //!
-//! It plays nothing. It signs the owner in by QR code and reports, for each game the account owns, when it was last played, for how
-//! long and what kind of game it is; the app puts that on the games it already lists from other engines. Steam's own Favorites and
-//! collections live in the Steam client and are out of reach.
+//! It plays nothing. It links the owner's account by QR code, or by a Steam Web API key that needs no sign-in at all, and reports, for
+//! each game the account owns, when it was last played, for how long and what kind of game it is; the app puts that on the games it
+//! already lists from other engines. Steam's own Favorites and collections live in the Steam client and are out of reach.
 //!
 //! For one game's page it also reads the community's public pages when the app asks: reviews, news, how many play now, achievement
 //! rarity, pictures and videos, discussions and guides. That needs no sign-in, and what it reads is kept in memory for an hour only.
@@ -10,8 +10,8 @@
 //! [`Adapter`] is the whole engine without a process around it: it takes a request, answers with events, and says when it next has to
 //! run. The network and the clock are handed in, so every path is tried against fakes; [`runtime`] owns the pipes and the sleeping.
 //!
-//! Nothing that identifies the owner or opens the account is ever logged or sent to the app: no token, no URL that carries one, no
-//! login name. The one address that is sent is the QR code's, which is meant to be shown.
+//! Nothing that identifies the owner or opens the account is ever logged or sent to the app: no token, no key, no URL that carries
+//! one, no login name. The one address that is sent is the QR code's, which is meant to be shown.
 
 mod achievements;
 mod auth;
@@ -24,6 +24,7 @@ pub mod http;
 mod library;
 pub mod runtime;
 mod store;
+mod webkey;
 
 use auth::{Account, Attempt};
 use http::Http;
@@ -36,6 +37,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use store::Store;
+use webkey::KeyAccount;
 
 /// Time as the engine reads it: monotonic milliseconds for waiting, wall-clock seconds for what is saved and for token lifetimes.
 pub trait Clock {
@@ -88,6 +90,8 @@ pub struct Adapter<H, C> {
     /// What can be fetched again: the library and the store's answers. Set by hello.
     pub(crate) cache: PathBuf,
     pub(crate) account: Option<Account>,
+    /// The Web API key and the account it reads, when the owner linked that way.
+    pub(crate) key: Option<KeyAccount>,
     pub(crate) attempt: Option<Attempt>,
     pub(crate) snapshot: Option<Snapshot>,
     pub(crate) store: Option<Store>,
@@ -115,6 +119,7 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             data: PathBuf::new(),
             cache: PathBuf::new(),
             account: None,
+            key: None,
             attempt: None,
             snapshot: None,
             store: None,
@@ -172,8 +177,13 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         }
         (self.data, self.cache) = (data, cache);
         self.account = Account::load(&self.data, self.clock.unix_s());
-        self.avatar = self.account.as_ref().and_then(|_| avatar::saved(&self.cache));
-        self.note(if self.account.is_some() { "ready, signed in" } else { "ready, signed out" });
+        self.key = KeyAccount::load(&self.data);
+        self.avatar = self.steamid().and_then(|_| avatar::saved(&self.cache));
+        self.note(match (self.key.is_some(), self.account.is_some()) {
+            (true, _) => "ready, linked by key",
+            (false, true) => "ready, signed in",
+            (false, false) => "ready, signed out",
+        });
         self.phase = Phase::Ready;
         self.answer(seq, Event::Ready { descriptor: descriptor(), schema: schema() });
     }
@@ -187,6 +197,7 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             Request::Targets => self.answer(seq, Event::Targets { targets: self.targets() }),
             Request::Auth { method: AuthMethod::Qr, .. } => self.begin_auth(seq),
             Request::AuthCancel => self.cancel_auth(seq),
+            Request::AuthKey { key, account } => self.link_with_key(seq, &key, &account),
             Request::Forget { target } => self.forget(seq, &target),
             Request::Library { target, cursor } => self.library(seq, target, cursor.as_deref()),
             Request::Achievements { target, game } => self.achievements(seq, target, game),
@@ -196,15 +207,17 @@ impl<H: Http, C: Clock> Adapter<H, C> {
         }
     }
 
-    /// Unlinks the account and deletes everything kept for it. Safe to repeat, and safe when signed out.
+    /// Unlinks the account and deletes everything kept for it, the key and the sign-in both. Safe to repeat, and safe when signed out.
     fn forget(&mut self, seq: u64, target: &TargetId) {
-        if self.account.as_ref().is_some_and(|account| account.steamid != target.as_str()) {
+        if self.steamid().is_some_and(|steamid| steamid != target.as_str()) {
             return self.error(seq, ErrorCode::BadRequest, "That is not the signed-in Steam account");
         }
-        // The sign-in goes first: if it cannot be deleted the account stays, so that memory and disk agree.
-        if let Err(error) = files::remove(&self.data, auth::TOKEN_FILE) {
-            self.note(&format!("forget: the saved sign-in could not be deleted ({:?})", error.kind()));
-            return self.error(seq, ErrorCode::Internal, "The saved Steam sign-in could not be removed");
+        // The credentials go first: if one cannot be deleted the account stays, so that memory and disk agree.
+        for name in [auth::TOKEN_FILE, webkey::KEY_FILE] {
+            if let Err(error) = files::remove(&self.data, name) {
+                self.note(&format!("forget: the saved sign-in could not be deleted ({:?})", error.kind()));
+                return self.error(seq, ErrorCode::Internal, "The saved Steam sign-in could not be removed");
+            }
         }
         for name in [library::CACHE_FILE, store::CACHE_FILE, auth::REFUSED_FILE] {
             if let Err(error) = files::remove(&self.cache, name) {
@@ -212,21 +225,44 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             }
         }
         self.account = None;
+        self.key = None;
         self.snapshot = None;
         self.store = None;
         self.forget_avatar();
         self.answer(seq, Event::Targets { targets: Vec::new() });
     }
 
-    /// The signed-in account, or none.
+    /// The id of the linked account: the key's when there is one, else the sign-in's.
+    pub(crate) fn steamid(&self) -> Option<String> {
+        self.key.as_ref().map(|key| key.steamid.clone()).or_else(|| self.account.as_ref().map(|account| account.steamid.clone()))
+    }
+
+    /// The sign-in, when it is for `steamid` and Steam has not ended it.
+    pub(crate) fn session_for(&self, steamid: &str) -> Option<&Account> {
+        self.account.as_ref().filter(|account| account.steamid == steamid && !account.expired)
+    }
+
+    /// The linked account, or none. A key names it when there is one; a key Steam refused shows the account as needing a new key only
+    /// when no sign-in for the same account can read instead.
     fn targets(&self) -> Vec<Target> {
+        let avatar = self.avatar.as_ref().map(|path| path.to_string_lossy().into_owned());
+        if let Some(key) = self.key.as_ref().filter(|key| !key.refused || self.session_for(&key.steamid).is_none()) {
+            return vec![Target {
+                id: key.target_id(),
+                name: key.persona.clone().unwrap_or_else(|| "Steam account".to_owned()),
+                detail: Some(webkey::DETAIL.to_owned()),
+                avatar,
+                link: if key.refused { Link::Expired } else { Link::Linked },
+                reach: Reach::Online,
+            }];
+        }
         self.account
             .iter()
             .map(|account| Target {
                 id: account.target_id(),
                 name: account.name(),
                 detail: None,
-                avatar: self.avatar.as_ref().map(|path| path.to_string_lossy().into_owned()),
+                avatar: avatar.clone(),
                 link: if account.expired { Link::Expired } else { Link::Linked },
                 reach: Reach::Online,
             })
@@ -272,7 +308,7 @@ pub fn descriptor() -> Descriptor {
         capabilities: Capabilities {
             kind: EngineKind::Account,
             targets: TargetKind::Account,
-            auth: vec![AuthMethod::Qr],
+            auth: vec![AuthMethod::Qr, AuthMethod::ApiKey],
             presentation: Presentation::Nothing,
             features: BTreeSet::from([Feature::Achievements, Feature::Community]),
             video: None,
@@ -326,7 +362,7 @@ mod tests {
         assert_eq!(events, [FromEngine::answer(1, Event::Ready { descriptor: descriptor(), schema: schema() })]);
         let capabilities = descriptor().capabilities;
         assert_eq!((capabilities.kind, capabilities.targets, capabilities.presentation), (EngineKind::Account, TargetKind::Account, Presentation::Nothing));
-        assert_eq!(capabilities.auth, [AuthMethod::Qr]);
+        assert_eq!(capabilities.auth, [AuthMethod::Qr, AuthMethod::ApiKey]);
         assert!(capabilities.features.iter().eq([&Feature::Achievements, &Feature::Community]) && capabilities.video.is_none());
         assert_eq!(schema().validate(), Ok(()));
         assert_eq!(rig.log.lines(), ["ready, signed out"]);

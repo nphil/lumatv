@@ -30,6 +30,8 @@ const MAX_ENTRIES: usize = 1500;
 const FRESH_S: u64 = 3_600;
 const TITLE_CHARS: usize = 160;
 const STALE_CURSOR: &str = "This library cursor is no longer current";
+/// What the owner is told when Steam gives a key nothing: the account's game details are private.
+const HIDDEN: &str = "Steam returned no games. In Steam, set Game details to Public under Privacy Settings.";
 
 /// What `library.json` holds: the library as Steam last gave it.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,13 +168,12 @@ impl<H: Http, C: Clock> Adapter<H, C> {
     /// One page of the library. Without a cursor it is the start of a round: Steam is asked first when its last answer is old or
     /// the owner asked for a refresh, and the saved copy is served when that fails.
     pub(crate) fn library(&mut self, seq: u64, target: TargetId, cursor: Option<&str>) {
-        let Some(account) = &self.account else {
+        let Some(steamid) = self.steamid() else {
             return self.error(seq, ErrorCode::BadRequest, "No Steam account is signed in");
         };
-        if account.steamid != target.as_str() {
+        if steamid != target.as_str() {
             return self.error(seq, ErrorCode::BadRequest, "That is not the signed-in Steam account");
         }
-        let steamid = account.steamid.clone();
         if self.snapshot.as_ref().is_none_or(|snapshot| snapshot.steamid != steamid) {
             self.snapshot = Snapshot::load(&self.cache, &steamid);
         }
@@ -191,15 +192,31 @@ impl<H: Http, C: Clock> Adapter<H, C> {
                 self.refresh_avatar();
             }
         }
+        if matches!(refusal, Some(Refusal::Hidden)) {
+            return self.error(seq, ErrorCode::BadRequest, HIDDEN);
+        }
         let paged = self.snapshot.as_ref().map(|snapshot| page(&snapshot.entries, cursor));
         match (paged, cursor) {
             (Some(Some((entries, next))), _) => self.answer(seq, Event::Library { target, entries, next }),
             (Some(None), _) | (None, Some(_)) => self.error(seq, ErrorCode::BadRequest, STALE_CURSOR),
             (None, None) => match refusal {
                 Some(Refusal::Expired) => self.error(seq, ErrorCode::SignIn, "Sign in again to renew Steam library access"),
+                Some(Refusal::Key) => self.error(seq, ErrorCode::SignIn, "Steam did not accept the Web API key"),
                 Some(Refusal::ReadDenied) => self.error(seq, ErrorCode::BadRequest, "Steam did not allow access to this library"),
                 _ => self.error(seq, ErrorCode::Network, "Steam is not reachable and nothing is saved yet"),
             },
+        }
+    }
+
+    /// Minutes played in the last two weeks, from `GetRecentlyPlayedGames`, merged into `games`; it is the call that is made for them.
+    /// Trouble leaves the games as they are.
+    fn merge_recent(&mut self, steamid: &str, games: &mut [Game]) {
+        let Ok(resp) = self.read_with_key("/IPlayerService/GetRecentlyPlayedGames/v1/", &[("steamid", steamid)], http::LIBRARY_BODY) else { return };
+        let Some(recent) = (resp.status == 200).then(|| parse_owned(&resp.body)).flatten() else { return };
+        for game in games {
+            if let Some(recent) = recent.iter().find(|recent| recent.appid == game.appid) {
+                game.recent_minutes = game.recent_minutes.max(recent.recent_minutes);
+            }
         }
     }
 
@@ -211,28 +228,56 @@ impl<H: Http, C: Clock> Adapter<H, C> {
             Err(Refusal::Expired) => self.note("library: not refreshed, Steam does not accept the sign-in"),
             Err(Refusal::ReadDenied) => self.note("library: Steam refused the library read"),
             Err(Refusal::Renewal) => self.note("library: not refreshed, Steam did not renew access just now"),
+            Err(Refusal::Key) => self.note("library: not refreshed, Steam does not accept the key"),
+            Err(Refusal::Hidden) => self.note("library: Steam gave no games, the game details are private"),
             Err(Refusal::Trouble(trouble)) => self.note(&format!("library: not refreshed, {trouble}")),
         }
         outcome
     }
 
     fn fetch_library(&mut self, steamid: &str) -> Result<(), Refusal> {
-        let resp = self.read_with_access(
-            |token| {
-                let query =
-                    http::form(&[("access_token", token), ("steamid", steamid), ("include_appinfo", "1"), ("include_played_free_games", "1"), ("format", "json")]);
-                http::api(&format!("/IPlayerService/GetOwnedGames/v1/?{query}"))
-            },
-            http::LIBRARY_BODY,
-        )?;
-        // Refusal by a data endpoint does not establish that the account's refresh token expired.
-        if matches!(resp.status, 401 | 403) || (resp.status == 200 && resp.eresult == Some(15)) {
-            return Err(Refusal::ReadDenied);
-        }
-        if !resp.succeeded() {
-            return Err(Refusal::Trouble(Trouble::of(&resp)));
+        let keyed = self.reads_with_key();
+        let resp = if keyed {
+            let pairs = [("steamid", steamid), ("include_appinfo", "1"), ("include_played_free_games", "1")];
+            self.read_with_key("/IPlayerService/GetOwnedGames/v1/", &pairs, http::LIBRARY_BODY)?
+        } else if self.key.is_some() && self.account.as_ref().is_none_or(|account| account.steamid != steamid) {
+            return Err(Refusal::Key);
+        } else {
+            self.read_with_access(
+                |token| {
+                    let query = http::form(&[
+                        ("access_token", token),
+                        ("steamid", steamid),
+                        ("include_appinfo", "1"),
+                        ("include_played_free_games", "1"),
+                        ("format", "json"),
+                    ]);
+                    http::api(&format!("/IPlayerService/GetOwnedGames/v1/?{query}"))
+                },
+                http::LIBRARY_BODY,
+            )?
+        };
+        if keyed {
+            // Steam's own result code is not sent for every endpoint a key reads.
+            if resp.status != 200 {
+                return Err(Refusal::Trouble(Trouble::of(&resp)));
+            }
+        } else {
+            // Refusal by a data endpoint does not establish that the account's refresh token expired.
+            if matches!(resp.status, 401 | 403) || (resp.status == 200 && resp.eresult == Some(15)) {
+                return Err(Refusal::ReadDenied);
+            }
+            if !resp.succeeded() {
+                return Err(Refusal::Trouble(Trouble::of(&resp)));
+            }
         }
         let mut games = parse_owned(&resp.body).ok_or(Refusal::Trouble(Trouble::Unreadable))?;
+        if keyed && games.is_empty() && crate::webkey::games_hidden(&resp.body) {
+            return Err(Refusal::Hidden);
+        }
+        if keyed {
+            self.merge_recent(steamid, &mut games);
+        }
         order(&mut games);
         let now = self.clock.unix_s();
         let wanted: Vec<u32> = games.iter().map(|game| game.appid).collect();
