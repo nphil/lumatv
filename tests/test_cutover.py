@@ -3640,9 +3640,15 @@ class TvInstallRun(unittest.TestCase):
         self.assertFalse(any("staged commit" in c for c in ran), ran)
 
     def test_a_compositor_change_is_staged_and_a_set_that_cannot_apply_now_stays_staged(self):
-        self.installed[self.ti.COMP + "/bin/lumatv-compositor"] = "3" * 64
+        old = self.ti.COMP + "/bin/lumatv-compositor"
+        self.old_files[old] = "old compositor"
+        self.installed[old] = sha256_text(self.old_files[old])
         tv, ran = self.fake_tv(apply_rc=10)
         self.assertEqual(self.run_install(tv, now=True), 0, self.said)
+        # the apply drops the set's previous files when it succeeds: the workstation keeps the one that was replaced, fetched before staging
+        kept = os.path.join(self.tmp.name, "backup", "lumatv-compositor-" + sha256_text("old compositor")[:8])
+        self.assertEqual(read(kept), "old compositor")
+        self.assertLess(ran.index("get " + old), next(i for i, c in enumerate(ran) if "staged commit" in c))
         joined = "\n".join(ran)
         self.assertIn("staged commit", joined)
         self.assertLess(joined.index("staged commit"), joined.index("staged apply --now"))
@@ -3651,14 +3657,18 @@ class TvInstallRun(unittest.TestCase):
         self.assertTrue(any("staged, not applied now: wait: video is playing in netflix" in line for line in self.said), self.said)
 
     def test_a_no_picture_apply_is_reported_as_a_failure_that_leaves_the_reboot_to_the_owner(self):
-        self.installed[self.ti.COMP + "/bin/lumatv-compositor"] = "3" * 64
+        old = self.ti.COMP + "/bin/lumatv-compositor"
+        self.old_files[old] = "old compositor"
+        self.installed[old] = sha256_text(self.old_files[old])
         tv, ran = self.fake_tv(apply_rc=12)
         self.assertNotEqual(self.run_install(tv, now=True), 0)
         self.assertTrue(any("previous files are back" in line and "reboot it yourself" in line for line in self.said), self.said)
         self.assertFalse(any(c.strip().startswith("reboot") for c in ran), ran)
 
     def test_without_now_the_staged_set_is_only_committed(self):
-        self.installed[self.ti.COMP + "/bin/lumatv-sm"] = "3" * 64
+        old = self.ti.COMP + "/bin/lumatv-sm"
+        self.old_files[old] = "old sm"
+        self.installed[old] = sha256_text(self.old_files[old])
         tv, ran = self.fake_tv()
         self.assertEqual(self.run_install(tv), 0, self.said)
         self.assertNotIn("staged apply", "\n".join(ran))

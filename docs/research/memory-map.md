@@ -367,10 +367,13 @@ Home idle, LumaGame had been closed, no other app resident. The "before" process
 | Compositor malloc arena / in use / free / top reusable (`ctl mem`) | 133.5 / 40.5 / 93.0 / 15.3 | 100.7 / 30.5 / 70.2 / 5.0 |
 | Compositor locked / `ctl mem` rss | 805 / 217 | 718 / 191 |
 | UI PSS / anon / swap (UI swap only) | 32.5 / 19.9 / 21.1 | 54.0 / 36.7 / 0 |
+| Compositor PSS / anon, 34 min old after about 25 min of gates (settings, home, apps grid) | | 83.1 / 50.2 (arena 117.6) |
 
 The UI figure is not a saving: the owner's theme sets a wallpaper palette, saturation 1.15 and contrast 1.3, so the wallpaper keeps its second copy; the fresh process is simply not yet swapped out. `lib/x1heapshim.so` changed hash (215dce28 to 6ed135a3) with no source change: it embeds the path of the tree it was built in.
 
 Gates at 120 Hz (panel 119.9): after the UI swap, settings-scroll 3 batches of 3 cycles, home-widgets, apps-grid and weather-day all 0 dropped. After the compositor apply: settings-scroll 9 of 9 cycles 0 dropped (the first batch's first frame took 724 ms against the 50 ms limit, cold after the restart; the other two batches passed), weather-day 0, home-widgets 1 dropped and 0 on a rerun, apps-grid 1 dropped in 755 flips in both runs. What fills the remaining 30.5 MB in use is not attributed.
+
+The apps-grid drop is not the clear. A third run set on the 34-minute-old compositor dropped 1, 2 and 1 again. In the compositor's ring the open of the grid is three back-to-back full-screen frames (95 layers, 133 draws, 2073600 px owed) that take 8.4-11.6 ms of GPU each against an 8.33 ms refresh, then 7.7 ms a frame at 33-44 layers; CPU render is 1.2-1.7 ms in all of them and the same before and after. When the third frame follows the second by about 4 ms, one flip slips to 16.7 ms (GPU 10.7, then 14.6 ms on the next). The previous compositor's bursts had the same GPU times (8.5-10.8 ms), so the surface sits on the edge there too; the old build was not run again on this surface, so the one-frame difference between them is not settled. Only a burst of fewer or cheaper full-screen frames (cull the Home layers the grid covers, spread the first frames) takes it under the budget.
 
 ## Not measured
 

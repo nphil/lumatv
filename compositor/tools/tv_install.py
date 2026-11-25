@@ -30,7 +30,7 @@ Parts and how each goes in:
   --defer     include the helper and UI in a boot-only staged set instead of restarting them. No running service is touched; an existing
               waiting or unconfirmed set is kept. Include `tool` if the installed boot hook needs updating.
 
-Immediate installs back up binaries on the workstation as <name>-<8 hex of the old hash>. Staged installs retain their rollback on the set.
+Every install, staged ones included, backs up the binaries it replaces on the workstation as <name>-<8 hex of the old hash> (a `--now` apply drops the set's own previous files once the video check passes).
 The result lists old -> new hashes (8 hex) for the HANDOFF entry."""
 import argparse
 import hashlib
@@ -445,7 +445,11 @@ def stage_to_quiet(tv, deploy):
     tv.put_tree(os.path.join(deploy, "assets"), QUIET + "/assets")
 
 
-def do_staged(tv, deploy, parts, changes, now, say, defer, held):
+def do_staged(tv, deploy, parts, changes, now, say, defer, held, backup_dir):
+    # The apply drops the previous files once the video check passes, so a rollback copy is kept here, before anything is staged.
+    for part in STAGED_PARTS:
+        for c in changes.get(part, ()):
+            backup(tv, c.remote, c.old, backup_dir, say)
     rels = staged_rels(parts, changes)
     sources = {r: os.path.join(deploy, r) for r in rels + list(SUPPORT) if os.path.isfile(os.path.join(deploy, r))}
     if defer and "helper" in changes:
@@ -630,7 +634,7 @@ def install(tv, repo, deploy, helper, backup_dir, check=False, now=False, only=N
             say("ui: " + notes["ui"])
         if "staged" in actions:
             held()
-            how = do_staged(tv, deploy, parts, changes, now, say, defer, held)
+            how = do_staged(tv, deploy, parts, changes, now, say, defer, held, backup_dir)
             for p in STAGED_PARTS + ("ui",) + (("helper",) if defer else ()):
                 if p in changes:
                     notes[p] = how
