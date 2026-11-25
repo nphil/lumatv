@@ -330,7 +330,7 @@ resident and locked for good once it has happened:
 
 | Owner | Before | After | Class |
 |---|---:|---:|---|
-| `gl.rs make_texture` zeroed pixel buffer, one per render target | 56.18 | 2.30 | (a) fixed: cleared in 256 KiB bands (`CLEAR_BAND_BYTES`) |
+| `gl.rs make_texture` zeroed pixel buffer, one per render target | 56.18 | <= 0.06 | (a) fixed: one `glClear` on the target's framebuffer, no CPU buffer (`clear_bound_framebuffer`); 0.06 is `clear_target.rs`'s bound on any block |
 | `renderer.rs warm_up` zeroed picture file | 8.12 | 0 | (a) fixed: written in 64 KiB chunks |
 | `new_alpha_texture` zero buffer (atlas page) | 1.31 | 1.31 | (a), left: same pattern, small |
 | `kit/picture.rs decode_png` (UI) | 16.41 | 16.41 | (c): the UI sets `M_MMAP_THRESHOLD` 1 MiB, so it goes back to the OS |
@@ -338,7 +338,7 @@ resident and locked for good once it has happened:
 Gates (host, 120 Hz, same binary build, before the fixes / after): settings-scroll PASS 69 layers / PASS 69; home-dpad PASS 72 / PASS 68; apps grid
 (`heap` walk) 101 layers, 6 frames over 80 / the same. **home-widgets fails the 80-layer gate before the fixes too** (82 layers, 12 frames over 80
 before; 81-86 layers, 3-15 frames over 80 after, it varies from run to run); the apps grid open does the same. Both are in the code on `main`, not from
-this change. `rustui/render/tests/clear_target.rs` checks that a render target is built from no block over 512 KiB and reads back zero.
+this change. `rustui/render/tests/clear_target.rs` checks that a render target and a mesh offscreen are made from no block over 64 KiB, upload no pixels, make the same GL calls at every size and read back zero.
 
 ### The on-set check (needs a TV slot and Nitin's OK for the lock)
 
@@ -348,6 +348,7 @@ The compositor's share is the part the host cannot show (pregrow 16 MiB, top pad
    `ssh root@192.168.1.242 'for p in $(pidof ld-linux-armhf.so.3 lumatv-ui); do echo $p; grep -E "VmRSS|RssAnon|RssFile|RssShmem|Pss|Pss_Anon|Swap" /proc/$p/smaps_rollup; done'`
    and `grep -E "Shmem|MemAvailable|SwapFree" /proc/meminfo; ls -l /tmp/xdg | head`.
    Today (2026-11-24): compositor 100.3 MB PSS (heap 44), UI 27.7 PSS + 18.7 swap (heap 16).
+   2026-11-25 (compositor b4041d2b, UI 33fc44d6, Home idle, 7 min after the apply): compositor Pss 74.0 MB (anon 41.3, file 21.0, shmem 11.7), UI Pss 52.5 MB (anon 36.3, no swap); MemAvailable 729 MB.
 2. The compositor's malloc: `sh /tmp/lumatv/gate.sh mem` (or `lumatv-compositor ctl --runtime-dir /tmp/xdg mem`): `in_use_bytes` against `free_bytes`.
    The 18:41 read in section 7 had 36.8 MiB in use and 90.6 MiB free (about 10 MB of that resident). The engine's CPU heap is about 2.3 MiB on the host,
    so most of the 36.8 MiB is compositor-only (snapshot store, Wayland, KMS, frame log) and not attributed: the same counting allocator would have to be
