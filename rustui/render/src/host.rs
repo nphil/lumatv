@@ -128,6 +128,11 @@ pub struct FrameCost {
     pub mismatch_px: u64,
     /// The panel pixels of the floor drawn again: what stack 0 changed since the floor was last drawn into.
     pub floor_px: u64,
+    /// The render targets made since the frame before (the pool's, the plates', a backdrop's): how many, their pixels, and the CPU
+    /// microseconds that took. Each is cleared by the GPU as it is made, so a frame that makes one pays the clear there too.
+    pub targets: u32,
+    pub target_px: u64,
+    pub target_us: u32,
     /// Of `cpu_us`: taking in the app's commits in the frame (none for a commit taken in ahead, [`Engine::take_in_ahead`]).
     pub apply_us: u32,
     /// Of `cpu_us`: saving the compositor's GL state and putting it back round each of the engine's calls (`Engine::scoped`), stepping the scene
@@ -527,7 +532,6 @@ pub fn precompile(mut gles: Gles, cache: &Arc<Cache>, width: u32, height: u32) -
     // The pictures the draws made go back (textures are the share group's, and outlive the renderer and the thread's context).
     renderer.trim();
     renderer.gles().finish();
-    let _ = crate::gl::take_target_cost();
     let warm_ms = began.elapsed().as_millis() as u64;
     // The programs go to the cache with the renderer, and the cache is not complete before they have.
     drop(renderer);
@@ -1249,6 +1253,7 @@ impl Engine {
     fn cost(&mut self, report: &DrawReport, cpu_us: u32, gpu_us: u32) -> FrameCost {
         let (_captures, uploaded) = self.renderer.take_frame_counts();
         let spent = self.external.as_mut().map(|external| std::mem::take(&mut external.spent)).unwrap_or_default();
+        let (targets, target_px, target_ns) = crate::gl::take_target_cost();
         FrameCost {
             tag: self.taken_tag,
             cpu_us,
@@ -1270,6 +1275,9 @@ impl Engine {
             damage_px: report.damage_px,
             mismatch_px: self.mismatch.map_or(0, |m| m.pixels),
             floor_px: self.floor.as_ref().map_or(0, |floor| floor.drawn_px),
+            targets: targets as u32,
+            target_px,
+            target_us: (target_ns / 1000) as u32,
             apply_us: (std::mem::take(&mut self.apply_ns) / 1000) as u32,
             scope_us: spent.scope.as_micros() as u32,
             step_us: spent.step.as_micros() as u32,

@@ -87,6 +87,8 @@ pub struct Stats {
     pub owed_px_last: u64,
     pub ui_draws_last: u32,
     pub ui_layers_last: u32,
+    /// The render targets the UI engine made for the last drawn frame (`RenderStats::ui_targets`).
+    pub ui_targets_last: crate::output::TargetCost,
     /// Frames in which the UI engine drew something (a draw call of either stack): what the shell asks of the GPU, apart from the frames a window's own
     /// commits make (`drawn` counts both).
     pub ui_frames: u64,
@@ -743,6 +745,7 @@ impl State {
                     stats.owed_px_last = st.owed_px;
                     stats.ui_draws_last = st.ui_draws;
                     stats.ui_layers_last = st.ui_layers;
+                    stats.ui_targets_last = st.ui_targets;
                     stats.ui_frames += u64::from(st.ui_draws > 0);
                     stats.render_us_max = stats.render_us_max.max(st.render_us);
                     stats.skipped_items += st.skipped as u64;

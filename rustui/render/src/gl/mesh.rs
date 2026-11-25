@@ -202,7 +202,7 @@ impl Gles {
     /// A `width` × `height` target with a 24-bit depth buffer, multisampled `samples` times (0 for none). The
     /// picture ends up in `texture` whichever it is.
     pub fn offscreen(&self, width: u32, height: u32, samples: u32) -> io::Result<Offscreen> {
-        let texture = self.new_clear_texture(width, height);
+        let texture = self.make_texture(width, height);
         let (mut framebuffer, mut depth) = (0u32, 0u32);
         let mut multisampled = None;
         let (w, h, n) = (width as i32, height as i32, samples as i32);
@@ -282,6 +282,10 @@ impl Gles {
             if status == GL_FRAMEBUFFER_COMPLETE {
                 (self.gl.bind_framebuffer)(GL_FRAMEBUFFER, framebuffer);
                 status = (self.gl.check_framebuffer_status)(GL_FRAMEBUFFER);
+                if status == GL_FRAMEBUFFER_COMPLETE {
+                    // transparent black, as a render target is made
+                    self.clear_bound_framebuffer();
+                }
             }
             (status, (self.gl.get_error)())
         };

@@ -66,6 +66,25 @@ impl Image {
     }
 }
 
+/// What making the render targets the UI engine needed in a frame cost (`FrameCost`): how many, their pixels, and the CPU microseconds
+/// the calls took. The GPU clears each target as it is made; that work is in the frame's GPU time, not here.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TargetCost {
+    pub made: u32,
+    pub px: u64,
+    pub us: u32,
+}
+
+/// The ring's note on a frame (`main.rs`, the `D` line): nothing for a frame that made no target.
+impl std::fmt::Display for TargetCost {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.made == 0 {
+            return Ok(());
+        }
+        write!(f, " tgts {} {} px {} us", self.made, self.px, self.us)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RenderStats {
     pub items: usize,
@@ -87,6 +106,8 @@ pub struct RenderStats {
     /// The UI engine's draw calls and layers in the frame (`FrameCost`): what a Home under an app costs shows here.
     pub ui_draws: u32,
     pub ui_layers: u32,
+    /// The render targets the UI engine made for the frame (a backdrop's, a plate's, a page).
+    pub ui_targets: TargetCost,
     /// The frame changed nothing and composed nothing: the screen holds it already (`kms::frames`). It is no frame drawn.
     pub unchanged: bool,
     /// Fresh app content actually drawn instead of a resume cover. A KMS flip must acknowledge it separately.
@@ -527,4 +548,16 @@ pub fn monotonic_ns() -> u64 {
     // SAFETY: plain clock read into a stack struct.
     unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
     ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TargetCost;
+
+    #[test]
+    fn the_ring_note_names_the_targets_a_frame_made_and_is_silent_otherwise() {
+        assert_eq!(TargetCost::default().to_string(), "");
+        let made = TargetCost { made: 3, px: 6_220_800, us: 85 };
+        assert_eq!(made.to_string(), " tgts 3 6220800 px 85 us");
+    }
 }

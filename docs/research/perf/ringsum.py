@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The frames of a compositor trace ring dump (`ctl ring N`, saved by the gate as /tmp/perf/<name>.ring.json) in numbers: what each frame
-the compositor drew cost its loop thread (`D frame N render X us owed P px in R rects, ui D draws L layers (why)`), what it cost from the
+the compositor drew cost its loop thread (`D frame N render X us owed P px in R rects, ui D draws L layers (why)`, and ` tgts N P px U us` after it when
+the frame made render targets: how many, their pixels and the CPU time of the calls), what it cost from the
 draw to the GPU's finish and what the pacer made of it (`L flip T +I ms: frame G ms (gpu done), late N lost M`), and how the flips lay.
 
     python3 ringsum.py RING.json [NOTE [SECONDS]]
@@ -11,7 +12,7 @@ import json
 import re
 import sys
 
-D_LINE = re.compile(r"^(\S+) D frame (\d+) render (\d+) us owed (\d+) px in (\d+) rects, ui (\d+) draws (\d+) layers \(([^)]*)\)")
+D_LINE = re.compile(r"^(\S+) D frame (\d+) render (\d+) us owed (\d+) px in (\d+) rects, ui (\d+) draws (\d+) layers \(([^)]*)\)(?: tgts (\d+) (\d+) px (\d+) us)?")
 L_LINE = re.compile(r"^(\S+) L flip (\S+) \+([\d.]+) ms: frame ([\d.]+) ms \(([a-z ]+)\), late (-?\d+) lost (\d+)( missed)?( anim)?")
 
 
@@ -52,10 +53,13 @@ def summarize(lines):
     draws = [int(m.group(6)) for m in drawn]
     gpu = [float(m.group(4)) for m in flips]
     gaps = [float(m.group(3)) for m in flips]
+    made = [(int(m.group(9)), int(m.group(10)), int(m.group(11))) for m in drawn if m.group(9)]
     return {
         "drawn": len(drawn), "render_us": [pct(render, 0.5), pct(render, 0.9), max(render, default=0)],
         "owed_px": [pct(owed, 0.5), pct(owed, 0.9), max(owed, default=0)], "rects_max": max((int(m.group(5)) for m in drawn), default=0),
         "ui_draws": [pct(draws, 0.5), max(draws, default=0)], "ui_layers": [pct(layers, 0.5), max(layers, default=0)],
+        "targets": sum(t[0] for t in made), "target_frames": len(made), "target_px": sum(t[1] for t in made),
+        "target_us": [sum(t[2] for t in made), max((t[2] for t in made), default=0)],
         "flips": len(flips), "frame_ms": [pct(gpu, 0.5), pct(gpu, 0.9), max(gpu, default=0.0)], "gap_ms_max": max(gaps, default=0.0),
         "late": sum(1 for m in flips if int(m.group(6)) > 0), "lost": sum(int(m.group(7)) for m in flips),
         "missed": sum(1 for m in flips if m.group(8)), "over": sum(1 for g in gaps if g > 10.0),
@@ -66,10 +70,14 @@ def line(name, s):
     """One line for the gate's output."""
     if s is None:
         return "%s: no frame in the ring" % name
-    return ("%s: %d frames drawn, render p50/p90/max %d/%d/%d us, owed p50/p90/max %d/%d/%d px (%d rects at most), ui draws p50/max %d/%d, layers p50/max %d/%d; "
+    text = ("%s: %d frames drawn, render p50/p90/max %d/%d/%d us, owed p50/p90/max %d/%d/%d px (%d rects at most), ui draws p50/max %d/%d, layers p50/max %d/%d; "
             "%d flips, draw to GPU done p50/p90/max %.1f/%.1f/%.1f ms, late %d lost %d missed %d, %d flips over 10 ms after the one before"
             % (name, s["drawn"], *s["render_us"], *s["owed_px"], s["rects_max"], *s["ui_draws"], *s["ui_layers"], s["flips"], *s["frame_ms"], s["late"], s["lost"],
                s["missed"], s["over"]))
+    if s["targets"]:
+        text += ("; render targets made: %d in %d frames (%d px, %d us in all, %d us at most in a frame)"
+                 % (s["targets"], s["target_frames"], s["target_px"], *s["target_us"]))
+    return text
 
 
 def flips(lines):

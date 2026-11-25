@@ -1784,6 +1784,7 @@ impl Gl {
         if let Some(cost) = &self.ui_frame {
             stats.ui_draws = cost.draw_calls;
             stats.ui_layers = cost.layers;
+            stats.ui_targets = crate::output::TargetCost { made: cost.targets, px: cost.target_px, us: cost.target_us };
         }
         if let Some(c) = plan.cursor {
             let tex = self.cursor_texture();

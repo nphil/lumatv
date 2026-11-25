@@ -1342,6 +1342,19 @@ class RingSummary(unittest.TestCase):
         self.assertAlmostEqual(s['frame_ms'][2], 14.8)
         self.assertIn('2 flips over 10 ms', ringsum.line('w', s))
 
+    def test_the_targets_a_window_made_are_summed_from_the_frames_that_name_them(self):
+        import ringsum
+        lines = self.lines()
+        # the compositor's note after a frame's numbers (`TargetCost` in output.rs); a frame that made none carries nothing
+        lines[1] += ' tgts 2 4147200 px 120 us'
+        lines[5] += ' tgts 1 2073600 px 80 us'
+        s = ringsum.summarize(ringsum.window(lines, 'open', 8.0))
+        self.assertEqual((s['drawn'], s['targets'], s['target_frames'], s['target_px'], s['target_us']), (10, 3, 2, 6220800, [200, 120]))
+        self.assertIn('render targets made: 3 in 2 frames (6220800 px, 200 us in all, 120 us at most in a frame)', ringsum.line('w', s))
+        none = ringsum.summarize(ringsum.window(self.lines(), 'open', 8.0))
+        self.assertEqual(none['targets'], 0)
+        self.assertNotIn('render targets', ringsum.line('w', none))
+
     def test_no_note_is_an_empty_window_and_no_frame_is_none(self):
         import ringsum
         self.assertEqual(ringsum.window(self.lines(), 'nope', 8.0), [])

@@ -10,6 +10,7 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::io;
 use std::marker::PhantomData;
 use std::sync::Arc;
+#[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -96,9 +97,6 @@ const GL_R8: i32 = 0x8229;
 const GL_UNPACK_ALIGNMENT: u32 = 0x0CF5;
 /// What GL starts with: rows of pixels start on 4-byte boundaries.
 const DEFAULT_UNPACK_ALIGNMENT: i32 = 4;
-
-/// The most zeros held at once to clear a texture (see `make_texture`).
-const CLEAR_BAND_BYTES: usize = 256 * 1024;
 
 /// Declares a table of driver entry points, each resolved by name when the table is loaded.
 macro_rules! api {
@@ -229,12 +227,11 @@ fn egl_error(egl: &EglCore, what: &str) -> io::Error {
     }))
 }
 
-/// A GLES 3 context on the Mali, current on the thread that created it, and the entry points to use it. It is
-/// deliberately not `Send`: GL calls belong to one thread.
-/// Render targets made since the last [`take_target_cost`]: how many, their pixels, and the time they took.
-static TARGETS_MADE: AtomicU64 = AtomicU64::new(0);
-static TARGET_PIXELS: AtomicU64 = AtomicU64::new(0);
-static TARGET_NS: AtomicU64 = AtomicU64::new(0);
+thread_local! {
+    /// What making render targets has cost this thread since [`take_target_cost`]: how many, their pixels and the nanoseconds they
+    /// took. A context belongs to one thread, so these are the accounts of the frames that thread draws.
+    static TARGET_COST: Cell<(u64, u64, u64)> = const { Cell::new((0, 0, 0)) };
+}
 
 /// In tests, a seed for the noise that the textures that are made undefined (`new_texture`), the pool's render targets (taken
 /// new or again) and the plates are filled with (0: nothing, the contents stay as the driver left them): what the memory of a
@@ -268,13 +265,9 @@ pub fn kicks() -> u64 {
     KICKS.with(Cell::get)
 }
 
-/// What making render targets has cost since this was last called: (targets, pixels, nanoseconds).
+/// What making render targets has cost this thread since this was last called: (targets, pixels, nanoseconds).
 pub fn take_target_cost() -> (u64, u64, u64) {
-    (
-        TARGETS_MADE.swap(0, Ordering::Relaxed),
-        TARGET_PIXELS.swap(0, Ordering::Relaxed),
-        TARGET_NS.swap(0, Ordering::Relaxed),
-    )
+    TARGET_COST.with(Cell::take)
 }
 
 /// What the GL was asked since [`Gles::take_calls`]: the calls the wrapper passed to the driver, by kind, and the bytes of vertices it was
@@ -296,6 +289,9 @@ pub struct Calls {
     pub skipped: u32,
     /// Bytes handed to the driver as vertices (`glBufferData`).
     pub vertex_bytes: u64,
+    /// Bytes of pixels handed to the driver to copy into a texture (`glTexImage2D` and `glTexSubImage2D` with client memory: a
+    /// picture's upload, a glyph page's). A texture made with none, or cleared by the GPU, adds none.
+    pub upload_bytes: u64,
 }
 
 impl Calls {
@@ -308,6 +304,7 @@ impl Calls {
         self.states += other.states;
         self.skipped += other.skipped;
         self.vertex_bytes += other.vertex_bytes;
+        self.upload_bytes += other.upload_bytes;
     }
 }
 
@@ -423,6 +420,8 @@ impl Known {
     }
 }
 
+/// A GLES 3 context on the Mali, current on the thread that created it, and the entry points to use it. It is
+/// deliberately not `Send`: GL calls belong to one thread.
 pub struct Gles {
     egl: EglCore,
     ext: EglExtensions,
@@ -1204,32 +1203,18 @@ impl Gles {
     /// atlas page: see `Texture` in the renderer); one that is drawn into is a [render target](Gles::new_render_target), and
     /// is made clear.
     pub fn new_texture(&self, width: u32, height: u32) -> u32 {
-        let texture = self.make_texture(width, height, false);
+        let texture = self.make_texture(width, height);
         #[cfg(test)]
         self.poison(width, height);
         texture
     }
 
-    /// [`Gles::new_texture`], with transparent black in every pixel: for a texture that something can sample before all of it
-    /// has been drawn or uploaded into (a render target, which is drawn into in parts; an image whose file could not be read).
-    pub fn new_clear_texture(&self, width: u32, height: u32) -> u32 {
-        self.make_texture(width, height, true)
-    }
-
-    /// A texture as [`Gles::new_texture`] makes it, with transparent black in every pixel when `clear` (the driver's memory is
-    /// not otherwise anything: a new allocation can be what a process that has gone left in it). The zeros are uploaded a band
-    /// of rows at a time from one small buffer: a panel-sized target's worth held at once is 8 MB of heap, and the compositor's
-    /// allocator takes every block from the heap and returns none of it to the system.
-    fn make_texture(&self, width: u32, height: u32, clear: bool) -> u32 {
+    /// The texture of [`Gles::new_texture`], with no pixels given to the driver: the storage is allocated and nothing is copied
+    /// into it.
+    fn make_texture(&self, width: u32, height: u32) -> u32 {
         self.touch();
         let mut texture = 0;
-        let row_bytes = width as usize * 4;
-        let band_rows = (CLEAR_BAND_BYTES / row_bytes.max(1)).clamp(1, height.max(1) as usize);
-        // `vec![0; n]` is the allocator's zeroed memory, not a loop over it.
-        let zeros = (clear && row_bytes > 0).then(|| vec![0u8; row_bytes * band_rows]);
-        // SAFETY: creates and configures a texture, with no pixels given (nothing is read); each band upload reads `rows`
-        // rows of `width` RGBA8 pixels from `zeros`, which holds `band_rows` of them and lives to the end of the function, and
-        // the upload is complete by the time the call returns.
+        // SAFETY: creates and configures a texture, with no pixels given (nothing is read).
         unsafe {
             (self.gl.gen_textures)(1, &mut texture);
             (self.gl.bind_texture)(GL_TEXTURE_2D, texture);
@@ -1251,24 +1236,6 @@ impl Gles {
                 GL_UNSIGNED_BYTE,
                 std::ptr::null(),
             );
-            if let Some(zeros) = &zeros {
-                let mut y = 0;
-                while y < height {
-                    let rows = (band_rows as u32).min(height - y);
-                    (self.gl.tex_sub_image_2d)(
-                        GL_TEXTURE_2D,
-                        0,
-                        0,
-                        y as i32,
-                        width as i32,
-                        rows as i32,
-                        GL_RGBA,
-                        GL_UNSIGNED_BYTE,
-                        zeros.as_ptr() as *const c_void,
-                    );
-                    y += rows;
-                }
-            }
         }
         texture
     }
@@ -1334,7 +1301,7 @@ impl Gles {
         row_pixels: u32,
         pixels: *const u8,
     ) {
-        self.touch();
+        self.count(|c| c.upload_bytes += u64::from(width) * u64::from(height) * 4);
         // SAFETY: the caller guarantees the memory; the rest is plain GL state.
         unsafe {
             (self.gl.pixel_storei)(GL_UNPACK_ROW_LENGTH, row_pixels as i32);
@@ -1358,7 +1325,7 @@ impl Gles {
     /// filter of a glyph that is not on whole pixels reads the texels next to its rectangle, and they must not be
     /// whatever the driver's memory held.
     pub fn new_alpha_texture(&self, width: u32, height: u32) -> u32 {
-        self.touch();
+        self.count(|c| c.upload_bytes += u64::from(width) * u64::from(height));
         let zeros = vec![0u8; width as usize * height as usize];
         let mut texture = 0;
         // SAFETY: creates and configures a texture; `zeros` holds the `width * height` bytes the upload reads, one byte
@@ -1393,7 +1360,7 @@ impl Gles {
     /// Copies the coverage `bytes` of a `width` × `height` rectangle, rows packed at `width` bytes, to (`x`, `y`) of the
     /// bound alpha texture (see [`Gles::new_alpha_texture`]), which the rectangle must lie inside.
     pub fn upload_alpha(&self, x: u32, y: u32, width: u32, height: u32, bytes: &[u8]) {
-        self.touch();
+        self.count(|c| c.upload_bytes += u64::from(width) * u64::from(height));
         assert!(
             bytes.len() >= width as usize * height as usize,
             "an upload of {width}x{height} coverage bytes is given {}",
@@ -1422,19 +1389,23 @@ impl Gles {
     /// linearly, clamped at the edges, transparent black until drawn. A target is made clear, not undefined: what a frame
     /// reads of one that was drawn into in part (a plate that only some of its groups were drawn into, a picture the
     /// blur chain could not finish) is nothing, where the driver's memory would be a rectangle of noise that no frame drew.
-    /// It costs the allocation one pass over the pixels, once, where targets are made (the pool and the plates keep them).
+    /// It costs one clear on the GPU, once, where targets are made (the pool and the plates keep them), and no pixel goes through the
+    /// CPU: zeros from it are a block of the target's size (8 MB for a panel's) or a call for each band of rows, and the
+    /// compositor's allocator takes every block from the heap and returns none of it to the system.
     pub fn new_render_target(&self, width: u32, height: u32) -> io::Result<RenderTarget> {
         let began = std::time::Instant::now();
-        let made = self.make_render_target(width, height);
-        TARGETS_MADE.fetch_add(1, Ordering::Relaxed);
-        TARGET_PIXELS.fetch_add(u64::from(width) * u64::from(height), Ordering::Relaxed);
-        TARGET_NS.fetch_add(began.elapsed().as_nanos() as u64, Ordering::Relaxed);
-        made
+        let target = self.make_render_target(width, height);
+        let ns = began.elapsed().as_nanos() as u64;
+        TARGET_COST.with(|cost| {
+            let (made, pixels, spent) = cost.get();
+            cost.set((made + 1, pixels + u64::from(width) * u64::from(height), spent + ns));
+        });
+        target
     }
 
     fn make_render_target(&self, width: u32, height: u32) -> io::Result<RenderTarget> {
         self.touch();
-        let texture = self.new_clear_texture(width, height);
+        let texture = self.make_texture(width, height);
         let mut framebuffer = 0u32;
         // SAFETY: creates a framebuffer object and attaches the texture just made; completeness is checked below.
         let status = unsafe {
@@ -1460,12 +1431,30 @@ impl Gles {
                 "a {width}x{height} texture is not a usable render target: framebuffer status {status:#x}"
             )));
         }
+        self.clear_bound_framebuffer();
         Ok(RenderTarget {
             texture,
             framebuffer,
             width,
             height,
         })
+    }
+
+    /// Makes every pixel of the bound framebuffer's colour buffer transparent black, with one clear on the GPU. The scissor test
+    /// limits a clear and a frame leaves it on, so it is off for this one and put back as it was; the other state a clear
+    /// reads (all colours written) is the toolkit's default ([`Gles::enter`]).
+    fn clear_bound_framebuffer(&self) {
+        let scissored = self.known.scissor_test.get().unwrap_or_else(|| {
+            // SAFETY: a state query on the current context.
+            unsafe { (self.gl.is_enabled)(GL_SCISSOR_TEST) != 0 }
+        });
+        if scissored {
+            self.disable(GL_SCISSOR_TEST);
+        }
+        self.clear(0.0, 0.0, 0.0, 0.0);
+        if scissored {
+            self.enable(GL_SCISSOR_TEST);
+        }
     }
 
     pub fn delete_render_target(&self, target: RenderTarget) {
