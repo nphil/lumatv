@@ -334,6 +334,16 @@ impl External {
 /// 120 Hz; a calm frame has the time for a copy and draws a quarter of the layers.
 pub const AMBIENT_COPY_REFRESHES: u64 = 3;
 
+/// The share of the panel, in percent, that the copy of what a page owes must cover for the page to copy in any frame, not only over Home or
+/// when calm: a whole-screen change (the library opening, Home returning) is owed in full by all three pages and the page drawn last holds
+/// it (`kms::frames`, which counts the same). Home's walks owe at most 63 % of the panel.
+pub const BURST_COPY_PERCENT: u64 = 75;
+
+/// Whether the copy of what a page owes (`copy_px` of a panel of `panel_px` pixels) is a whole-screen change's.
+fn whole_screen(copy_px: u64, panel_px: u64) -> bool {
+    copy_px * 100 >= BURST_COPY_PERCENT * panel_px
+}
+
 /// The most rectangles a compositor's page is drawn in (`damage::MAX_RECTS` of the compositor): past it the page owes their bounds.
 const COMPOSITOR_RECTS: usize = 12;
 
@@ -1181,27 +1191,34 @@ impl Engine {
         self.next_page = (page + 1) % self.pages.len();
         let mut owed = TileSet::new(width, height);
         let mut last = None;
-        // As the compositor does: the pages copy what they owe only while something is over Home (`kms::frames`).
+        // As the compositor does: the pages copy what they owe while something is over Home or the frame is calm, and when what they owe
+        // covers a whole-screen change (`kms::frames`).
         let over = self.over_home();
+        let mut calm = false;
         if let Some(external) = self.external.as_mut() {
             if let Some(ring) = external.ring.as_mut() {
                 ring.frame(page, &changed, &mut owed);
             }
-            let calm = external.ambient_copy
+            calm = external.ambient_copy
                 && external.last_frame_ns.is_some_and(|at| now_ns.saturating_sub(at) >= AMBIENT_COPY_REFRESHES * external.period_ns)
                 && !matches!(self.scene.demand(), Demand::EveryRefresh);
-            last = external.last_page.filter(|&p| p != page && external.page_copy && (over || calm));
+            last = external.last_page.filter(|&p| p != page && external.page_copy);
         }
         let mut areas = Vec::new();
         if let (Some(last), Some(copier)) = (last, self.copier.as_ref()) {
             owed.subtract(&changed);
-            owed.rects(&mut areas);
-            if areas.len() > COMPOSITOR_RECTS {
-                areas.clear();
-                areas.extend(owed.bounds());
+            if over || calm || whole_screen(owed.pixels(), u64::from(width) * u64::from(height)) {
+                owed.rects(&mut areas);
+                if areas.len() > COMPOSITOR_RECTS {
+                    areas.clear();
+                    areas.extend(owed.bounds());
+                }
+                copier.run(self.renderer.gles(), &self.pages[last], self.pages[page].framebuffer, &areas);
+                owed.clone_from(&changed);
+            } else {
+                // (the ring's account holds what this frame changes: the page draws all it owes)
+                owed.union(&changed);
             }
-            copier.run(self.renderer.gles(), &self.pages[last], self.pages[page].framebuffer, &areas);
-            owed.clone_from(&changed);
         }
         owed.rects(&mut areas);
         if areas.len() > COMPOSITOR_RECTS {

@@ -15,8 +15,10 @@
 //! its place: `Gl::ui_over_home`) draws only what it changes. What its page owes from the frames before (a ring of three pages owes
 //! each change three times) is what the page the last frame went into holds there, and it is copied from that page first
 //! (`Gl::copy_from_page`): a whole-screen change costs one frame of drawing and two copies, not three frames. Otherwise (Home's own
-//! walks) the page draws all it owes: with the copies and the engine's floor, Home's walks dropped 29 (apps-grid) and 28
-//! (home-widgets) frames at 120 Hz against 3 and 3 without (round 27). `LUMATV_PAGE_COPY=0` draws all a page owes always.
+//! walks, which owe 0.8 to 1.3 Mpx) the page draws all it owes: with the copies and the engine's floor, Home's walks dropped 29
+//! (apps-grid) and 28 (home-widgets) frames at 120 Hz against 3 and 3 without (round 27). What a page owes of a whole-screen change
+//! is copied in any frame ([`BURST_COPY_PERCENT`]): the library opening and Home returning drew 94 layers three times, 9 ms each
+//! against a refresh of 8.33 (`docs/research/apps-grid-open-burst.md`). `LUMATV_PAGE_COPY=0` draws all a page owes always.
 //!
 //! A calm frame copies as well (`Frames::set_calm`): one that comes [`AMBIENT_COPY_REFRESHES`] refreshes or more after the frame before,
 //! while nothing the owner drives is moving (the engine asks for no frame at every refresh). The weather's sky and the wallpaper's steps
@@ -49,6 +51,11 @@ use super::assign::{Assignment, Facts, Source, decide, needs_commit};
 /// Refreshes a frame must come after the frame before to be calm (`Frames::set_calm`); the engine's host counts the same
 /// (`lumatv_render::host::AMBIENT_COPY_REFRESHES`).
 pub const AMBIENT_COPY_REFRESHES: u64 = 3;
+
+/// Share of the panel, in percent, that the copy of what a page owes must cover for the page to copy in any frame, not only over Home or
+/// when calm ([`whole_screen`]); the engine's host counts the same (`lumatv_render::host::BURST_COPY_PERCENT`). The apps-grid walk's
+/// frames owe at most 63 % of the panel, the two whole-screen bursts of its window 93 to 100 %.
+pub const BURST_COPY_PERCENT: u64 = 75;
 
 pub struct Frames {
     targets: Vec<TargetId>,
@@ -260,12 +267,15 @@ impl Frames {
                 let mut copied = false;
                 // (a calm frame: nothing of the owner's is moving, and the engine's next frame is not at the next refresh)
                 let calm = std::mem::take(&mut self.calm) && self.ambient_copy && !gl.ui_animating();
-                if let Some(last) = self.composed.filter(|&p| p != page && self.page_copy && (calm || gl.ui_over_home())) {
+                if let Some(last) = self.composed.filter(|&p| p != page && self.page_copy) {
                     self.copied.clear();
                     self.copied.union(owed);
                     self.copied.subtract(&tiles);
-                    self.copied.rects(&mut self.copy_rects);
-                    copied = gl.copy_from_page(self.targets[last], &self.copy_rects);
+                    let panel = u64::from(self.width) * u64::from(self.height);
+                    if calm || whole_screen(self.copied.pixels(), panel) || gl.ui_over_home() {
+                        self.copied.rects(&mut self.copy_rects);
+                        copied = gl.copy_from_page(self.targets[last], &self.copy_rects);
+                    }
                 }
                 if copied { tiles.rects(&mut self.rects) } else { owed.rects(&mut self.rects) }
                 gl.merge_ui_rects(&mut self.rects);
@@ -289,14 +299,30 @@ fn keeps_unchanged(may: bool, moved: bool) -> bool {
     may && !moved
 }
 
+/// Whether the copy of what a page owes (`copy_px` of a panel of `panel_px` pixels) is a whole-screen change's: three pages each owe it
+/// all, and the page drawn last holds it.
+fn whole_screen(copy_px: u64, panel_px: u64) -> bool {
+    copy_px * 100 >= BURST_COPY_PERCENT * panel_px
+}
+
 #[cfg(test)]
 mod tests {
-    use super::keeps_unchanged;
+    use super::{keeps_unchanged, whole_screen};
 
     #[test]
     fn a_motions_unchanged_first_frame_is_kept_and_the_frame_after_a_motion_is_flipped() {
         assert!(keeps_unchanged(true, false), "nothing moved before it: kept, whether or not a motion starts with it");
         assert!(!keeps_unchanged(true, true), "a motion ran after the frame before: drawn and flipped");
         assert!(!keeps_unchanged(false, false));
+    }
+
+    #[test]
+    fn a_copy_of_most_of_the_panel_is_a_whole_screen_change_and_a_walks_owed_area_is_not() {
+        let panel = 1920 * 1080;
+        assert!(whole_screen(1_930_240, panel), "the library's open owes 93 %");
+        assert!(whole_screen(panel, panel), "Home's return owes all of it");
+        assert!(whole_screen(panel / 4 * 3, panel), "three quarters is the edge");
+        assert!(!whole_screen(1_311_488, panel), "the apps-grid walk's largest owed area is 63 %");
+        assert!(!whole_screen(0, panel));
     }
 }

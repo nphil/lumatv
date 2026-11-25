@@ -456,6 +456,41 @@ fn a_calm_frame_draws_only_what_it_changes_and_its_page_still_holds_the_frame_wh
 }
 
 #[test]
+fn a_whole_screen_change_is_drawn_once_and_the_pages_after_it_copy_it_and_draw_only_what_they_change() {
+    let Some(rig) = Rig::start("burst", false) else { return };
+    let panel = 1920u64 * 1080;
+    rig.commit();
+    let shape = Shape { corner_radius: 0.0, fill: Fill::Solid(Rgba(200, 40, 40, 255)), border_width: 0.0, border: Rgba(0, 0, 0, 0) };
+    let cover = rig.ui.scene.shape(1920, 1080, 500, shape, hidden());
+    rig.commit();
+    // The whole screen changes, as when the apps library opens over Home: each page of the ring owes all of it.
+    let began = rig.drew.lock().len();
+    cover.set(Props::at(0.0, 0.0));
+    rig.commit();
+    let drew = rig.drew.lock().clone();
+    assert!(drew[began..].iter().any(|&px| px * 10 >= panel * 9), "a frame draws the whole screen: {:?}", &drew[began..]);
+    // A small layer moves over it in the frames after (a settle): the other pages copy what they owe from the page drawn last.
+    let mut was = None;
+    for (step, (x, y)) in [(760u32, 900u32), (200, 100), (1200, 300)].into_iter().enumerate() {
+        let before = rig.drew.lock().len();
+        rig.osd.set(Props::at(x as f32, y as f32));
+        rig.commit();
+        let drew = rig.drew.lock().clone();
+        assert!(drew.len() > before && drew[before..].iter().all(|&px| px * 10 < panel), "step {step}: drew {:?} px, under a tenth of the panel", &drew[before..]);
+        let image = rig.capture();
+        assert_eq!(image.pixel(x + 20, y + 20), [245, 245, 255, 255], "step {step}: the layer where it is");
+        for corner in [(30, 30), (1900, 1070), (960, 540)] {
+            assert_eq!(image.pixel(corner.0, corner.1), [200, 40, 40, 255], "step {step}: the cover holds on the page at {corner:?}");
+        }
+        if let Some((px, py)) = was {
+            assert_eq!(image.pixel(px + 20, py + 20), [200, 40, 40, 255], "step {step}: nothing left where the layer was");
+        }
+        was = Some((x, y));
+    }
+    assert_eq!(rig.gl_errors(), 0);
+}
+
+#[test]
 fn a_ui_commit_that_changes_nothing_composes_nothing_and_is_answered() {
     let Some(rig) = Rig::start("unchanged", false) else { return };
     rig.commit();
