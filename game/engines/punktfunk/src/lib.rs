@@ -193,6 +193,7 @@ impl Engine {
             }
             Request::Activity {..}=>self.emit(error(Some(seq),ErrorCode::Unsupported,"This engine sends no idle warning.")),
             Request::Achievements {..}=>self.emit(error(Some(seq),ErrorCode::Unsupported,"This engine has no achievements.")),
+            Request::AuthKey {..}=>self.emit(error(Some(seq),ErrorCode::Unsupported,"This engine signs in without a key.")),
             Request::Community {..} | Request::CommunityThread {..}=>self.emit(error(Some(seq),ErrorCode::Unsupported,"This engine has no community pages.")),
         }
         Ok(())
