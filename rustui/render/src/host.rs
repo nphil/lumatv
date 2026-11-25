@@ -758,6 +758,11 @@ impl Engine {
         self.renderer.census().bytes() + floor
     }
 
+    /// [`Engine::gpu_bytes`] by kind, as the census prints it.
+    pub fn gpu_census(&self) -> String {
+        self.renderer.census().to_string()
+    }
+
     /// Runs `f`, which draws or makes GL objects, in the compositor's context as the toolkit's: the context's state is saved and
     /// put back round it (an engine that is not inside a compositor owns its context, and `f` just runs).
     fn scoped<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {

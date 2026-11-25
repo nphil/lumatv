@@ -1191,7 +1191,20 @@ impl Renderer {
             let id = LayerId(u32::MAX - n);
             let (width, height) = (width as u32, height as u32);
             let path = std::path::PathBuf::from(compositor_protocol::image_path(id));
-            let file = std::fs::write(&path, vec![0u8; width as usize * height as usize * 4])
+            // Written in chunks: a buffer of the panel's size (8 MB) is heap that the compositor never returns to the system.
+            let zeroes = |len: u64| -> std::io::Result<()> {
+                use std::io::Write;
+                let chunk = [0u8; 64 * 1024];
+                let mut out = std::fs::File::create(&path)?;
+                let mut left = len;
+                while left > 0 {
+                    let n = left.min(chunk.len() as u64) as usize;
+                    out.write_all(&chunk[..n])?;
+                    left -= n as u64;
+                }
+                Ok(())
+            };
+            let file = zeroes(u64::from(width) * u64::from(height) * 4)
                 .map_err(|e| e.to_string())
                 .and_then(|()| ImageFile::open(&path, width, height));
             files.push(path);

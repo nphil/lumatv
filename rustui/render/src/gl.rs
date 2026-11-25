@@ -97,6 +97,9 @@ const GL_UNPACK_ALIGNMENT: u32 = 0x0CF5;
 /// What GL starts with: rows of pixels start on 4-byte boundaries.
 const DEFAULT_UNPACK_ALIGNMENT: i32 = 4;
 
+/// The most zeros held at once to clear a texture (see `make_texture`).
+const CLEAR_BAND_BYTES: usize = 256 * 1024;
+
 /// Declares a table of driver entry points, each resolved by name when the table is loaded.
 macro_rules! api {
     ($table:ident { $($(#[$attribute:meta])* $field:ident = $symbol:literal fn($($arg:ty),*) $(-> $ret:ty)?;)* }) => {
@@ -1214,17 +1217,19 @@ impl Gles {
     }
 
     /// A texture as [`Gles::new_texture`] makes it, with transparent black in every pixel when `clear` (the driver's memory is
-    /// not otherwise anything: a new allocation can be what a process that has gone left in it).
+    /// not otherwise anything: a new allocation can be what a process that has gone left in it). The zeros are uploaded a band
+    /// of rows at a time from one small buffer: a panel-sized target's worth held at once is 8 MB of heap, and the compositor's
+    /// allocator takes every block from the heap and returns none of it to the system.
     fn make_texture(&self, width: u32, height: u32, clear: bool) -> u32 {
         self.touch();
         let mut texture = 0;
+        let row_bytes = width as usize * 4;
+        let band_rows = (CLEAR_BAND_BYTES / row_bytes.max(1)).clamp(1, height.max(1) as usize);
         // `vec![0; n]` is the allocator's zeroed memory, not a loop over it.
-        let zeros = clear.then(|| vec![0u8; width as usize * height as usize * 4]);
-        let pixels = zeros
-            .as_ref()
-            .map_or(std::ptr::null(), |zeros| zeros.as_ptr() as *const c_void);
-        // SAFETY: creates and configures a texture; `pixels` is null (nothing is read) or the `width * height` RGBA8 pixels
-        // of `zeros`, which lives to the end of the function and the upload is complete by the time the call returns.
+        let zeros = (clear && row_bytes > 0).then(|| vec![0u8; row_bytes * band_rows]);
+        // SAFETY: creates and configures a texture, with no pixels given (nothing is read); each band upload reads `rows`
+        // rows of `width` RGBA8 pixels from `zeros`, which holds `band_rows` of them and lives to the end of the function, and
+        // the upload is complete by the time the call returns.
         unsafe {
             (self.gl.gen_textures)(1, &mut texture);
             (self.gl.bind_texture)(GL_TEXTURE_2D, texture);
@@ -1244,8 +1249,26 @@ impl Gles {
                 0,
                 GL_RGBA,
                 GL_UNSIGNED_BYTE,
-                pixels,
+                std::ptr::null(),
             );
+            if let Some(zeros) = &zeros {
+                let mut y = 0;
+                while y < height {
+                    let rows = (band_rows as u32).min(height - y);
+                    (self.gl.tex_sub_image_2d)(
+                        GL_TEXTURE_2D,
+                        0,
+                        0,
+                        y as i32,
+                        width as i32,
+                        rows as i32,
+                        GL_RGBA,
+                        GL_UNSIGNED_BYTE,
+                        zeros.as_ptr() as *const c_void,
+                    );
+                    y += rows;
+                }
+            }
         }
         texture
     }

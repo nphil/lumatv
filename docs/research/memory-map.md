@@ -303,9 +303,63 @@ Heap attribution, read at 18:41 with Home in front:
 
 The compositor's arena is mostly address space: `mem.rs` pre-grows it by 16 MiB, pads 8 MiB, trims only above 256 MiB and locks it with `mlockall(MCL_CURRENT | MCL_FUTURE | MCL_ONFAULT)`, so the resident heap is 46.9 MB against 36.8 MB in use, about 10 MB free but resident. Releasing it needs the locked pages let go and trades frame timing (the heap is grown and locked so that no frame faults a page in); it was not done, and no waste without a visible or timing cost was found. Candidates, unmeasured and unchanged: the UI keeps each kept image layer's source pixels (`lumashow-ui/src/kept.rs`, `components/row.rs`) and decoded wallpaper pixels, and giving them up costs a re-decode when the page returns; `ImageFile::release()` drops the compositor's mapping but not the tmpfs pages, so `Shmem` falls only if the file is truncated or removed.
 
+## Heap audit (host)
+
+Host numbers only; nothing here was measured on the set. `lumatv-ui --host --virtual --refresh 120` built with `--features heap-audit` (a counting
+allocator that records the stack of every live block), driven by `python3 tests/heap_audit.py --bin <lumatv-ui> [--cycles N] [--diff A B]`: Home idle,
+Settings open and closed, apps grid open and closed (twice), Home idle 10 s. On the host the shell and the render engine share one process, so the
+tracked heap is the UI's heap plus the engine's CPU-side heap. Mesa's software GL (arena about 100 MiB, RssAnon about 230-260 MiB) is host noise.
+
+Live bytes (host, MiB, tracked heap): Home idle 23.25 before, **15.34 after**; the rests after Settings and the apps grid stay within 0.5 MiB of the
+first one and stop growing after the third cycle (5 cycles: 23.73-23.79, flat), so nothing leaks. The 0.5 is capacity the engine keeps for the
+largest scene it has seen (the layer table, the planner's lists, the shadow cache).
+
+| Owner at Home idle (host) | MiB | Class | Cost of changing it |
+|---|---:|---|---|
+| Wallpaper `original` (fitted picture) | 7.91 -> 0 | (a) fixed | none; kept only while a palette, saturation or contrast is on |
+| Fonts, 3 fontdue faces + glyph cache (`lumashow-ui/src/text.rs`) | 6.4 | (c) | |
+| Glyph atlas bands (`atlas.rs`) | 0.7 | (c) | |
+| Icon art kept for rebuilds (`kit/picture.rs resized`) | 1.9 | (b) | without it the apps grid's first frame holds 25 icon decodes for 128 ms (code comment) |
+| Logos, icon masks, glass/tile/shadow buffers, gridfit | 3.1 | (c) | |
+| Settings pages, JSON, strings, apps grid | 0.7 | (c) | |
+| GPU (census, not heap): 64 layers 20.3, atlases 1.3, still 7.9 (+ one 7.9 floor target that comes and goes) | 38.6 | (b) | the layer count is the frame gate's budget |
+| Layer files in tmpfs (80 files at Home) | 20.9 | (b) | not heap; the compositor maps them |
+
+Transients (host, the most one owner held at once). The compositor never returns heap (`mem.rs`: no mmap, no trim, `mlockall`), so each one is
+resident and locked for good once it has happened:
+
+| Owner | Before | After | Class |
+|---|---:|---:|---|
+| `gl.rs make_texture` zeroed pixel buffer, one per render target | 56.18 | 2.30 | (a) fixed: cleared in 256 KiB bands (`CLEAR_BAND_BYTES`) |
+| `renderer.rs warm_up` zeroed picture file | 8.12 | 0 | (a) fixed: written in 64 KiB chunks |
+| `new_alpha_texture` zero buffer (atlas page) | 1.31 | 1.31 | (a), left: same pattern, small |
+| `kit/picture.rs decode_png` (UI) | 16.41 | 16.41 | (c): the UI sets `M_MMAP_THRESHOLD` 1 MiB, so it goes back to the OS |
+
+Gates (host, 120 Hz, same binary build, before the fixes / after): settings-scroll PASS 69 layers / PASS 69; home-dpad PASS 72 / PASS 68; apps grid
+(`heap` walk) 101 layers, 6 frames over 80 / the same. **home-widgets fails the 80-layer gate before the fixes too** (82 layers, 12 frames over 80
+before; 81-86 layers, 3-15 frames over 80 after, it varies from run to run); the apps grid open does the same. Both are in the code on `main`, not from
+this change. `rustui/render/tests/clear_target.rs` checks that a render target is built from no block over 512 KiB and reads back zero.
+
+### The on-set check (needs a TV slot and Nitin's OK for the lock)
+
+The compositor's share is the part the host cannot show (pregrow 16 MiB, top pad 8 MiB, Wayland/KMS, snapshot store): read it first, install later.
+
+1. Before and after, for the compositor (the `ld-linux` process running `lumatv-compositor`) and `lumatv-ui`:
+   `ssh root@192.168.1.242 'for p in $(pidof ld-linux-armhf.so.3 lumatv-ui); do echo $p; grep -E "VmRSS|RssAnon|RssFile|RssShmem|Pss|Pss_Anon|Swap" /proc/$p/smaps_rollup; done'`
+   and `grep -E "Shmem|MemAvailable|SwapFree" /proc/meminfo; ls -l /tmp/xdg | head`.
+   Today (2026-11-24): compositor 100.3 MB PSS (heap 44), UI 27.7 PSS + 18.7 swap (heap 16).
+2. The compositor's malloc: `sh /tmp/lumatv/gate.sh mem` (or `lumatv-compositor ctl --runtime-dir /tmp/xdg mem`): `in_use_bytes` against `free_bytes`.
+   The 18:41 read in section 7 had 36.8 MiB in use and 90.6 MiB free (about 10 MB of that resident). The engine's CPU heap is about 2.3 MiB on the host,
+   so most of the 36.8 MiB is compositor-only (snapshot store, Wayland, KMS, frame log) and not attributed: the same counting allocator would have to be
+   built into `lumatv-compositor`. The two fixes can only lower the resident free part (an 8 MB block at start-up). [INFERENCE until read on the set]
+3. Same walk as the host: Home idle, Settings open and closed, apps open and closed, Home idle; read 1 and 2 at each rest.
+4. Gates on the set after the install: `python3 compositor/tools/tv_gate.py --only frames`, `--frames-load`, the 120 Hz gate and an apps-grid open.
+5. The wallpaper saving needs the owner's theme to have no `wallpaperPalette`, saturation 1.0 and contrast 1.0 (the shipped default); check
+   `theme.json` on the set. With a grade on, the copy is kept as before.
+
 ## Not measured
 
-- The reopen time of LumaGame after a close, and what fills the compositor and helper heaps (needs allocator counts, a debug build).
+- The reopen time of LumaGame after a close, and what fills the compositor's and the helper's heaps on the set (the host audit above covers the UI and the engine's CPU heap only).
 - Whether AI picture or sound features change when the `ai` group stops; whether Bluetooth audio is used.
 - Which driver owns the 172 `__mem_ops_alloc` buffers (258 MB); `cma-holders.md` has the same gap.
 - Why `pqcontroller` uses 7.8 % of a core at Home idle.

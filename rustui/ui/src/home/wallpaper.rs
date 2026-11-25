@@ -167,8 +167,14 @@ impl Grade {
         Self { saturation: super::popover::control("saturation", wm), contrast: super::popover::control("contrast", wm), palette }
     }
 
+    const IDENTITY: Self = Self { saturation: 1.0, contrast: 1.0, palette: None };
+
+    fn is_identity(self) -> bool {
+        self.palette.is_none() && self.saturation == 1.0 && self.contrast == 1.0
+    }
+
     fn paint(self, original: &[u8], into: &mut [u8]) {
-        if self.palette.is_none() && self.saturation == 1.0 && self.contrast == 1.0 { into.copy_from_slice(original); return; }
+        if self.is_identity() { into.copy_from_slice(original); return; }
         let map = self.palette.map(|stops| {
             std::array::from_fn::<_, 256, _>(|i| {
                 let x = i as f32 / 255.0 * 2.0;
@@ -286,8 +292,14 @@ impl WallpaperSurface {
         }
         if self.grade != Some(grade) {
             self.drop_backdrop(kit);
-            if let (Some(original), Some(layer)) = (&self.original, &mut self.layer) {
-                if let Some(px) = layer.pixels_mut() { grade.paint(&original.rgba, px); }
+            if let Some(layer) = &mut self.layer {
+                if let Some(px) = layer.pixels_mut() {
+                    // With the identity grade the layer holds the fitted picture itself, so no second copy is kept (7.9 MiB): it is made from the
+                    // layer when a grade is put on, and let go again when the grade goes off.
+                    let original = self.original.take().unwrap_or_else(|| Picture { width: W, height: H, rgba: px.to_vec() });
+                    grade.paint(&original.rgba, px);
+                    if !grade.is_identity() { self.original = Some(original); }
+                }
                 layer.damage(None);
             }
             self.grade = Some(grade);
@@ -325,10 +337,17 @@ impl WallpaperSurface {
             return;
         }
         if self.backdrop.is_none() {
-            let Some(fitted) = &self.original else { return };
             let on = Props::at(0.0, 0.0);
             let Ok(mut plain) = kit.ui.scene.image(W, H, self.z - 1, on) else { return };
-            self.grade.unwrap_or(Grade { saturation: 1.0, contrast: 1.0, palette: None }).paint(&fitted.rgba, plain.pixels_mut());
+            match (&self.original, &mut self.layer) {
+                (Some(fitted), _) => self.grade.unwrap_or(Grade::IDENTITY).paint(&fitted.rgba, plain.pixels_mut()),
+                // No copy is held while the grade is the identity: the picture is the layer's own pixels.
+                (None, Some(layer)) => match layer.pixels_mut() {
+                    Some(px) => plain.pixels_mut().copy_from_slice(px),
+                    None => return,
+                },
+                (None, None) => return,
+            }
             plain.damage(None);
             let spec = ui::BackdropSpec { wallpaper: Some(plain.id()), plates: Vec::new(), radius: kit.tokens.blur, downsample: 4 };
             let Ok(set) = kit.ui.scene.prepare_backdrop(&spec) else { return };
@@ -460,6 +479,23 @@ mod tests {
         let reset = Grade { palette: Grade::of(&json!({"wallpaperPalette": {"dark": "original"}}), ui::lucent::palette::Mode::Dark).palette, ..plain };
         reset.paint(&original, &mut output);
         assert_eq!(output, original);
+    }
+
+    #[test]
+    fn the_identity_grade_keeps_no_second_copy_and_a_grade_can_still_be_put_on_and_off() {
+        let module = crate::kit::testkit::module_dir();
+        let (_h, mut kit) = crate::kit::testkit::kit(1.0);
+        let mut wall = WallpaperSurface::new(0);
+        let pixels = |wall: &mut WallpaperSurface| wall.layer.as_mut().unwrap().pixels_mut().unwrap().to_vec();
+        wall.load(&mut kit, &json!({}), None, Some(&module)).unwrap();
+        assert!(wall.original.is_none());
+        let authored = pixels(&mut wall);
+        wall.load(&mut kit, &json!({"wallpaperMotion": {"saturation": 0.5}}), None, Some(&module)).unwrap();
+        assert!(wall.original.is_some());
+        assert_ne!(pixels(&mut wall), authored);
+        wall.load(&mut kit, &json!({}), None, Some(&module)).unwrap();
+        assert!(wall.original.is_none());
+        assert_eq!(pixels(&mut wall), authored);
     }
 
     #[test]

@@ -6,6 +6,8 @@ pub mod buttons;
 pub mod channels;
 pub mod chatter;
 pub mod clock;
+#[cfg(feature = "heap-audit")]
+pub mod heapaudit;
 pub mod http;
 pub mod inputs;
 pub mod keys;

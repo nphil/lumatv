@@ -1,6 +1,12 @@
 
 ## 2026-11-24 helper luna subscriptions through one bus bridge (installed, helper a43633e2)
 
+
+## 2026-11-24 heap audit on the host (built, not installed, on-set numbers pending)
+
+`docs/research/memory-map.md` "Heap audit (host)" has the owners, the three fixes (wallpaper original copy, render-target zero buffer, warm-up picture) and the exact on-set check. Host live heap at Home idle 23.25 to 15.34 MiB; the compositor's own heap is not measurable on the host, so the on-set read (smaps_rollup, `ctl mem`) is the next step and needs a TV slot. `home-widgets` and the apps-grid open exceed the 80-layer gate on `main` already (host, run to run 3-15 frames); not touched here. `rustui/patches/` lags `render/src` (anim, renderer-trim, session, ui/*, feather, geometry, shaders-fade): `make-patches.sh` would pick up that drift; only the gl and renderer patches were regenerated.
+## 2026-11-24 helper luna subscriptions through one bus bridge (code on main, not installed)
+
 Installed from main 385b6d71 with Netflix in front (helper restarted in 8 s, compositor and UI untouched): helper d9fab219 -> a43633e2 (payload and bin copies), carrying `lumatv-lsbridge` 161f6a92. The helper's 13 `luna-send` subscription children are one 32-bit bridge (`helper/lsbridge/`, embedded by `helper/app/build.rs`, protocol at the head of `helper/app/src/lsbridge.rs`); `ble_scan` keeps its own `luna-send`. The helper stages the bridge under `/var/lib/lumatv/lsbridge/` and writes its role (a privileged copy of LG's `luna-send` role) and manifest into `/var/luna-service2-dev` itself, so `tv_install.py --only helper` stays one file. A bridge that does not start, register or stay up leaves each subscription on `luna-send`. `libluna-service2.so.3.21.2` has no `LSHandleSetDisconnectHandler`, so the bridge ends when its bus sockets hang up.
 
 On the set (helper 151 s old; PSS/USS MB): 13 `luna-send` 5.21/5.01 -> bridge 0.39/0.37, 162 -> 150 processes; the first reply of all 13 subscriptions equals `luna-send`'s; Netflix's pipelines were identical before and after; killing the bridge brings a new one in 0.1 s and every subscription back within 30 s, with no fallback to `luna-send`. The helper itself read 23.5/23.3 against 33.0/32.8 (anon 25.7 -> 16.8), which the bridge does not explain: the build carries every commit since d9fab219. `MemAvailable` 501.8 -> 329.3 MB and `Shmem` 25.07 -> 24.77 are not comparable (Netflix resident in the second read). Details in `docs/research/memory-map.md` section 7.

@@ -391,7 +391,13 @@ fn carry(acts: Vec<Act>, channel: Option<&Feed>, helper: Option<&Feed>, log: &mu
     }
 }
 
+#[cfg(feature = "heap-audit")]
+#[global_allocator]
+static HEAP_AUDIT: lumatv_ui::host::heapaudit::Audit = lumatv_ui::host::heapaudit::Audit;
+
 fn main() {
+    #[cfg(feature = "heap-audit")]
+    lumatv_ui::host::heapaudit::arm();
     // Lowering a limit cannot fail.
     let _ = lumatv_ui::host::memory::no_core_dumps();
     lumatv_ui::host::memory::tune();
@@ -670,7 +676,22 @@ fn run_host(o: Options) -> io::Result<()> {
         ));
     }
     for (ms, what) in o.evals.clone() {
-        script.push((ms, Box::new(move |s, _, log| {
+        #[cfg(feature = "heap-audit")]
+        let shm = o.shm.clone();
+        script.push((ms, Box::new(move |s, _engine, log| {
+            #[cfg(feature = "heap-audit")]
+            if let Some(label) = what.strip_prefix("heap-") {
+                // `heap-LABEL`: the live bytes by stack (`host/heapaudit.rs`), with what the engine holds on the GPU.
+                // the layers' pixel files (tmpfs on the set): how many, their sizes, and what the file system has allocated to them
+                let layers = std::fs::read_dir(&shm).into_iter().flatten().flatten().filter_map(|e| e.metadata().ok()).fold((0u64, 0u64, 0u64), |(n, len, blocks), m| {
+                    (n + 1, len + m.len(), blocks + std::os::unix::fs::MetadataExt::blocks(&m) * 512)
+                });
+                let extra = format!("# gpu_bytes {}\n# gpu_census {}\n# shm_files {} {} {}\n", _engine.gpu_bytes(), _engine.gpu_census(), layers.0, layers.1, layers.2);
+                if let Err(e) = lumatv_ui::host::heapaudit::dump(label, &extra) {
+                    log.host_line(format_args!("[heap] {label}: {e}"));
+                }
+                return Vec::new();
+            }
             let v = match what.as_str() {
                 "geometry" => s.geometry(),
                 "lint" => s.lint(),

@@ -545,6 +545,38 @@ def walk_of(surface):
         w.mark('up to the status bar')
         w.kb('up', 6, 120)
         w.wait(600)
+    elif surface == 'heap':
+        # `tests/heap_audit.py`: Home at rest, then Settings opened and closed and the apps grid opened and closed twice, the heap read at each rest
+        # (`--eval heap-LABEL` of a `--features heap-audit` build; any other build prints its state instead)
+        count = [0]
+
+        def rest(name, ms):
+            w.wait(ms)
+            count[0] += 1
+            w.args += ['--eval', '%d:heap-%02d-%s' % (w.at, count[0], name)]
+            if os.environ.get('LUMATV_HEAP_SNAPS'):
+                # a picture of the rest, to see that the walk is where its label says
+                w.args += ['--snap', '%d:%s/%02d-%s.png' % (w.at, os.environ['LUMATV_HEAP_SNAPS'], count[0], name)]
+            w.mark(name)
+        w.at = START_MS - 2000
+        w.kb('up', 8, 100)
+        w.kb('left', 6, 60)
+        w.at = START_MS
+        w.mark('settle')
+        rest('home-idle', 2000)
+        for _ in range(int(os.environ.get('LUMATV_HEAP_CYCLES', '2'))):
+            w.push('show', {'kind': 'settings', 'page': SETTINGS_PAGES[0]})
+            rest('settings-open', 2500)
+            # the first back leaves the page for the rail, the second closes Settings
+            w.key('back')
+            w.wait(400)
+            w.key('back')
+            rest('home-after-settings', 3000)
+            w.key('menu')
+            rest('apps-open', 2500)
+            w.key('back')
+            rest('home-after-apps', 3000)
+        rest('home-idle-10s', 10000)
     elif surface == 'home-dpad':
         # HOME_TOP, then the gate's cycle twice (`RIGHTx8@0.35 LEFTx8@0.35 UP s0.5 DOWN`, a tap 50 ms down then the gap), a second of settle
         # after each open and each close
