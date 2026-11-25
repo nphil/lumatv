@@ -8,6 +8,8 @@
 
 use std::f32::consts::PI;
 
+use crate::beam::{Beam, BeamConfig, Mode};
+
 /// The rate the wake word and the turn work at.
 pub const RATE: u32 = 16_000;
 
@@ -283,6 +285,14 @@ impl std::fmt::Display for Unsupported {
 
 impl std::error::Error for Unsupported {}
 
+/// The beam and what feeds it: each channel on its own, since a mix cannot be pulled apart again.
+struct BeamLane {
+    beam: Beam,
+    decimators: Option<[Decimator; 2]>,
+    lanes: [Vec<f32>; 2],
+    stepped: [Vec<f32>; 2],
+}
+
 /// The decoder of one stream.
 pub struct Frames {
     format: Format,
@@ -290,6 +300,7 @@ pub struct Frames {
     pick: Pick,
     auto: Option<Auto>,
     decimator: Option<Decimator>,
+    beam: Option<BeamLane>,
     carry: Vec<u8>,
     mixed: Vec<f32>,
     stepped: Vec<f32>,
@@ -326,7 +337,39 @@ impl Frames {
             stepped: Vec::new(),
             channels: vec![0.0; format.channels],
             clipped: 0,
+            beam: None,
         })
+    }
+
+    /// Takes the two channels through the beam instead of adding them, while the choice of microphones is both (see
+    /// [`Pick::Sum`]): one channel still passes alone when the stream shows the other dead or worse. A stream that is not a pair
+    /// of channels, or a `config` that is off, leaves the decoder as it was.
+    pub fn with_beam(mut self, config: &BeamConfig) -> Self {
+        if config.enabled
+            && self.format.channels == 2
+            && matches!(self.pick, Pick::Auto | Pick::Sum)
+        {
+            let factor = (self.format.rate / RATE) as usize;
+            self.beam = Some(BeamLane {
+                beam: Beam::new(config),
+                decimators: (factor > 1).then(|| [Decimator::new(factor), Decimator::new(factor)]),
+                lanes: [Vec::new(), Vec::new()],
+                stepped: [Vec::new(), Vec::new()],
+            });
+        }
+        self
+    }
+
+    /// Whether the beam learns (it keeps what it knew while a person talks).
+    pub fn set_beam_adapt(&mut self, on: bool) {
+        if let Some(lane) = self.beam.as_mut() {
+            lane.beam.set_adapt(on);
+        }
+    }
+
+    /// The beam, when the stream goes through one.
+    pub fn beam(&self) -> Option<&Beam> {
+        self.beam.as_ref().map(|lane| &lane.beam)
     }
 
     pub fn format(&self) -> Format {
@@ -360,6 +403,9 @@ impl Frames {
     }
 
     fn frames(&mut self, bytes: &[u8], out: &mut Vec<i16>) {
+        if self.beam.is_some() {
+            return self.frames_beam(bytes, out);
+        }
         let width = self.format.sample.bytes();
         let sample = self.format.sample;
         let pick = self.pick();
@@ -390,6 +436,41 @@ impl Frames {
             }
             None => out.extend(self.mixed.iter().map(|&v| to_i16(v))),
         }
+    }
+
+    fn frames_beam(&mut self, bytes: &[u8], out: &mut Vec<i16>) {
+        let width = self.format.sample.bytes();
+        let sample = self.format.sample;
+        let mode = match self.pick() {
+            Pick::Channel(c) => Mode::Mic(c),
+            Pick::Sum | Pick::Auto => Mode::Beam,
+        };
+        let Some(lane) = self.beam.as_mut() else { return };
+        lane.lanes[0].clear();
+        lane.lanes[1].clear();
+        for frame in bytes.chunks_exact(self.format.frame_bytes()) {
+            for (c, slot) in self.channels.iter_mut().enumerate() {
+                *slot = sample.value(&frame[c * width..(c + 1) * width]);
+            }
+            if let Some(auto) = self.auto.as_mut() {
+                auto.frame(&self.channels);
+            }
+            lane.lanes[0].push(self.channels[0] * self.gain);
+            lane.lanes[1].push(self.channels[1] * self.gain);
+        }
+        self.mixed.clear();
+        match lane.decimators.as_mut() {
+            Some([d0, d1]) => {
+                lane.stepped[0].clear();
+                lane.stepped[1].clear();
+                d0.process(&lane.lanes[0], &mut lane.stepped[0]);
+                d1.process(&lane.lanes[1], &mut lane.stepped[1]);
+                lane.beam.process(&lane.stepped[0], &lane.stepped[1], mode, &mut self.mixed);
+            }
+            None => lane.beam.process(&lane.lanes[0], &lane.lanes[1], mode, &mut self.mixed),
+        }
+        self.clipped += self.mixed.iter().filter(|v| !(-1.0..1.0).contains(*v)).count() as u64;
+        out.extend(self.mixed.iter().map(|&v| to_i16(v)));
     }
 }
 
@@ -635,5 +716,44 @@ mod tests {
         let mut frames = Frames::new(format(16_000), 0.0, Pick::Auto).unwrap();
         auto_run(&mut frames, 14, 0, Some(0));
         assert_eq!(frames.pick(), Pick::Channel(1), "channel 0 hears nothing");
+    }
+
+    #[test]
+    fn a_pair_that_agrees_goes_through_the_beam_as_the_plain_sum_a_hop_late() {
+        let tone = |i: usize| 0.1 * (i as f32 * 0.2).sin();
+        let bytes = stereo(16_000, tone, tone, 4096);
+        let beam = BeamConfig { enabled: true, ..BeamConfig::default() };
+        let (mut plain, mut beamed) = (Vec::new(), Vec::new());
+        let mut frames = Frames::new(format(16_000), 0.0, Pick::Auto).unwrap();
+        frames.push(&bytes, &mut plain);
+        let mut frames = Frames::new(format(16_000), 0.0, Pick::Auto).unwrap().with_beam(&beam);
+        frames.push(&bytes, &mut beamed);
+        assert_eq!(beamed.len(), plain.len());
+        for i in 256..4096 {
+            let gap = (i32::from(beamed[i]) - i32::from(plain[i - 256])).abs();
+            assert!(gap <= 8, "{} against {} at {i}", beamed[i], plain[i - 256]);
+        }
+    }
+
+    #[test]
+    fn the_beam_is_there_only_for_a_pair_that_is_to_be_mixed() {
+        let on = BeamConfig { enabled: true, ..BeamConfig::default() };
+        let has = |format, pick, config: &BeamConfig| {
+            Frames::new(format, 0.0, pick).unwrap().with_beam(config).beam().is_some()
+        };
+        assert!(has(format(16_000), Pick::Auto, &on));
+        assert!(has(format(48_000), Pick::Sum, &on));
+        assert!(!has(format(16_000), Pick::Channel(0), &on));
+        assert!(!has(Format { channels: 1, ..format(16_000) }, Pick::Auto, &on));
+        assert!(!has(format(16_000), Pick::Auto, &BeamConfig::default()));
+    }
+
+    #[test]
+    fn a_48_khz_pair_comes_through_the_beam_as_a_third_of_the_samples() {
+        let bytes = stereo(48_000, |i| 0.1 * (i as f32 * 0.05).sin(), |i| 0.1 * (i as f32 * 0.05).sin(), 4608);
+        let beam = BeamConfig { enabled: true, ..BeamConfig::default() };
+        let mut out = Vec::new();
+        Frames::new(format(48_000), 0.0, Pick::Auto).unwrap().with_beam(&beam).push(&bytes, &mut out);
+        assert_eq!(out.len(), 1536);
     }
 }

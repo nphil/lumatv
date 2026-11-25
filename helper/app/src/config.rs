@@ -867,6 +867,9 @@ pub struct VoiceAssistantConfig {
     /// Whether `POST /v1/voice-assistant/selftest` answers: it feeds a recorded wake phrase to the assistant in place of the microphone, so
     /// that a check needs no one to speak and nothing to sound. Off unless this says so.
     pub selftest: bool,
+    /// Whether the two microphones are taken as one beam toward the room before the echo canceller (`helper/voice`, `beam`); `false` adds
+    /// them as they were before the beam. On unless this says so.
+    pub beam: bool,
 }
 
 impl Default for VoiceAssistantConfig {
@@ -874,6 +877,7 @@ impl Default for VoiceAssistantConfig {
         Self {
             port: 6055,
             selftest: false,
+            beam: true,
         }
     }
 }

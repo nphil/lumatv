@@ -28,9 +28,11 @@ use crate::ble::{MdnsAnnouncer, interface_mac};
 use crate::ctx::Ctx;
 use crate::http::{Request, Response, error_response};
 use crate::hub::Hub;
+use crate::media_audio;
 use crate::plugins::firstparty::{clip, local_time};
 use crate::plugins::local::{Handler, Local, OptIn, Spec};
 use crate::plugins::session::{MAX_FACT_LINE, Shared};
+use crate::screen;
 use crate::timeutil::now_ms;
 use dot::{Follower, Params};
 use lumavoice::input::tv_mic_format;
@@ -962,6 +964,10 @@ impl Plugin {
         let config = lumavoice::Config {
             cutoff: self.choices.sensitivity.cutoff(),
             reference_pick: lumavoice::Pick::Channel(1),
+            beam: lumavoice::BeamConfig {
+                enabled: self.ctx.config.voice_assistant.beam,
+                ..lumavoice::BeamConfig::default()
+            },
             ..lumavoice::Config::default()
         };
         lumavoice::start(&self.dir.join(SOCKET), Arc::new(card), Box::new(speaker), config)
@@ -999,6 +1005,17 @@ impl Plugin {
         }
     }
 
+    /// The reference stream (the TV's own sound, for the echo canceller) is open while the TV makes sound: its screen is on, or an app
+    /// that plays for itself says it is playing, as music can with the panel dark. Without this the canceller never has a reference.
+    fn keep_reference(&self) {
+        let Some(engine) = &self.engine else { return };
+        let hub = &self.ctx.hub;
+        let apps = hub
+            .get(media_audio::TOPIC)
+            .is_some_and(|t| t["entries"].as_array().is_some_and(|entries| !entries.is_empty()));
+        engine.tv_playing(screen::is_on(hub) || apps);
+    }
+
     /// The announcement Home Assistant finds the TV by: while the TV can be added (the window is open) or is paired.
     fn keep_announcement(&mut self, now: Instant) {
         if now < self.next_announce {
@@ -1029,6 +1046,7 @@ impl Plugin {
         if let Some(volume) = self.env.volume.take() {
             self.choices.volume = volume;
         }
+        self.keep_reference();
         self.mic = self.engine.as_ref().map(|engine| engine.status());
         let mic = match &self.mic {
             Some(status) if status.capturing && status.in_turn => Mic::Turn,
@@ -1460,5 +1478,70 @@ mod tests {
         for t in threads {
             t.join().unwrap();
         }
+    }
+
+    /// A card with no microphone: the sound service runs and keeps what it is told of the TV, which is all the wiring test reads.
+    struct NoCard;
+
+    impl lumavoice::Card for NoCard {
+        fn open_mic(&self) -> io::Result<Box<dyn lumavoice::Input>> {
+            Err(io::Error::other("no microphone in a test"))
+        }
+
+        fn mic_format(&self) -> Format {
+            Format { rate: 16_000, channels: 2, sample: Sample::S16 }
+        }
+
+        fn open_reference(&self) -> io::Result<Box<dyn lumavoice::Input>> {
+            Err(io::Error::other("no reference in a test"))
+        }
+
+        fn reference_format(&self) -> Format {
+            Format { rate: 96_000, channels: 2, sample: Sample::S16 }
+        }
+    }
+
+    struct Mute;
+
+    impl lumavoice::Speaker for Mute {
+        fn begin(&mut self, _: u32, _: u8) -> Result<(), String> {
+            Err("silent".to_owned())
+        }
+
+        fn push(&mut self, _: &[u8]) {}
+
+        fn finish(&mut self) {}
+
+        fn stop(&mut self) {}
+
+        fn poll(&mut self) -> lumavoice::speech::Poll {
+            lumavoice::speech::Poll::Idle
+        }
+    }
+
+    #[test]
+    fn the_sound_service_is_told_the_tv_is_playing_while_its_screen_is_on_or_an_app_plays() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(dir.path());
+        let plugins = Plugins::new(&ctx);
+        let (tx, _rx) = mpsc::channel();
+        let mut plugin = Plugin::new(&ctx, plugins.shared().clone(), tx);
+        let socket = dir.path().join("audiod.sock");
+        let engine = Arc::new(lumavoice::start(&socket, Arc::new(NoCard), Box::new(Mute), lumavoice::Config::default()).unwrap());
+        plugin.engine = Some(engine.clone());
+        let told = |plugin: &mut Plugin| {
+            plugin.after_step(Instant::now());
+            engine.tv_is_playing()
+        };
+        assert!(!told(&mut plugin), "nothing is known of the screen");
+        ctx.hub.set("screen", json!({"on": true}));
+        assert!(told(&mut plugin), "the screen is on");
+        ctx.hub.set("screen", json!({"on": false}));
+        assert!(!told(&mut plugin), "the screen is off and no app plays");
+        ctx.hub.set(media_audio::TOPIC, json!({"entries": [{"app": "music"}]}));
+        assert!(told(&mut plugin), "music plays with the panel dark");
+        ctx.hub.set(media_audio::TOPIC, json!({"entries": []}));
+        assert!(!told(&mut plugin), "the app stopped");
+        plugin.engine = None;
     }
 }

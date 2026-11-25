@@ -6,6 +6,7 @@
 //! has accepted and, at the client's own request, a [`Tap`] (voice search on the mic key: one reader of the device, so the tap is
 //! this stream and not a second `arecord`).
 
+use crate::beam::BeamConfig;
 use crate::echo::{Canceller, EchoConfig, EchoStatus};
 use crate::engine::{Engine, EngineConfig, Out};
 use crate::input::{Card, Input};
@@ -31,6 +32,8 @@ pub struct Config {
     /// Software gain on the microphone, in decibels.
     pub gain_db: f32,
     pub pick: Pick,
+    /// The two microphones as one beam while the stream shows both to be good (see [`crate::beam`]).
+    pub beam: BeamConfig,
     /// The model's cutoff (see [`models::Sensitivity`]).
     pub cutoff: f32,
     pub engine: EngineConfig,
@@ -58,6 +61,7 @@ impl Default for Config {
         Self {
             gain_db: 12.0,
             pick: Pick::Auto,
+            beam: BeamConfig::default(),
             cutoff: models::Sensitivity::Normal.cutoff(),
             engine: EngineConfig::default(),
             reference: true,
@@ -152,6 +156,11 @@ impl Handle {
     /// Says whether the TV is playing sound, so that its level is worth reading (the reference stream is opened only then).
     pub fn tv_playing(&self, playing: bool) {
         self.shared.tv_playing.store(playing, Ordering::Relaxed);
+    }
+
+    /// What [`Handle::tv_playing`] was last told.
+    pub fn tv_is_playing(&self) -> bool {
+        self.shared.tv_playing.load(Ordering::Relaxed)
     }
 
     fn ask<T>(
@@ -687,7 +696,8 @@ impl Server {
             let engine = self.engine()?;
             let format = self.card.mic_format();
             let frames = Frames::new(format, self.config.gain_db, self.config.pick)
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| e.to_string())?
+                .with_beam(&self.config.beam);
             let input = self
                 .card
                 .open_mic()
@@ -796,6 +806,7 @@ impl Server {
         let mut mono: Vec<i16> = Vec::new();
         let mut failed = None;
         if let Some(c) = self.capture.as_mut() {
+            c.frames.set_beam_adapt(!c.engine.in_turn());
             // A few reads at most per wake-up, so that a stream that is far ahead cannot starve the socket.
             for _ in 0..c.reads {
                 match c.input.read(scratch) {
