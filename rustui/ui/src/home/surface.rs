@@ -33,13 +33,13 @@ use ui::scene::{GlassLayer, ImageLayer, ShapeLayer};
 use ui::text::Weight;
 
 pub const HIDDEN: Props = Props { opacity: 0.0, visible: false, ..Props::at(0.0, 0.0) };
-/// The depths of stack 0: the wallpaper at the bottom, the layers over Home near the top (the system layer begins at `system_z`).
+/// The depths of stack 0: the wallpaper at the bottom, the layers over Home from [`compositor_protocol::SHEET_Z`] (the system layer begins at `system_z`).
 pub const Z_WALL: i32 = 0;
 pub const Z_CARDS: i32 = 10;
 pub const Z_DOCK: i32 = 20;
 pub const Z_STATUS: i32 = 40;
 pub const Z_HOVER: i32 = 60;
-pub const Z_LAYERS: i32 = 100;
+pub const Z_LAYERS: i32 = compositor_protocol::SHEET_Z;
 pub const Z_VEIL: i32 = 900;
 /// How often the cards' contents are brought up to date while a full-screen sheet covers Home (`HomeSurface::contents_due`).
 const COVERED_CONTENTS_MS: u64 = 1000;

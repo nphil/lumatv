@@ -561,6 +561,11 @@ pub struct Draw {
 /// backdrop on it (a glass surface's) is a picture of (0: none).
 #[derive(Clone)]
 struct Facts<'a> {
+    /// The layers of the plane as the frame to compare with showed them: none when nothing is known of it, and all of the target
+    /// is changed.
+    prev: Option<&'a [Frozen]>,
+    /// `prev` is not the frame before this one (an [`Aside`]): where the app damaged its pictures since is not known.
+    net: bool,
     /// The layers the target shows, among `layers`.
     members: std::ops::Range<usize>,
     layers: &'a [Drawn],
@@ -839,6 +844,7 @@ fn nanos(began: Instant) -> u64 {
 }
 
 /// A layer as the frame before showed it, for saying what has changed since.
+#[derive(Clone)]
 struct Frozen {
     layer: Drawn,
     /// What the picture of the prepared backdrop on the layer was a picture of (0: it had none).
@@ -852,6 +858,10 @@ struct Frozen {
     /// Everything it draws, seen or not: what the pictures behind the glass above it are made of.
     extent: Option<Area>,
 }
+
+/// What a plane showed in a frame, kept to say what a later frame changes from it ([`Renderer::aside`], [`Renderer::damage_from`]):
+/// the layers as they were drawn and where each was seen.
+pub struct Aside(Vec<Frozen>);
 
 /// Where a layer's vertices are.
 enum Vertices {
@@ -1131,6 +1141,7 @@ impl Renderer {
             props: Props::at(x, y),
             rest: Props::at(x, y),
             version: 1,
+            shown: 1,
             phase: 0.0,
             ripples: Default::default(),
         };
@@ -1786,17 +1797,20 @@ impl Renderer {
             let mut layer = *layer;
             if matches!(layer.content, Content::Wallpaper(_)) {
                 layer.version = atlas::mixed(layer.version, self.wallpapers.revision(layer.id));
+                layer.shown = atlas::mixed(layer.shown, self.wallpapers.revision(layer.id));
             }
             if let (level @ 1.., Content::Glass(glass)) = (self.ladder, layer.content) {
                 let plainer = ladder::rewrite(glass, level);
                 if plainer != glass {
                     layer.content = Content::Glass(plainer);
                     layer.version = atlas::mixed(layer.version, u64::from(level));
+                    layer.shown = atlas::mixed(layer.shown, u64::from(level));
                 }
             }
             match layer.content {
                 Content::Glyphs(_) => {
                     layer.version = atlas::mixed(layer.version, self.atlases.revision(layer.id));
+                    layer.shown = atlas::mixed(layer.shown, self.atlases.revision(layer.id));
                 }
                 Content::Glass(glass) if adapting => {
                     let (was, moved) = last.remove(&layer.id).unwrap_or((layer.props, None));
@@ -2399,6 +2413,8 @@ impl Renderer {
         sharing: &[&[usize]],
     ) -> TileSet {
         let Facts {
+            prev,
+            net,
             members,
             layers,
             seen,
@@ -2407,7 +2423,7 @@ impl Renderer {
             revisions,
         } = facts;
         let (width, height) = (self.panel.width, self.panel.height);
-        let Some(prev) = &self.accounts[stack].prev else {
+        let Some(prev) = prev else {
             return TileSet::full(width, height);
         };
         let before: HashMap<LayerId, &Frozen> = prev.iter().map(|f| (f.layer.id, f)).collect();
@@ -2441,7 +2457,7 @@ impl Renderer {
                         extent: extents[i],
                         revision: revisions[i],
                     };
-                    self.change(stack, old, members.contains(&i), layer, now)
+                    self.change(stack, old, members.contains(&i), layer, now, net)
                 }
             })
             .collect();
@@ -2521,8 +2537,8 @@ impl Renderer {
 
     /// What a layer changes from the frame before: in the frame (where it was seen and where it is seen now) and in the
     /// pictures behind the glass above it (everywhere it was drawn and is). `now` is where it is drawn now, and what the
-    /// picture of the prepared backdrop on it is a picture of.
-    fn change(&self, stack: usize, old: &Frozen, member: bool, layer: &Drawn, now: Now) -> Dirt {
+    /// picture of the prepared backdrop on it is a picture of. `net`: `old` is from a frame long before, not the one before.
+    fn change(&self, stack: usize, old: &Frozen, member: bool, layer: &Drawn, now: Now, net: bool) -> Dirt {
         let Now {
             extent, revision, ..
         } = now;
@@ -2534,7 +2550,13 @@ impl Renderer {
                 extent: [old.extent, extent],
             };
         }
-        if old.layer == *layer {
+        let unversioned = Drawn {
+            version: old.layer.version,
+            ..*layer
+        };
+        // A layer that is what it was or, in a net change, only came to rest again (hidden, then shown: a new version, the same props
+        // and the same picture, `Drawn::shown`).
+        if old.layer == *layer || (net && unversioned == old.layer) {
             if old.revision == revision {
                 return Dirt::default();
             }
@@ -2546,12 +2568,9 @@ impl Renderer {
                 extent: [None; 2],
             };
         }
-        // A picture the app changed in places, on a layer that is what it was in every other way: only those places.
-        let unversioned = Drawn {
-            version: old.layer.version,
-            ..*layer
-        };
-        if matches!(layer.content, Content::Image) && unversioned == old.layer {
+        // A picture the app changed in places, on a layer that is what it was in every other way: only those places (the account
+        // of them is of the frame before: a net change from an older frame has them all).
+        if !net && matches!(layer.content, Content::Image) && unversioned == old.layer {
             let mut places: Damage = None;
             let mut any = false;
             for (_, rect) in self.accounts[stack]
@@ -2870,6 +2889,19 @@ impl Renderer {
             .expect("the plane was accounted")
     }
 
+    /// What `stack` showed in the frame drawn last, for saying later what a frame changes from it ([`Renderer::damage_from`]); none
+    /// before the first frame and after the targets were forgotten.
+    pub fn aside(&self, stack: usize) -> Option<Aside> {
+        self.accounts.get(stack)?.prev.as_ref().map(|prev| Aside(prev.clone()))
+    }
+
+    /// What the frame `planned` changes of the plane `surface` is on from what `aside` showed of it, however many frames ago, in
+    /// tiles. A picture the app changed in places is changed all over: where it changed in the frames between is not known. The
+    /// plane's own account is left as it is ([`Renderer::damage`] still says what the frame changes from the one before).
+    pub fn damage_from(&self, planned: &Planned, surface: Surface, aside: &Aside) -> TileSet {
+        self.damage_between(&planned.frame, surface, &mut Vec::new(), Some(&aside.0), true)
+    }
+
     /// The frame is over: its buffers are kept for the next. What planning cost and did, if no target was drawn to take it into
     /// its report, is returned.
     pub fn finish_frame(&mut self, planned: Planned) -> DrawReport {
@@ -2968,6 +3000,55 @@ impl Renderer {
         region.merged(cost, |a, b, one| groups(one) == groups(a) | groups(b))
     }
 
+    /// What the frame changes of the plane `surface` is on from the layers `prev` showed there (none: nothing is known, all of it),
+    /// in tiles. `seen` is made to hold what of each of the frame's layers can be seen, for the plane to keep. `net`: see [`Facts`].
+    fn damage_between(&self, frame: &Frame, surface: Surface, seen: &mut Vec<TileSet>, prev: Option<&[Frozen]>, net: bool) -> TileSet {
+        let Surface {
+            stack, from, to, ..
+        } = surface;
+        let (width, height) = (self.panel.width, self.panel.height);
+        let layers = &frame.layers[..];
+        let culling = self.culling;
+        let pieces: Vec<(Area, &[Area])> = (0..to)
+            .map(|layer| match frame.job_of[layer] {
+                Some(k) if layer >= from => {
+                    let job = &self.jobs[k];
+                    (job.extent, if culling { job.cover.rects() } else { &[] })
+                }
+                _ => ([0; 4], &[][..]),
+            })
+            .collect();
+        tiles::visible(width, height, &pieces, seen);
+        drop(pieces);
+        let asks: Vec<Option<Ask>> = frame.plan_layers[..to].iter().map(|l| l.ask).collect();
+        let stale_layers: Vec<usize> = frame
+            .plan
+            .iter()
+            .zip(&frame.stale)
+            .filter(|(_, stale)| **stale)
+            .flat_map(|(b, _)| b.users.iter().copied())
+            .filter(|&user| user < to)
+            .collect();
+        let sharing: Vec<&[usize]> = frame
+            .plan
+            .iter()
+            .filter(|b| b.refresh == Refresh::Live && b.users.len() > 1)
+            .filter(|b| b.users.iter().all(|&user| user < to))
+            .map(|b| b.users.as_slice())
+            .collect();
+        let facts = Facts {
+            prev,
+            net,
+            members: from..to,
+            layers: &layers[..to],
+            seen: &seen[..],
+            extents: &frame.extents[..to],
+            asks: &asks,
+            revisions: &frame.revisions[..to],
+        };
+        self.frame_damage(stack, facts, &stale_layers, &sharing)
+    }
+
     /// Works out what the frame changes of the plane `surface` is on, once for the frame (what the plane showed is then what
     /// the next frame is compared with), and keeps it in `memo` by stack.
     fn account(&mut self, frame: &Frame, surface: Surface, memo: &mut Vec<Option<TileSet>>) {
@@ -2994,43 +3075,7 @@ impl Renderer {
             memo[stack] = Some(TileSet::new(width, height));
             return;
         }
-        let culling = self.culling;
-        let pieces: Vec<(Area, &[Area])> = (0..to)
-            .map(|layer| match frame.job_of[layer] {
-                Some(k) if layer >= from => {
-                    let job = &self.jobs[k];
-                    (job.extent, if culling { job.cover.rects() } else { &[] })
-                }
-                _ => ([0; 4], &[][..]),
-            })
-            .collect();
-        tiles::visible(width, height, &pieces, &mut seen);
-        drop(pieces);
-        let asks: Vec<Option<Ask>> = frame.plan_layers[..to].iter().map(|l| l.ask).collect();
-        let stale_layers: Vec<usize> = frame
-            .plan
-            .iter()
-            .zip(&frame.stale)
-            .filter(|(_, stale)| **stale)
-            .flat_map(|(b, _)| b.users.iter().copied())
-            .filter(|&user| user < to)
-            .collect();
-        let sharing: Vec<&[usize]> = frame
-            .plan
-            .iter()
-            .filter(|b| b.refresh == Refresh::Live && b.users.len() > 1)
-            .filter(|b| b.users.iter().all(|&user| user < to))
-            .map(|b| b.users.as_slice())
-            .collect();
-        let facts = Facts {
-            members: from..to,
-            layers: &layers[..to],
-            seen: &seen,
-            extents: &frame.extents[..to],
-            asks: &asks,
-            revisions: &frame.revisions[..to],
-        };
-        let changed = self.frame_damage(stack, facts, &stale_layers, &sharing);
+        let changed = self.damage_between(frame, surface, &mut seen, self.accounts[stack].prev.as_deref(), false);
         self.remember(
             stack,
             from..to,

@@ -53,6 +53,11 @@ pub const SOCKET_PATH: &str = "/run/lumashow/compositor.sock";
 /// from allocating the device's memory away.
 pub const MAX_FRAME: u32 = 64 * 1024;
 
+/// The z from which a layer under the windows (below the system layer) is a sheet over Home, not part of it: the library, a menu, a
+/// picker. Home's own layers are below it. While a sheet covers Home the compositor's engine keeps Home's picture, so that Home
+/// comes back from it (`lumatv_render::host`).
+pub const SHEET_Z: i32 = 100;
+
 /// The shared-memory file holding an image layer's pixels: premultiplied RGBA8, `width * 4` bytes per row.
 pub fn image_path(layer: LayerId) -> String {
     format!("/run/lumashow/shm/layer-{}.rgba", layer.0)

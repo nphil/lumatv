@@ -68,7 +68,7 @@ FRAME = re.compile(r"^\[frame\] (\d+) at (\d+) ms: damage (\d+) px, drew (\d+) p
 DETAIL = re.compile(r"^\[frame\] \d+ at (\d+) ms: .*? layers (\d+) culled \d+ cpu (\d+) us.*? ui (\d+) us place (\d+) us plan (\d+) us draw (\d+) us damage (\d+) us step (\d+) us finish (\d+) us scope (\d+) us x(\d+) "
                     r"calls (\d+)/(\d+)/(\d+)/(\d+)/(\d+)/(\d+) why (\S+) scene (\d+)", re.M)
 DETAIL_FIELDS = ('ms', 'layers', 'cpu', 'ui', 'place', 'plan', 'draw', 'damage', 'step', 'finish', 'scope', 'scopes', 'draws', 'uniforms', 'programs', 'binds', 'states', 'skipped')
-SURFACES = ['quick', 'picker', 'settings-scroll', 'settings-pages', 'home-widgets', 'home-dpad', 'toast', 'onhome', 'guide', 'banner', 'camera-popup', 'weather-zoom', 'sky', 'idle']
+SURFACES = ['quick', 'picker', 'settings-scroll', 'settings-pages', 'home-widgets', 'home-dpad', 'apps-grid', 'toast', 'onhome', 'guide', 'banner', 'camera-popup', 'weather-zoom', 'sky', 'idle']
 #: Home at rest with the sky moving: the surfaces `--frames` explains frame by frame
 AT_REST = ('sky', 'idle')
 #: when a walk starts: Home has drawn its feeds and rests
@@ -592,6 +592,30 @@ def walk_of(surface):
             w.taps('down', 1, 1000)
             w.mark('close %d' % n)
             w.wait(1000)
+    elif surface == 'apps-grid':
+        # HOME_TOP, then the gate's cycle three times (`gate.py`: `1 s0.7 RIGHTx4@0.12 DOWN:600 s0.15 UP:600 s0.15 LEFTx5@0.12 DOWNx3@0.12 UPx3@0.12
+        # RIGHT BACK`, a half second after the close): the library opens, is walked and closes, and Home returns
+        w.at = START_MS - 1500
+        w.taps('up', 8, 100)
+        w.taps('left', 6, 60)
+        w.at = START_MS
+        for n in (1, 2, 3):
+            w.mark('open %d' % n)
+            w.kb('1')
+            w.wait(700)
+            w.kb('right', 4, 120)
+            w.hold('down', 600)
+            w.wait(150)
+            w.hold('up', 600)
+            w.wait(150)
+            w.kb('left', 5, 120)
+            w.kb('down', 3, 120)
+            w.kb('up', 3, 120)
+            w.kb('right')
+            w.mark('close %d' % n)
+            w.kb('back')
+            w.wait(1500)
+        w.mark('end')
     elif surface == 'onhome':
         # HOME_TOP, then into the Smart home card (the first card): a camera is in front; then Kitchen, TV strip, Desk lamp and Fan make a row of four
         w.at = START_MS - 1500

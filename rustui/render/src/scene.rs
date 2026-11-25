@@ -26,6 +26,9 @@ struct Layer {
     animation: Option<Animation>,
     /// Changes whenever the layer changes what it is or where it rests: what a cached backdrop depends on.
     version: u64,
+    /// Changes whenever what the layer shows changes (it is made, restyled or damaged, or its producer sends a picture), not when it
+    /// only moves: `Drawn::shown`.
+    shown: u64,
     /// The motion of a wallpaper (seconds of its designed pace) or a mesh (degrees of orbit).
     clock: Clock,
     /// Taps on a `Liquid` wallpaper, each with the wallpaper's phase when it happened.
@@ -74,6 +77,9 @@ pub struct Drawn {
     /// Changes whenever the layer changes what it is or where it rests (it is created, restyled, damaged or set, or an
     /// animation on it lands), and only then.
     pub version: u64,
+    /// Changes whenever what the layer shows changes (it is made, restyled or damaged, its producer sends a picture, a glyph run or
+    /// a wallpaper's picture is another), and not when it only moves or rests somewhere else: `version` changes then too.
+    pub shown: u64,
     /// The layer's own motion: for a wallpaper, seconds of its designed pace; for a mesh, degrees of orbit.
     pub phase: f64,
     pub ripples: Ripples,
@@ -230,6 +236,7 @@ impl Scene {
                         props: *props,
                         animation: None,
                         version,
+                        shown: version,
                         clock: Clock::default(),
                         ripples: Vec::new(),
                         unseen: false,
@@ -264,6 +271,7 @@ impl Scene {
                     layer.content = *content;
                     if !shows_the_same {
                         layer.version = version;
+                        layer.shown = version;
                         self.next_version = version;
                     }
                 }
@@ -272,6 +280,7 @@ impl Scene {
                 let version = self.next_version + 1;
                 if let Some(layer) = self.layers.get_mut(id) {
                     layer.version = version;
+                    layer.shown = version;
                     self.next_version = version;
                 }
             }
@@ -412,6 +421,7 @@ impl Scene {
                 for layer in self.layers.values_mut() {
                     if matches!(layer.content, Content::Live(live) if live.source == *source) {
                         layer.version = version;
+                        layer.shown = version;
                         bumped = true;
                     }
                 }
@@ -702,6 +712,7 @@ impl Scene {
             props,
             rest,
             version: layer.version,
+            shown: layer.shown,
             phase,
             ripples,
         }

@@ -40,6 +40,9 @@ class FrameBudget(unittest.TestCase):
     def test_settings_walked_as_the_gate_walks_it_draws_frames_a_120_hz_refresh_holds(self):
         self.check('settings-scroll')
 
+    def test_the_apps_grid_opens_and_closes_back_to_home_in_frames_a_120_hz_refresh_holds(self):
+        self.check('apps-grid')
+
     def test_the_smart_home_card_draws_frames_a_120_hz_refresh_holds_and_none_once_it_rests(self):
         windows = self.check('onhome', opening=('enter the card', 'sensor history', 'colour sheet'))
         # (the shell commits once a second whether or not anything changed: those frames draw no pixel)
