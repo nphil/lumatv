@@ -45,12 +45,26 @@ remains is Home's return. Its first frame draws 85 layers, 123 draws, 2.07 Mpx a
 that is the late flip in the first run's ring (11.0 and 10.9 ms in its two closes). Its frames 2 and 3 still draw the whole
 screen: their own damage is 0.83 Mpx (40 %), so the copy would cover 60 %, under the 75 % line, while the page owes all of it.
 
-Not done:
+## Home's return (main a5aa5209)
 
-- Judging the line by the area a page owes (at least 75 %; an apps-grid walk owes at most 63 %) instead of by the copy. Frames
-  2 and 3 of the return would draw about 5 ms each by the model [INFERENCE], but frame 1, the late flip, is untouched.
-- Frame 1 of the return under 8.3 ms: a Home page kept aside while a full-screen surface is open (a copy, 1.6 ms, against 9.6 ms)
-  or less glass (changes the look). This is what 0 drops needs.
-- Fewer pages in the ring, a shorter settle, a cheaper or lower-resolution blur: each changes the look or the timing.
+The return drew the whole screen in each of its three frames: 84/85/85 layers, 8.4-11.0 ms of GPU done. While a sheet covers Home (a
+stack-0 layer at z 100 or more) the floor target is no longer brought up to date, so it holds Home as the frame before the sheet, and
+the renderer keeps that frame's account (`Renderer::aside`). In the frame the sheet leaves, the floor owes where Home differs from the
+account (`Renderer::damage_from`) plus what it was behind by when the sheet came, and the three pages that owe the sheet's place copy
+the floor and draw the layers that changed: 40/34/34 layers. The floor is the target Home already had (1920x1080x4 = 8,294,400 B), so
+nothing is added; a return whose floor owes 75 % or more (`FLOOR_OWES_PERCENT`) is still drawn whole.
 
-Untested: the capture diff on the set. The host compares every frame with the same frame drawn whole: 0 differ.
+The first version (92d3cb70) held the picture only when the floor owed nothing as the sheet opened. Home is never still then (the
+dock's selection, the clock, the key's own reaction), so 19 of its 45 returns on the set still drew 104/105/105 (or 94/95/95) layers
+and apps-grid dropped 0, 1, 0, 1, 3, 0. The host walk now presses a dock key 50 ms before the library opens, so the floor is behind then.
+
+Measured on the set (compositor f12ceef8, lumatv-ui 4723e0e4, 120 Hz, 3 cycles a run): apps-grid dropped 0 in all six runs (18 cycles,
+751-754 flips each), settings-scroll 0, 0, 0, home-widgets 0, weather-day 0. All 41 returns drew 40 (47 in four), 34 and 34 layers; the
+first frame took 5.4 ms of GPU done (max 5.8, n = 41), the second 9.2 (max 11.5), the third 9.3 (max 9.9). The open's whole-screen frame
+is unchanged: 38 layers, 8.8 ms median, max 9.7 (n = 76). Host: frames over 80 layers 9 -> 0, return frames 82 -> 38 layers at most, and
+0 frames differ from the frame drawn whole.
+
+The page copy of ad6b324d costs a first full-screen frame nothing: a page copies only what it owes from earlier frames, and the changes
+of a first frame cover the whole screen, so it draws as before.
+
+Untested: a capture diff of the return on the set, a Home picture an app changes while the library is open, panels other than 1080p.
