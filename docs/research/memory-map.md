@@ -357,6 +357,21 @@ The compositor's share is the part the host cannot show (pregrow 16 MiB, top pad
 5. The wallpaper saving needs the owner's theme to have no `wallpaperPalette`, saturation 1.0 and contrast 1.0 (the shipped default); check
    `theme.json` on the set. With a grade on, the copy is kept as before.
 
+### On the set (2026-11-24, main 22bb2b81; UI bd0cd310 live swap, compositor f238da43 staged apply)
+
+Home idle, LumaGame had been closed, no other app resident. The "before" processes were 9-11 h old, the "after" ones 2-3 min old: part of the drop is age. MB.
+
+| | before | after |
+|---|---:|---:|
+| Compositor PSS / anon / Private_Dirty | 103.9 / 70.9 / 71.7 | 66.5 / 33.0 / 33.7 |
+| Compositor malloc arena / in use / free / top reusable (`ctl mem`) | 133.5 / 40.5 / 93.0 / 15.3 | 100.7 / 30.5 / 70.2 / 5.0 |
+| Compositor locked / `ctl mem` rss | 805 / 217 | 718 / 191 |
+| UI PSS / anon / swap (UI swap only) | 32.5 / 19.9 / 21.1 | 54.0 / 36.7 / 0 |
+
+The UI figure is not a saving: the owner's theme sets a wallpaper palette, saturation 1.15 and contrast 1.3, so the wallpaper keeps its second copy; the fresh process is simply not yet swapped out. `lib/x1heapshim.so` changed hash (215dce28 to 6ed135a3) with no source change: it embeds the path of the tree it was built in.
+
+Gates at 120 Hz (panel 119.9): after the UI swap, settings-scroll 3 batches of 3 cycles, home-widgets, apps-grid and weather-day all 0 dropped. After the compositor apply: settings-scroll 9 of 9 cycles 0 dropped (the first batch's first frame took 724 ms against the 50 ms limit, cold after the restart; the other two batches passed), weather-day 0, home-widgets 1 dropped and 0 on a rerun, apps-grid 1 dropped in 755 flips in both runs. What fills the remaining 30.5 MB in use is not attributed.
+
 ## Not measured
 
 - The reopen time of LumaGame after a close, and what fills the compositor's and the helper's heaps on the set (the host audit above covers the UI and the engine's CPU heap only).
