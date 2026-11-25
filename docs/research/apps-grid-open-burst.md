@@ -32,3 +32,25 @@ The source difference (4b931a87 to baac5b10 in `rustui/render` and `compositor`)
 bytes, the target-cost cell, the ring's ` tgts` suffix) and the creation of render targets (cleared by the GPU). The two bursts
 make no render target. The same 95-layer frames take 4.8-9.1 ms of GPU done between opens of one build, so a median of 8.8
 against 9.1 ms is inside that spread: no per-frame regression is in the diff.
+
+## Measured on the set (compositor 4626ca8d, main ad6b324d)
+
+Six apps-grid runs of 3 cycles at 120 Hz dropped 2, 2, 0, 1, 1, 2 (b4041d2b 1, 0, 2, 1; 463b41b3 0, 1, 0, 0). Settings-scroll
+dropped 0, 0, 0, home-widgets 0, weather-day 0. Burst flips that came more than 10 ms after the one before fell from 8 of 85
+(463b41b3) to 6 of 137. GPU done over all burst flips: median 8.5 ms, max 15.2 ms (18.1 ms for the first frame after idle, which
+the gate does not judge).
+
+The open burst is fixed: frame 1 draws 84 layers (1.93 Mpx), frames 2 and 3 draw 7 layers (23,296 px) and flip on time. What
+remains is Home's return. Its first frame draws 85 layers, 123 draws, 2.07 Mpx and takes 11.0 ms of GPU done against 8.33 ms;
+that is the late flip in the first run's ring (11.0 and 10.9 ms in its two closes). Its frames 2 and 3 still draw the whole
+screen: their own damage is 0.83 Mpx (40 %), so the copy would cover 60 %, under the 75 % line, while the page owes all of it.
+
+Not done:
+
+- Judging the line by the area a page owes (at least 75 %; an apps-grid walk owes at most 63 %) instead of by the copy. Frames
+  2 and 3 of the return would draw about 5 ms each by the model [INFERENCE], but frame 1, the late flip, is untouched.
+- Frame 1 of the return under 8.3 ms: a Home page kept aside while a full-screen surface is open (a copy, 1.6 ms, against 9.6 ms)
+  or less glass (changes the look). This is what 0 drops needs.
+- Fewer pages in the ring, a shorter settle, a cheaper or lower-resolution blur: each changes the look or the timing.
+
+Untested: the capture diff on the set. The host compares every frame with the same frame drawn whole: 0 differ.

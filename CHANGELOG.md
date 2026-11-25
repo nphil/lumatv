@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Frames 2 and 3 of a whole-screen change (the library opening, Home's return) copy the page drawn last instead of drawing the whole screen again when the copy covers 75 % or more of the panel (`BURST_COPY_PERCENT`): the same pixels, and the host compares every frame with the frame drawn whole. The library's open draws 7 layers in those frames instead of 84. Home's return still draws its first frame whole, and its next two while their own changes leave a copy under 75 %; the apps-grid gate at 120 Hz still drops a frame in some runs (2, 2, 0, 1, 1, 2 over six), so the compositor on the set stays b4041d2b.
+
 The screensaver shows the weather again. The helper's events carry the stored reading without the `state` word its snapshot has, so after the first refresh the saver took every reading for stale and drew only the date; it now judges a reading by its own `fetchedAt` and `staleAt`. The row is part of the dimming, drifting block: temperature at the cap's full ink, the sky in 78 % of it.
 
 A new render target is cleared by one GPU clear when it is made, where zeros were uploaded in 256 KiB bands (33 GL calls a target): no zeros are held on the CPU and the calls are the same at any size. The frame ring's `D` line names the render targets a frame made, and `perf/ringsum.py` sums them for the gate's windows.
