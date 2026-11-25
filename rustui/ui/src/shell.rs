@@ -2734,6 +2734,26 @@ mod tests {
         assert_eq!(shell.state()["saver"], false, "a key ends it");
     }
 
+    /// The helper's events carry the stored weather document, with no `state`: only the snapshot at the shell's start is decorated with it.
+    #[test]
+    fn the_saver_shows_the_weather_the_helper_pushed_as_an_event_and_it_stays_inside_the_dimming_block() {
+        let (_h, mut shell) = home_shell("home,saver");
+        let stored = json!({"doc": {"fetchedAt": 1, "staleAt": 900_001, "expiresAt": 21_600_001, "display": {"temp": "54\u{b0}", "cond": "Partly cloudy", "nowKind": "partly-night"}}, "status": {}});
+        shell.helper(&Event::Topic { topic: "weather".into(), data: stored }, 1_500);
+        shell.helper(&Event::Topic { topic: "screen".into(), data: json!({"on": true, "state": "Screen Saver"}) }, 2_500);
+        shell.tick(2_600);
+        let g = shell.geometry();
+        let words = g["saver"]["words"].as_array().unwrap();
+        let names: Vec<&str> = words.iter().filter_map(|w| w["name"].as_str()).collect();
+        assert!(names.contains(&"date") && names.contains(&"weather 0") && names.contains(&"weather 1"), "the saver draws the weather: {names:?}");
+        let block = &g["saver"]["block"];
+        for w in words.iter().filter(|w| w["name"].as_str().is_some_and(|n| n.starts_with("weather"))) {
+            let (x, y) = (w["x"].as_f64().unwrap(), w["y"].as_f64().unwrap());
+            let inside = x >= block["x"].as_f64().unwrap() && y >= block["y"].as_f64().unwrap() && x + w["w"].as_f64().unwrap() <= block["x"].as_f64().unwrap() + block["w"].as_f64().unwrap() + 1.0;
+            assert!(inside, "the weather moves and dims with the clock's block: {w} in {block}");
+        }
+    }
+
     #[test]
     fn native_saver_wake_press_repeat_and_release_do_not_close_the_panel() {
         let (_h, mut shell) = home_shell("home,saver,quick");

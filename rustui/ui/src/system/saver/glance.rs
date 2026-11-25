@@ -70,9 +70,24 @@ pub fn age_words(ms: u64) -> String {
     }
 }
 
-/// The weather row from the helper's `weather` topic (`{state, doc: {display: {temp, cond, nowKind}}}`): none unless the reading is fresh.
-pub fn weather_of(topic: &Value) -> Option<Weather> {
-    if topic.get("state").and_then(Value::as_str) != Some("fresh") {
+/// A reading stamped further ahead than this was written by (or is judged by) a wrong clock (the helper's `FUTURE_SKEW_MS`).
+const FUTURE_SKEW_MS: u64 = 5 * 60_000;
+
+/// Whether the reading is fresh at `now`. The helper's events carry the stored value as it is and only its snapshot is decorated with `state`, so
+/// the document's own stamps decide (a reading is fresh from `fetchedAt` until `staleAt`, the helper's rule), and `state` only for a document that
+/// has none.
+fn is_fresh(topic: &Value, now: u64) -> bool {
+    let stamp = |k: &str| topic.pointer(&format!("/doc/{k}")).and_then(Value::as_u64);
+    match (stamp("fetchedAt"), stamp("staleAt")) {
+        (Some(fetched), Some(stale)) => fetched <= now.saturating_add(FUTURE_SKEW_MS) && now < stale,
+        _ => topic.get("state").and_then(Value::as_str) == Some("fresh"),
+    }
+}
+
+/// The weather row from the helper's `weather` topic (`{doc: {fetchedAt, staleAt, display: {temp, cond, nowKind}}}`): none unless the reading is
+/// fresh at `now`.
+pub fn weather_of(topic: &Value, now: u64) -> Option<Weather> {
+    if !is_fresh(topic, now) {
         return None;
     }
     let display = topic.pointer("/doc/display")?;
@@ -153,7 +168,7 @@ pub fn build(hub: &Hub, weather_topic: &Value, civil: &Civil, now: u64, glance: 
         return g;
     }
     let rules_doc = hub.saver_doc().get("rules").cloned().unwrap_or(Value::Null);
-    g.weather = weather_of(weather_topic);
+    g.weather = weather_of(weather_topic, now);
     g.rows = slots(hub, &rules_doc, now);
     g.rows.extend(notices(hub, &rules_doc, now));
     g
@@ -195,13 +210,30 @@ mod tests {
     #[test]
     fn the_weather_is_a_row_only_when_it_is_fresh_and_has_a_temperature() {
         let fresh = json!({"state": "fresh", "doc": {"display": {"temp": "61\u{b0}", "cond": "Clear", "nowKind": "moon"}}});
-        assert_eq!(weather_of(&fresh), Some(Weather { glyph: "moon", temp: "61\u{b0}".into(), cond: "Clear".into() }));
-        assert_eq!(weather_of(&json!({"state": "stale", "doc": fresh["doc"].clone()})), None, "a stale reading is not shown as now");
-        assert_eq!(weather_of(&json!({"state": "none", "doc": null})), None);
-        assert_eq!(weather_of(&Value::Null), None, "no topic, no row");
-        assert_eq!(weather_of(&json!({"state": "fresh", "doc": {"display": {"temp": "", "cond": "Clear"}}})), None);
+        assert_eq!(weather_of(&fresh, NOW), Some(Weather { glyph: "moon", temp: "61\u{b0}".into(), cond: "Clear".into() }));
+        assert_eq!(weather_of(&json!({"state": "stale", "doc": fresh["doc"].clone()}), NOW), None, "a stale reading is not shown as now");
+        assert_eq!(weather_of(&json!({"state": "none", "doc": null}), NOW), None);
+        assert_eq!(weather_of(&Value::Null, NOW), None, "no topic, no row");
+        assert_eq!(weather_of(&json!({"state": "fresh", "doc": {"display": {"temp": "", "cond": "Clear"}}}), NOW), None);
         let cloudy = json!({"state": "fresh", "doc": {"display": {"temp": "58\u{b0}", "cond": "Cloudy", "nowKind": "cloud"}}});
-        assert_eq!(weather_of(&cloudy).unwrap().glyph, "", "the words say the sky when the module has no glyph for it");
+        assert_eq!(weather_of(&cloudy, NOW).unwrap().glyph, "", "the words say the sky when the module has no glyph for it");
+    }
+
+    /// The helper decorates only its snapshot with `state`; every event after it carries the stored document, which is what the set's saver read
+    /// after the first refresh and drew no weather from.
+    #[test]
+    fn a_reading_that_arrived_as_an_event_is_judged_by_its_own_stamps() {
+        let stored = |fetched: u64, stale: u64| json!({"doc": {"fetchedAt": fetched, "staleAt": stale, "expiresAt": stale + 6 * 3_600_000, "display": {"temp": "54\u{b0}", "cond": "Partly cloudy", "nowKind": "partly-night"}}, "status": {}});
+        let fetched = NOW - 6 * 60_000;
+        let shown = weather_of(&stored(fetched, fetched + 15 * 60_000), NOW).expect("six minutes into a fifteen-minute reading");
+        assert_eq!((shown.glyph, shown.temp.as_str()), ("moon", "54\u{b0}"));
+        assert_eq!(weather_of(&stored(fetched, fetched + 15 * 60_000), fetched + 15 * 60_000), None, "due for a refetch: not shown as now");
+        assert_eq!(weather_of(&stored(NOW + 3_600_000, NOW + 4_500_000), NOW), None, "stamped by a wrong clock");
+        assert!(weather_of(&stored(NOW + 60_000, NOW + 960_000), NOW).is_some(), "ordinary skew is fine");
+        // the stamps win over a `state` the snapshot gave it long ago
+        let mut aged = stored(fetched, fetched + 15 * 60_000);
+        aged["state"] = json!("fresh");
+        assert_eq!(weather_of(&aged, fetched + 20 * 60_000), None);
     }
 
     #[test]

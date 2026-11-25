@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The screensaver shows the weather again. The helper's events carry the stored reading without the `state` word its snapshot has, so after the first refresh the saver took every reading for stale and drew only the date; it now judges a reading by its own `fetchedAt` and `staleAt`. The row is part of the dimming, drifting block: temperature at the cap's full ink, the sky in 78 % of it.
+
 A new render target is cleared by one GPU clear when it is made, where zeros were uploaded in 256 KiB bands (33 GL calls a target): no zeros are held on the CPU and the calls are the same at any size. The frame ring's `D` line names the render targets a frame made, and `perf/ringsum.py` sums them for the gate's windows.
 
 LumaGame's Steam page has a second way to link, "Use a Web API key": a 32-character key made at steamcommunity.com/dev/apikey and the account's SteamID (or profile address or name), typed on the TV's hex and letter keys. It creates no sign-in session, so nothing renews or expires (a password change should not end it; unconfirmed until the first real link); it is read-only (library, play time, achievements) and has no friends or favourites. The key is kept in the engine's private `apikey.json` (0600), sent only as `key=` to Steam, never logged, and removed by Sign out; a refused key shows "Steam did not accept the key" and is not tried again, and the engine never opens a QR sign-in by itself. Protocol: `auth-key` request, `api-key` method, `bad-key` failure (additive, protocol stays 1). What Valve documents and what is still to be confirmed is in `docs/research/steam-web-api-key.md`. Built, not installed.
