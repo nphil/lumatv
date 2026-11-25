@@ -40,9 +40,10 @@
 //! set draws. `LUMATV_FLOOR=0` and `LUMATV_PAGE_COPY=0` switch either off, to compare.
 //!
 //! Home's return. A sheet over Home (the library, a menu: a layer of stack 0 at [`SHEET_Z`] or more) covers it while it is open, and
-//! the floor is not brought up to date meanwhile: it holds Home as the frame before the sheet showed it, and the renderer's account
-//! of that frame is kept ([`Renderer::aside`]). In the frame the sheet leaves, where Home differs from it (the clock, a picture the
-//! app changed) is all the floor owes ([`Renderer::damage_from`]), and the three pages that each owe the sheet's place
+//! the floor is not brought up to date meanwhile: it holds Home as the frame before the sheet showed it, with what it was behind by
+//! then (Home is rarely still when a key opens a sheet), and the renderer's account of that frame is kept ([`Renderer::aside`]). In
+//! the frame the sheet leaves, where Home differs from that account (the clock, a picture the app changed) and what the floor was
+//! behind by is all it owes ([`Renderer::damage_from`]), and the three pages that each owe the sheet's place
 //! ([`RESTORE_FRAMES`]) each get a copy of the floor and the layers that changed, not Home's 80 layers again: the first three frames
 //! after the library closed were 84 layers and 2.07 Mpx each, 8.4-11.0 ms of GPU where a refresh of 120 Hz holds 8.3.
 
@@ -400,6 +401,9 @@ struct Floor {
     /// What stack 0 showed in the frame before a sheet covered Home, which the floor holds while the sheet is over it: the floor is
     /// not brought up to date then, and not drawn into.
     held: Option<Aside>,
+    /// What the floor owed when the sheet covered Home: Home changes in the frames before a key opens a sheet, and the floor is
+    /// behind by them until it is next brought up to date.
+    owed_before: TileSet,
     /// Frames left, counting the one being planned, in which a page that owes the whole screen gets Home from the floor with
     /// nothing over Home ([`RESTORE_FRAMES`]).
     restore: u8,
@@ -656,6 +660,7 @@ impl Engine {
                 behind: false,
                 drawn_px: 0,
                 held: None,
+                owed_before: TileSet::new(config.width, config.height),
                 restore: 0,
             });
         if let Some(saved) = &entered {
@@ -1409,8 +1414,9 @@ impl Engine {
             let was_covered = std::mem::replace(&mut external.covered, covered);
             if let Some(floor) = engine.floor.as_mut() {
                 floor.restore = floor.restore.saturating_sub(1);
-                if covered && !was_covered && engine.home_shown && engine.over_frames == 0 && floor.target.is_some() && floor.owed.is_empty() {
+                if covered && !was_covered && engine.home_shown && engine.over_frames == 0 && floor.target.is_some() {
                     floor.held = engine.renderer.aside(0);
+                    floor.owed_before.clone_from(&floor.owed);
                 }
             }
             let mut planned = engine.renderer.plan_frame(&engine.drawn, &engine.scene);
@@ -1428,10 +1434,12 @@ impl Engine {
                 engine.renderer.damage(&mut planned, surface);
             }
             // What stack 0 changed is owed by the floor until it is drawn into, in whichever frame that is. After a sheet, what the
-            // floor owes is where Home differs from it: the frames between are not added, the floor has not seen them.
+            // floor owes is where Home differs from the frame before the sheet and what it was behind by then: the frames between
+            // are not added, the floor has not seen them.
             if let Some(floor) = engine.floor.as_mut() {
                 if let Some(owed) = returned {
                     floor.owed = owed;
+                    floor.owed.union(&floor.owed_before);
                     floor.restore = RESTORE_FRAMES;
                 } else if let Some(changed) = planned.changed(0) {
                     floor.owed.union(changed);

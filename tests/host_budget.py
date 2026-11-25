@@ -601,6 +601,8 @@ def walk_of(surface):
         w.at = START_MS
         for n in (1, 2, 3):
             w.mark('open %d' % n)
+            # the dock's selection is still moving when the key opens the library, as it is on the set: the floor is behind by it
+            w.kb('left')
             w.kb('1')
             w.wait(700)
             w.kb('right', 4, 120)
