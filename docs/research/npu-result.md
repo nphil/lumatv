@@ -505,3 +505,41 @@ detector would cover the cameras that report no kind, and confirm or drop a plai
 - **Budget.** At 60 to 120 ms a frame on 3 threads (about 0.3 core-seconds), a dozen cameras sampled every 10 s cost about 0.36 of a core, 12 % of
   the three at Home [INFERENCE from the expected speed]; run only while a pop-up or camera view is up, one request in flight, at `nice 19`, and not while a panel or an app has
   asked for the frame budget (the rules in "The GPU route").
+
+## Next steps (2026-11-25)
+
+**Answer.** Neither Marquee nor LumaGame can use the NPU, and the reason is not only the missing compiler: the video they would enhance never reaches a process of ours in the clear. The accelerator routes that do exist (CPU, GPU) serve jobs that do not need decoded video.
+
+**1. What was left open, and what has been done since.** Every item under "Open (needs a TV slot)" was closed by the 2026-10-28 slot (`npu-tv-2026-10-28/summary.txt`) except three, none of which can change the verdict:
+
+| Item | State |
+|---|---|
+| Device TFLite version, any `.tflite` with `lgnpu_custom_op`, CPU speed, `libneuralnetworks.so`, OpenCL and GPU speed, UI cost of a GPU loop, nn-proxy genre, who maps the AI libraries | Done: 2.9.3; 0 of 8; table in the slot section; absent; Mali-G52 OpenCL 3.0; 40 % of Home's flips late; genre answered; `pqcontroller` maps `libaibspLib`, `nn-proxy` maps `libaibsp` |
+| Step 5: LG's delegate on the set | Not run: the probe is 2.13.1, the set 2.9.3. Needs a probe rebuilt against 2.9.3. The refusal (no `lgnpu_custom_op` node) is already shown on the host by `tests/lg/run.sh` |
+| Step 6 (`--npu-run`) | Not run: no package exists on the set |
+| Step 6b (`--nnapi-run`) | Moot: no NNAPI runtime on the set, and the HAL behind it is the 1 ms stand-in |
+
+No commit after 2026-10-28 touches `npu-result.md` or `npuprobe/`, and `CHANGELOG.md` and `HANDOFF.md` carry no NPU entry.
+
+**2. News since October.** Two web searches (LG `.lgnpu` compiler, SDK or DNE toolchain; webOS NPU homebrew and custom models on the C4's a9 Gen7) returned only generic webOS homebrew and SDK pages (webosbrew.org, LG's developer site, native-app kits). No compiler, package format, SDK or homebrew NPU use was found. Absence is not proof; the search is narrow.
+
+**3. A read-only look at the set on 2026-11-25** (lock free, no model run, nothing started) found the state unchanged and added:
+
+- `/proc/npu`: DNE, LGE, driver 1.0, 0.4 tops, `aipq compatibility : false`, utilisation 0, empty process list. `npu_drv.ko` (GPL, "LG NPU driver", vermagic 5.4.268), 122,880 B, used by 0; `/dev/npu0` is `crw------- root` (238:0), `/dev/lne_pqe_ipc` the same (240:0). A root process can open `/dev/npu0` (the driver has no exclusivity call, per the census), but cannot build a program for it.
+- No Vivante, VeriSilicon, OpenVX, TIM-VX, ONNX or NNAPI library exists (searched `/usr/lib`, `/lib`, `/usr/bin`, `/usr/sbin`, `/usr/share`). The unit is LG's own, so the VIP/Acuity/ovxlib toolchain does not apply. LG's own stack is `libnpu`, `libnnrt`, `libtflite-npu-delegate`, `libedgeai-vision`, `run_lgnpu`, `airunner`. OpenCV 4.5.5 `dnn` and `dnn_superres` are on the set (nothing run).
+- `aiinferencemanager` methods: `open`, `close`, `getEvent`, `getDeviceCapability`, `getDeviceStatus`, `getResourceList`, `requestResource`, `releaseResource`, `installModel`, `handleModelInstall`, `createNotification`. Its role is `oem` trust and the API group is `aiinferencemanager` (with a read-only `.query` subset); that group is not in a `public` list, so a third-party app's role cannot call it [INFERENCE: `allowed_groups.json` not read]. It does budget accounting only: the device node has no such check.
+- `com.webos.service.objectdetection` (`/usr/sbin/objectdetection`, methods `start`, `stop`, `detect`, `getState`, group `private`) is LG's own person detector over `aiinferencemanager`; `camerasolution` also holds the `aiinferencemanager` group. Neither is callable by us.
+- `nn-proxy` offers only `picture/get` and `picture/set` (groups `applications.internal`, `system`). `nais` is the subtitle feeder (`setSubtitleEnable`, `setSubtitleDisplay`, `setSubtitleLanguage`, a starfish subtitle task), not speech-to-text.
+- The second neural unit, LNE (`/dev/lne_pqe_ipc`), is loaded by `libaibspLib` from `/usr/share/aibsp/{SGNET,GNMNET}_o22_*.dat` (`LNE_IOCTL_INITIALIZE`), and `libaibsp` carries LG's super-resolution network setup (`srt_init_dnn_sr_data`). LG's upscaling, noise and scene networks therefore run inside the display path, on frames we never see.
+
+**4. Marquee and LumaGame.**
+
+| App | Path of the picture | NPU / GPU use on video | Feasibility |
+|---|---|---|---|
+| Marquee (Plex) | LG's separate video plane (`docs/marquee/subtitles-ui-status.md:352`) | none: LG's pipeline decodes into secure memory (137 MB, `g_m0/m1_pqe_svp`, `hardware-census.md`), the GPU cannot sample a video plane, the compositor's capture of the video window is black (`capture-result.md`), and the only tap (`vtCapture`) returns histogram statistics computed inside the secure world (`ambient-result.md`) | NPU: low (no compiler, no frames). GPU or CPU upscale and denoise of decoded video: low (frames unreachable; a clear-path NV12 import costs 5 to 20x, `hardware-census.md`) |
+| LumaGame (GeForce NOW) | feeder, then LG's NDL decoder, then the video plane under the UI (`docs/lumagame/ARCHITECTURE.md:30`) | same | Same, low. Enhancement on a 60 to 120 fps stream would also have to finish inside the frame budget |
+| Either, jobs that need no video frames | n/a | n/a | CPU is fine: three XNNPACK threads give SSD-MobileNetV2 int8 22 ms, LG's detector 41 ms, EfficientDet-Lite0 int8 64 ms (slot 2026-10-28). The GPU is slower (95 to 180 ms) and made 40 % of Home's flips late, so it stays off while a UI is up |
+
+What LG already does covers the wish: its picture engine upscales and de-noises every decoded frame (`lgsr` database, the LNE networks, GNMNET grain and noise) with AI picture on; the owner's Filmmaker mode turns it off. The one lever LG exposes is its own `picture/set` through `nn-proxy`, which is a picture setting and the owner's decision, not tested here.
+
+**5. Next measurable step.** No NPU slot: nothing a slot could still return would change the answer, and the TV is not to be used without asking. One zero-risk check is worth repeating after every firmware update, a single read-only command over SSH with no lock: `find / -xdev -name '*.tflite' | xargs grep -l lgnpu_custom_op; find / -xdev -name '*.lgnpu'`. A hit, or a public compiler, reopens the route at step 6 of the slot table; the probe, stubs and slot script are ready. Measured work that is worth a slot instead is the camera detector on the CPU: build `lumatv-detect` (SSD-MobileNetV2 int8, 3 threads, `nice 19`) and run the frame gate over Home with and without it; cost one TV slot of about 20 minutes plus the build, pass if p90 render and late frames do not move. Risks: a firmware update can move TFLite off 2.9.3 (the 32-bit worker is built against it); the 22 ms figure is a standalone loop, not yet measured beside the compositor.
