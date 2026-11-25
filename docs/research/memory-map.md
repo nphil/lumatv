@@ -12,8 +12,8 @@ Earlier passes: [`memory-result.md`](memory-result.md) (2026-10-25), [`declutter
   **LumaGame kept hidden holds 208 MB, more than every LG service together (192 MB).** It is the one large item that can be freed today.
 - The LG system services cannot give much back: everything the owner's rules forbid touching (panel, power, tuner, HDMI/CEC, DRM, audio,
   input) is most of it. The stoppable remainder is the AI group at 3.9 MB, plus Bluetooth and Cast if their plugins are off.
-- LumaTV's own processes hold 171 MB (the compositor and UI 128 MB, the helper 31 MB). The helper spends about 9 MB on 13 `luna-send`
-  processes, 2 `openssl` keep-alives and an `arecord`.
+- LumaTV's own processes hold 171 MB (the compositor and UI 128 MB, the helper 31 MB). The helper's 13 `luna-send` children (5.2 MB) became one 0.4 MB
+  bridge on 2026-11-24 (section 7); its 2 `openssl` keep-alives (3.5 MB) stay, and the `arecord` (0.3 MB) is the voice assistant's wake-word microphone.
 - A 73 MB capture file from a perf run sits in `/tmp` (RAM-backed) right now.
 - Rewrites (`ss.apiadapter`) would return about 11 MB. Not worth doing for memory (see the plan).
 
@@ -219,11 +219,11 @@ RAM more. The whole Live TV stack is another 25.6, kept for the tuner plugin.
 |---|---|---|
 | LumaGame hidden | 207.8 PSS, all private | It stays resident to start fast. It is an own app: release the GL context and the UI process on hide, or after a dwell with no stream, and start it again on launch. The reopen cost is unmeasured |
 | `/tmp/perf` trace | 73 MB of RAM | The capture of a perf run left in tmpfs; the harness should write to flash or delete on completion (`CLAUDE.md`: diagnostics are deleted once analysed) |
-| Helper's `luna-send` subscriptions | 13 processes, 5.3 MB, the helper's own design (`helper/app/src/ai/luna.rs`: the 64-bit static helper cannot link the 32-bit libluna-service2, so every query and subscription is a child process) | One 32-bit bridge process (the pattern of `compositor/sm/lumatv-sm.c`) carrying all subscriptions would be 1 process of about 0.5 MB, saving about 4.8 MB |
-| Helper's `openssl s_client` keep-alives | 2 processes, 3.4 MB (both to `192.168.1.71:443`; what is behind it [INFERENCE]: the weather/news fetch or the Scrypted connection) | In-process TLS in the helper would remove the child. Saves 3-3.4 MB, adds a TLS library to the helper |
-| Helper `arecord` | 0.35 MB, 0.23 % CPU | The ambient sound capture, running although Home is idle. It should start only while a sound mode is set and the lights are lit (`helper/app/src/ambient.rs:41`: this is its documented condition), so it either is set now or the stop is missing. Not checked: the ambient mode |
-| Compositor | 100.3 PSS (heap 44, `libmali` 17.6, anon 14, two 8 MB UI layers) | For comparison LG's compositor it replaced was 72.5 + 12 swap (`memory-result.md`, 10-25). The heap of 44 MB is not attributed. The UI process adds 27.7 + 18.7 swap (heap 16). Together 128 PSS against 72, so LumaTV's drawing costs about 56 MB more than LG's; what fills the heap needs an allocator count |
-| Helper itself | 30.7 PSS, 85 threads (24 MB anonymous) | Not attributed; the plugins are separate processes |
+| Helper's `luna-send` subscriptions | 13 processes, 5.21 PSS / 5.01 USS (the helper's own design: the 64-bit static helper cannot link the 32-bit libluna-service2) | Done: one 32-bit bridge, `lumatv-lsbridge` (`helper/lsbridge/`, the pattern of `compositor/sm/lumatv-sm.c`), holds all 13 at 0.39 / 0.37; installed in helper a43633e2 (section 7) |
+| Helper's `openssl s_client` keep-alives | 2 processes, 3.52 PSS / 2.69 USS, both to `ha.nateshome.net` (`192.168.1.71:443`) | One is the voice assistant's own Home Assistant WebSocket (`helper/app/src/voice_ws.rs`), the other LumaShow's shared `ha-link`. The helper links rustls only for the Scrypted pinned-certificate dialer, so in-process TLS needs a rustls transport with the CA bundle in `ha-link`, or the voice assistant on the shared link: 1.3 USS for one child, 2.7 for both. Not done |
+| Helper `arecord` | 0.34 PSS / 0.26 USS, 0.23 % CPU | The voice assistant's wake-word microphone (`hw:1,0`, `helper/app/src/voice_assistant.rs`), running because that plugin is enabled; the ambient capture (`hw:1,2`) is off. The first reading, that it was the ambient capture, was wrong. Nothing to fix |
+| Compositor | 100.1 PSS / 89.2 USS (heap 46.9, `libmali` 17.6, anon 18.9, two 8 MB UI layers shared, 4.0 each) | For comparison LG's compositor it replaced was 72.5 + 12 swap (`memory-result.md`, 10-25). The malloc heap holds 36.8 MB in use; about 10 MB more is free but resident, locked on purpose (section 7). The UI process adds 45.1 PSS / 34.2 USS and 10.2 in swap (heap 15.9). Together 145 PSS at 18:41 (128 at 15:05) against 72 |
+| Helper itself | 33.0 PSS / 32.8 USS at 147 s (`[anon]` 26.0, binary 7.4, 85 threads) | 23.5 / 23.3 with a43633e2 at 151 s; the 9.4 MB difference is not attributed (section 7). The plugins are separate processes |
 | `lumatv-jpeg` | 1.1 MB, 0.65 % CPU at idle | An image decode service doing work while Home is idle; why was not looked at |
 | Compositor and UI CPU | 8.3 % + 5.4 % of a core, the largest at Home idle | Home's 10 fps wallpaper motion (`memory-result.md`); a panel-care or power question, not memory |
 | Plugins | `home-assistant` 0.9, `beszel-native` 1.1 | Already small; nothing to win |
@@ -238,12 +238,12 @@ MB figures are measured unless marked estimated. "Free today" means a stop, an o
 |---|---|---:|---|---|---|---|
 | 1 | LumaGame: close the UI process (or release the GL context) while hidden and idle | 208 measured (about 88 of it shows in `CmaFree`: 82 against 170 in Main's runs) | none | LumaGame opens slower than from a prewarm; the cost is unmeasured | S-M, own app | reopen-to-first-frame before and after, `MemAvailable` and `CmaFree` at Home |
 | 2 | Delete `/tmp/perf/*.trace` after the run, and write captures to flash | 73 measured (transient) | none | none once analysed | S | `df /tmp` |
-| 3 | Helper: one bridge for the 13 `luna-send` subscriptions | 4.8 estimated (13 x 0.4 measured, one 0.5 bridge) | tiny | a bridge bug loses events the UI depends on | M | same subscriptions answering, helper tests, PSS sum |
-| 4 | Helper: `openssl s_client` keep-alives into the process, or close them when idle | 3.4 measured | tiny | TLS code in the helper | M | fetches still validate the chain, PSS |
-| 5 | Compositor and UI heap audit | 10-25 estimated of 44 + 16 heap | tiny | none | M (needs allocator counts) | PSS of both after a day of use |
+| 3 | Helper: one bridge for the 13 `luna-send` subscriptions (done, a43633e2) | 4.82 PSS / 4.64 USS measured (section 7) | tiny | a bridge bug loses events the UI depends on; the helper falls back to `luna-send` if the bridge cannot run | M | done: first replies of 13/13 equal, kill recovery, PSS and USS |
+| 4 | Helper: `openssl s_client` keep-alives into the process, or close them when idle | 3.52 PSS / 2.69 USS measured for both (1.3 USS each) | tiny | TLS code in the helper; the work is in LumaShow's `ha-link` | M | not done: fetches still validate the chain, PSS |
+| 5 | Compositor and UI heap audit | attributed (section 7): about 10 MB of the compositor heap is free but resident, locked on purpose | tiny | frame timing if it is released | M | not changed: needs the 120 Hz gate |
 | 6 | `ai` group (`nn-proxy`, `nais`, `ai-inference-manager`) | 3.9 RAM measured (+9.1 swap) | 0.13 % | AI picture, sound or upscaling stops; effect unmeasured | S, plus an A/B | picture modes unchanged in the test pictures, PSS |
 | 7 | Bluetooth audio pair (`btaudiosnk`, `btaudiosrc`) | 1.8 RAM measured (+4.9 swap) | none | Bluetooth headphones and speakers stop | S | only if the owner never uses them |
-| 8 | `arecord` only when needed | 0.35 | 0.23 % | none | S | process absent at Home idle |
+| 8 | `arecord` only when needed | 0: it is the voice assistant's wake-word microphone, wanted while that plugin is on | none | none | none | nothing to do |
 
 Realistic total of items 1-6: about **300 MB** if LumaGame is released and the trace is deleted, **about 22-37 MB of permanent** savings without those two.
 
@@ -266,12 +266,42 @@ What is big is our own stuff:
 |---|---:|---|---:|
 | LumaGame sitting hidden | 208 MB | close it when idle, open it on demand | 208 MB (about 88 MB of it is the contiguous memory the video converter needs) |
 | A 73 MB test recording left in `/tmp` | 73 MB | delete it, and have the test tool clean up | 73 MB |
-| LumaTV's drawing programs (compositor and UI) | 128 MB (LG's was 72) | find what fills their heap | 10-25 MB, a guess |
-| The helper's many small helper processes | 9 MB | fold them into one | 8 MB |
+| LumaTV's drawing programs (compositor and UI) | 145 MB (LG's was 72) | about 10 MB of the compositor heap is free but resident, locked on purpose; the rest needs allocator counts | up to 10 MB, at a frame-timing cost |
+| The helper's 13 `luna-send` processes | 5.2 MB | one bridge (done, 2026-11-24) | 4.8 MB measured |
+| The helper's 2 `openssl` keep-alives | 3.5 MB | needs a change in LumaShow's `ha-link` | 1.3-2.7 MB |
 
 Total if all are done: about 300 MB at today's numbers, but 208 + 73 of that is LumaGame and a leftover file. Without them it is 22-37 MB, a small gain.
 
 **Next step for you:** decide whether LumaGame should close itself when idle (opens a little slower, frees 208 MB). Nothing else needs your decision.
+
+## 7. Follow-up: helper tidy and heap attribution (2026-11-24)
+
+Sections 1-6 were measured with nothing changed on the set. For this one helper a43633e2 (main 385b6d71) replaced d9fab219 with Netflix in front: the helper restarted in 8 s, the compositor and UI were not touched, and Netflix's media pipelines (`getActivePipelines`) were identical before and twice after. "Before" is the 18:41 read (Home in front, helper 147 s old), "after" the 19:10 read (Netflix playing, helper 151 s old).
+
+| MB, PSS / USS | before | after |
+|---|---|---|
+| 13 `luna-send` children | 5.21 / 5.01 | none |
+| `lumatv-lsbridge`, 1 process holding all 13 | | 0.39 / 0.37 |
+| 2 `openssl s_client` | 3.52 / 2.69 | 3.53 / 2.69 |
+| `arecord` | 0.37 / 0.27 | 0.34 / 0.26 |
+| processes on the set | 162 | 150 |
+| `MemAvailable`, `Shmem` | 501.8, 25.07 | 329.3, 24.77 |
+
+The bridge saves **4.82 PSS / 4.64 USS**. `MemAvailable` does not show it: Netflix is resident in the second read, and two reads 7 s apart differed by 10.5 MB. The helper process itself went from 32.96 / 32.78 to 23.51 / 23.32 (anonymous 25.7 to 16.8); that is not credited to the bridge, since the build carries every commit since d9fab219 and the cause was not measured. `lumatv-jpeg` (1.13) was not running in the second read.
+
+Checked on the set: the hub accepts a `privileged` role in `/var/luna-service2-dev` that copies LG's `luna-send` role; `libluna-service2.so.3.21.2` does not export `LSHandleSetDisconnectHandler`, so the bridge ends when its bus sockets hang up (tested on the host only); the first reply of each of the 13 subscriptions equals `luna-send`'s; the helper's screen, foreground app, picture mode and sound output equal the TV's; after the bridge is killed the helper starts another in 0.1 s, the subscriptions are back between 0.6 s and 30 s, the new bridge's input settles at the same 52,890 bytes as the first bridge's, and no `luna-send` fallback appears. Untested: a change delivered through the bridge after the swap, and the hub restarting.
+
+Both `openssl` children connect to `ha.nateshome.net`, one for the voice assistant's own Home Assistant WebSocket and one for LumaShow's `ha-link`. `arecord` is the voice assistant's wake-word microphone (`hw:1,0`) and runs because that plugin is enabled.
+
+Heap attribution, read at 18:41 with Home in front:
+
+| | PSS / USS | Where it sits |
+|---|---|---|
+| Compositor | 100.1 / 89.2 | `[heap]` 46.9, `[anon]` 18.9, `libmali` 17.6, two 1920 x 1080 layer files 4.0 each (shared with the UI), binary 3.3. `ctl mem`: arena 127 MiB, 36.8 MiB in use, 90.6 MiB free (16.0 MiB at the top), nothing mmapped |
+| UI | 45.1 / 34.2, 10.2 in swap | `[heap]` 15.9 + 7.5 swap, `[anon]` 10.9 + 2.2 swap, binary 5.8, the two layer files 4.0 each |
+| Helper (d9fab219) | 33.0 / 32.8 | `[anon]` 26.0, binary 7.4, 85 threads |
+
+The compositor's arena is mostly address space: `mem.rs` pre-grows it by 16 MiB, pads 8 MiB, trims only above 256 MiB and locks it with `mlockall(MCL_CURRENT | MCL_FUTURE | MCL_ONFAULT)`, so the resident heap is 46.9 MB against 36.8 MB in use, about 10 MB free but resident. Releasing it needs the locked pages let go and trades frame timing (the heap is grown and locked so that no frame faults a page in); it was not done, and no waste without a visible or timing cost was found. Candidates, unmeasured and unchanged: the UI keeps each kept image layer's source pixels (`lumashow-ui/src/kept.rs`, `components/row.rs`) and decoded wallpaper pixels, and giving them up costs a re-decode when the page returns; `ImageFile::release()` drops the compositor's mapping but not the tmpfs pages, so `Shmem` falls only if the file is truncated or removed.
 
 ## Not measured
 
