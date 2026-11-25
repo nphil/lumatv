@@ -260,7 +260,7 @@ impl Tabs {
         let r2 = radius - sz.s1;
         let chosen = kit.ui.scene.shape(sw as u32, sh as u32, z + 1, pill(paint.seg_selected(), Rgba(0, 0, 0, 0), r2, 0.0), HIDDEN);
         let mark = kit.ui.scene.shape(sz.s7 as u32, sz.s1 as u32, z + 3, pill(paint.accent, Rgba(0, 0, 0, 0), sz.s1 / 2.0, 0.0), HIDDEN);
-        let focus = kit.ui.scene.shape(sw as u32, sh as u32, z + 1, pill(paint.seg_focus(), paint.edge_raised, r2, 1.0), HIDDEN);
+        let focus = kit.ui.scene.shape(sw as u32, sh as u32, z + 1, pill(paint.seg_focus(), compositor_protocol::Rgba(0, 0, 0, 0), r2, 0.0), HIDDEN);
         let hover = kit.ui.scene.shape(sw as u32, sh as u32, z + 1, pill(paint.wash_hover, faded(paint.edge_raised, 0.6), r2, 1.0), HIDDEN);
         let ty = kit.ty(TypeRole::Label);
         let top = ((g.h - line_height(ty) - sz.s2 - sz.s1) / 2.0).round();

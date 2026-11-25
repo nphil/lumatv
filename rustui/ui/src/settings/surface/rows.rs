@@ -667,7 +667,7 @@ impl RowArt {
                 let (sw, sh) = (s.seg_w - 2.0 * sz.s1, s.h - 2.0 * sz.s1);
                 let r2 = radius - sz.s1;
                 let chosen = make_shape(env, sw, sh, z + 4, pill(paint.seg_selected(), CLEAR, r2, 0.0), HIDDEN);
-                let focus = make_shape(env, sw, sh, z + 4, pill(paint.seg_focus(), paint.edge_raised, r2, 1.0), HIDDEN);
+                let focus = make_shape(env, sw, sh, z + 4, pill(paint.seg_focus(), CLEAR, r2, 0.0), HIDDEN);
                 let mark = make_shape(env, sz.s7, sz.s1, z + 6, pill(paint.accent, CLEAR, sz.s1 / 2.0, 0.0), HIDDEN);
                 self.control = Some(Frame::new(at.0 - rect.x, at.1 - rect.y, total, s.h));
                 self._plate = Some(tray);
@@ -954,14 +954,17 @@ impl RowArt {
                 }
                 let in_view = |i: usize| i >= new_first && i < new_first + geom.in_view;
                 let place = |i: usize| Props::at(at.0 + (i - new_first) as f32 * geom.seg_w + sz.s1, at.1 + sz.s1);
+                // The chip under the cursor lifts with the theme's focus scale and a rise; the chosen chip lifts the same way when the cursor is on it.
+                let lifted = |i: usize| Props { scale: env.kit.tokens.focus.button_scale, ..Props::at(place(i).x, place(i).y - sz.s1) };
+                let on_cursor = want_cursor == want_idx && want_cursor.is_some();
                 // A hidden plate has no meaningful geometry to animate from.
                 let had_index = index.is_some_and(|i| i >= *first && i < *first + geom.in_view);
                 let had_cursor = cursor.is_some_and(|i| i >= *first && i < *first + geom.in_view);
                 match want_idx.filter(|i| in_view(*i)) {
                     Some(i) => {
-                        if at_once || !had_index || new_first != *first { chosen.set(place(i)); } else { beat(env.kit, chosen, place(i)); }
-                        let m = place(i);
-                        let to = Props::at(m.x + ((geom.seg_w - 2.0 * sz.s1 - sz.s7) / 2.0).round(), at.1 + geom.h - sz.s1 - sz.s2);
+                        let c = if on_cursor { lifted(i) } else { place(i) };
+                        if at_once || !had_index || new_first != *first { chosen.set(c); } else { beat(env.kit, chosen, c); }
+                        let to = Props::at(c.x + ((geom.seg_w - 2.0 * sz.s1 - sz.s7) / 2.0).round(), at.1 + geom.h - sz.s1 - sz.s2 - if on_cursor { sz.s1 } else { 0.0 });
                         if at_once || !had_index || new_first != *first { mark.set(to); } else { beat(env.kit, mark, to); }
                     }
                     None => {
@@ -969,9 +972,9 @@ impl RowArt {
                         mark.set(HIDDEN);
                     }
                 }
-                match want_cursor.filter(|i| in_view(*i)) {
+                match want_cursor.filter(|i| in_view(*i) && !on_cursor) {
                     Some(i) => {
-                        if at_once || !had_cursor || new_first != *first { focus.set(place(i)); } else { beat(env.kit, focus, place(i)); }
+                        if at_once || !had_cursor || new_first != *first { focus.set(lifted(i)); } else { beat(env.kit, focus, lifted(i)); }
                     }
                     None => focus.set(HIDDEN),
                 }
@@ -1197,7 +1200,7 @@ mod tests {
             let sz = Sizes::of(&kit);
             let paint = Paint::of(&kit);
             let scroll = kit.ui.scene.group(None, GroupPose { x: 500.0, y: 300.0, ..GroupPose::IDENTITY }).unwrap();
-            let mut row = Row::seg("row", &["one", "two"]).index(Some(0));
+            let mut row = Row::seg("row", &["one", "two", "three"]).index(Some(0));
             let geom = super::super::layout::measure_row(&mut kit, &row, 900.0);
             let mut env = Env { kit: &mut kit, engine: &mut engine, paint, sz, scroll: &scroll, z: 0, region: Region(2), scope: Scope::BASE, origin: (500.0, 300.0) };
             let mut art = RowArt::build(&mut env, &row, geom, 120.0, 900.0, Id(10), true).unwrap();
@@ -1205,15 +1208,16 @@ mod tests {
                 Trailing::Seg { chosen, mark, focus, .. } => [chosen.id(), mark.id(), focus.id()],
                 _ => unreachable!(),
             };
-            art.update(&mut env, &row, Moment { focused: true, hovered: false, seg: Some(0) }, false);
+            // The cursor sits off the chosen chip so that all three plates show (on the chosen chip the cursor plate hides).
+            art.update(&mut env, &row, Moment { focused: true, hovered: false, seg: Some(1) }, false);
             h.commit();
             let initial = flatten(&h.all(), 0, 0);
             for id in ids {
                 let plate = initial.iter().find(|layer| layer.id == id).unwrap();
-                assert!(plate.shown() && plate.props.x > 500.0 && plate.props.y >= 420.0);
+                assert!(plate.shown() && plate.props.x > 500.0 && plate.props.y >= 420.0 - sz.s1);
             }
             row.index = Some(1);
-            art.update(&mut env, &row, Moment { focused: true, hovered: false, seg: Some(1) }, false);
+            art.update(&mut env, &row, Moment { focused: true, hovered: false, seg: Some(2) }, false);
             h.commit();
             let start = flatten(&h.all(), 0, 0);
             let later = flatten(&h.all(), 0, 50_000_000);

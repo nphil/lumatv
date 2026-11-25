@@ -351,7 +351,7 @@ fn build_strip(kit: &mut Kit, engine: &mut Engine, paint: Paint, z: i32, sig: St
     }
     let widest = widths.iter().copied().fold(0.0, f32::max);
     let chosen = kit.ui.scene.shape(widest as u32, inner as u32, z + 2, pill(paint.seg_selected(), CLEAR, r2, 0.0), HIDDEN);
-    let focus = kit.ui.scene.shape(widest as u32, inner as u32, z + 3, pill(paint.seg_focus(), paint.edge_raised, r2, 1.0), HIDDEN);
+    let focus = kit.ui.scene.shape(widest as u32, inner as u32, z + 3, pill(paint.seg_focus(), CLEAR, r2, 0.0), HIDDEN);
     let hover = kit.ui.scene.shape(widest as u32, inner as u32, z + 3, pill(paint.wash_hover, faded(paint.edge_raised, 0.6), r2, 1.0), HIDDEN);
     let mut glyphs = Vec::new();
     let line = line_height(ty);

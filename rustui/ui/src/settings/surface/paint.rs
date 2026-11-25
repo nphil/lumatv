@@ -75,9 +75,9 @@ impl Paint {
         if self.light { self.track_off } else { Rgba(0, 0, 0, 56) }
     }
 
-    /// The plate under the focused option: a shade on the dark glass and a tint on the light, away from the label either way.
+    /// The plate under the focused option: a lighter tint of the theme's ink, brighter than the chosen plate's wash.
     pub fn seg_focus(&self) -> Rgba {
-        if self.light { Rgba(87, 87, 87, 87) } else { Rgba(0, 0, 0, 71) }
+        faded(self.ink, if self.light { 0.2 } else { 0.22 })
     }
 
     /// The plate under the chosen option: the accent at a low alpha.

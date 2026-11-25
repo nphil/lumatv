@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The cursor on a segmented chip row (Settings) is a brighter plate of the theme's ink that lifts with the focus scale and a small rise, with no outline ring; the chosen chip keeps its accent fill and underline, and lifts when the cursor is on it.
+
 The quick panel's receiver row and the receiver page's sound mode heading name the format the receiver plays in words (`Dolby Atmos · TrueHD`, `Dolby Digital Plus · Dolby Surround`, `DTS-HD Master Audio`, `Stereo`) instead of its raw telnet text (`DOLBY AUDIO-DSUR`); a mode the table does not know is shown as sent.
 
 The weather settings show "Forecast data: Open-Meteo" as a caption under the ZIP code while the built-in source is in use, as Open-Meteo's terms ask; it is absent when a Home Assistant entity supplies the weather.
