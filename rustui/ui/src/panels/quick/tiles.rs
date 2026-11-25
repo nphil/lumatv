@@ -196,7 +196,7 @@ pub fn tiles(env: &Env) -> Vec<Row> {
     } else if answers {
         let s = |k: &str| rc.and_then(|r| r.get(k)).and_then(Value::as_str).unwrap_or("").to_string();
         let input = if s("input").is_empty() { "Receiver".to_string() } else { s("input") };
-        let mode = s("soundMode");
+        let mode = crate::host::receiver_words::words(&s("soundMode"), &s("signal"));
         if mode.is_empty() { input } else { format!("{input} \u{b7} {mode}") }
     } else {
         "Not answering".into()
@@ -417,7 +417,7 @@ mod tests {
         assert_eq!(tiles(&e).remove(1).detail, "Not answering", "until it answers");
         e.update(&Input::Fetched { tag: crate::host::receiver::TAG, status: 200, data: json!({"api": 1, "ok": true, "topic": "receiver", "value": doc(1_793_283_132_900)}) }, opened + 40);
         let r = tiles(&e).remove(1);
-        assert_eq!((r.label.as_str(), r.detail.as_str(), r.value.as_str()), ("Receiver", "TV \u{b7} DOLBY AUDIO-DSUR", "36"));
+        assert_eq!((r.label.as_str(), r.detail.as_str(), r.value.as_str()), ("Receiver", "TV \u{b7} Dolby Surround", "36"));
     }
 
     #[test]

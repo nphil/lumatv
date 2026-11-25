@@ -60,7 +60,7 @@ Settings › Sound › Receiver shows the receiver's own settings while the plug
   off the page.
 - **Sound mode:** the Movie, Music, Game and Pure buttons (`MSMOVIE`, `MSMUSIC`, `MSGAME`, `MSDIRECT`) and the modes Stereo, Direct,
   Auto, Dolby, DTS, Multi Ch Stereo, Virtual, Mono Movie, Rock Arena, Jazz Club, Matrix and Video Game. The receiver reports the
-  decoder it ended on (`DOLBY AUDIO-DD+DSUR`, `M CH IN+NEURAL:X`), shown as is and grouped under the command that selects it. A
+  decoder it ended on (`DOLBY AUDIO-DD+DSUR`, `M CH IN+NEURAL:X`), shown as is and grouped under the command that selects it. The quick panel's receiver row and the page's "now" heading turn the mode and the input signal into words (`rustui/ui/src/host/receiver_words.rs`: `Dolby Atmos · TrueHD`, `Dolby Digital Plus · Dolby Surround`); the signal names the carrier only where the mode does not, and a mode the table does not know is shown as sent. A
   button recalls its last mode or steps to the next, so its write is confirmed by any mode the manual lists under that button.
 - **Quick Select 1–4** recalls a receiver memory; `MSQUICK0` (none recalled since a change) leaves all four choosable.
 - **Levels:** Dialog Enhancer (not in Direct or Virtual), Dialog Control 0–6 (DTS:X), subwoofer level and each configured speaker's

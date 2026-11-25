@@ -17,6 +17,7 @@ pub mod power;
 pub mod priority;
 pub mod previews;
 pub mod receiver;
+pub mod receiver_words;
 pub mod sio;
 pub mod theme;
 pub mod vwin;

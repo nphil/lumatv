@@ -6,6 +6,7 @@
 //! settings (`denon-receiver`), which exist only while it is on.
 
 use super::plugin_rows::text;
+use crate::host::receiver_words::words;
 use crate::panels::hub;
 use crate::panels::ime::{PURPOSE_DIGITS, PURPOSE_NORMAL};
 use crate::settings::ctx::{Ctx, ask, toast};
@@ -603,7 +604,8 @@ fn controls(c: &Ctx) -> Vec<Row> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|v| !v.is_empty() && !v.eq_ignore_ascii_case("unknown") && !v.eq_ignore_ascii_case("unavailable"));
-    rows.push(Row::head(&mode.map(|v| format!("Sound mode · now {v}")).unwrap_or_else(|| "Sound mode".into()), 1));
+    let signal = v.r.and_then(|r| r.get("signal")).and_then(Value::as_str).unwrap_or_default();
+    rows.push(Row::head(&mode.map(|v| format!("Sound mode · now {}", words(v, signal))).unwrap_or_else(|| "Sound mode".into()), 1));
     rows.extend(sound_modes(c, &v, mode.is_some()));
     rows.push(choice(c, &v, H("quick", 1, "zap", "Quick Select", "Receiver memories."), "quickSelect", true, 0));
     let r = v.r;
@@ -754,7 +756,7 @@ mod tests {
         ]);
         put(&mut w, "soundMode", mode.clone());
         let r = rows(&w.ctx());
-        assert!(r.iter().any(|r| r.text == "Sound mode · now DOLBY AUDIO-DD+DSUR"));
+        assert!(r.iter().any(|r| r.text == "Sound mode · now Dolby Digital Plus \u{b7} Dolby Surround"));
         assert_eq!(row(&r, "modes").index, None);
         assert!(row(&r, "modes").enabled);
         assert_eq!(send(row(&r, "modes"), Arg::Index(1)), json!({"setting":"soundMode","value":"MUSIC","session":"session-1"}));

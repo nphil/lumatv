@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The quick panel's receiver row and the receiver page's sound mode heading name the format the receiver plays in words (`Dolby Atmos · TrueHD`, `Dolby Digital Plus · Dolby Surround`, `DTS-HD Master Audio`, `Stereo`) instead of its raw telnet text (`DOLBY AUDIO-DSUR`); a mode the table does not know is shown as sent.
+
 The weather settings show "Forecast data: Open-Meteo" as a caption under the ZIP code while the built-in source is in use, as Open-Meteo's terms ask; it is absent when a Home Assistant entity supplies the weather.
 
 Frames 2 and 3 of a whole-screen change (the library opening, Home's return) copy the page drawn last instead of drawing the whole screen again when the copy covers 75 % or more of the panel (`BURST_COPY_PERCENT`): the same pixels, and the host compares every frame with the frame drawn whole. The library's open draws 7 layers in those frames instead of 84. Home's return still draws its first frame whole, and its next two while their own changes leave a copy under 75 %; the apps-grid gate at 120 Hz still drops a frame in some runs (2, 2, 0, 1, 1, 2 over six), so the compositor on the set stays b4041d2b.
