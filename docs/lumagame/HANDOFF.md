@@ -42,6 +42,7 @@ Current state and how to resume. Main design docs: ARCHITECTURE.md, DESIGN.md, P
 - On `3189e617`, Batman's start screen showed a populated Full HUD: 57 fps, 2,811 frames / 3 dropped, 16.4 Mb/s, RTT 20.7 ms, jitter 0.3 ms, loss 0%, reported display 119.9 Hz and panel delay 15.9 ms. Controller remained No Data without active physical reports. Screenshot: /tmp/cs/3dc58534e64e/native-3189/full-hud-populated.png. End returned to game details without an active stream; stats were restored Off and diagnostics remain on.
 - Controller USB observations: GameSir DS4-style receiver `054c:09cc`, not a wired physical controller; Leadjoy `4131:8008` was also seen.
 - Controllers: GameSir Cyclone 2 protocol + crate `game/crates/gamesir-config` (`05374333`, docs/research/gamesir-cyclone2-protocol.md); Leadjoy Xeno Plus protocol + crate `game/crates/leadjoy-config` (`88fbfd7f`, docs/research/leadjoy-xeno-plus-protocol.md). Keep both pads in DS4 mode for play; GameSir settings need X-input mode (View+Menu 2 s), the config HID is absent in DS4 mode. Nothing has been written to a real pad.
+- Installed on the TV: build `cf30d90fa40621c3` (main `b36c6531`, `lumagame-ui` `3cd21a12`), recorder default `http://192.168.1.69:8795` with the saved `:8765` migrated (confirmed in the set's state.json). The receiver answers `/health` 200 from the TV; a real Save is untested. Game-page gate: first frame 39.5 ms, 0 dropped (the first run right after install was 131 ms, cold). Rollback IPK `58a5fdbd` in `/data/home/tmp/lumagame-full/`.
 
 ## In flight
 
