@@ -320,6 +320,7 @@ impl Preferences {
         let schema = SettingsSchema { sections: vec![lumagame_core::recorder::section()] };
         p.recorder = serde_json::from_value::<Values>(v["recorder"].clone()).unwrap_or_default();
         p.recorder.retain(|key, value| schema.check(key, value).is_ok());
+        lumagame_core::recorder::follow_move(&mut p.recorder);
         p
     }
     fn json(&self) -> serde_json::Value {

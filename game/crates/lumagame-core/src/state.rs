@@ -193,9 +193,13 @@ impl Default for State {
 
 impl State {
     pub fn load(text: &str) -> Result<Loaded<State>, LoadError> {
-        let loaded: Loaded<State> = load_versioned(text, SCHEMA, STEPS)?;
+        let mut loaded: Loaded<State> = load_versioned(text, SCHEMA, STEPS)?;
         if !loaded.value.profiles.contains_key(&loaded.value.active) {
             return Err(LoadError::Corrupt("the active profile does not exist".into()));
+        }
+        // A value, not the shape, changed, so no schema step: an older build reads the new address as the owner's own.
+        for engine in loaded.value.engines.values_mut() {
+            crate::recorder::follow_move(&mut engine.settings);
         }
         Ok(loaded)
     }
@@ -272,6 +276,13 @@ mod tests {
         let loaded = State::load(r#"{"schema":1,"active":"main","profiles":{"main":{"name":"Nitin"}},"added_later":{"x":1}}"#).unwrap().value;
         assert_eq!(loaded.profile().user, UserData::default());
         assert!(loaded.engines.is_empty() && loaded.profile().ui.is_null());
+    }
+
+    #[test]
+    fn a_saved_recorder_address_of_the_old_receiver_loads_as_the_lumatv_server() {
+        let loaded = State::load(r#"{"schema":1,"active":"main","profiles":{"main":{"name":"Nitin"}},"engines":{"gfn":{"settings":{"recorder-url":"http://192.168.1.69:8765"}}}}"#).unwrap();
+        let settings = &loaded.value.engines[&EngineId::new("gfn").unwrap()].settings;
+        assert_eq!(settings.get(crate::recorder::URL), Some(&crate::settings::Value::Text(crate::recorder::DEFAULT_URL.into())));
     }
 
     #[derive(Debug, PartialEq, Deserialize)]

@@ -1202,6 +1202,12 @@ mod tests {
         assert_eq!((values.get("recorder"), values.get("recorder-url")), (Some(&Value::Bool(true)), Some(&Value::Text("http://nas:9".into()))));
         assert!(!m.prefs.recorder.contains_key("width"), "only the recorder's keys move");
     }
+    #[test]
+    fn a_saved_address_of_the_old_receiver_reads_as_the_lumatv_server() {
+        use lumagame_core::recorder;
+        let prefs = Preferences::read(&serde_json::json!({"recorder": {"recorder-url": recorder::OLD_URL}}));
+        assert_eq!(prefs.recorder.get(recorder::URL), Some(&Value::Text(recorder::DEFAULT_URL.into())));
+    }
     mod lab_tests {
         use super::*;
 

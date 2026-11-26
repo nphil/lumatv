@@ -12,8 +12,11 @@ pub const REACH: &str = "recorder-reach";
 pub const RECORD_MAX: &str = "recorder-record-max";
 pub const KEYFRAMES: &str = "recorder-keyframes";
 
-/// Where the receiver on BeastNAS listens; the address field starts as this, so turning the recorder on is the only step.
-pub const DEFAULT_URL: &str = "http://192.168.1.69:8765";
+/// Where the receiver on BeastNAS listens (the LumaTV server); the address field starts as this, so turning the recorder on is the
+/// only step.
+pub const DEFAULT_URL: &str = "http://192.168.1.69:8795";
+/// The receiver's address while it ran in its own container, before it moved into the LumaTV server.
+pub const OLD_URL: &str = "http://192.168.1.69:8765";
 /// The seconds between the keyframes the recorder asks the game for; the choices on the page. 0 is "only when I save".
 pub const KEYFRAME_CHOICES: [(&str, u32); 3] = [("5", 5), ("10", 10), ("save", 0)];
 pub const DEFAULT_KEYFRAME_ID: &str = "5";
@@ -39,7 +42,7 @@ pub fn section() -> Section {
             field(
                 URL,
                 "Receiver address",
-                "The receiver on BeastNAS, as http://host:port. The stream goes there over plain HTTP, so keep it on the home network.",
+                "The receiver, part of the LumaTV server on BeastNAS, as http://host:port. The stream goes there over plain HTTP, so keep it on the home network.",
                 FieldKind::Text { max_chars: 128, default: DEFAULT_URL.into() },
             ),
             field(
@@ -134,6 +137,17 @@ impl Settings {
     }
 }
 
+/// Points a saved address of the old receiver at the LumaTV server. True when it changed something.
+pub fn follow_move(values: &mut Values) -> bool {
+    match values.get_mut(URL) {
+        Some(Value::Text(t)) if t.trim().trim_end_matches('/') == OLD_URL => {
+            *t = DEFAULT_URL.into();
+            true
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,5 +174,16 @@ mod tests {
         let on = Settings::from_values(&values);
         assert!(on.runs());
         assert_eq!((on.url.as_str(), on.replay, on.reach_s), ("http://nas:8765", true, 1800));
+    }
+
+    #[test]
+    fn a_saved_address_of_the_old_receiver_follows_it_to_the_lumatv_server() {
+        let mut values = Values::from([(URL.into(), Value::Text(" http://192.168.1.69:8765/ ".into()))]);
+        assert!(follow_move(&mut values));
+        assert_eq!(Settings::from_values(&values).url, DEFAULT_URL);
+        for other in ["http://nas:8765", "http://192.168.1.70:8765"] {
+            let mut values = Values::from([(URL.into(), Value::Text(other.into()))]);
+            assert!(!follow_move(&mut values), "{other} is the owner's own choice");
+        }
     }
 }

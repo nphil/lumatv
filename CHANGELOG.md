@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The game recorder's receiver is part of the LumaTV server now: the address starts as `http://192.168.1.69:8795`, and a saved `http://192.168.1.69:8765` reads as it.
+
 The selected chip's accent underline on segmented chip rows keeps its gap below the label at every text size: the chip grows with the label's line height instead of the mark overlapping it at 200% text.
 
 The cursor on a segmented chip row (Settings) is a brighter plate of the theme's ink that lifts with the focus scale and a small rise, with no outline ring; the chosen chip keeps its accent fill and underline, and lifts when the cursor is on it.
