@@ -132,7 +132,11 @@ pub fn seg_geom(kit: &mut Kit, sz: &Sizes, options: &[String], role: TypeRole, f
         Some(f) if n as f32 * seg_w > f => ((f / seg_w).floor() as usize).max(1),
         _ => n,
     };
-    SegGeom { seg_w, n, h: sz.target, in_view }
+    // The accent mark sits at a fixed distance above the chip's bottom edge while the label's line grows with the text scale, so the chip
+    // grows by the line's growth and the mark keeps its 100% gap below the label.
+    let line = line_height(kit.ty(role));
+    let h = sz.target + (line - line / kit.text_scale.max(1.0)).round();
+    SegGeom { seg_w, n, h, in_view }
 }
 
 /// The width a card's name has beside its glyph and its check mark.
@@ -286,7 +290,8 @@ pub fn measure_row_with(kit: &mut Kit, row: &Row, w: f32, reserve: f32) -> RowGe
     let base = if detail_lines == 0 { sz.row } else { sz.row + sz.s2 };
     // the control is as tall as a target, so a row with a tall one (a tray of segments) is at least that and its air
     let control = match row.kind {
-        Kind::Seg | Kind::Slider => sz.target + sz.s4,
+        Kind::Seg => g.seg.map_or(sz.target, |s| s.h) + sz.s4,
+        Kind::Slider => sz.target + sz.s4,
         _ => 0.0,
     };
     g.h = base.max(words + sz.s4).max(control).ceil();
