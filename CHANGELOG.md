@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The game recorder's receiver is part of the LumaTV server now: the address starts as `http://192.168.1.69:8795`, and a saved `http://192.168.1.69:8765` reads as it.
+The game recorder's receiver is part of the LumaTV server now: the address starts as `http://192.168.1.69:8795`, and a saved `http://192.168.1.69:8765` reads as it. The Python receiver (`game/replay-receiver/`) and its image workflow are removed.
 
 The selected chip's accent underline on segmented chip rows keeps its gap below the label at every text size: the chip grows with the label's line height instead of the mark overlapping it at 200% text.
 
