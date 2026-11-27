@@ -76,6 +76,8 @@ Only the exact `/family/lg/ATVUnfPlayerBundle-1.0/<route>/js/ATVUnfPlayerBundle.
 
 Unknown or changed players are served unchanged, with an explicit `unmodified` reason rather than an ad-free claim. The model reports `off`, `unavailable`, `waiting`, `active`, `partial` or `unmodified` protection and source/patched SHA-256 per observed route. A running listener alone is not reported as proof of filtering.
 
+From `helper/`, `cargo run -p lumatv-privacy --example check_prime_player -- /path/to/player.js` checks a saved player against the production rules without opening Prime or executing its code. A pass establishes player compatibility, not that an ad-bearing title played without ads.
+
 TLS uses the shared `rustls 0.23` / `ring 0.17.14` provider, with default features disabled and `ring`, `std`, `tls12` enabled. The shared target-specific Zig compiler shim builds ring's C/assembly for aarch64 musl. No separate nginx process or ARMv7 binary is needed.
 
 ### Trust and old-installation prerequisite

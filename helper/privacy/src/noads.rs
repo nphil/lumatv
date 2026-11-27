@@ -10,7 +10,8 @@ enum Need {
     /// An ad patch: exactly this many.
     Exactly(usize),
     /// An ad patch for a name the player uses in several places (live pre-rolls: five in one build, six in the next): at least one, and
-    /// every use of the name is one of its places, so a use in a form not seen before is not passed over.
+    /// every use of the name is one of its places, so a use in a form not seen before (a write, a read without its guard, a string) is
+    /// not passed over. A place does not start inside an identifier, a property name or a string.
     Every(&'static str),
     /// A report patch: wherever it is found. A player without it is noted in the result and the rest is applied.
     Anywhere,
@@ -34,7 +35,9 @@ fn patches() -> &'static [Patch] {
             ("new-stack pause behavior", "pauseBehavior:function(", r#"(pauseBehavior:function\([A-Za-z_$][\w$]*\)\{)(?=var [A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\.PlaybackResourceUtils\.valueOrUndefined\([A-Za-z_$][\w$]*\.playbackUrls\);if\(null==[A-Za-z_$][\w$]*\)\{var [A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\.PlaybackResourceUtils\.valueOrUndefined\([A-Za-z_$][\w$]*\.playlistedPlaybackUrls\))"#, "${1}if(__HOMEBREW_NOADS)return;", Exactly(1)),
             ("ad-break resolver", ".prototype.resolveWithAdBreaks=", r#"(\.prototype\.resolveWithAdBreaks=freeOnUnref\(function\([A-Za-z_$][\w$]*,[A-Za-z_$][\w$]*\)\{var [A-Za-z_$][\w$]*=this;if\()(0===[A-Za-z_$][\w$]*\.length\))"#, "${1}__HOMEBREW_NOADS||$2", Exactly(1)),
             ("unresolved content source", "case\"Remote\":", r#"case"Remote":(?=var [^;]{0,200}?this\.adBreakConfigBuilder\.build\()"#, "case\"Remote\":if(__HOMEBREW_NOADS)break;", Exactly(1)),
-            ("live pre-rolls", "!0===", r#"(!0===[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\.showLivePreRolls\.enabled)"#, "${1}&&!__HOMEBREW_NOADS", Every(".showLivePreRolls.enabled")),
+            // The player tests the preference behind a null check on the same receiver, in either polarity. Only the preference read is
+            // answered locally (false), so the null check, the comparison and its short-circuit stay the player's own.
+            ("live pre-rolls", "null", r#"(null!=([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\.showLivePreRolls&&(?:!0|true)===)(\2\.showLivePreRolls\.enabled)(?=&&(?!=)|\|\|(?!=)|[),;}\]:]|\?(?![.?]))|(null==([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\.showLivePreRolls\|\|(?:!0|true)!==)(\5\.showLivePreRolls\.enabled)(?=&&(?!=)|\|\|(?!=)|[),;}\]:]|\?(?![.?]))"#, "${1}${4}(__HOMEBREW_NOADS?!1:${3}${6})", Every(".showLivePreRolls.enabled")),
             // By name only: Prime changed what the method does first (it no longer calls applyDeferredEventTimestamp), not that it is one.
             ("media events", ".prototype.enqueueMediaEvents=", r#"(\.prototype\.enqueueMediaEvents=freeOnUnref\(function\(e\)\{)"#, "${1}return;", Anywhere),
             ("telemetry queue", ".prototype.reportEvent=", r#"(\.prototype\.reportEvent=freeOnUnref\(function\(e\)\{var t=this;)(?=this\.queue\.add\(e\),this\.isQueueAtMaxDepth\(\))"#, "${1}return;", Anywhere),
@@ -66,7 +69,31 @@ pub fn transform(source: &str) -> Result<Transformed, String> {
     let mut missed = Vec::new();
     for patch in patches() {
         let first = edits.len();
-        for (start, _) in source.match_indices(patch.anchor) {
+        // A minified player has thousands of `null` tests but only a handful of preference reads.
+        // Look back locally from each required read; a nearby earlier match must end at this read.
+        let every = match patch.need {
+            Need::Every(name) => Some(name),
+            _ => None,
+        };
+        for (anchor, _) in source.match_indices(every.unwrap_or(patch.anchor)) {
+            let start = if every.is_some() {
+                let mut window = anchor.saturating_sub(2048);
+                while !source.is_char_boundary(window) {
+                    window += 1;
+                }
+                let Some(n) = source[window..anchor].rfind(patch.anchor) else {
+                    continue;
+                };
+                window + n
+            } else {
+                anchor
+            };
+            if every.is_some()
+                && start > 0
+                && matches!(source.as_bytes()[start - 1], b'.' | b'"' | b'\'' | b'`' | b'_' | b'$' | b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' | 0x80..=0xFF)
+            {
+                continue;
+            }
             let mut end = (start + 2048).min(source.len());
             while !source.is_char_boundary(end) {
                 end -= 1;
@@ -79,6 +106,9 @@ pub fn transform(source: &str) -> Result<Transformed, String> {
                 continue;
             };
             let m = caps.get(0).unwrap();
+            if every.is_some_and(|name| start + m.end() != anchor + name.len()) {
+                continue;
+            }
             let mut replacement = String::new();
             caps.expand(patch.replacement, &mut replacement);
             edits.push((start + m.start(), start + m.end(), replacement));
@@ -167,7 +197,7 @@ mod tests {
         assert!(body.contains("__HOMEBREW_NOADS||0===e.length"));
         assert!(body.contains("pauseBehavior:function(e){if(__HOMEBREW_NOADS)return;var t="));
         assert_eq!(
-            body.matches("&&!__HOMEBREW_NOADS").count(),
+            body.matches("(__HOMEBREW_NOADS?!1:").count(),
             3,
             "every live pre-roll place"
         );
@@ -227,5 +257,72 @@ mod tests {
         let out = transform(&PLAYER.replace("uploadMinervaKpiMetrics", "uploadOther")).unwrap();
         assert_eq!(out.missed, ["minerva kpi upload"]);
         assert!(out.body.contains("__HOMEBREW_NOADS||0===e.length"));
+    }
+    const WRAP: &str = "(__HOMEBREW_NOADS?!1:";
+    /// The patched source for a filter setting: the wrapper is `(__HOMEBREW_NOADS?!1:read)`, so this is the program the player runs.
+    fn resolved(js: &str, filter: bool) -> String {
+        let mut out = String::new();
+        let mut rest = js;
+        while let Some(at) = rest.find(WRAP) {
+            let tail = &rest[at + WRAP.len()..];
+            let close = tail.find(')').unwrap();
+            out.push_str(&rest[..at]);
+            out.push_str(if filter { "!1" } else { &tail[..close] });
+            rest = &tail[close + 1..];
+        }
+        out + rest
+    }
+    /// What `transform` makes of extra statements placed after the player.
+    fn after_player(extra: &str) -> Result<String, String> {
+        let body = transform(&format!("{PLAYER}\n;/*tail*/;{extra}"))?.body;
+        Ok(body.split_once("/*tail*/;").unwrap().1.to_owned())
+    }
+    #[test]
+    fn a_guarded_preference_read_is_disabled_while_filtering_and_unchanged_otherwise() {
+        // the guard, the comparison and the short-circuit are the player's own in both polarities
+        for (read, disabled) in [
+            (
+                "var a=null!=e.showLivePreRolls&&!0===e.showLivePreRolls.enabled&&y;",
+                "var a=null!=e.showLivePreRolls&&!0===!1&&y;",
+            ),
+            (
+                "var b=null==Ng.store.cfg.showLivePreRolls||!0!==Ng.store.cfg.showLivePreRolls.enabled;",
+                "var b=null==Ng.store.cfg.showLivePreRolls||!0!==!1;",
+            ),
+            (
+                "if(null!=a.b.showLivePreRolls&&true===a.b.showLivePreRolls.enabled)x();",
+                "if(null!=a.b.showLivePreRolls&&true===!1)x();",
+            ),
+            (
+                "function f(){return null==$.q.showLivePreRolls||true!==$.q.showLivePreRolls.enabled}",
+                "function f(){return null==$.q.showLivePreRolls||true!==!1}",
+            ),
+        ] {
+            let patched = after_player(read).unwrap();
+            assert_eq!(patched.matches(WRAP).count(), 1, "{read}");
+            assert_eq!(resolved(&patched, false), read, "filter off keeps the read");
+            assert_eq!(resolved(&patched, true), disabled, "filter on reads it as disabled");
+        }
+    }
+    #[test]
+    fn a_use_that_is_not_the_guarded_read_rejects_the_whole_player() {
+        let guarded = "null!=e.showLivePreRolls&&!0===e.showLivePreRolls.enabled";
+        for source in [
+            "e.showLivePreRolls.enabled=!0;".to_owned(),
+            format!("var z={guarded}=1;"),
+            format!("var z={guarded}++;"),
+            format!("var z={guarded}Soon;"),
+            format!("var z={guarded}.x;"),
+            format!("var z={guarded}(1);"),
+            format!("var z={guarded}&&null!=e.showLivePreRolls&&e.showLivePreRolls.enabled;"),
+            "var z=null!=a.b.showLivePreRolls&&!0===a.c.showLivePreRolls.enabled;".to_owned(),
+            "var z=null!=b.showLivePreRolls&&!0===a.b.showLivePreRolls.enabled;".to_owned(),
+            "var z=null!=f().showLivePreRolls&&!0===f().showLivePreRolls.enabled;".to_owned(),
+            format!("var z=x{guarded};"),
+            format!("var z=\"{guarded}\";"),
+        ] {
+            let reason = after_player(&source).unwrap_err();
+            assert!(reason.starts_with("live pre-rolls:"), "{source}: {reason}");
+        }
     }
 }
