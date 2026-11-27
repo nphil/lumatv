@@ -2,10 +2,11 @@
 //! listener of its own: one thread per connection, no body length, the connection closed when the program is over (what an HDHomeRun
 //! does). Only peers in the allowed networks are answered; the rest are dropped.
 
+use crate::consent::{Conflict, Key, TuneRequest};
 use crate::docs;
 use crate::net::Cidr;
 use crate::sendlog::Sent;
-use crate::stream::{Admitted, End, Facade, Failure};
+use crate::stream::{Admitted, End, Facade, Failure, Lease, Rejected};
 use parking_lot::Mutex;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -21,7 +22,7 @@ use std::time::{Duration, Instant};
 const MAX_CONNECTIONS: usize = 6;
 const REQUEST_LIMIT: u64 = 8 * 1024;
 const REQUEST_WAIT: Duration = Duration::from_secs(5);
-/// A client that stops reading for this long loses its stream.
+/// Bound writes of the short HTTP documents and errors; streams have their own stall limit.
 const SEND_WAIT: Duration = Duration::from_secs(10);
 /// How long the refusals of one channel to one peer for one reason are counted before they are logged together.
 const REFUSALS_EVERY: Duration = Duration::from_secs(1);
@@ -175,10 +176,13 @@ struct Request {
     path: String,
     host: Option<String>,
     agent: Option<String>,
-    /// The profile `?transcode=` names, as written; the rest of the query (`duration=`) is not read.
+    /// The profile `?transcode=` names, as written.
     transcode: Option<String>,
     /// What the client calls itself: `?device=` or the `X-Luma-Device` header, the query first.
     device: Option<String>,
+    structured: bool,
+    takeover: Option<Key>,
+    stream_key: Option<Key>,
 }
 
 /// A device name as a client wrote it (percent-escapes and `+` undone): visible text, at most 40 characters, none when empty.
@@ -209,8 +213,7 @@ fn device_name(raw: &str) -> Option<String> {
     (!name.is_empty()).then(|| name.to_owned())
 }
 
-/// The request line, the Host header, the User-Agent and the device's name; a request that is not read whole within a moment, or is not
-/// HTTP, is nothing. Of the query only `transcode` and `device` are read.
+/// Reads one bounded HTTP request. The target's query and the private authorization key never enter the tune log.
 fn read_request(stream: &TcpStream) -> Option<Request> {
     stream.set_read_timeout(Some(REQUEST_WAIT)).ok()?;
     let mut lines = BufReader::new(stream.take(REQUEST_LIMIT)).lines();
@@ -220,7 +223,7 @@ fn read_request(stream: &TcpStream) -> Option<Request> {
     if !version.starts_with("HTTP/1.") {
         return None;
     }
-    let (mut host, mut agent, mut header_device) = (None, None, None);
+    let (mut host, mut agent, mut header_device, mut stream_key) = (None, None, None, None);
     for line in lines {
         let line = line.ok()?;
         if line.is_empty() {
@@ -234,19 +237,20 @@ fn read_request(stream: &TcpStream) -> Option<Request> {
                 agent = Some(value.trim().chars().take(200).collect());
             } else if name.eq_ignore_ascii_case("x-luma-device") {
                 header_device = device_name(value);
+            } else if name.eq_ignore_ascii_case("authorization")
+                && let Some((scheme, key)) = value.trim().split_once(' ')
+                && scheme.eq_ignore_ascii_case("bearer")
+            {
+                stream_key = Key::parse(key);
             }
         }
     }
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
-    let transcode = query
-        .split('&')
-        .find_map(|pair| pair.strip_prefix("transcode="))
-        .map(|name| name.chars().take(40).collect());
-    let device = query
-        .split('&')
-        .find_map(|pair| pair.strip_prefix("device="))
-        .and_then(device_name)
-        .or(header_device);
+    let param = |key: &str| {
+        query.split('&').filter_map(|pair| pair.split_once('=')).find_map(|(k, v)| (k == key).then_some(v))
+    };
+    let transcode = param("transcode").map(|name| name.chars().take(40).collect());
+    let device = param("device").and_then(device_name).or(header_device);
     Some(Request {
         method: method.to_owned(),
         path: path.to_owned(),
@@ -254,6 +258,9 @@ fn read_request(stream: &TcpStream) -> Option<Request> {
         agent,
         transcode,
         device,
+        structured: param("consent") == Some("1"),
+        takeover: param("takeover").and_then(Key::parse),
+        stream_key,
     })
 }
 
@@ -278,6 +285,26 @@ fn refuse(out: &mut impl Write, f: &Failure) -> io::Result<()> {
         "text/plain",
         &format!("X-HDHomeRun-Error: {}\r\n", f.hdhomerun_error()),
         f.reason().as_bytes(),
+    )
+}
+
+fn deny_tune(out: &mut impl Write, conflict: &Conflict, structured: bool) -> io::Result<()> {
+    const HEADERS: &str = "X-HDHomeRun-Error: 805 All Tuners In Use\r\nCache-Control: no-store\r\n";
+    if structured {
+        answer(out, 503, "application/json", HEADERS, conflict.doc().to_string().as_bytes())
+    } else {
+        answer(out, 503, "text/plain", HEADERS, b"All Tuners In Use")
+    }
+}
+
+fn stream_head(out: &mut TcpStream, lease: &Lease, stale_after: Duration) -> io::Result<()> {
+    // A blocked send times out even if no new tune is requested. Waiting for source data never runs this timer.
+    out.set_write_timeout(Some(stale_after))?;
+    let key = lease.key.as_ref().expect("admitted stream has a key");
+    write!(
+        out,
+        "HTTP/1.0 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-store\r\nX-Luma-Stream: s{}\r\nX-Luma-Stream-Key: {}\r\n\r\n",
+        lease.id, key.text().as_str(),
     )
 }
 
@@ -332,7 +359,10 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
     let _ = match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/discover.json") => json(&mut stream, &docs::discover(&facade.identity, &base)),
         ("GET", "/lineup_status.json") => json(&mut stream, &docs::lineup_status()),
-        ("GET", "/status.json") => json(&mut stream, &facade.status_doc()),
+        ("GET", "/status.json") => answer(
+            &mut stream, 200, "application/json", "Cache-Control: no-store\r\n",
+            facade.status_doc().to_string().as_bytes(),
+        ),
         ("GET", "/lineup.json") => match facade.lineup() {
             Ok(entries) => json(&mut stream, &docs::lineup(&entries, &base, |guide| facade.format_of(guide))),
             Err(f) => reply(&mut stream, f.status(), "text/plain", f.reason().as_bytes()),
@@ -361,19 +391,18 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
             let guide = &path["/auto/v".len()..];
             let asked = Instant::now();
             let fd = stream.as_raw_fd();
-            const HEAD: &str = "HTTP/1.0 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-cache\r\n\r\n";
-            let sent = match facade.admit(guide, peer, request.agent.as_deref(), request.device.as_deref(), request.transcode.as_deref()) {
-                Err(f) => {
+            let client = TuneRequest {
+                peer, agent: request.agent.as_deref(), device: request.device.as_deref(), profile: request.transcode.as_deref(),
+                structured: request.structured, takeover: request.takeover, stream_key: request.stream_key,
+            };
+            let sent = match facade.admit(guide, client) {
+                Err(Rejected::Failed(f)) => {
                     refusals.refused(peer, guide, f.reason(), Instant::now()).iter().for_each(|l| log::info!("{l}"));
                     return drop(refuse(&mut stream, &f));
                 }
-                Ok(Admitted::Refused(refusal)) => {
-                    refusals
-                        .refused(peer, guide, refusal.failure.reason(), Instant::now())
-                        .iter()
-                        .for_each(|l| log::info!("{l}"));
-                    let _ = write!(stream, "{HEAD}").and_then(|()| facade.refuse(refusal, &mut stream, stop));
-                    return;
+                Err(Rejected::Busy(conflict)) => {
+                    refusals.refused(peer, guide, conflict.failure.reason(), Instant::now()).iter().for_each(|l| log::info!("{l}"));
+                    return drop(deny_tune(&mut stream, &conflict, request.structured));
                 }
                 Ok(Admitted::Plain(mut program)) => {
                     // the PAT and the PMT go out as soon as the head is written: this is the client's wait for its first byte
@@ -382,7 +411,7 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
                         "tuner: {peer} streams {guide} after {:.1} s (tune {tune:.1}, tables {tables:.1}, picture {picture:.1})",
                         asked.elapsed().as_secs_f64()
                     );
-                    write!(stream, "{HEAD}").and_then(|()| {
+                    stream_head(&mut stream, &program.lease, facade.limits.stale_after).and_then(|()| {
                         let mut out = Sent::new(&mut stream, fd, facade.clock.clone(), format!("{peer} {guide}"));
                         let end = program.pump(&mut out, stop);
                         out.finish();
@@ -392,7 +421,7 @@ fn serve(mut stream: TcpStream, peer: IpAddr, facade: &Facade, stop: &AtomicBool
                 Ok(Admitted::Slated(slated)) => {
                     // answered at once: the slate is the first byte, and the channel is tuned while it shows
                     log::info!("tuner: {peer} streams {guide} with slates (taken in {:.2} s)", asked.elapsed().as_secs_f64());
-                    write!(stream, "{HEAD}").and_then(|()| {
+                    stream_head(&mut stream, &slated.lease, facade.limits.stale_after).and_then(|()| {
                         let mut out = Sent::new(&mut stream, fd, facade.clock.clone(), format!("{peer} {guide}"));
                         let end = facade.play(slated, &mut out, stop);
                         out.finish();
@@ -420,7 +449,7 @@ mod tests {
     use super::*;
     use crate::docs::Identity;
     use crate::stream::Limits;
-    use crate::stream::tests::{Fake, Shared, Time, fake_with, packet, picture, program, rf32, served, video_type};
+    use crate::stream::tests::{Fake, OTHER, Shared, Time, fake_with, packet, picture, program, rf32, served, video_type};
     use crate::transcode::tests as converter;
     use std::net::Ipv4Addr;
 
@@ -569,6 +598,10 @@ mod tests {
         assert!(xml.contains("channel=\"2.4\"><title>News on 1_32_2_4_0_0_0</title>"));
     }
 
+    fn header<'a>(head: &'a str, prefix: &str) -> &'a str {
+        head.lines().find_map(|line| line.strip_prefix(prefix)).expect("required response header")
+    }
+
     #[test]
     fn a_stream_is_mpeg_ts_with_no_length_until_the_program_is_over() {
         let time = Time::default();
@@ -586,6 +619,9 @@ mod tests {
                 && !head.contains("Content-Length"),
             "{head}"
         );
+        assert_eq!(header(&head, "X-Luma-Stream: "), "s0");
+        assert!(Key::parse(header(&head, "X-Luma-Stream-Key: ")).is_some());
+        assert_eq!(header(&head, "Cache-Control: "), "no-store");
         assert!(body.len() % 188 == 0 && body[0] == 0x47);
         assert!(
             body.windows(chunk.len()).any(|w| w == &chunk[..]),
@@ -672,9 +708,16 @@ mod tests {
             (
                 "HTTP/1.1 503 Service Unavailable".to_owned(),
                 "805 All Tuners In Use".to_owned(),
-                "the TV is in use: Live TV is in front".to_owned()
+                "All Tuners In Use".to_owned()
             )
         );
+        let native = get(&server, "GET /auto/v2.4?consent=1 HTTP/1.1\r\n\r\n");
+        let (_, body) = split(&native);
+        let value: Value = serde_json::from_slice(body).unwrap();
+        assert_eq!(value, serde_json::json!({
+            "version": 1, "error": "tuner_busy", "takeover": null,
+            "holders": [{"stream": null, "name": "Living Room TV", "kind": "tv", "channel": null, "channelName": null, "since": null, "rf": null}],
+        }));
         assert!(fake.tuned.lock().is_empty());
         *fake.owner.lock() = None;
         assert_eq!(
@@ -689,59 +732,129 @@ mod tests {
     }
 
     #[test]
-    fn a_tuner_in_use_is_a_short_slate_with_slates_on_else_503_and_status_json_names_its_holder() {
+    fn legacy_plex_retries_are_plain_503s_that_leave_the_original_stream_playing_even_with_slates_on() {
         let time = Time::default();
-        let fake = fake_with(&time, rf32(&[]), vec![]);
+        let picture = [picture(0x61, 0), packet(0x64, 0)].concat();
+        let fake = fake_with(&time, rf32(&[]), vec![picture.clone()]);
         fake.rf25.store(true, Ordering::Relaxed);
         let tuning = served();
-        let limits = Limits { last_word: Duration::from_millis(150), ..Limits::default() };
-        let facade = Facade::new(
+        tuning.options.lock().names.insert(Ipv4Addr::LOCALHOST.into(), "Plex".into());
+        let facade = Arc::new(Facade::new(
             Arc::new(Shared(fake.clone())),
             Identity { name: "LumaTV".into(), device_id: "0A1B2C3D".into() },
-            limits,
-            time.clock(),
-            tuning.clone(),
-            None,
-        );
-        let peers = vec![Cidr::parse("127.0.0.0/8").unwrap()];
-        let server = Server::start(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), Arc::new(facade), peers).unwrap();
-        let status = || serde_json::from_slice::<Value>(split(&get(&server, "GET /status.json HTTP/1.1\r\n\r\n")).1).unwrap();
-        let off = serde_json::json!({"enabled": false, "profiles": []});
-        assert_eq!(status(), serde_json::json!({"holder": null, "viewers": [], "displaced": [], "sameRf": [], "transcode": off}));
-
-        let plex = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 69));
-        let claim = crate::stream::Claim {
-            peer: plex,
-            agent: Some("PlexMediaServer/1.41".into()),
-            device: None,
-            recording: true,
-            guide: "2.1".into(),
-            name: "WSB-HD".into(),
-            channel_id: "1_32_2_1_0_0_0".into(),
-            since_ms: 1_794_000_000_000,
-        };
-        let lease = tuning.take_stream(claim, "Plex".into(), 4, Duration::ZERO).unwrap();
-        assert_eq!(
-            status(),
-            serde_json::json!({"holder": {"ip": "192.168.1.69", "name": "Plex", "channel": "2.1", "channelName": "WSB-HD", "since": 1_794_000_000_000u64}, "viewers": [{"ip": "192.168.1.69", "name": "Plex", "channel": "2.1", "channelName": "WSB-HD", "since": 1_794_000_000_000u64, "rf": 32, "shared": false}], "displaced": [], "sameRf": [], "transcode": off})
-        );
-
-        let (head, _) = split(&get(&server, "GET /auto/v7.1 HTTP/1.1\r\n\r\n"));
-        assert!(head.starts_with("HTTP/1.1 503") && head.contains("805 All Tuners In Use"), "without slates: {head}");
-
+            Limits::default(), time.clock(), tuning.clone(), None,
+        ));
+        let server = Server::start(
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), facade.clone(), vec![Cidr::parse(LOCAL[0]).unwrap()],
+        ).unwrap();
+        let mut original = facade.open("2.4", OTHER).unwrap();
+        let key = original.lease.key.unwrap().text();
         tuning.options.lock().look = Some(Arc::new(|| Some(crate::slate::tests::look())));
-        let answer = get(&server, "GET /auto/v7.1 HTTP/1.1\r\n\r\n");
-        let (head, body) = split(&answer);
-        assert!(head.starts_with("HTTP/1.0 200 OK") && head.contains("video/mp2t"), "{head}");
-        assert!(body.len() > 188 * 10 && body.len() % 188 == 0 && body[0] == 0x47, "a slate, then the end");
-        assert!(fake.tuned.lock().is_empty(), "the tuner is not touched");
+        let status = || get(&server, "GET /status.json HTTP/1.1\r\n\r\n");
+        let request = "GET /auto/v7.1 HTTP/1.1\r\nUser-Agent: PlexMediaServer/1.43.5\r\n\r\n";
 
-        drop(lease);
-        assert_eq!(
-            status(),
-            serde_json::json!({"holder": null, "viewers": [], "displaced": [], "sameRf": [{"rf": 32, "channels": ["2.1", "2.4"]}], "transcode": off}),
-            "the channels that can be watched together"
+        // Exercise the requests between writes, not after the old stream has gone away.
+        struct DuringWrite<F>(Option<F>, Vec<u8>);
+        impl<F: FnOnce()> Write for DuringWrite<F> {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.1.extend_from_slice(bytes);
+                if let Some(check) = self.0.take() { check() }
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> { Ok(()) }
+        }
+        let mut output = DuringWrite(Some(|| {
+            let before = status();
+            let (_, body) = split(&before);
+            let doc: Value = serde_json::from_slice(body).unwrap();
+            assert_eq!(doc["consent"], serde_json::json!({"version": 1, "takeoverMs": 30000, "staleMs": 6000}));
+            assert!(!body.windows(32).any(|w| w == key.as_str().as_bytes()));
+            let inspect = get(&server, "GET /auto/v7.1?consent=1&device=iPad HTTP/1.1\r\n\r\n");
+            let (head, body) = split(&inspect);
+            assert!(head.starts_with("HTTP/1.1 503") && head.contains("Content-Type: application/json"));
+            assert_eq!(header(&head, "Cache-Control: "), "no-store");
+            assert!(!body.windows(32).any(|w| w == key.as_str().as_bytes()));
+            let offer: Value = serde_json::from_slice(body).unwrap();
+            let since = doc["viewers"][0]["since"].as_u64().unwrap();
+            assert_eq!(offer["holders"], serde_json::json!([{
+                "stream": "s0", "name": OTHER.to_string(), "kind": "client", "channel": "2.4",
+                "channelName": "WEST", "since": since, "rf": 32,
+            }]));
+            assert_eq!(offer["error"], "takeover_required");
+            let token = offer["takeover"].as_str().unwrap();
+            assert!(Key::parse(token).is_some());
+            for seconds in [0, 5, 20] {
+                time.advance(Duration::from_secs(seconds));
+                let answer = get(&server, request);
+                let (head, body) = split(&answer);
+                assert_eq!(head.lines().next(), Some("HTTP/1.1 503 Service Unavailable"));
+                assert_eq!(header(&head, "X-HDHomeRun-Error: "), "805 All Tuners In Use");
+                assert_eq!(header(&head, "Content-Type: "), "text/plain");
+                assert_eq!(header(&head, "Cache-Control: "), "no-store");
+                assert_eq!(body, b"All Tuners In Use");
+            }
+            assert_eq!(status(), before, "same generation, holder and no displaced streams");
+            let inspect_again = get(&server, "GET /auto/v7.1?consent=1&device=iPad HTTP/1.1\r\n\r\n");
+            assert_eq!(inspect_again, inspect, "legacy retries did not invalidate the ticket");
+        }), Vec::new());
+        assert_eq!(original.pump(&mut output, &AtomicBool::new(false)).unwrap(), End::Silent);
+        assert!(output.1.windows(picture.len()).any(|w| w == picture), "original TS continues after refusal");
+        assert_eq!(*fake.tuned.lock(), ["1_32_2_4_0_0_0"]);
+    }
+
+    #[test]
+    fn the_repeat_tune_reads_a_ticket_and_the_private_key_from_different_places() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let key = Key::new().unwrap();
+        let ticket = Key::new().unwrap();
+        write!(
+            client,
+            "GET /auto/v7.1?consent=1&device=iPad&takeover={} HTTP/1.1\r\nAuthorization: Bearer {}\r\n\r\n",
+            ticket.text().as_str(), key.text().as_str(),
+        ).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let request = read_request(&server).unwrap();
+        assert_eq!(request.path, "/auto/v7.1");
+        assert_eq!(request.device.as_deref(), Some("iPad"));
+        assert!(request.structured);
+        assert_eq!(request.takeover, Some(ticket));
+        assert_eq!(request.stream_key, Some(key));
+    }
+
+    #[test]
+    fn the_stream_send_limit_cuts_off_a_client_that_stops_reading() {
+        let time = Time::default();
+        let facade = Facade::new(
+            Arc::new(Shared(fake_with(&time, rf32(&[]), program(4)))),
+            Identity { name: "LumaTV".into(), device_id: "0A1B2C3D".into() },
+            Limits::default(), time.clock(), served(), None,
         );
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let _client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut socket, _) = listener.accept().unwrap();
+        let size: libc::c_int = 4096;
+        // SAFETY: the option reads the size from a live c_int and the socket owns this descriptor.
+        let set = unsafe {
+            libc::setsockopt(socket.as_raw_fd(), libc::SOL_SOCKET, libc::SO_SNDBUF, (&raw const size).cast(), std::mem::size_of_val(&size) as libc::socklen_t)
+        };
+        assert_eq!(set, 0);
+        let mut stream = facade.open("2.4", OTHER).unwrap();
+        stream_head(&mut socket, &stream.lease, Duration::from_millis(40)).unwrap();
+        struct Backpressure(TcpStream);
+        impl Write for Backpressure {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                let fill = [0u8; 16 * 1024];
+                for _ in 0..32 {
+                    self.0.write_all(&fill)?;
+                }
+                panic!("the client never drains its receive buffer");
+            }
+            fn flush(&mut self) -> io::Result<()> { Ok(()) }
+        }
+        let error = stream.pump(&mut Backpressure(socket), &AtomicBool::new(false)).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(facade.status_doc()["viewers"], serde_json::json!([]));
     }
 
     #[test]

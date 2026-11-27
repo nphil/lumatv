@@ -357,15 +357,8 @@ impl Service {
         // Live TV Tuner: the antenna tuner on the home network, a plugin of the helper's own. Nothing listens and the tuner is left alone
         // until the owner switches it on in Settings. Guide data: online listings laid over the TV's own guide, the tuner's `/xmltv.xml`
         // included, also off until switched on. Both read the TV's channel list through the same luna path.
-        // A device that takes the tuner from the TV's own Live TV is named in a toast of LumaTV's, and Home takes the screen: launching the
-        // Home app (the compositor's Home stub) shows LumaTV's Home; launching `org.nphil.lumatv` shows that app's own page instead.
-        let app = config.brand_app_id.clone().unwrap_or_else(|| "org.nphil.lumatv".to_owned());
         let tv: Arc<dyn lumatuner::Hardware> = Arc::new(lumatuner::webos::Tv::new(
-            lumatuner::webos::WebosConfig {
-                home_app: Some("com.webos.app.home".to_owned()),
-                toast_source: Some(app),
-                ..config.hdhr.webos()
-            },
+            config.hdhr.webos(),
             Arc::new(lumatuner::webos::LunaSend::new(config.luna.send.clone())),
         ));
         // The Plex account: the TV's one sign-in to Plex, whose server Guide data's Plex source uses. What Guide data kept of a Plex
@@ -382,11 +375,15 @@ impl Service {
             lumatuner::Tuner::with_limits(
                 tv.clone(),
                 lumatuner::real_clock(),
-                lumatuner::Limits { viewers: config.hdhr.viewers, ..lumatuner::Limits::default() },
+                lumatuner::Limits {
+                    viewers: config.hdhr.viewers,
+                    stale_after: std::time::Duration::from_secs(config.hdhr.stale_secs.clamp(1, 9)),
+                    ..lumatuner::Limits::default()
+                },
             )
             .with_guide(guide.clone()),
         );
-        // The account's Plex server goes by "Plex" in the tuner's /status.json and on a refused request's slate.
+        // Identifies the paired server in holder descriptions, not whether its requests are for recordings.
         let name_plex = {
             let (plex, tuner) = (plex.clone(), tuner.clone());
             move || {

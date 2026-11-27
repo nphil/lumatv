@@ -14,7 +14,6 @@ use crate::stream::{Facade, Failure, Found, Signal, channels_of};
 use crate::Status;
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr};
-use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime};
 
 /// How a channel comes in.
@@ -181,11 +180,14 @@ impl Facade {
         let total = by_rf.len();
         let mut found = 0;
         for (done, group) in by_rf.values().enumerate() {
-            if lease.replaced.load(Ordering::Acquire) || self.tuning.status() == Status::Off {
+            if lease.replaced() || self.tuning.status() == Status::Off {
                 break;
             }
             if let Some(why) = self.hw.in_use() {
-                self.tuning.refused(&why);
+                self.tuning.change(|now| {
+                    matches!(now, Status::Idle | Status::Busy(_) | Status::Checking { .. })
+                        .then(|| Status::Busy(why.clone()))
+                });
                 return Err(Failure::TvInUse(why));
             }
             self.tuning.change(|now| (*now != Status::Off).then_some(Status::Checking { done, of: total }));

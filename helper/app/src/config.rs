@@ -227,6 +227,8 @@ pub struct HdhrConfig {
     pub mac_file: String,
     /// How many viewers may share the tuner on one RF channel; one more is refused.
     pub viewers: usize,
+    /// How many seconds a blocked send must hold before another tune can release that stream without confirmation (1–9).
+    pub stale_secs: u64,
     /// The TV's own Live TV and the helper share the tuner on one RF channel. Off until the probe on the set shows both keep reading.
     pub share_live_tv: bool,
 }
@@ -234,6 +236,7 @@ pub struct HdhrConfig {
 impl Default for HdhrConfig {
     fn default() -> Self {
         let tv = lumatuner::webos::WebosConfig::default();
+        let limits = lumatuner::Limits::default();
         Self {
             port: 5004,
             bind: None,
@@ -242,7 +245,8 @@ impl Default for HdhrConfig {
             dvb_dir: tv.dvb_dir,
             channel: tv.channel,
             mac_file: "/sys/class/net/eth0/address".to_owned(),
-            viewers: lumatuner::Limits::default().viewers,
+            viewers: limits.viewers,
+            stale_secs: limits.stale_after.as_secs(),
             share_live_tv: tv.share_live_tv,
         }
     }
@@ -1379,16 +1383,18 @@ mod tests {
         assert_eq!(config.fetch.user.as_deref(), Some("nobody"));
         assert!(config.allowed_origins.is_empty());
         assert_eq!(config.nice, 10);
+        assert_eq!(config.hdhr.stale_secs, 6);
     }
 
     #[test]
     fn a_partial_file_overrides_only_what_it_names() {
         let config =
-            Config::parse(r#"{"listen":{"port":19000},"receiver":{"pollMs":5000}}"#).unwrap();
+            Config::parse(r#"{"listen":{"port":19000},"receiver":{"pollMs":5000},"hdhr":{"staleSecs":3}}"#).unwrap();
         assert_eq!(config.listen.port, 19000);
         assert_eq!(config.listen.host, "127.0.0.1");
         assert_eq!(config.receiver.poll_ms, 5000);
         assert_eq!(config.receiver.fast_poll_ms, 250);
+        assert_eq!(config.hdhr.stale_secs, 3);
     }
 
     #[test]

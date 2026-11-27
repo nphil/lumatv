@@ -18,18 +18,18 @@
 //!
 //! It is a network entrance and the tuner is shared with the TV's own use, so a host serves it only when the owner says so, on a private
 //! address of the TV. One tuner: channels on the RF channel it is locked to share it (up to [`Limits::viewers`] viewers, one program each, read
-//! from one tune); a request for another RF channel takes it from every viewer and from the TV's own Live TV ([`Hardware::yield_to`]), Plex's
-//! streams (recordings) excepted, and Live TV opening takes it from the streams.
+//! from one tune); a request for another RF channel needs explicit confirmation to displace any viewer. LG's own Live TV has no
+//! takeover ticket and can still claim the tuner directly.
 //!
 //! | Request | Answer |
 //! |---|---|
 //! | `GET /discover.json` | the device: name, id, `TunerCount` 1, `BaseURL`, `LineupURL` |
 //! | `GET /lineup_status.json` | an antenna, not scanning |
-//! | `GET /status.json` | who has the tuner, nothing tuned or asked of the TV: `{"holder": {"ip", "name", "channel", "channelName", "since"}}` for the first client's stream (`name` as the host knows its address, `Plex` by user agent, else its user agent's product; `since` Unix ms), `{"holder": null}` while no client's stream has it; `"viewers"` lists every stream on the tuner, each with `"rf"` and `"shared"`; `"sameRf"` groups the lineup's channels by RF channel (two or more): `{"rf", "channels": ["2.1", "2.4"]}`; `"displaced"` lists for 60 s the clients another device (or the TV's Live TV) took the tuner from: `{"ip", "name", "by", "byKind": "app"|"tv", "at", "channel", "channelName"}`; `"transcode"` is `{"enabled", "profiles": [{"name", "codec", "maxHeight", "progressive", "kbps", "interlacedFps"}]}`: whether a converter is installed and the profiles it makes, best picture first (`maxHeight` is `null` for the station's own size, `kbps` the video rate at the profile's largest picture, `interlacedFps` the frames a second it makes of a 1080i or 480i station, `null` for a profile that keeps the field rate) |
+//! | `GET /status.json` | the current `holder` and `viewers`, compatible `sameRf` channels, recently `displaced` streams, `transcode` profiles and `consent` protocol version and timing. Does not ask the TV or change the tune. |
 //! | `GET /lineup.json` | the TV's antenna channels (`iepg/getChannelList`), one per number: `GuideNumber` `2.4`, `GuideName`, `URL`, and, once the channel's MPEG-2 picture has been seen on air, `interlaced`, `height` and `fps` (29.97 for 1080i); a channel the owner left out ([`Tuner::hide`]) is not listed |
 //! | `GET /lineup.m3u` | the same lineup as an M3U playlist: `tvg-id` and `tvg-chno` are the guide number, the URL is `/auto/v<number>`, `url-tvg` names `/xmltv.xml` |
 //! | `GET /xmltv.xml` | the TV's own broadcast guide (`iepg/getEventList`, a day back to six days ahead, read once per channel and kept 30 minutes, or until the host's [`Guide`] changes) as XMLTV, UTC, channel ids the guide numbers, or the host's guide made from it when it has one; a channel nobody has listings for has no programmes |
-//! | `GET /auto/v<number>` | MPEG-TS of that channel. With slates ([`slated`]): answered at once with a slate while the channel is tuned, then the programme from its first whole picture, a slate whenever its picture stops or breaks up, and a last slate before the end, on one program and one clock of the tuner's own ([`splice`]). Without: from its first whole picture, a PAT naming the one program, its PMT, then its clock, picture and sound from that picture on; 503 for a channel that cannot start, the reason saying which: no signal (no lock), weak signal (a locked multiplex whose tables did not come whole within 8 s or picture within 5 s, or that the demodulator counts packet errors on), not on air (a clean multiplex whose whole tables do not list it, or that carries no packets of its picture); 403 for a protected program. Either way the client whose stream has the tuner takes it over with its next request; another client gets 503 while it runs, and every client while the TV is in use (with slates: 200 and `last_word` of a slate saying who has it, `Tuner busy: Plex is recording …` or `The TV is using its tuner`, then the end); 404 for no such channel. Each refusal names its HDHomeRun error in `X-HDHomeRun-Error`; none is remembered |
+//! | `GET /auto/v<number>` | MPEG-TS with the public `X-Luma-Stream` and private `X-Luma-Stream-Key` headers. A conflict returns HTTP 503 and error 805 even with slates on; `consent=1` returns a structured description and any single-use takeover ticket. See `docs/plugins/live-tv-tuner.md`. |
 //! | `GET /auto/v<number>?transcode=<profile>` | H.264 instead of MPEG-2, when the host has installed a converter ([`Tuner::transcode`]): `heavy`, `mobile`, `internet540`, `internet480`, `internet360` or `internet240` as an HDHomeRun EXTEND names them (400 with error 802 for another). The stream is as the station sends it when no converter is installed, when one that failed is resting, or when it cannot take that picture; a converter that fails while the stream runs ends it |
 //! | `GET`/`POST /lineup.post` | 200, nothing to start (the lineup is the TV's) |
 //!
@@ -40,6 +40,7 @@
 //! [`health`] is what each channel's streams and checks found; [`meter`] is the reading that helps aim the antenna; [`webos`] is LG's TV
 //! (luna, the DVB nodes and the demodulator's reading); `server` is the listener; [`Tuner`] serves it and says what it is doing.
 
+mod consent;
 pub mod docs;
 pub mod health;
 pub mod meter;
@@ -250,9 +251,9 @@ impl Tuner {
         self.tuning.options.lock().hidden = guides.into_iter().collect();
     }
 
-    /// The names clients at these addresses go by in `/status.json` and on a refused request's slate (the host's Plex server).
+    /// Display names for known peers. The paired server named Plex has no special admission rights.
     pub fn name_peers(&self, names: impl IntoIterator<Item = (std::net::IpAddr, String)>) {
-        self.tuning.options.lock().names = names.into_iter().collect();
+        self.tuning.options.lock().names = names.into_iter().map(|(ip, name)| (ip.to_canonical(), name)).collect();
     }
 
     /// Starts the meter that helps aim the antenna ([`meter`]) on RF channel `rf`, or on the frequency the tuner is on (`None`), or moves

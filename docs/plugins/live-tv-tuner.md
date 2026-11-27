@@ -18,21 +18,19 @@ On the TV's private address, port 5004 (`hdhr` in `helper.json`: `port`, `bind`,
 | `GET /discover.json` | the device: name, id, `TunerCount` 1, `BaseURL`, `LineupURL` |
 | `GET /lineup.json`, `/lineup_status.json` | the TV's antenna channels, one per number (with `interlaced`, `height` and `fps` once a channel has been seen on air, below), and an antenna that is not scanning |
 | `GET /lineup.m3u` | the same lineup as an M3U playlist; `url-tvg` names the guide |
-| `GET /status.json` | who has the tuner, without tuning or asking the TV: `{"holder": {"ip", "name", "channel", "channelName", "since"}}` (`name` is `Plex` for the signed-in Plex server's address or a Plex user agent, else the user agent's product; `since` in Unix ms), or `{"holder": null}` while no client's stream has it; `displaced` lists who lost the tuner (below); `transcode` says whether the converter is on and what it makes (below) |
+| `GET /status.json` | network viewers, recently displaced streams, the channels that can share the tuner, the converter and the consent version; no tune or TV query |
 | `GET /xmltv.xml` | the TV's own guide, a day back to six days ahead, as XMLTV; with the Guide data plugin on, the online listings laid over it ([guide-data.md](guide-data.md)) |
 | `GET /auto/v<number>` | MPEG-TS of one channel (`/auto/v2.4`), starting with the program's PAT and PMT. With the tuner's messages on (the default) it is answered at once and opens with a slate while the channel tunes; otherwise it is answered once the channel's first whole picture has come, and starts with that picture |
 | `GET /auto/v<number>?transcode=<profile>` | the same channel as H.264 from the TV's own video hardware, when the owner has switched that on (*H.264 on request*, below) |
 
-A request the tuner cannot take is refused with the HDHomeRun error a player expects: 503 with `805 All Tuners In Use` (another
-client's stream, or the TV's own Live TV), 404 with `801 Unknown Channel`. With the messages on, a tuner in use is answered with 200
-and 6 s of a slate in the channel's shape instead of 503, then the end: `Tuner busy: Plex is recording <programme> on <channel>` (the
-TV's guide title when it has one), `Tuner busy: in use by <client>`, or `The TV is using its tuner`. Without the messages, a channel that cannot start is refused too, with
-`807 No Video Data` and the reason saying which: "no signal" when it does not lock within 3 s; "weak signal" when the multiplex locks
-but its tables do not come whole within 8 s, its picture (an MPEG-2 sequence header, an H.264 SPS or IDR) does not within 5 s, or the
-demodulator counts packet errors on it; "not on air" only when the multiplex is clean and its whole tables do not list the channel, or
-it carries none of the channel's picture. Nothing of a refusal is kept but the channel's reception: the next request tunes again.
-Other refusals name their HDHomeRun error too (806 tune failed, 811 protected). The helper logs a refusal once a second per client,
-channel and reason, with how many more came (VLC asks again about 20 times a second while the tuner is busy).
+A conflicting plain GET, including an unconfirmed Plex retry, receives `503 Service Unavailable`, `X-HDHomeRun-Error: 805 All Tuners In Use`,
+`Content-Type: text/plain`, `Cache-Control: no-store`, and the exact body `All Tuners In Use`. It does not change the tune, the playing
+streams, or the takeover tickets. It does not send a slate or prompt the TV. What a stock player displays or whether it retries is untested.
+
+Unknown channels receive 404 with `801 Unknown Channel`. Without messages, a channel that cannot start receives `807 No Video Data`:
+"no signal" when it does not lock within 3 s; "weak signal" when the tables do not come whole within 8 s, the picture does not within
+5 s, or the demodulator counts packet errors; "not on air" when the multiplex is clean but has no such program or picture. Other
+refusals also name their HDHomeRun error (806 tune failed, 811 protected).
 
 ## Messages in the stream
 
@@ -103,30 +101,46 @@ measurements.
 
 ## One tuner
 
-The TV has one tuner, which locks one RF channel (frequency); the stations on it (2.1, 2.4, ...) are programs of one multiplex. A
-request for a channel on the RF channel the tuner is on **shares** it: each viewer gets its own program (PAT, PMT and its PIDs) with its
-own start and stop, read from the one tune, and the tuner is let go when the last viewer leaves. Up to 4 viewers (`hdhr.viewers`); one
-more is refused (503). A request that needs a different RF channel takes the tuner: every viewer on the old one is displaced and told
-who took it, and Live TV opening takes it from the streams. A client's next request (a channel change) replaces its own stream. Plex's
-streams count as recordings: they share their RF channel too, are never displaced by a device, and a request for another RF channel is
-refused (503) while Plex has the tuner; Plex does not take it from Live TV (503 `The TV is using its tuner`). `?transcode=` converts per
-viewer, as many at once as the TV's encoder allows (not measured). Live TV in front keeps the tuner from the streams unless
-`hdhr.shareLiveTv` is on (off until the probe on the set shows Live TV and the helper both read one RF channel; untested).
+The tuner locks one RF channel (frequency). Requests for stations on that frequency share the capture, up to four viewers
+(`hdhr.viewers`), each with its own stream. The tuner is let go when the last viewer leaves. A different frequency needs explicit
+requester confirmation before any network viewer is displaced. The TV's native Live TV has no takeover ticket and can still
+claim the hardware. `hdhr.shareLiveTv` allows matching frequencies to share with native Live TV; it is off by default and untested.
 
-On the TV a device that takes the tuner from Live TV shows a LumaTV toast, `<Device> is now using the tuner` (it leaves by itself, in
-the theme's tokens), then LumaTV Home takes the screen and Live TV is closed.
+### Manual admission (`luma-tuner-consent/1`)
 
-**Client contract.** Name the device with `?device=<name>` on `/auto/v<number>` or an `X-Luma-Device: <name>` header (query first;
-percent-escapes and `+` read, 40 characters at most); without one the name is the host's name for the address, else the User-Agent's
-product, else the address. A displaced stream ends cleanly: with slates on, a last 2.5 s slate `Tuner taken by <name>` then the end
-(Live TV taking it says `The TV is using its tuner`); without slates the stream just ends. `GET /status.json` then lists, for 60 s,
-`"displaced": [{"ip", "name", "by", "byKind", "at", "channel", "channelName"}]`: `name` is the displaced client, `by` the taker (the TV's
-own name for Live TV), `byKind` is `app` (a device on the network) or `tv`, `at` Unix ms. A client finds itself by `ip` or `name`; the
-entry goes when the same client starts a stream again.
+`/status.json` advertises `"consent": {"version": 1, "takeoverMs": 30000, "staleMs": 6000}`. `hdhr.staleSecs` sets the socket's
+send timeout (1–9 seconds; default 6). A stalled send ends the stream; waiting for a silent broadcast does not count as a stalled send.
 
-`/status.json` also lists `"viewers": [{"ip", "name", "channel", "channelName", "since", "rf", "shared"}]` (every stream on the tuner, the
-first also as `"holder"`; `shared` is true while another viewer is on the RF channel) and `"sameRf": [{"rf", "channels": ["2.1", "2.4"]}]`
-(the lineup's channels grouped by RF channel, two or more each: these can be watched together).
+`GET /auto/v<number>?consent=1&device=<name>` opts into conflict details. The optional `transcode` parameter is unchanged. A
+conflict receives the same status and headers as the plain GET, except `Content-Type: application/json`, with this shape:
+
+```json
+{"version":1,"error":"takeover_required","takeover":"<opaque>","holders":[{"stream":"s0","name":"iPad","kind":"app","channel":"2.4","channelName":"WEST","since":1794000000000,"rf":32}]}
+```
+
+After explicit confirmation, the requester repeats the same tune with `&takeover=<opaque>`. The ticket expires after 30 s,
+is single-use, and ties the requester (peer, device, profile, and any stream key) and exact target to the same set of leases.
+A holder leaving, joining or reconnecting invalidates outstanding tickets. A stale or incorrect ticket does not allow displacement;
+a fresh offer requires fresh confirmation. `tuner_busy` with `takeover: null` means confirmation is unavailable, including a full
+same-frequency tuner or native TV use. The latter holder has `kind: "tv"` and null fields where the TV cannot supply a value.
+
+Each successful stream returns a public `X-Luma-Stream` and a private `X-Luma-Stream-Key`. Only `Authorization: Bearer <key>`
+proves that a request from the same peer may replace that exact stream on the same frequency. A public stream ID, IP address,
+device label or User-Agent never acts as proof. A channel on another frequency still needs a ticket. Both secrets are for
+short-lived use on the private LAN, not for sharing, persistence or logging. Only the takeover ticket goes in the query.
+
+`viewers` in `/status.json` lists the `holders` fields shown above plus `ip` and `shared`; `holder` is the first network viewer,
+or null. `sameRf` groups channels by `rf` when at least two share it. `since` and `at` are Unix milliseconds. A `device` query
+or `X-Luma-Device` header (query first; URL-decoded, at most 40 characters) supplies the name, otherwise the host's known name,
+User-Agent product or address is used. `kind` is `app` with a device label, `client` without, and `plex` at the paired Plex
+server's address. The latter identifies the server, not why it is tuning.
+
+`displaced` keeps up to 32 entries for 60 s: `{stream, ip, name, by, byKind, at, channel, channelName}`. Players match the public
+`stream` ID, not a name or IP. An admitted stream that is displaced ends; with messages it sends a final slate naming the taker,
+or `The TV is using its tuner` if Live TV took it.
+
+Stock Plex does not identify the exact recording or airing in its tuner request. Viewer events, DVR-specific TV prompts,
+automatic priority when a prompt expires, and skipping an airing are unavailable. Manual admission never changes a Plex booking.
 
 `/status.json` also says what the converter makes: `"transcode": {"enabled", "profiles": [{"name", "codec", "maxHeight", "progressive", "kbps", "interlacedFps"}]}`.
 `enabled` mirrors *Make H.264 for players that ask*. `profiles` lists the profiles measured on the set, best picture first, and is empty while

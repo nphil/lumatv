@@ -45,9 +45,6 @@ const CALL_WAIT: Duration = Duration::from_secs(10);
 /// saw the lock up to 0.1 s late. An RF channel that does not lock (RF 35) reads strength 0 throughout.
 const LOCK_WAIT: Duration = Duration::from_secs(3);
 const LOCK_POLL: Duration = Duration::from_millis(10);
-/// How long Live TV gets to let go of the tuner once it is asked to give way, and how often that is looked at.
-const YIELD_WAIT: Duration = Duration::from_secs(3);
-const YIELD_POLL: Duration = Duration::from_millis(100);
 /// How long a stream's pipeline is kept, still playing, after the stream lets go of it, for the next tune to play its channel on: a
 /// client changing channel asks again at once, and the pipeline's stop and close and the next one's open took 0.13 to 0.19 s on the set
 /// (2026-11-11).
@@ -232,10 +229,6 @@ pub struct WebosConfig {
     /// Where the open broadcast pipeline's id is kept. LG keeps a pipeline when the program that opened it ends, so the next tune closes the
     /// one a run left open when it ended mid-stream.
     pub pipeline_file: PathBuf,
-    /// The TV's home app, launched when Live TV gives way, and the id toasts are sent as ([`Hardware::yield_to`]): none leaves Live TV
-    /// closed with nothing in front of it and no toast.
-    pub home_app: Option<String>,
-    pub toast_source: Option<String>,
     /// Live TV and the helper read one tuner on the same RF channel instead of the helper counting Live TV as using it. Off: LG's pipeline
     /// manager unrealizes the helper's pipeline when Live TV opens (measured 2026-11-05), so it is on only once the probe on the set has
     /// shown that Live TV and the helper's download both keep reading when they share an RF channel.
@@ -249,8 +242,6 @@ impl Default for WebosConfig {
             dvb_dir: "/dev/dvb/adapter0".to_owned(),
             channel: 2,
             pipeline_file: std::env::temp_dir().join("lumatuner-pipeline"),
-            home_app: None,
-            toast_source: None,
             share_live_tv: false,
         }
     }
@@ -697,40 +688,6 @@ impl Hardware for Tv {
             None => "The TV".to_owned(),
         }
     }
-
-    /// Live TV gives the tuner to `by`: a toast says so, the TV's home takes the screen when Live TV was in front, and Live TV is closed
-    /// so its pipeline lets go. Anything else that has the tuner is not Live TV's to give.
-    fn yield_to(&self, by: &str) -> bool {
-        let inner = &self.inner;
-        let Ok(front) = inner.luna("luna://com.webos.applicationManager/getForegroundAppInfo", &json!({})) else {
-            return false;
-        };
-        let in_front = front["appId"].as_str() == Some(LIVE_TV);
-        let running = in_front || inner.pipelines().is_ok_and(|list| list.iter().any(|p| p["currentAppId"].as_str() == Some(LIVE_TV)));
-        if !running {
-            return false;
-        }
-        if let Some(source) = &inner.cfg.toast_source {
-            let _ = inner.luna(
-                "luna://com.webos.notification/createToast",
-                &json!({"sourceId": source, "message": format!("{by} is now using the tuner")}),
-            );
-        }
-        if let Some(home) = inner.cfg.home_app.as_ref().filter(|_| in_front) {
-            let _ = inner.luna("luna://com.webos.applicationManager/launch", &json!({"id": home}));
-        }
-        if inner.luna("luna://com.webos.applicationManager/closeByAppId", &json!({"id": LIVE_TV})).is_err() {
-            return false;
-        }
-        let until = Instant::now() + YIELD_WAIT;
-        while inner.in_use().is_some() {
-            if Instant::now() >= until {
-                return false;
-            }
-            thread::sleep(YIELD_POLL);
-        }
-        true
-    }
 }
 
 impl Hold for Tuned {
@@ -1149,15 +1106,6 @@ mod tests {
                     json!({"returnValue": !closed})
                 }
                 "stop" | "close" => json!({"returnValue": true}),
-                "createToast" => json!({"returnValue": true}),
-                "launch" => {
-                    *self.front.lock() = payload["id"].as_str().unwrap_or("").to_owned();
-                    json!({"returnValue": true})
-                }
-                "closeByAppId" => {
-                    *self.pipelines.lock() = json!({"returnValue": true, "data": "pipeline empty"});
-                    json!({"returnValue": true})
-                }
                 "getSystemSettings" => json!({"returnValue": true, "settings": {"deviceName": "Living Room TV"}}),
                 _ => json!({"returnValue": false, "errorText": "unexpected"}),
             })
@@ -1203,35 +1151,6 @@ mod tests {
         );
         *tv.inner.seed.lock() = Some([0x11; 16]);
         (tv, luna, dir)
-    }
-
-    #[test]
-    fn live_tv_gives_the_tuner_to_a_device_with_a_toast_then_home_and_is_closed_and_only_live_tv_does() {
-        let luna = Arc::new(FakeLuna::default());
-        let tv = Tv::new(
-            WebosConfig {
-                home_app: Some("org.nphil.lumatv".to_owned()),
-                toast_source: Some("org.nphil.lumatv".to_owned()),
-                ..WebosConfig::default()
-            },
-            luna.clone(),
-        );
-        *luna.front.lock() = "netflix".into();
-        *luna.pipelines.lock() = json!([{"currentAppId": "netflix", "type": "media"}]);
-        assert!(!tv.yield_to("Pixel"), "not Live TV's to give");
-        assert!(luna.log.lock().iter().all(|l| !l.contains("createToast") && !l.contains("closeByAppId")));
-
-        *luna.front.lock() = LIVE_TV.into();
-        *luna.pipelines.lock() = json!([{"currentAppId": LIVE_TV, "type": "tv"}]);
-        assert!(tv.yield_to("Pixel"));
-        let calls: Vec<String> = luna.log.lock().iter().map(|l| l.rsplit_once('/').map_or(l.clone(), |(_, m)| m.to_owned())).collect();
-        let at = |name: &str| calls.iter().position(|c| c.starts_with(name)).unwrap_or_else(|| panic!("{name} in {calls:?}"));
-        assert!(at("createToast") < at("launch") && at("launch") < at("closeByAppId"), "toast, then home, then Live TV closed: {calls:?}");
-        assert!(calls[at("createToast")].contains("Pixel is now using the tuner"));
-        assert!(calls[at("launch")].contains("org.nphil.lumatv"));
-        assert!(calls[at("closeByAppId")].contains(LIVE_TV));
-        assert_eq!(tv.in_use(), None);
-        assert_eq!(tv.tv_name(), "Living Room TV");
     }
 
     #[test]

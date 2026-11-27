@@ -13,7 +13,6 @@ use crate::stream::{Facade, Hold, Lease, Signal};
 use parking_lot::{Condvar, Mutex};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -201,7 +200,7 @@ impl Aimer {
 
     /// A stream or a check asked for the tuner the meter holds.
     fn wanted(&self) -> bool {
-        self.held.as_ref().is_some_and(|h| h.lease.replaced.load(Ordering::Acquire))
+        self.held.as_ref().is_some_and(|h| h.lease.replaced())
     }
 
     /// One reading for `aim`: the tuner let go of, taken or kept as `aim` and whoever else wants it say, then the demodulator read.
@@ -216,7 +215,7 @@ impl Aimer {
             // let go of a channel no longer asked for; of a tuner a stream or a check asked for (the next reading says who has it); of one
             // the TV's own use took. The last two are not tuned again before the TV is asked again.
             let retarget = Some(h.rf) != aim;
-            let gone = if retarget || h.lease.replaced.load(Ordering::Acquire) {
+            let gone = if retarget || h.lease.replaced() {
                 Some(None)
             } else if let Some(why) = h.hold.taken() {
                 Some(Some(why))
@@ -333,6 +332,7 @@ impl Drop for Aimer {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
     use super::*;
     use crate::Grade;
     use crate::docs::Identity;

@@ -13,8 +13,7 @@
 //! | no picture for `give_up_tuning` (it never came) or `give_up` (it stopped); no lock; not in the multiplex | `No signal on 16.9` for `last_word` | the end |
 //! | the TV's own Live TV takes the tuner | `The TV is using its tuner` for `last_word` | the end; the TV has the tuner at once |
 //!
-//! A tuner in use (another client's stream, or the TV's own Live TV) is answered with `last_word` of a slate that says who has it
-//! (`Tuner busy`, `Plex is recording …`) and then the end, where an HDHomeRun answers 503. No such channel is still 404.
+//! Refused tunes are HTTP errors, not media streams.
 
 use crate::Status;
 use crate::docs::Entry;
@@ -23,10 +22,10 @@ use crate::mpeg2::Format;
 use crate::psi::{self, PACKET};
 use crate::slate::{Look, Says, Slate};
 use crate::splice::{Layout, Program, Routes};
-use crate::stream::{End, Facade, Failure, Found, Lease, Over, Refusal, Signal, Start, Tap, Unfound, Verify, plain_pids, program};
+use crate::stream::{End, Facade, Failure, Found, Lease, Over, Signal, Start, Tap, Unfound, Verify, plain_pids, program};
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 /// A request that has the tuner, to be answered with slates.
 pub(crate) struct Slated {
@@ -317,33 +316,6 @@ impl Facade {
         play.record();
         end
     }
-
-    /// Answers a request refused for a tuner in use with `last_word` of a slate that says who has it, in the channel's shape and laid
-    /// out as its program (the fallback's for a channel not seen yet), sent as it is due, then ends: a player shows why instead of an
-    /// error, and asks again later. The tuner is not touched.
-    pub(crate) fn refuse(&self, refusal: Refusal, out: &mut dyn Write, stop: &AtomicBool) -> io::Result<()> {
-        let Refusal { entry, look, says, .. } = refusal;
-        let seen = self.tuning.seen(&entry.guide);
-        let format = seen.as_ref().map_or(Format::FALLBACK, |s| s.format);
-        let (layout, tsid) = seen.map_or_else(|| (Layout::fallback(1), 1), |s| (s.layout, s.tsid));
-        let mut slate = Slate::new(look, &entry.guide, &entry.name, format);
-        slate.say(says);
-        let mut show = Show {
-            program: Program::new(tsid, layout, &format),
-            slate,
-            anchor: Duration::ZERO,
-            frames: 0,
-            tables: None,
-            out: Vec::with_capacity(PACKET * 512),
-            held: false,
-        };
-        let start = Instant::now();
-        while start.elapsed() < self.limits.last_word && !stop.load(Ordering::Acquire) {
-            show.tick(start.elapsed(), self.limits.pat_every, out)?;
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        Ok(())
-    }
 }
 
 impl Play<'_> {
@@ -378,10 +350,7 @@ impl Play<'_> {
         if stop.load(Ordering::Relaxed) {
             return Some(End::Stopped);
         }
-        self.lease
-            .replaced
-            .load(Ordering::Acquire)
-            .then(|| self.lease.taker().map_or(End::Replaced, End::Taken))
+        self.lease.replaced().then(|| self.lease.taker().map_or(End::Replaced, End::Taken))
     }
 
     /// The tuning slate's bar at `step`, begun at `since`.
@@ -402,10 +371,21 @@ impl Play<'_> {
     fn run(&mut self, out: &mut dyn Write, stop: &AtomicBool) -> io::Result<Ran> {
         let f = self.facade;
         let lim = &f.limits;
+        if let Some(end) = self.given_up(stop) {
+            return match &end {
+                End::Taken(by) => self.last(Says::Taken(by.clone()), end, out).map(Ran::Over),
+                _ => Ok(Ran::Over(end)),
+            };
+        }
         self.tuning(0, self.asked);
         self.tick(out)?;
         let mut tap = match f.attach(&self.entry) {
             Ok(tap) => tap,
+            Err(Failure::TvInUse(why)) => {
+                self.over.then = crate::Status::Busy(why.clone());
+                self.lease.taken_by_tv(&f.hw.tv_name());
+                return self.last(Says::TvInUse, End::Preempted(why), out).map(Ran::Over);
+            }
             Err(why @ Failure::NoSignal(_)) => {
                 self.read_signal();
                 return self.last(Says::NoSignal, End::Failed(why), out).map(Ran::Over);
@@ -705,13 +685,14 @@ impl Play<'_> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::consent::TuneRequest;
     use crate::docs::Identity;
     use crate::health::Tables;
     use crate::slate::tests::look;
     use crate::psi::tests::pmt;
     use crate::splice::{AUDIO, PMT, VIDEO, head, write_stamp};
     use crate::stream::tests::{Multiplex, PLEX, Time, rf32, served};
-    use crate::stream::{Admitted, Hardware, Limits};
+    use crate::stream::{Admitted, Hardware, Limits, Rejected};
     use parking_lot::Mutex;
     use serde_json::{Value, json};
     use std::collections::VecDeque;
@@ -928,7 +909,7 @@ pub(crate) mod tests {
     }
 
     fn play(f: &Facade) -> (Vec<u8>, End) {
-        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX, None, None, None) else {
+        let Ok(Admitted::Slated(s)) = f.admit("2.4", TuneRequest::new(PLEX)) else {
             panic!("not slated");
         };
         let mut out = Vec::new();
@@ -1025,7 +1006,7 @@ pub(crate) mod tests {
         let script = Script::new(&time, stops_at_two());
         let f = facade(&script, quick());
         f.tuning.saw("2.4", Seen { format: SHAPE, layout: Layout::fallback(1), tsid: 1 });
-        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX, None, None, None) else {
+        let Ok(Admitted::Slated(s)) = f.admit("2.4", TuneRequest::new(PLEX)) else {
             panic!("not slated");
         };
         let mut out = Writes::default();
@@ -1070,31 +1051,31 @@ pub(crate) mod tests {
         let time = Time::default();
         let script = Script::new(&time, stops_at_two());
         let f = Arc::new(facade(&script, quick()));
-        let Ok(Admitted::Slated(s)) = f.admit("2.4", PLEX, None, None, None) else {
+        let Ok(Admitted::Slated(s)) = f.admit("2.4", TuneRequest::new(PLEX)) else {
             panic!("not slated");
         };
-        let claim = crate::stream::Claim {
-            peer: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 71)),
-            agent: None,
-            device: Some("Pixel".into()),
-            recording: false,
-            guide: "2.1".into(),
-            name: "WSB-HD".into(),
-            channel_id: "1_25_2_1_0_0_0".into(),
-            since_ms: 0,
+        let peer = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 71));
+        let entry = Entry { channel_id: "1_25_2_1_0_0_0".into(), ..f.lineup().unwrap().remove(0) };
+        let request = TuneRequest { device: Some("Pixel"), structured: true, ..TuneRequest::new(peer) };
+        let Err(Rejected::Busy(conflict)) = f.take_for(&entry, request) else {
+            panic!("expected a takeover offer");
         };
+        assert!(conflict.takeover.is_some());
+        let request = TuneRequest { takeover: conflict.takeover, ..request };
         let taker = {
             let f = f.clone();
-            thread::spawn(move || f.tuning.take_stream(claim, "Pixel".into(), 4, Duration::from_secs(5)).map(drop))
+            thread::spawn(move || f.take_for(&entry, request).map(drop))
         };
-        while !s.lease.replaced.load(Ordering::Acquire) {
+        let end = std::time::Instant::now() + Duration::from_secs(5);
+        while !s.lease.replaced() {
+            assert!(std::time::Instant::now() < end);
             thread::yield_now();
         }
         let mut out = Vec::new();
         let end = f.play(s, &mut out, &AtomicBool::new(false)).unwrap();
         assert_eq!(end, End::Taken("Pixel".into()));
         assert!(!pictures(&out).is_empty(), "the last slate went out");
-        assert_eq!(taker.join().unwrap(), Ok(()), "the tuner is the device's once the stream let go");
+        assert!(taker.join().unwrap().is_ok(), "the tuner is the device's once the stream let go");
     }
 
     #[test]
@@ -1198,7 +1179,7 @@ pub(crate) mod tests {
         f.tuning.options.lock().hidden = ["2.1".to_owned()].into();
         assert_eq!(f.lineup().unwrap().iter().map(|e| e.guide.as_str()).collect::<Vec<_>>(), ["2.4"]);
         f.tuning.options.lock().look = Some(Arc::new(|| None));
-        assert!(!matches!(f.admit("2.4", PLEX, None, None, None), Ok(Admitted::Slated(_))));
+        assert!(!matches!(f.admit("2.4", TuneRequest::new(PLEX)), Ok(Admitted::Slated(_))));
     }
 
     #[test]
