@@ -285,7 +285,7 @@ fn the_entitys_documents_are_served_for_the_card_and_the_view_and_the_built_in_s
     let rig = rig(&ha.url(), |_| {});
     let weather = rig.wait_topic("weather", WAIT, has_doc).expect("the entity's weather");
     assert_eq!(weather["doc"]["zip"], "ha:weather.pirate_weather");
-    assert_eq!(weather["doc"]["display"]["place"], "Pirate Weather");
+    assert_eq!(weather["doc"]["display"]["place"], "", "the entity name is a provider, not a location");
     assert_eq!(weather["doc"]["display"]["temp"], "61\u{b0}", "16 \u{b0}C in the card's Fahrenheit");
     assert_eq!(weather["doc"]["display"]["cond"], "Rain");
     assert_eq!(weather["doc"]["display"]["days"].as_array().unwrap().len(), 2);
@@ -350,7 +350,7 @@ fn a_saved_reading_is_served_stale_while_home_assistant_cannot_be_reached() {
     let failed = rig.wait_topic("weather", WAIT, |v| v["status"]["failures"].as_u64().unwrap_or(0) >= 1).expect("the attempt that failed");
     assert_eq!(failed["state"], "stale");
     assert_eq!(failed["doc"]["fetchedAt"], saved["doc"]["fetchedAt"], "nothing replaced it");
-    assert_eq!(failed["doc"]["place"], "Pirate Weather");
+    assert_eq!(failed["doc"]["place"], saved["doc"]["place"]);
 }
 
 #[test]

@@ -145,7 +145,7 @@ fn detail_rows(c: &Ctx) -> Vec<Row> {
     let busy = c.local.get(BUSY).as_bool() == Some(true);
     let mut rows: Vec<Row> = problem(c).into_iter().collect();
     if in_use {
-        rows.push(Row::link("edit").icon("move").label("Edit on Home").enabled(!busy).does(vec![Op::Shell(ShellRequest::EditHome)]));
+        rows.push(Row::link("edit").icon("layout-grid").label("Edit on Home").enabled(!busy).does(vec![Op::Shell(ShellRequest::EditHome)]));
     } else {
         rows.push(Row::action("use", "Use").icon("check").label("Use this dashboard").enabled(!busy).does(send(guard.body("activate", id))));
     }

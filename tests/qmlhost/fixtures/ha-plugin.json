@@ -648,6 +648,17 @@
           "version": "1"
         },
         {
+          "approve": "66acc7a26430fa881ac6be2fa51b26dd1ebda9b471334532bc1726cb071caa9f",
+          "class": "S",
+          "consent": "Lets this TV listen for a wake word and take what is said after it to Home Assistant. While this is on and the TV is paired with Home Assistant, the microphone is open: the TV listens for the wake word itself, and nothing is sent or kept until it hears it. What is said after it goes to Home Assistant, which answers; the TV shows both on the screen and speaks the answer, except from 01:00 to 07:00 (changeable on this page), when it only shows it. The TV also shows what other Home Assistant assistants in the same room hear and say. Turning this off closes the microphone.",
+          "firstParty": true,
+          "id": "voice-assistant",
+          "name": "Voice assistant",
+          "registered": false,
+          "state": "off",
+          "version": "1"
+        },
+        {
           "class": "S",
           "firstParty": true,
           "id": "weather",

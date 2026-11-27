@@ -358,7 +358,7 @@ fn the_weather_card_takes_the_entity_home_assistant_sends_with_no_link_or_token(
     let sent = recorded["snapshot"].as_object().unwrap().clone();
     it.send(&Message::Other { module: "weather".into(), kind: "snapshot".into(), body: sent }).unwrap();
     let (doc, more) = reader.join().unwrap().expect("the module's documents");
-    assert_eq!((doc.display.place.as_str(), doc.display.temp.as_str(), doc.lat, more.lon), ("Pirate Weather", "58\u{b0}", 33.75, -84.39));
+    assert_eq!((doc.display.place.as_str(), doc.display.temp.as_str(), doc.lat, more.lon), ("", "58\u{b0}", 33.75, -84.39));
     // the integration goes: the card is not served from what it said, and no link means no other way in
     it.bye("unloaded").unwrap();
     let deadline = Instant::now() + WITHIN;

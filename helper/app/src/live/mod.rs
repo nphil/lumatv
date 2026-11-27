@@ -163,16 +163,14 @@ pub fn real_dial() -> Dial {
             // the bridge holds the DESCRIBE of a battery camera's call for up to 45 s and then refuses it: its answer comes before this gives up
             Patience::Battery => (BATTERY_FIRST_PICTURE + Duration::from_secs(5), BATTERY_FIRST_PICTURE),
         };
-        Rtsp::connect(
-            &url,
-            &Options {
-                connect_timeout: Duration::from_secs(3),
-                reply_timeout,
-                first_picture_timeout,
-                user_agent: "LumaTV".to_owned(),
-                ..Options::default()
-            },
-        )
+        let mut options = Options {
+            connect_timeout: Duration::from_secs(3),
+            reply_timeout,
+            first_picture_timeout,
+            ..Options::default()
+        };
+        options.user_agent.replace_range(.., "LumaTV");
+        Rtsp::connect(&url, &options)
     })
 }
 
