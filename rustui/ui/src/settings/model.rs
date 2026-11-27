@@ -1522,7 +1522,7 @@ impl ScreenModel for Model {
         }
         self.sync_theme_preview();
         if self.rev != rev {
-            self.place_focus();
+            self.place_focus(matches!(input, Input::Fetched { .. }));
         }
         if self.rev != rev && self.open && !out.iter().any(|e| matches!(e, Effect::Redraw)) {
             out.push(Effect::Redraw);
@@ -1546,21 +1546,28 @@ impl ScreenModel for Model {
 }
 
 impl Model {
-    /// A page that has the focus and no stop yet (its rows had not come when it was entered) puts the stop on its first row now.
-    fn place_focus(&mut self) {
+    /// Place an unset stop, or repair one whose row a helper reply removed.
+    fn place_focus(&mut self, check_row: bool) {
         if !self.open || self.zone != Zone::Page {
             return;
         }
-        let id = self.current.clone();
-        let st = self.state(&id);
-        if st.stop != Stop::Unset {
+        let st = self.states.get(&self.current);
+        let stop = st.map_or(&Stop::Unset, |st| &st.stop);
+        if *stop == Stop::Tabs || (!check_row && *stop != Stop::Unset) {
             return;
         }
         let rows = self.rows();
-        let mut st = st;
-        if let Some(f) = first(&rows, st.tab) {
-            enter(&mut st, &rows, f);
-            self.states.insert(id, st);
+        let tab = st.map_or(0, |st| st.tab);
+        // Even a temporarily disabled row can still anchor D-pad navigation.
+        if let Stop::Row(id) = stop
+            && rows.iter().any(|r| r.id == *id && r.tab == tab && r.visible)
+        {
+            return;
+        }
+        if let Some(i) = first(&rows, tab) {
+            enter(self.states.entry(self.current.clone()).or_default(), &rows, i);
+        } else if let Some(st) = self.states.get_mut(&self.current) {
+            st.stop = Stop::Unset;
         }
     }
 
@@ -2086,6 +2093,68 @@ mod tests {
         let p = v.page.unwrap();
         assert_eq!((p.title.as_str(), p.back.as_deref()), ("Kid", Some("Alpha")));
         assert_eq!(p.focused_row().map(|r| r.id.as_str()), Some("kid:info"), "a row that only shows is reached by the D-pad when it has help");
+    }
+
+    #[test]
+    fn dashboard_reads_recover_remote_focus_without_moving_a_valid_stop() {
+        let mut m = Model::new(crate::settings::pages::all(), json!({}), json!({}));
+        m.update(
+            &Input::Helper {
+                topic: "profiles".into(),
+                data: json!({"ready": true, "active": "ana", "profiles": [{"id": "ana", "name": "Ana", "active": true, "owner": true}]}),
+            },
+            0,
+        );
+        let book = json!({"ok": true, "data": {
+            "profile": "ana", "revision": "r1", "active": "home",
+            "dashboards": [{"id": "home", "name": "Home"}, {"id": "news", "name": "News"}],
+        }});
+        let read = |fx: Vec<Effect>| {
+            fx.into_iter()
+                .find_map(|e| match e {
+                    Effect::Request { tag, method, path, .. } if method == "GET" && path == crate::home::dashboard::PATH => Some(tag),
+                    _ => None,
+                })
+                .expect("dashboard read")
+        };
+        let loaded = |m: &mut Model, tag, now| m.update(&Input::Fetched { tag, status: 200, data: book.clone() }, now);
+        let failed = |m: &mut Model, tag, now| m.update(&Input::Fetched { tag, status: 503, data: json!({"ok": false}) }, now);
+        let focus = |m: &Model, id: &str| assert_eq!(m.view().page.unwrap().focused_row().map(|r| r.id.as_str()), Some(id));
+
+        m.open(Some("profiles"), 10);
+        press(&mut m, "down", 20);
+        focus(&m, "dashboards");
+        let tag = read(press(&mut m, "ok", 50));
+        focus(&m, "retry");
+        loaded(&mut m, tag, 80);
+        focus(&m, "d:home");
+        press(&mut m, "down", 110);
+        focus(&m, "d:news");
+
+        press(&mut m, "back", 140);
+        let tag = read(press(&mut m, "ok", 170));
+        loaded(&mut m, tag, 200);
+        focus(&m, "d:news");
+
+        press(&mut m, "back", 230);
+        let tag = read(press(&mut m, "ok", 260));
+        failed(&mut m, tag, 290);
+        focus(&m, "retry");
+        let tag = read(press(&mut m, "ok", 320));
+        loaded(&mut m, tag, 350);
+        focus(&m, "d:home");
+        press(&mut m, "down", 380);
+        focus(&m, "d:news");
+
+        let tag = read(press(&mut m, "ok", 410));
+        assert_eq!(m.current(), "dashboard");
+        failed(&mut m, tag, 440);
+        focus(&m, "retry");
+        let tag = read(press(&mut m, "ok", 470));
+        loaded(&mut m, tag, 500);
+        focus(&m, "use");
+        press(&mut m, "down", 530);
+        focus(&m, "rename");
     }
 
     #[test]
