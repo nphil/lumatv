@@ -9,6 +9,10 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+Profile dashboards installed, 2026-11-27 (main `a8c378be`): UI `397ff678`, helper `13fb649f`. On the TV the profile guide opened a blank draft on first entry; adding, sizing by cell, moving, removing, undoing and discarding a clock restored all five original widgets. At 120 Hz output, pointer hover and D-pad focus had no missed refreshes in 12 and 11 moving intervals (longest 8.4 and 8.3 ms). Input was injected; the physical gyro, new-profile creation and saving a named dashboard were not exercised on the set.
+
+Home weather motion was off and was restored without enabling wallpaper motion. Changed sky pixels on the 5×9 Overcast card: 0% before, 9.54% after, 10.85% after returning from the guide; the static forecast region stayed at 0%. Receipts and original rollback binaries: `/data/home/tmp/dashboard-20261127-0cdcde52/`.
+
 Live TV Tuner manual admission v1 protects network viewers from unconfirmed retunes; not installed on the TV. Stock Plex DVR prompts and airing skips are unsupported.
 
 Chip cursor and underline fix installed, 2026-11-25 (main cd7a8f76): lumatv-ui 4723e0e4 -> 1cb5ac54 live via `tv_install.py --only ui --now` (compositor f12ceef8 untouched; the diff from its base is UI-only). 120 Hz gate (panel 119.9): `settings-scroll` 3 runs and `home-widgets` 1 run 0 dropped; `apps-grid` 0 dropped in 3 of 4 runs (the first, right after the swap, dropped 3 with 1 burst over 20 ms). Accepted on the TV: Game Optimizer Input row, cursor on unselected HDMI 3, lifted chip without outline (`/data/home/tmp/shots/chip-cursor-on-tv.png`).
