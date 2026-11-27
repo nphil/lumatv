@@ -9,6 +9,8 @@ live with the owner.
 Start with [AGENTS.md](AGENTS.md) for the component map, build and install path
 and the standing rules; this file is the dated record behind it.
 
+Prime Video helper installed, 2026-11-27 (main `d58ceb55`): both helper copies `13fb649f` → `31e01342`. Prime reopened and requested `wave2`: source `6e939013`, filtered `8115ae9b`, protection `active`, no missed rules. The same source had previously been served unmodified because only six of seven pre-roll checks matched. Playback across an actual ad break remains unverified. HomeLabber receipt `299d3373-ebd7-44d8-a264-338bd69d8816`.
+
 Profile dashboards installed, 2026-11-27 (main `a8c378be`): UI `397ff678`, helper `13fb649f`. On the TV the profile guide opened a blank draft on first entry; adding, sizing by cell, moving, removing, undoing and discarding a clock restored all five original widgets. At 120 Hz output, pointer hover and D-pad focus had no missed refreshes in 12 and 11 moving intervals (longest 8.4 and 8.3 ms). Input was injected; the physical gyro, new-profile creation and saving a named dashboard were not exercised on the set.
 
 Home weather motion was off and was restored without enabling wallpaper motion. Changed sky pixels on the 5×9 Overcast card: 0% before, 9.54% after, 10.85% after returning from the guide; the static forecast region stayed at 0%. Receipts and original rollback binaries: `/data/home/tmp/dashboard-20261127-0cdcde52/`.
