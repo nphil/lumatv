@@ -373,6 +373,11 @@ fn plan_week(w: f32, h: f32, k: f32, data: Data) -> Option<Plan> {
     Some(Plan { w, split: false, hero_w: sw, hero_bottom: head, place, temp, cond, feels, smart: None, hours: None, days: None, art, week: Some(week), panel: Panel::new(frame) })
 }
 
+/// Forecast capacity, regardless of whether the feed has arrived.
+pub(super) fn forecast_days(w: f32, h: f32, scale: f32) -> usize {
+    plan_week(w / scale, h / scale, scale, Data::default()).and_then(|p| p.week).map_or(0, |week| week.n)
+}
+
 /// The text of a line, and whose ink it is in.
 type Change = (usize, String, Ink);
 

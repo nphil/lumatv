@@ -84,6 +84,9 @@ fn rows(c: &Ctx) -> Vec<Row> {
         row.detail = [if owner { "Owner" } else { "" }, if locked { "PIN" } else { "" }].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" \u{b7} ");
         rows.push(row.does(vec![Op::Open { page: "profile".into(), arg: PageArg::Json(json!({"id": id})) }]));
     }
+    if crate::home::dashboard::profile(t).is_some() {
+        rows.push(dashboards_link());
+    }
     let max = t.get("max").and_then(Value::as_u64).unwrap_or(6) as usize;
     let full = people.len() >= max;
     let colour = COLOURS[people.len() % COLOURS.len()].0;
@@ -133,6 +136,11 @@ fn rows(c: &Ctx) -> Vec<Row> {
     rows
 }
 
+fn dashboards_link() -> Row {
+    Row::link("dashboards").icon("layout-grid").label("Dashboards")
+        .does(vec![Op::Open { page: "dashboards".into(), arg: PageArg::None }])
+}
+
 /// The profile a person's page is about.
 fn subject<'a>(c: &'a Ctx) -> Option<&'a Value> {
     let id = c.arg.str("id")?;
@@ -155,6 +163,9 @@ fn person_rows(c: &Ctx) -> Vec<Row> {
     let path = format!("/v1/profiles/{id}");
     let mut rows = Vec::new();
     rows.push(face_row(p, &path, mine, &who.owner));
+    if active && topic(c).and_then(crate::home::dashboard::profile).is_some() {
+        rows.push(dashboards_link());
+    }
     let name_ops = {
         let path = path.clone();
         vec![Op::Entry {

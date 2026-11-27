@@ -6,6 +6,8 @@
 pub mod apps;
 pub mod bar_date;
 pub mod clock;
+pub(crate) mod dashboard;
+mod dashboard_sizes;
 pub mod dock;
 pub mod editor;
 pub mod grid;

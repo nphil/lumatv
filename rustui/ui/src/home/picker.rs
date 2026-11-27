@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use ui::geometry::Frame;
 
 pub const TILE_ID: u32 = 1000;
+pub const DASHBOARDS_ID: Id = Id(1090);
 pub const PAD_ID: u32 = 1100;
 pub const TILES: Region = Region(12);
 pub const PAD: Region = Region(13);
@@ -56,6 +57,7 @@ pub struct Pin {
 pub enum PickerOut {
     Nothing,
     Close,
+    Dashboards,
     Switch { id: String, pin: Option<String> },
 }
 
@@ -66,6 +68,7 @@ pub struct Picker {
     pub picker_on_wake: bool,
     pub index: usize,
     pub pin: Option<Pin>,
+    pub dashboards: bool,
     pub veil: Option<Veil>,
     pub reduced: bool,
     opened_at: u64,
@@ -79,6 +82,7 @@ impl Picker {
     pub fn set_profiles(&mut self, topic: &Value) {
         self.can_admin = topic.get("canAdmin").and_then(Value::as_bool).unwrap_or(false);
         self.picker_on_wake = topic.get("pickerOnWake").and_then(Value::as_bool).unwrap_or(false);
+        self.dashboards = super::dashboard::profile(topic).is_some();
         self.profiles = topic
             .get("profiles")
             .and_then(Value::as_array)
@@ -122,6 +126,10 @@ impl Picker {
         Frame::new(x0 + i as f32 * (TILE + TILE_GAP), 400.0, TILE, TILE)
     }
 
+    pub fn dashboards_frame(&self) -> Frame {
+        Frame::new(750.0, 754.0, 420.0, 104.0)
+    }
+
     /// The pad under the dots, centred under the asked tile's column of the screen.
     pub fn pad_frame(&self, i: usize) -> Frame {
         let (col, row) = (i % 3, i / 3);
@@ -139,6 +147,11 @@ impl Picker {
             } else {
                 focus.unregister(id);
             }
+        }
+        if self.pin.is_none() && self.dashboards {
+            focus.register(DASHBOARDS_ID, self.dashboards_frame(), TILES, scope);
+        } else {
+            focus.unregister(DASHBOARDS_ID);
         }
         for i in 0..12u32 {
             let id = Id(PAD_ID + i);
@@ -159,6 +172,7 @@ impl Picker {
     }
 
     pub fn unregister(&self, focus: &mut Focus) {
+        focus.unregister(DASHBOARDS_ID);
         for i in 0..8 {
             focus.unregister(Id(TILE_ID + i));
         }
@@ -213,7 +227,25 @@ impl Picker {
             return PickerOut::Close;
         }
         if name == "ok" {
+            if let Some(id) = focus.current() {
+                if id == DASHBOARDS_ID && self.pin.is_none() && self.dashboards {
+                    return PickerOut::Dashboards;
+                }
+                self.take(id);
+            }
             return self.activate(focus, now);
+        }
+        if self.pin.is_none() && self.dashboards {
+            if dir == Some(Dir::Down) {
+                focus.focus(DASHBOARDS_ID);
+                return PickerOut::Nothing;
+            }
+            if focus.current() == Some(DASHBOARDS_ID) {
+                if dir == Some(Dir::Up) {
+                    focus.focus(Id(TILE_ID + self.index as u32));
+                }
+                return PickerOut::Nothing;
+            }
         }
         if let Some(d) = dir
             && let Moved::To(_, to) = focus.step(d)
@@ -254,6 +286,9 @@ impl Picker {
     }
 
     pub fn clicked(&mut self, id: Id, focus: &mut Focus, now: u64) -> PickerOut {
+        if id == DASHBOARDS_ID && self.pin.is_none() && self.dashboards {
+            return PickerOut::Dashboards;
+        }
         self.take(id);
         self.activate(focus, now)
     }

@@ -35,6 +35,7 @@ lumavoice.workspace = true
 wake-word.workspace = true
 lumaremote.workspace = true
 lumatv-ambient.workspace = true
+lumatv-home-grid = { path = "../home-grid" }
 lumatv-placement.workspace = true
 lumatv-saver.workspace = true
 lumatv-denon.workspace = true

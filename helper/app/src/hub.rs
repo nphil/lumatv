@@ -202,6 +202,11 @@ impl Hub {
         self.inner.lock().topics.get(topic).cloned()
     }
 
+    /// Project display fields from current topics without copying their full documents.
+    pub(crate) fn inspect_topics<R>(&self, f: impl FnOnce(&BTreeMap<String, Value>) -> R) -> R {
+        f(&self.inner.lock().topics)
+    }
+
     /// Every topic and the `seq` they are current to, read together.
     pub fn snapshot(&self) -> Snapshot {
         let inner = self.inner.lock();

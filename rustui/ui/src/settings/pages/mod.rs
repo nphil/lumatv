@@ -12,6 +12,7 @@ pub mod bluetooth;
 pub mod buttons;
 pub mod cameras;
 pub mod capture;
+pub mod dashboards;
 pub mod game_optimizer;
 pub mod gaming;
 pub mod guide_data;
@@ -66,6 +67,8 @@ pub fn all() -> Vec<Page> {
         privacy::held(),
         profiles::person(),
         profiles::avatars(),
+        dashboards::page(),
+        dashboards::detail(),
         home::popups(),
         themes::page(),
         widgets::page(),

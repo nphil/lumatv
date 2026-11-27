@@ -18,6 +18,7 @@ use super::widgets::Words;
 use crate::kit::button::{Button, Place, Spec, Tone};
 use crate::kit::flow::Lifted;
 use crate::kit::focus::Region;
+use crate::kit::hint::{Action, Hint, HintRow, Key, RowAt};
 use crate::kit::viewport::Reach;
 use crate::kit::pane::PaneKind;
 use crate::kit::picture::{self};
@@ -542,26 +543,74 @@ impl SearchSurface {
 }
 
 // ---- the layout editor
+struct EditorOptions {
+    _glass: GlassLayer,
+    _rows: Block,
+    _icons: Vec<ImageLayer>,
+    mark: ShapeLayer,
+    key: (Zone, u64),
+}
+
+impl EditorOptions {
+    fn new(kit: &mut Kit, ed: &Editor, z: i32, key: (Zone, u64)) -> std::io::Result<Self> {
+        let frame = ed.options_frame();
+        let glass = kit.ui.scene.glass(frame.w as u32, frame.h as u32, z, glass_of(kit, PaneKind::Sheet, frame.h, false, false), Props::at(frame.x, frame.y));
+        let ink = kit.ui.look.ink();
+        let ty = role_style(kit, TypeRole::Label, None, ink, Align::Left);
+        let side = (26.0 * kit.text_scale).round() as u32;
+        let inset = kit.space(4);
+        let mut words = Vec::with_capacity(ed.options_len());
+        let mut icons = Vec::with_capacity(ed.options_len());
+        for i in 0..ed.options_len() {
+            let row = ed.option_frame(i);
+            let (label, glyph) = ed.option(i);
+            let ix = row.x + inset;
+            let tx = ix + side as f32 + inset;
+            let available = row.x + row.w - tx - inset;
+            let style = kit.ty(TypeRole::Label);
+            let label = ui::components::text::ellipsise(&mut kit.ui.fonts, &label, style, available);
+            words.push((Frame::new(tx - frame.x, row.y - frame.y, available, row.h), ty, label));
+            if let Some(icon) = crate::kit::icon::layer(kit, glyph, side, ink, z + 2, Props::at(ix, (row.y + (row.h - side as f32) / 2.0).round()))? {
+                icons.push(icon);
+            }
+        }
+        let rows = Block::new(&mut kit.ui, frame, z + 2, words)?;
+        let row = ed.option_frame(0);
+        let shape = Shape {
+            corner_radius: kit.tokens.radius(Radius::Row),
+            fill: Fill::Solid(kit.ui.look.colour(PaletteRole::GlassRaised)),
+            border_width: 3.0,
+            border: kit.ui.look.colour(PaletteRole::Focus),
+        };
+        let mark = kit.ui.scene.shape(row.w as u32, row.h as u32, z + 1, shape, HIDDEN);
+        Ok(Self { _glass: glass, _rows: rows, _icons: icons, mark, key })
+    }
+}
+
 pub struct EditorSurface {
     cells: ImageLayer,
     ring: ShapeLayer,
+    ring_key: Option<(grid::Rect, Mode, bool)>,
+    control_ring: ShapeLayer,
+    control_key: Option<Frame>,
     corner: ShapeLayer,
     corner_glyph: Option<ImageLayer>,
     ghost: ShapeLayer,
-    bar: GlassLayer,
+    ghost_key: Option<(grid::Rect, bool)>,
+    _bar: GlassLayer,
     bar_text: Block,
+    move_hints: [HintRow; 2],
     buttons: Vec<Button>,
-    add_pane: GlassLayer,
-    add_rows: Block,
-    add_focus: ShapeLayer,
+    options: Option<EditorOptions>,
     toast: GlassLayer,
     toast_text: Text,
+    ask_scrim: ShapeLayer,
     ask_pane: GlassLayer,
     ask_title: Text,
     ask_buttons: Vec<Button>,
-    cells_key: String,
+    cells_key: Option<(u64, grid::Rect)>,
     toast_key: String,
-    enabled_key: String,
+    hint_key: &'static str,
     hint_w: f32,
     z: i32,
 }
@@ -571,9 +620,10 @@ impl EditorSurface {
         let ed = home.editor.as_ref().ok_or_else(|| std::io::Error::other("no editor"))?;
         let ink = kit.ui.look.ink();
         let ink2 = kit.ui.look.ink2();
-        let a = grid::area(&ed.work);
+        let a = ed.area();
         let cells = kit.ui.scene.image(a.w as u32, a.h as u32, z, Props::at(a.x as f32, a.y as f32))?;
         let ring = kit.ui.scene.shape(8, 8, z + 1, plate::ring(kit.ui.look.accent(), kit.tokens.radius(Radius::Card) + 6.0, 3.0), HIDDEN);
+        let control_ring = kit.ui.scene.shape(8, 8, z + 16, plate::ring(kit.ui.look.colour(PaletteRole::Focus), kit.tokens.radius(Radius::Control), 3.0), HIDDEN);
         let corner = kit.ui.scene.shape(36, 36, z + 2, plate::solid(kit.ui.look.accent(), 18.0), HIDDEN);
         let corner_glyph = crate::kit::icon::layer(kit, "chevron-right", 22, kit.ui.look.accent_ink(), z + 3, HIDDEN)?;
         let ghost = kit.ui.scene.shape(8, 8, z + 1, plate::ring(kit.ui.look.accent(), kit.tokens.radius(Radius::Card), 3.0), HIDDEN);
@@ -581,73 +631,70 @@ impl EditorSurface {
         let mut g = glass_of(kit, PaneKind::Sheet, bf.h, false, false);
         g.corner_radius = kit.tokens.radius(Radius::Sheet) / 2.0;
         let bar = kit.ui.scene.glass(bf.w as u32, bf.h as u32, z + 4, g, Props::at(bf.x, bf.y));
-        // the heading and the hint take the room left of the buttons; at a text size where the buttons fill the bar they are left out
-        // (the buttons say what the bar is)
-        let heading_w = (200.0 * kit.text_scale.max(1.0)).round();
-        let first_button = ed.buttons()[0].frame.x;
-        let room = first_button - bf.x - kit.space(6) - kit.space(4);
-        let heading_w = if room >= heading_w { heading_w } else { 0.0 };
-        let hint_w = (room - heading_w).max(0.0);
+        let heading = if ed.start.guided() { "Dashboard guide" } else if ed.start.is_new() { "New dashboard" } else { "Edit Home" };
+        let heading_style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left);
+        let heading_w = width_of(kit, heading_style, heading) + kit.space(5);
+        let heading_x = kit.space(5);
+        let h = ed.header_h();
+        let arrows = Hint { keys: [Key::Up, Key::Down, Key::Left, Key::Right].map(|k| (k, false)).to_vec(), action: Some(Action::Move), label: None };
+        let place = Hint::key(Key::Ok, Action::Confirm);
+        let role = TypeRole::Caption;
+        let end = bf.x + bf.w - kit.space(5);
+        let place_x = end - HintRow::width_of(kit, &place, role);
+        let arrows_x = place_x - kit.space(4) - HintRow::width_of(kit, &arrows, role);
+        let mut move_hints = [
+            HintRow::new(kit, &arrows, role, RowAt { x: arrows_x, y: bf.y, h, z: z + 5 }, ink2)?,
+            HintRow::new(kit, &place, role, RowAt { x: place_x, y: bf.y, h, z: z + 5 }, ink2)?,
+        ];
+        for hint in &mut move_hints { hint.set_visible(false); }
+        let hint_x = heading_x + heading_w;
+        let hint_w = bf.w - hint_x - kit.space(5);
         let bar_lines = vec![
-            (Frame::new(kit.space(6), 0.0, heading_w, bf.h), role_style(kit, TypeRole::Label, Some(Weight::SemiBold), ink, Align::Left), if heading_w > 0.0 { "Edit Home".to_owned() } else { String::new() }),
-            (Frame::new(kit.space(6) + heading_w, 0.0, hint_w, bf.h), role_style(kit, TypeRole::Caption, None, ink2, Align::Left), ed.hint_words()),
+            (Frame::new(heading_x, 0.0, heading_w, h), heading_style, heading.into()),
+            (Frame::new(hint_x, 0.0, hint_w, h), role_style(kit, role, None, ink2, Align::Left), ed.hint_words().into()),
         ];
         let bar_text = Block::new(&mut kit.ui, bf, z + 5, bar_lines)?;
         let mut buttons = Vec::new();
         for (i, b) in ed.buttons().iter().enumerate() {
             let mut btn = Button::new(kit, engine, Place { id: Id(editor::BAR_ID + i as u32), frame: b.frame, region: editor::BAR, scope: super::model::SCOPE_EDIT, z: z + 6 }, Spec::new(b.label, Tone::Plain).with_icon(b.icon))?;
             btn.set_enabled(kit, engine, b.enabled);
-            btn.show(kit, true);
+            if b.id != "items" || !ed.start.is_new() { btn.show(kit, true); }
             buttons.push(btn);
         }
-        let af = ed.add_frame();
-        let mut ag = glass_of(kit, PaneKind::Sheet, af.h, false, false);
-        ag.corner_radius = kit.tokens.radius(Radius::Sheet) / 2.0;
-        let add_pane = kit.ui.scene.glass(af.w as u32, af.h as u32, z + 7, ag, HIDDEN);
-        let mut rows = Vec::new();
-        for (i, r) in ed.add_rows().iter().enumerate() {
-            let f = Frame::new(r.4.x - af.x, r.4.y - af.y, r.4.w, r.4.h);
-            rows.push((Frame::new(f.x + 64.0, f.y, f.w - 180.0, f.h), role_style(kit, TypeRole::Label, None, ink, Align::Left), r.1.to_owned()));
-            rows.push((Frame::new(f.x + f.w - 120.0, f.y, 100.0, f.h), role_style(kit, TypeRole::Caption, None, ink2, Align::Right), if r.3 { "Hidden".into() } else { String::new() }));
-            let _ = i;
-        }
-        let add_rows = Block::new(&mut kit.ui, af, z + 9, rows)?;
-        let row_h = ed.add_rows().first().map_or(80.0, |r| r.4.h);
-        let add_focus = kit.ui.scene.shape((af.w - 16.0) as u32, row_h as u32, z + 8, plate::solid(faded(ink, kit.tokens.states.focus_wash[0]), kit.tokens.radius(Radius::Row)), HIDDEN);
         let toast = kit.ui.scene.glass(10, 56, z + 10, glass_of(kit, PaneKind::Pill, 56.0, false, false), HIDDEN);
         let warning = kit.ui.look.colour(PaletteRole::Warning);
         let mut toast_text = Text::new(kit, Frame::new(0.0, 0.0, 10.0, 56.0), z + 11, role_style(kit, TypeRole::Label, Some(Weight::SemiBold), warning, Align::Centre), "")?;
         toast_text.set_props(HIDDEN);
         let (qf, answers) = ed.ask_frames();
-        let ask_pane = kit.ui.scene.glass(qf.w as u32, qf.h as u32, z + 12, glass_of(kit, PaneKind::Sheet, qf.h, false, false), HIDDEN);
-        let mut ask_title = Text::new(kit, Frame::new(qf.x + 32.0, qf.y + 32.0, qf.w - 64.0, kit.line(TypeRole::Title)), z + 13, role_style(kit, TypeRole::Title, None, ink, Align::Left), "Save changes?")?;
+        let ask_scrim = scrim(kit, z + 12);
+        ask_scrim.set(HIDDEN);
+        let ask_pane = kit.ui.scene.glass(qf.w as u32, qf.h as u32, z + 13, glass_of(kit, PaneKind::Sheet, qf.h, false, false), HIDDEN);
+        let mut ask_title = Text::new(kit, Frame::new(qf.x + 32.0, qf.y + 32.0, qf.w - 64.0, kit.line(TypeRole::Title)), z + 14, role_style(kit, TypeRole::Title, None, ink, Align::Left), "Discard your changes?")?;
         ask_title.set_props(HIDDEN);
         let mut ask_buttons = Vec::new();
-        for (i, (_, label, danger)) in editor::ASK_ANSWERS.iter().enumerate() {
+        for (i, (label, danger)) in editor::ASK_ANSWERS.iter().enumerate() {
             let tone = if *danger { Tone::Danger } else { Tone::Plain };
-            let btn = Button::new(kit, engine, Place { id: Id(editor::ASK_ID + i as u32), frame: answers[i], region: editor::ASK, scope: super::model::SCOPE_EDIT, z: z + 14 }, Spec::new(label, tone))?;
+            let btn = Button::new(kit, engine, Place { id: Id(editor::ASK_ID + i as u32), frame: answers[i], region: editor::ASK, scope: super::model::SCOPE_EDIT, z: z + 15 }, Spec::new(label, tone))?;
             ask_buttons.push(btn);
         }
-        Ok(Self { cells, ring, corner, corner_glyph, ghost, bar, bar_text, buttons, add_pane, add_rows, add_focus, toast, toast_text, ask_pane, ask_title, ask_buttons, cells_key: String::new(), toast_key: String::new(), enabled_key: String::new(), hint_w, z })
+        Ok(Self { cells, ring, ring_key: None, control_ring, control_key: None, corner, corner_glyph, ghost, ghost_key: None, _bar: bar, bar_text, move_hints, buttons, options: None, toast, toast_text, ask_scrim, ask_pane, ask_title, ask_buttons, cells_key: None, toast_key: String::new(), hint_key: "", hint_w, z })
     }
 
     /// The cells where no card is: rounded squares, drawn once per layout.
-    fn paint_cells(&mut self, kit: &Kit, ed: &Editor) {
-        let key = ed.work.to_string();
-        if key == self.cells_key {
-            return;
-        }
+    fn paint_cells(&mut self, kit: &Kit, ed: &Editor, rev: u64) {
+        let a = ed.area();
+        let key = Some((rev, a));
+        if key == self.cells_key { return; }
         self.cells_key = key;
-        let a = grid::area(&ed.work);
-        let (cw, ch) = grid::cell_size(&ed.work);
-        let gutter = ed.work.pointer("/grid/gutter").and_then(Value::as_f64).unwrap_or(20.0) as f32;
-        let cols = ed.work.pointer("/grid/cols").and_then(Value::as_u64).unwrap_or(12) as usize;
-        let rows = grid::row_count(&ed.work) as usize;
+        let (cw, ch) = grid::cell_size_in(&ed.work, a);
+        let (cols, gutter) = grid::grid(&ed.work);
+        let gutter = gutter as f32;
+        let rows = grid::row_count(&ed.work);
         let ink = kit.ui.look.ink();
         let light = kit.mode == ui::lucent::palette::Mode::Light;
         let fill = faded(ink, if light { 0.06 } else { 0.05 });
         let line = faded(ink, if light { 0.26 } else { 0.20 });
-        let taken: Vec<grid::Rect> = grid::entries(&ed.work).iter().filter(|e| !e.hidden).map(|e| grid::rect_of(&ed.work, e)).collect();
+        let taken: Vec<_> = grid::entries(&ed.work).into_iter().filter(|e| !e.hidden).collect();
         self.cells.clear();
         {
             let (w, h) = (self.cells.width(), self.cells.height());
@@ -656,8 +703,7 @@ impl EditorSurface {
                 for c in 0..cols {
                     let x = c as f32 * (cw as f32 + gutter);
                     let y = r as f32 * (ch as f32 + gutter);
-                    let (cx, cy) = (a.x as f32 + x + cw as f32 / 2.0, a.y as f32 + y + ch as f32 / 2.0);
-                    if taken.iter().any(|t| cx >= t.x as f32 && cx < (t.x + t.w) as f32 && cy >= t.y as f32 && cy < (t.y + t.h) as f32) {
+                    if taken.iter().any(|e| c >= e.col && c < e.col + e.span && r >= e.row && r < e.row + e.rows) {
                         continue;
                     }
                     canvas.rounded(Frame::new(x, y, cw as f32, ch as f32), 8.0, line);
@@ -670,67 +716,70 @@ impl EditorSurface {
 
     pub fn update(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home, _now: u64) -> std::io::Result<()> {
         let Some(ed) = home.editor.as_ref() else { return Ok(()) };
-        self.paint_cells(kit, ed);
+        self.paint_cells(kit, ed, home.chrome_rev().0);
         let ink2 = kit.ui.look.ink2();
         let accent = kit.ui.look.accent();
         let danger = kit.ui.look.danger();
         let colour = if ed.refused() { danger } else { accent };
-        match ed.sel_rect() {
-            Some(r) => {
+        let selected = (ed.zone == Zone::Grid).then(|| ed.sel_rect()).flatten();
+        let ring_key = selected.map(|r| (r, ed.mode, ed.refused()));
+        if ring_key != self.ring_key {
+            self.ring_key = ring_key;
+            if let Some(r) = selected {
                 let f = Frame::new(r.x as f32 - 6.0, r.y as f32 - 6.0, r.w as f32 + 12.0, r.h as f32 + 12.0);
                 let radius = kit.tokens.radius(Radius::Card) + 6.0;
                 let shape = if ed.mode == Mode::Select { plate::ring(colour, radius, 3.0) } else { Shape { corner_radius: radius, fill: Fill::Solid(faded(colour, 0.10)), border_width: 4.0, border: colour } };
                 self.ring = kit.ui.scene.shape(f.w as u32, f.h as u32, self.z + 1, shape, Props::at(f.x, f.y));
-                let show_corner = ed.mode == Mode::Resize || (ed.mode == Mode::Select && home.cursor_visible);
-                let (cx, cy) = (r.x as f32 + r.w as f32 - 36.0 - 12.0, r.y as f32 + r.h as f32 - 36.0 - 12.0);
-                self.corner.reshape(plate::solid(colour, 18.0));
-                self.corner.set(if show_corner { Props::at(cx, cy) } else { HIDDEN });
-                if let Some(g) = &self.corner_glyph {
-                    g.set(if ed.mode == Mode::Resize { Props::at(cx + 7.0, cy + 7.0) } else { HIDDEN });
-                }
-            }
-            None => {
+            } else {
                 self.ring.set(HIDDEN);
-                self.corner.set(HIDDEN);
             }
         }
-        match ed.ghost {
-            Some((r, ok)) => {
+        let corner = selected.filter(|_| ed.mode == Mode::Resize || (ed.mode == Mode::Select && home.cursor_visible));
+        let at = corner.map_or(HIDDEN, |r| Props::at((r.x + r.w) as f32 - 48.0, (r.y + r.h) as f32 - 48.0));
+        self.corner.set(at);
+        if let Some(g) = &self.corner_glyph {
+            g.set(if corner.is_some() { Props::at(at.x + 7.0, at.y + 7.0) } else { HIDDEN });
+        }
+        if self.ghost_key != ed.ghost {
+            self.ghost_key = ed.ghost;
+            if let Some((r, ok)) = ed.ghost {
                 self.ghost = kit.ui.scene.shape(r.w as u32, r.h as u32, self.z + 1, plate::ring(if ok { accent } else { danger }, kit.tokens.radius(Radius::Card), 3.0), Props::at(r.x as f32, r.y as f32));
-            }
-            None => self.ghost.set(HIDDEN),
-        }
-        let hint_style = role_style(kit, TypeRole::Caption, None, ink2, Align::Left);
-        let hint = if self.hint_w < 120.0 { String::new() } else { ui::components::text::ellipsise(&mut kit.ui.fonts, &ed.hint_words(), hint_style.ty, self.hint_w) };
-        self.bar_text.set_many(&mut kit.ui, &[(1, &hint, ink2)]);
-        let bs = ed.buttons();
-        let enabled_key: String = bs.iter().map(|b| if b.enabled { '1' } else { '0' }).collect();
-        if enabled_key != self.enabled_key {
-            self.enabled_key = enabled_key;
-            for (b, spec) in self.buttons.iter_mut().zip(bs.iter()) {
-                b.set_enabled(kit, engine, spec.enabled);
+            } else {
+                self.ghost.set(HIDDEN);
             }
         }
-        for b in &mut self.buttons {
-            b.set_hover(kit, home.focus.hovered() == Some(b.id));
+        let show_hints = ed.zone == Zone::Grid && ed.mode != Mode::Select && ed.issue.is_empty();
+        for hint in &mut self.move_hints { hint.set_visible(show_hints); }
+        if self.hint_key != ed.hint_words() {
+            self.hint_key = ed.hint_words();
+            let w = if show_hints { self.hint_w - self.move_hints.iter().map(HintRow::width).sum::<f32>() - 2.0 * kit.space(4) } else { self.hint_w };
+            let ty = kit.ty(TypeRole::Caption);
+            let hint = ui::components::text::ellipsise(&mut kit.ui.fonts, self.hint_key, ty, w);
+            self.bar_text.set_many(&mut kit.ui, &[(1, &hint, ink2)]);
         }
-        let af = ed.add_frame();
-        if ed.zone == Zone::Add {
-            self.add_pane.set(Props::at(af.x, af.y));
-            self.add_rows.set_props(Props::at(af.x, af.y));
-            let rows = ed.add_rows();
-            let ink = kit.ui.look.ink();
-            let changes: Vec<(usize, String, Rgba)> = rows.iter().enumerate().map(|(i, r)| (2 * i + 1, if r.3 { "Hidden".into() } else { String::new() }, ink2)).collect();
-            let refs: Vec<(usize, &str, Rgba)> = changes.iter().map(|(i, s, c)| (*i, s.as_str(), *c)).collect();
-            self.add_rows.set_many(&mut kit.ui, &refs);
-            let _ = ink;
-            if let Some(r) = rows.get(ed.add_index) {
-                self.add_focus.set(Props::at(r.4.x, r.4.y));
-            }
+        let controls_up = !matches!(ed.zone, Zone::Add | Zone::Size | Zone::Ask | Zone::Items);
+        let mut control = None;
+        for (i, (b, spec)) in self.buttons.iter_mut().zip(ed.buttons()).enumerate() {
+            let enabled = spec.enabled && controls_up;
+            let focused = enabled && ed.zone == Zone::Bar && ed.bar_index == i;
+            b.set_enabled(kit, engine, enabled);
+            b.set_selected(focused);
+            b.set_hover(kit, enabled && !focused && home.focus.hovered() == Some(b.id));
+            if focused { control = Some(spec.frame); }
+        }
+        let count = ed.options_len();
+        if count == 0 {
+            self.options = None;
         } else {
-            self.add_pane.set(HIDDEN);
-            self.add_rows.set_props(HIDDEN);
-            self.add_focus.set(HIDDEN);
+            let key = (ed.zone, ed.size_rev);
+            if self.options.as_ref().is_none_or(|o| o.key != key) {
+                self.options = None;
+                self.options = Some(EditorOptions::new(kit, ed, self.z + 8, key)?);
+            }
+            if let Some(options) = &self.options {
+                let f = ed.option_frame(ed.add_index);
+                options.mark.set(Props::at(f.x, f.y));
+            }
         }
         if ed.toast != self.toast_key {
             self.toast_key = ed.toast.clone();
@@ -741,26 +790,39 @@ impl EditorSurface {
                 let warning = kit.ui.look.colour(PaletteRole::Warning);
                 let style = role_style(kit, TypeRole::Label, Some(Weight::SemiBold), warning, Align::Centre);
                 let w = (width_of(kit, style, &ed.toast) + 2.0 * kit.space(5)).round();
-                let (x, y) = (((1920.0 - w) / 2.0).round(), 1080.0 - 54.0 - 56.0 - 8.0);
+                let h = (56.0 * ed.scale).round();
+                let (x, y) = (((1920.0 - w) / 2.0).round(), 1080.0 - 54.0 - h - 8.0);
                 let g = warning_toast_glass(kit, warning);
-                self.toast = kit.ui.scene.glass(w as u32, 56, self.z + 10, g, Props::at(x, y));
-                self.toast_text = Text::new(kit, Frame::new(x, y, w, 56.0), self.z + 11, style, &ed.toast)?;
+                self.toast = kit.ui.scene.glass(w as u32, h as u32, self.z + 10, g, Props::at(x, y));
+                self.toast_text = Text::new(kit, Frame::new(x, y, w, h), self.z + 11, style, &ed.toast)?;
                 self.toast_text.set_props(Props::at(x, y));
             }
         }
-        let (qf, _) = ed.ask_frames();
+        let (qf, answers) = ed.ask_frames();
         let asking = ed.zone == Zone::Ask;
+        self.ask_scrim.set(if asking { Props::at(0.0, 0.0) } else { HIDDEN });
         self.ask_pane.set(if asking { Props::at(qf.x, qf.y) } else { HIDDEN });
         self.ask_title.set_props(if asking { Props::at(qf.x + 32.0, qf.y + 32.0) } else { HIDDEN });
-        for b in &mut self.ask_buttons {
+        for (i, b) in self.ask_buttons.iter_mut().enumerate() {
+            let focused = asking && ed.ask_index == i;
+            b.set_selected(focused);
+            if focused { control = Some(answers[i]); }
             if asking && !b.is_shown() {
                 b.show(kit, false);
             } else if !asking && b.is_shown() {
                 b.hide(kit, true);
             }
-            b.set_hover(kit, home.focus.hovered() == Some(b.id));
+            b.set_hover(kit, asking && !focused && home.focus.hovered() == Some(b.id));
         }
-        let _ = (&self.bar, &self.cells);
+        if control != self.control_key {
+            self.control_key = control;
+            if let Some(f) = control {
+                let paint = plate::ring(kit.ui.look.colour(PaletteRole::Focus), kit.tokens.radius(Radius::Control), 3.0);
+                self.control_ring = kit.ui.scene.shape(f.w as u32, f.h as u32, self.z + 16, paint, Props::at(f.x, f.y));
+            } else {
+                self.control_ring.set(HIDDEN);
+            }
+        }
         Ok(())
     }
 
@@ -788,6 +850,7 @@ pub struct PickerSurface {
     title: Text,
     tiles: Vec<ProfileTile>,
     dots: Vec<ShapeLayer>,
+    dashboards: Option<Button>,
     pad_art: ImageLayer,
     pad_caps: Block,
     pad_cursor: Cursor,
@@ -864,6 +927,11 @@ impl PickerSurface {
                 .ok_or_else(|| std::io::Error::other("the tile's group"))??;
             tiles.push(ProfileTile { id, lift, avatar, name, tick });
         }
+        let dashboards = if p.dashboards {
+            let mut button = Button::new(kit, engine, Place { id: picker::DASHBOARDS_ID, frame: p.dashboards_frame(), region: picker::TILES, scope: super::model::SCOPE_PICKER, z: z + 4 }, Spec::new("Dashboards", Tone::Plain).with_icon("layout-grid"))?;
+            button.show(kit, true);
+            Some(button)
+        } else { None };
         let mut dots = Vec::new();
         for i in 0..4 {
             let x = 960.0 - 2.0 * 44.0 + i as f32 * 44.0 - 12.0;
@@ -899,12 +967,18 @@ impl PickerSurface {
         pad_cursor.glass.set(HIDDEN);
         let mut words = Text::new(kit, Frame::new(0.0, 940.0, 1920.0, kit.line(TypeRole::Label)), z + 2, role_style(kit, TypeRole::Label, None, ink2, Align::Centre), "")?;
         words.set_props(HIDDEN);
-        Ok(Self { blur, title, tiles, dots, pad_art, pad_caps, pad_cursor, words, pin_key: String::new(), z, origin: [0.0; 4], root: None })
+        Ok(Self { blur, title, tiles, dashboards, dots, pad_art, pad_caps, pad_cursor, words, pin_key: String::new(), z, origin: [0.0; 4], root: None })
     }
 
     pub fn update(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home, now: u64) -> std::io::Result<()> {
         let p = &home.picker;
         let asking = p.pin.is_some();
+        if let Some(button) = &mut self.dashboards {
+            let shown = p.dashboards && !asking;
+            if shown && !button.is_shown() { button.show(kit, true); }
+            if !shown && button.is_shown() { button.hide(kit, true); }
+            button.set_hover(kit, shown && home.focus.hovered() == Some(button.id));
+        }
         for t in &self.tiles {
             t.lift.pose(engine, if asking { 0.0 } else { 1.0 }, !asking);
         }
@@ -962,6 +1036,7 @@ impl PickerSurface {
     }
 
     pub fn destroy(self, engine: &mut Engine) {
+        if let Some(button) = self.dashboards { button.destroy(engine); }
         for t in self.tiles {
             engine.flow.drop_lift(t.id);
         }

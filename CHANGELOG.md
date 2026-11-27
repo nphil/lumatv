@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Profiles can keep and switch between named, private Home dashboards. A new profile starts its dashboard guide on an empty canvas with the apps dock; replaying the guide creates a new draft and leaves saved dashboards alone.
+
 The Live TV Tuner requires requester confirmation before replacing network viewers on another frequency. Legacy players receive HDHomeRun error 805 without interrupting playback; stations on the same frequency still share.
 
 The game recorder's receiver is part of the LumaTV server now: the address starts as `http://192.168.1.69:8795`, and a saved `http://192.168.1.69:8765` reads as it. The Python receiver (`game/replay-receiver/`) and its image workflow are removed.

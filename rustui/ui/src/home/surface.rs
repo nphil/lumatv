@@ -1389,11 +1389,9 @@ impl HomeSurface {
 
     // ---- the focus
     fn update_focus(&mut self, kit: &mut Kit, engine: &mut Engine, home: &Home, now_ns: u64) {
-        let current = if home.layer == Layer::None || home.layer == Layer::Edit { home.focus.current() } else { None };
-        let shown = match home.layer {
-            Layer::None => current,
-            _ => home.focus.current(),
-        };
+        // The editor paints its one focus indicator itself; Home's lifts must stay at rest underneath it.
+        let shown = if home.layer == Layer::Edit { None } else { home.focus.current() };
+        let current = if home.layer == Layer::None { shown } else { None };
         let is_dock = |id: Id| id.0 >= model::DOCK_ID && id.0 < model::DOCK_ID + model::DOCK_MAX;
         let moved = shown != self.last_focus;
         if moved {
@@ -1409,7 +1407,7 @@ impl HomeSurface {
             let _ = if on_dock { engine.flow.go(None, card, now_ns) } else { engine.flow.go(card, None, now_ns) };
         }
         // the hover cue: a ring on what the pointer is over
-        let hover = home.focus.hovered();
+        let hover = if home.layer == Layer::Edit { None } else { home.focus.hovered() };
         if hover != self.last_hover {
             self.last_hover = hover;
             if let Some(h) = &self.hover {
@@ -2301,6 +2299,14 @@ mod tests {
             assert!(kit.room().groups >= 24, "{mode:?}: {} groups left with the card drawn", kit.room().groups);
             let mut out = Vec::new();
             home.edit_home("smart", &mut out);
+            home.dashboard_tick(&mut out);
+            let tag = out.iter().find_map(|e| match e {
+                crate::kit::screen::Effect::Request { tag, path, .. } if path == super::super::dashboard::PATH => Some(*tag),
+                _ => None,
+            }).expect("the guard for the current layout");
+            let data = json!({"ok": true, "data": {"profile": "nitin", "active": "home", "revision": "r1", "dashboards": [{"id": "home", "layout": home.layout}]}});
+            home.update(&Input::Fetched { tag, status: 200, data }, 2350);
+            home.dashboard_tick(&mut out);
             s.apply(&mut kit, &mut engine, &mut home, 2400).unwrap_or_else(|e| panic!("{mode:?}: the editor over the card: {e}"));
             assert!(s.editor.is_some(), "{mode:?}: the editor is drawn");
             std::mem::forget(h);

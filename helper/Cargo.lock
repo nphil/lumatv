@@ -739,6 +739,7 @@ dependencies = [
  "lumatv-ambient",
  "lumatv-denon",
  "lumatv-feeds",
+ "lumatv-home-grid",
  "lumatv-placement",
  "lumatv-privacy",
  "lumatv-saver",
@@ -764,6 +765,13 @@ dependencies = [
  "voice-satellite",
  "voice-service",
  "wake-word",
+]
+
+[[package]]
+name = "lumatv-home-grid"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

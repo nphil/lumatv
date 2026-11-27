@@ -40,7 +40,6 @@ use ui::lucent::material::MaterialTier;
 use ui::lucent::palette::Mode;
 use ui::scene::{Scene, SceneOptions};
 
-const SHIPPED_LAYOUT: &str = include_str!("../../../payload/theme/layout.json");
 /// The helper's topics the shell follows besides its plugins' (`kit/Helper.qml` `subscribed`, and the sheets of the cameras).
 const HELPER_TOPICS: &str =
     "screen,prewarm,weather,weather.more,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,openapps,panel,cameras,cameras.popup,cameras.live,cameras.events,onhome,profiles,voice,voice.assistant,saver,plex.account,dnd,phone-remote,media.audio,picture,autobright";
@@ -61,6 +60,7 @@ struct Options {
     pushes: Vec<(u64, String, Value)>,
     lunas: Vec<(u64, u64, Value)>,
     helpers: Vec<(u64, String, Value)>,
+    fetches: Vec<(u64, u64, u16, Value)>,
     keys: Vec<(u64, KeyEvent)>,
     evals: Vec<(u64, String)>,
     snaps: Vec<(u64, PathBuf)>,
@@ -100,6 +100,7 @@ fn parse() -> Result<Options, String> {
         pushes: Vec::new(),
         lunas: Vec::new(),
         helpers: Vec::new(),
+        fetches: Vec::new(),
         keys: Vec::new(),
         evals: Vec::new(),
         snaps: Vec::new(),
@@ -150,6 +151,16 @@ fn parse() -> Result<Options, String> {
                 let tag: u64 = parts.next().and_then(|s| s.parse().ok()).ok_or("--luna MS:TAG:JSON")?;
                 let doc: Value = serde_json::from_str(parts.next().unwrap_or("null")).map_err(|e| format!("--luna: {e}"))?;
                 o.lunas.push((ms, tag, doc));
+            }
+            "--fetch" => {
+                let spec = value(&mut args, "--fetch")?;
+                let mut parts = spec.splitn(4, ':');
+                let format = "--fetch MS:TAG:STATUS:JSON";
+                let ms = parts.next().and_then(|s| s.parse().ok()).ok_or(format)?;
+                let tag = parts.next().and_then(|s| s.parse().ok()).ok_or(format)?;
+                let status = parts.next().and_then(|s| s.parse().ok()).ok_or(format)?;
+                let body = serde_json::from_str(parts.next().ok_or(format)?).map_err(|e| format!("--fetch: {e}"))?;
+                o.fetches.push((ms, tag, status, body));
             }
             "--key" => {
                 // MS:name, MS:name:up (a release), MS:name:repeat
@@ -326,7 +337,7 @@ fn refused(log: &mut Log, event: &SceneEvent) {
 }
 
 /// The theme and Home's layout from the data directory, with `--theme` merged over.
-fn theme_and_layout(o: &Options) -> (Tokens, Value, Value) {
+fn theme_and_layout(o: &Options) -> (Tokens, Value, Option<Value>) {
     let mut user = std::fs::read(o.data_dir.join("theme/theme.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
     if let Some(t) = &o.theme {
         if user.is_null() {
@@ -339,8 +350,7 @@ fn theme_and_layout(o: &Options) -> (Tokens, Value, Value) {
     let theme = tokens.json().clone();
     let layout = std::fs::read(o.data_dir.join("theme/layout.json"))
         .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_else(|| serde_json::from_str(SHIPPED_LAYOUT).expect("the shipped layout is JSON"));
+        .and_then(|b| serde_json::from_slice(&b).ok());
     (tokens, theme, layout)
 }
 
@@ -348,7 +358,7 @@ fn make_shell(o: &Options, scene: Scene) -> io::Result<Shell> {
     let (tokens, theme, layout) = theme_and_layout(o);
     let mode = o.mode.unwrap_or_else(|| tokens.mode(None));
     let kit = Kit::new(scene, tokens, mode, MaterialTier::T1, o.text_scale)?;
-    let mut shell = Shell::new(kit, Kinds::parse(&o.kinds), o.system_z, &o.module_dir.join("icons/audio"), &theme, &layout)?;
+    let mut shell = Shell::new(kit, Kinds::parse(&o.kinds), o.system_z, &o.module_dir.join("icons/audio"), &theme, layout.as_ref())?;
     shell.dirs(&o.module_dir, &o.data_dir);
     if let Some(logos) = &o.guide_fixture {
         shell.guide_fixture(Some(logos));
@@ -674,6 +684,9 @@ fn run_host(o: Options) -> io::Result<()> {
                 acts
             }),
         ));
+    }
+    for (ms, tag, status, body) in o.fetches {
+        script.push((ms, Box::new(move |s, _, _| s.helper(&Event::Answer { tag, status, body }, t0 + ms))));
     }
     for (ms, what) in o.evals.clone() {
         #[cfg(feature = "heap-audit")]

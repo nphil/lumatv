@@ -209,10 +209,13 @@ pub enum ShellRequest {
     Launch { app: String, params: Value },
     /// Opens the layout editor of the pop-ups (kind `layout`), at an item when one is named.
     Layout { item: Option<String> },
-    /// Home's layout is now this one (a card shown, sized or moved): Home writes the owner's `layout.json` and draws it at once.
-    HomeLayout(Value),
+    /// A quick edit from the Home widgets page; reject it if this row's layout or profile has changed.
+    HomeLayout { layout: Value, based_on: Rc<Value>, profile: Option<(String, Option<u64>)> },
     /// Closes Settings and opens Home's layout editor.
     EditHome,
+    DashboardDraft { profile: String, created: Option<u64>, replay: bool },
+    ReloadHome,
+    CancelEntry,
     /// Opens Home's wallpaper editor.
     Wallpaper,
     /// Opens the display lab (kind `displaylab`) over Settings, which stays where it was for the way back.

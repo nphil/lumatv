@@ -21,6 +21,7 @@
 //! | `GET /v1/settings`, `GET /v1/settings/{owner}`, `POST /v1/settings/{owner}` | the settings layer |
 //! | `GET /v1/voice`, `POST /v1/voice/{listen,stop,cancel,refresh}` | voice search (`voice.rs`) |
 //! | `GET /v1/profiles`, `POST /v1/profiles/switch`, `POST|DELETE /v1/profiles/{id}`, `/v1/profiles/{id}/pin`, `/{id}/avatar`, `/options`, `/gallery` | local profiles (`profiles.rs`) |
+//! | `GET|POST /v1/profiles/dashboards` | named native Home layouts of the active profile; local only |
 //! | `POST /v1/media/audio`, `DELETE /v1/media/audio?app=` | the audio an app decodes, for the format badge (`media_audio.rs`) |
 //! | `POST /v1/audio-passthrough/{arm,flowing,release}`, `GET /v1/audio-passthrough/route` | TrueHD passthrough for a player that decodes it, over eARC (`audio_passthrough.rs`) |
 //! | `POST /v1/voice-assistant/selftest` | a recorded wake phrase through the voice assistant in place of the microphone, silent, loopback only and off unless `helper.json` allows it (`voice_assistant.rs`) |

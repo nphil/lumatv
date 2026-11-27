@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["app", "feeds", "denon", "privacy", "tuner", "xcode", "remote", "voice", "plugins/home-assistant", "beszel-native", "ssgw"]
+exclude = ["home-grid"]
 
 [workspace.package]
 version = "0.1.0"

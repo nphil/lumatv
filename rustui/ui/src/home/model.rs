@@ -5,6 +5,7 @@
 //! `theme.json`, `tint.json` read every two seconds and written by the editor), the helper (a profile switch, a card's action).
 
 use super::apps::Apps;
+use super::dashboard::{self, Start as DashboardStart};
 use super::dock::{APPS_TILE, Dock};
 use super::editor::{Editor, EditorOut};
 use super::grid::{self, Entry, Rect};
@@ -98,6 +99,7 @@ pub const ACT_TAG: u64 = 3_300_000;
 pub const KEPT_PROFILE_TAG: u64 = 322;
 /// The write of Quick Access's choice (`remote.quickAccess`).
 pub const ACCESS_TAG: u64 = 313;
+const DASHBOARD_TAG_START: u64 = 0x4442_0000;
 
 const POLL_MS: u64 = 2000;
 const APP_MGR: &str = "luna://com.webos.applicationManager";
@@ -160,6 +162,7 @@ pub enum Request {
     Settings,
     /// Settings at one of its pages (Quick Access's More, a Search answer that is a page).
     SettingsPage(String),
+    DashboardName(String),
     Notifications,
     /// The drawer with the focus on the group of this source (OK on its glyph in the status bar's strip, or on the ticker's line).
     NotificationsAt(String),
@@ -217,7 +220,7 @@ pub struct Home {
     /// The layout as it is drawn ([`Home::drawn_layout`]) for the layout revision and text scale it was made at.
     drawn: std::cell::RefCell<Option<DrawnLayout>>,
     pub shipped_layout: Value,
-    pub layout_text: String,
+    pub(crate) layout_file: Option<std::rc::Rc<Value>>,
     pub theme_text: String,
     theme_preview: Option<Value>,
     pub tint: Value,
@@ -287,6 +290,10 @@ pub struct Home {
     pub apps: Apps,
     pub search: Search,
     pub editor: Option<Editor>,
+    dashboard_open: Option<dashboard::Open>,
+    dashboard_edit: Option<dashboard::Edit>,
+    dashboard_tag: u64,
+    first_run_seen: Option<(String, Option<u64>)>,
     pub picker: Picker,
     pub layer: Layer,
     /// A layer under the open one (search over the library).
@@ -380,16 +387,17 @@ fn status_gaps(theme: &Value) -> (f32, f32) {
 
 impl Home {
     /// `theme` is the merged theme (the shipped under the owner's), `shipped_layout` the shipped layout and `user_layout` the owner's file.
-    pub fn new(theme: Value, shipped_layout: Value, user_layout: Value) -> Self {
+    pub fn new(theme: Value, shipped_layout: Value, user_layout: impl Into<Option<Value>>) -> Self {
         let motion = theme.get("motion").cloned().unwrap_or(Value::Null);
         let rest_ms = motion.get("restMs").and_then(Value::as_u64).unwrap_or(150);
         let hold_ms = motion.get("holdMs").and_then(Value::as_u64).unwrap_or(700);
+        let layout_file = user_layout.into().map(std::rc::Rc::new);
         let mut h = Self {
             layout: Value::Null,
             layout_rev: 0,
             theme_chrome_rev: 0,
             drawn: std::cell::RefCell::new(None),
-            layout_text: serde_json::to_string(&user_layout).unwrap_or_default(),
+            layout_file: None,
             theme_text: String::new(),
             theme_preview: None,
             tint: Value::Null,
@@ -439,6 +447,10 @@ impl Home {
             apps: Apps::default(),
             search: Search::default(),
             editor: None,
+            dashboard_open: None,
+            dashboard_edit: None,
+            dashboard_tag: DASHBOARD_TAG_START,
+            first_run_seen: None,
             picker: Picker::default(),
             layer: Layer::None,
             stack: Vec::new(),
@@ -484,42 +496,36 @@ impl Home {
             theme,
             shipped_layout,
         };
-        h.apply_layout(user_layout);
+        h.apply_file_layout(layout_file.as_deref().unwrap_or(&Value::Null));
+        h.layout_file = layout_file;
         h
     }
 
     // ---- the layout and the theme
     /// The merged layout from the owner's file, tidied; the cards and the dock placed.
     pub fn apply_layout(&mut self, user: Value) {
-        let merged = merge_over(&self.shipped_layout, &user);
+        self.apply_file_layout(&user);
+    }
+
+    fn apply_file_layout(&mut self, user: &Value) {
+        let merged = merge_over(&self.shipped_layout, user);
         self.set_layout(grid::tidy_layout(&merged));
-        for e in self.laid_out() {
-            if !self.widget_ids.contains(&e.id) {
-                self.widget_ids.push(e.id.clone());
-            }
-        }
-        if let Some(d) = self.dock_entry() {
-            let r = grid::rect_of(&self.layout, &d);
-            let entry = grid::widgets(&self.layout).iter().find(|w| w.get("id").and_then(Value::as_str) == Some(&d.id)).cloned().unwrap_or(Value::Null);
-            self.dock.configure(&entry, r.w, r.h);
-        }
+        self.configure_dock();
         self.register();
         self.dirty = true;
     }
 
-    /// Settings changed the layout (a card shown, sized or moved, or put back to the shipped one): written as the owner's file and drawn at once.
-    pub fn set_layout_from_settings(&mut self, layout: &Value, out: &mut Vec<Effect>) {
+    /// A quick Settings action is checked and written by the shell before it changes Home.
+    pub(crate) fn write_layout(&self, layout: &Value, out: &mut Vec<Effect>) {
         let file = grid::for_file(layout, &self.shipped_layout);
         let text = serde_json::to_string_pretty(&file).unwrap_or_default() + "\n";
-        self.layout_text = file.to_string();
         out.push(Effect::Write { path: "theme/layout.json".into(), text });
-        self.apply_layout(file);
-        self.redraw(out);
     }
 
     /// Home draws `layout` now (the editor's preview); nothing is written.
     pub fn preview_layout(&mut self, layout: Value) {
         self.set_layout(layout);
+        self.configure_dock();
         self.register();
         self.dirty = true;
     }
@@ -527,6 +533,11 @@ impl Home {
     fn set_layout(&mut self, layout: Value) {
         if layout != self.layout {
             self.layout_rev += 1;
+            for id in grid::widgets(&layout).iter().filter_map(|w| w.get("id").and_then(Value::as_str)) {
+                if !self.widget_ids.iter().any(|known| known == id) {
+                    self.widget_ids.push(id.to_owned());
+                }
+            }
         }
         self.layout = layout;
     }
@@ -588,17 +599,27 @@ impl Home {
         grid::entries(&self.layout).into_iter().find(Entry::is_dock)
     }
 
+    fn configure_dock(&mut self) {
+        if let Some(dock) = self.dock_entry() {
+            let r = self.rect(&dock);
+            if let Some(entry) = grid::widgets(&self.layout).iter().find(|w| w.get("id").and_then(Value::as_str) == Some(&dock.id)) {
+                self.dock.configure(entry, r.w, r.h);
+            }
+        }
+    }
+
     /// The layout as it is drawn: the status bar at the text size's height. Every card's rectangle is read from it, dozens of times an apply and
     /// again for each card of the report, and each was a copy of the whole layout (the report took 0.19 ms of the host's thread of which 0.14 ms
     /// were these); it is made again when the layout, which only `set_layout` changes, or the text size does.
     fn drawn_layout(&self) -> std::rc::Rc<Value> {
-        let key = (self.layout_rev, self.text_scale.to_bits());
+        let height = self.editor.as_ref().map_or_else(|| self.status_height(), Editor::status_height);
+        let key = (self.layout_rev, height.to_bits());
         if let Some((made, drawn)) = &*self.drawn.borrow()
             && *made == key
         {
             return drawn.clone();
         }
-        let drawn = std::rc::Rc::new(grid::with_status_height(&self.layout, self.status_height()));
+        let drawn = std::rc::Rc::new(grid::with_status_height(&self.layout, height));
         *self.drawn.borrow_mut() = Some((key, drawn.clone()));
         drawn
     }
@@ -683,8 +704,13 @@ impl Home {
             self.onhome_metrics = Metrics::nominal(scale);
             self.apps.scale = scale;
             self.search.configure(&self.theme, scale);
-            self.register();
             if self.layer == Layer::Search { self.search.register(&mut self.focus); }
+            if let Some(ed) = &mut self.editor {
+                ed.scale = scale.max(1.0);
+                ed.register(&mut self.focus, SCOPE_EDIT);
+            }
+            self.configure_dock();
+            self.register();
             self.dirty = true;
         }
     }
@@ -1028,6 +1054,10 @@ impl Home {
         }
         let active = self.profiles.get("active").and_then(Value::as_str)?;
         self.profiles.get("profiles").and_then(Value::as_array)?.iter().find(|p| p.get("id").and_then(Value::as_str) == Some(active))
+    }
+
+    pub(crate) fn dashboard_identity(&self) -> Option<(&str, Option<u64>)> {
+        dashboard::identity(&self.profiles)
     }
 
     pub fn profile_name(&self) -> String {
@@ -1532,8 +1562,16 @@ impl Home {
             }
             "profiles" => {
                 let before = self.switched_at;
-                let was = self.profiles.get("active").cloned();
+                let previous = self.dashboard_identity().map(|(id, stamp)| (id.to_owned(), stamp));
                 self.profiles = data.clone();
+                let signed_in = self.dashboard_identity();
+                let changed_profile = previous.as_ref().is_some_and(|(id, stamp)| Some((id.as_str(), *stamp)) != signed_in);
+                if self.dashboard_open.as_ref().is_some_and(|open| signed_in != Some((open.profile.as_str(), open.created)))
+                    || self.dashboard_edit.as_ref().is_some_and(|edit| signed_in != Some(edit.guard.identity()))
+                    || (signed_in.is_some() && self.editor.is_some() && self.dashboard_edit.is_none())
+                {
+                    self.close_all();
+                }
                 if let Some(live) = self.live_profile().cloned()
                     && self.kept_profile.as_ref() != Some(&live)
                 {
@@ -1543,7 +1581,8 @@ impl Home {
                 self.switched_at = data.get("switchedAt").and_then(Value::as_u64);
                 self.picker.set_profiles(data);
                 // a change of person: the working copy is the new person's, read at once; what was open closes
-                if before.is_some() && self.switched_at != before && was != data.get("active").cloned() {
+                if changed_profile || before.is_some() && self.switched_at != before
+                {
                     self.close_all();
                     self.next_poll = self.now;
                     self.poll_outstanding = 0;
@@ -1557,6 +1596,14 @@ impl Home {
     }
 
     fn fetched(&mut self, tag: u64, status: u16, data: &Value, out: &mut Vec<Effect>) {
+        if self.dashboard_open.as_ref().is_some_and(|open| matches!(open.load, dashboard::Load::Fetching(t) if t == tag)) {
+            self.dashboard_loaded(status, data, out);
+            return;
+        }
+        if self.dashboard_edit.as_ref().is_some_and(|edit| edit.tag == Some(tag)) {
+            self.dashboard_saved(status, data, out);
+            return;
+        }
         match tag {
             THEME_TAG => {
                 self.poll_outstanding = self.poll_outstanding.saturating_sub(1);
@@ -1576,13 +1623,13 @@ impl Home {
             }
             LAYOUT_TAG => {
                 self.poll_outstanding = self.poll_outstanding.saturating_sub(1);
-                if status == NOT_MODIFIED {
+                if self.editor.is_some() || !matches!(status, 200 | 404) {
                     return;
                 }
-                let text = if status == 200 { data.to_string() } else { String::new() };
-                if self.editor.is_none() && text != self.layout_text {
-                    self.layout_text = text;
-                    self.apply_layout(if status == 200 { data.clone() } else { json!({}) });
+                let current = (status == 200).then_some(data);
+                if current != self.layout_file.as_deref() {
+                    self.apply_file_layout(current.unwrap_or(&Value::Null));
+                    self.layout_file = current.cloned().map(std::rc::Rc::new);
                     self.redraw(out);
                 }
             }
@@ -1659,6 +1706,7 @@ impl Home {
             Input::Pointer { .. } => {
                 self.pointer_down = false;
                 self.click_press = None;
+                if let Some(ed) = &mut self.editor { ed.cancel_pointer(); }
             }
             _ => {}
         }
@@ -2761,10 +2809,14 @@ impl Home {
 
     pub fn close_all(&mut self) {
         self.wallpaper_return_settings = false;
+        self.dashboard_open = None;
+        self.dashboard_edit = None;
         while self.layer != Layer::None {
             if self.layer == Layer::Edit {
                 if let Some(ed) = self.editor.take() {
-                    self.preview_layout(ed.orig.clone());
+                    ed.unregister(&mut self.focus);
+                    for (_, s) in &mut self.smarts { s.leave(); }
+                    self.apply_layout(ed.orig);
                 }
             }
             self.close_layer();
@@ -2806,24 +2858,187 @@ impl Home {
 
     /// The layout editor on `id` (a hold of OK on a card, Settings' "Edit on Home").
     pub fn edit_home(&mut self, id: &str, out: &mut Vec<Effect>) {
-        if self.layer == Layer::Edit {
-            return;
+        if self.editor.is_some() { return; }
+        if let Some((profile, created)) = self.dashboard_identity().map(|(id, stamp)| (id.to_owned(), stamp)) {
+            self.queue_dashboard(&profile, created, DashboardStart::Edit, id);
+        } else if self.helper_up || self.kept_profile.is_some() || self.profiles.get("ready").is_some() {
+            Self::dashboard_notice("Sign in to edit this dashboard.", out);
+        } else {
+            self.open_editor(Editor::new(&self.layout, id, self.now, self.text_scale), out);
         }
-        let ed = Editor::new(&self.layout, id, self.now, self.text_scale);
-        self.preview_layout(ed.work.clone());
-        ed.register(&mut self.focus, SCOPE_EDIT);
+    }
+
+    fn open_editor(&mut self, ed: Editor, out: &mut Vec<Effect>) {
+        let preview = ed.work.clone();
         self.editor = Some(ed);
+        self.preview_layout(preview);
         self.open_layer(Layer::Edit, SCOPE_EDIT);
-        if let Some(ed) = &mut self.editor {
+        self.register_editor();
+        self.redraw(out);
+    }
+
+    fn register_editor(&mut self) {
+        if let Some(ed) = &self.editor {
             ed.register(&mut self.focus, SCOPE_EDIT);
         }
+    }
+
+    pub(crate) fn queue_dashboard(&mut self, profile: &str, created: Option<u64>, start: DashboardStart, id: &str) -> bool {
+        if self.editor.is_some() || self.dashboard_open.is_some() || self.dashboard_identity() != Some((profile, created)) {
+            return false;
+        }
+        self.dashboard_open = Some(dashboard::Open { profile: profile.into(), created, start, selected: id.into(), load: dashboard::Load::Pending });
+        true
+    }
+
+    fn dashboard_tag(&mut self) -> u64 {
+        let tag = self.dashboard_tag;
+        self.dashboard_tag += 1;
+        tag
+    }
+
+    /// Only the unobstructed Home opens the editor. In particular, adding
+    /// someone else in Settings is not a request to start the owner's guide.
+    pub(crate) fn dashboard_tick(&mut self, out: &mut Vec<Effect>) {
+        if !self.at_rest() || self.covered || self.saver_up || self.picker.veil.is_some() {
+            return;
+        }
+        if self.dashboard_open.is_none() {
+            let Some(profile) = self.live_profile().filter(|p| p.get("dashboardFirstRun").and_then(Value::as_bool) == Some(true)) else { return };
+            let id = dashboard::text(profile, "id").to_owned();
+            let created = profile.get("profileCreated").and_then(Value::as_u64);
+            if self.first_run_seen.as_ref().is_some_and(|(p, stamp)| *p == id && *stamp == created)
+                || !self.queue_dashboard(&id, created, DashboardStart::FirstRun, "") { return; }
+        }
+        let Some(mut open) = self.dashboard_open.take() else { return };
+        if self.dashboard_identity() != Some((open.profile.as_str(), open.created)) { return; }
+        match open.load {
+            dashboard::Load::Pending => {
+                let tag = self.dashboard_tag();
+                open.load = dashboard::Load::Fetching(tag);
+                out.push(Effect::Request { tag, method: "GET".into(), path: dashboard::PATH.into(), body: None });
+                self.dashboard_open = Some(open);
+            }
+            dashboard::Load::Fetching(_) => self.dashboard_open = Some(open),
+            dashboard::Load::Ready { guard, active, layout } => {
+                let (editor, id) = if open.start.is_new() {
+                    (Editor::draft(&self.layout, &grid::dock_only(&layout), open.start, self.now, self.text_scale), String::new())
+                } else {
+                    let mut editor = Editor::new(&layout, &open.selected, self.now, self.text_scale);
+                    editor.orig = self.layout.clone();
+                    (editor, active)
+                };
+                self.dashboard_edit = Some(dashboard::Edit { guard, id, name: String::new(), naming: false, tag: None });
+                self.open_editor(editor, out);
+            }
+        }
+    }
+
+    fn dashboard_loaded(&mut self, status: u16, data: &Value, out: &mut Vec<Effect>) {
+        let Some(mut open) = self.dashboard_open.take() else { return };
+        if self.dashboard_identity() != Some((open.profile.as_str(), open.created)) { return; }
+        let ready = (status == 200).then(|| dashboard::document(data, &open.profile, open.created)).flatten().and_then(|doc| {
+            let active = dashboard::text(doc, "active");
+            let layout = dashboard::find(doc, active)?.get("layout")?.as_object()?;
+            Some(dashboard::Load::Ready { guard: dashboard::Guard::of(doc), active: active.into(), layout: Value::Object(layout.clone()) })
+        });
+        if let Some(load) = ready {
+            open.load = load;
+            self.dashboard_open = Some(open);
+        } else if open.start == DashboardStart::FirstRun {
+            self.first_run_seen = Some((open.profile, open.created));
+        } else {
+            Self::dashboard_notice("Dashboards aren’t available right now.", out);
+        }
+    }
+
+    pub(crate) fn dashboard_notice(message: &str, out: &mut Vec<Effect>) {
+        let payload = json!({"sourceId": "com.webos.app.home", "message": message, "noaction": true, "persistent": false});
+        out.push(Effect::Luna { tag: crate::system::layer::TOAST_TAG, uri: "luna://com.webos.notification/createToast".into(), payload, subscribe: false });
+    }
+
+    pub(crate) fn dashboard_naming(&self) -> bool {
+        self.dashboard_edit.as_ref().is_some_and(|e| e.naming)
+    }
+
+    pub(crate) fn dashboard_typed(&mut self, name: Option<&str>, out: &mut Vec<Effect>) {
+        let signed_in = dashboard::identity(&self.profiles);
+        let Some(edit) = &mut self.dashboard_edit else { return };
+        if !std::mem::take(&mut edit.naming) || signed_in != Some(edit.guard.identity()) { return; }
+        let Some(name) = name.map(str::trim) else { return };
+        let Some(ed) = &mut self.editor else { return };
+        if !dashboard::name_ok(name) {
+            ed.issue = "Enter a name with 1–32 characters.";
+            self.redraw(out);
+            return;
+        }
+        edit.name = name.into();
+        self.save_dashboard(out);
+    }
+
+    fn save_dashboard(&mut self, out: &mut Vec<Effect>) {
+        let signed_in = dashboard::identity(&self.profiles);
+        let Some((edit, ed)) = self.dashboard_edit.as_mut().zip(self.editor.as_mut()) else { return };
+        if !ed.can_save() || edit.naming || signed_in != Some(edit.guard.identity()) { return; }
+        let mut body = edit.guard.body("save", &edit.id);
+        body["layout"] = dashboard::changed_widgets(&ed.work);
+        if ed.start.is_new() {
+            body["name"] = json!(edit.name);
+            body["activate"] = json!(true);
+        }
+        let tag = self.dashboard_tag;
+        self.dashboard_tag += 1;
+        edit.tag = Some(tag);
+        ed.saving = true;
+        ed.issue = "";
+        self.register_editor();
+        out.push(Effect::Request { tag, method: "POST".into(), path: dashboard::PATH.into(), body: Some(body) });
         self.redraw(out);
+    }
+
+    fn dashboard_saved(&mut self, status: u16, data: &Value, out: &mut Vec<Effect>) {
+        let signed_in = dashboard::identity(&self.profiles);
+        let Some(edit) = &mut self.dashboard_edit else { return };
+        edit.tag = None;
+        let Some(ed) = &mut self.editor else { return };
+        let (profile, created) = edit.guard.identity();
+        let same_profile = signed_in == Some((profile, created));
+        if status != 200 || !same_profile || dashboard::document(data, profile, created).is_none() {
+            ed.saving = false;
+            ed.locked = !same_profile || matches!(data.pointer("/error/code").and_then(Value::as_str), Some("profile_changed" | "stale_revision"));
+            ed.issue = if ed.locked { "Dashboards changed. Discard this draft and reopen the editor." } else { dashboard::error(status, data) };
+            if ed.locked && ed.zone == super::editor::Zone::Bar {
+                ed.bar_index = ed.buttons().iter().position(|b| b.id == "cancel").unwrap_or_default();
+            }
+            self.register_editor();
+            self.redraw(out);
+            return;
+        }
+        self.finish_dashboard_guide(out);
+        self.edit_end(out);
+        // The response is intentionally a public layout projection. Read the
+        // native file to keep this profile's private widget settings.
+        out.push(Effect::Read { tag: LAYOUT_TAG, path: "theme/layout.json".into() });
+    }
+
+    fn finish_dashboard_guide(&mut self, out: &mut Vec<Effect>) {
+        if self.editor.as_ref().is_none_or(|ed| ed.start != DashboardStart::FirstRun) { return; }
+        let Some(edit) = &self.dashboard_edit else { return };
+        let (profile, created) = edit.guard.identity();
+        if self.dashboard_identity() == Some((profile, created)) {
+            let mut body = json!({"dashboardFirstRun": false});
+            if let Some(stamp) = created { body["profileCreated"] = json!(stamp); }
+            out.push(Effect::Post { path: format!("/v1/profiles/{profile}"), body });
+            self.first_run_seen = Some((profile.to_owned(), created));
+        }
     }
 
     fn edit_end(&mut self, out: &mut Vec<Effect>) {
         let Some(ed) = self.editor.take() else { return };
+        self.dashboard_edit = None;
         self.close_layer();
         ed.unregister(&mut self.focus);
+        self.apply_layout(ed.orig);
         // no item menu is left open on a card the editor was arranging
         for (_, s) in &mut self.smarts {
             s.leave();
@@ -2885,7 +3100,7 @@ impl Home {
             return;
         }
         let Some(ed) = &mut self.editor else { return };
-        let outs = ed.key(name, dir, &mut self.focus, self.now);
+        let outs = ed.key(name, dir, self.now, &self.theme, &self.onhome_metrics);
         self.edit_outs(outs, out);
         if let Some(ed) = &mut self.editor {
             ed.register(&mut self.focus, SCOPE_EDIT);
@@ -2959,6 +3174,12 @@ impl Home {
             PickerOut::Close => {
                 self.picker.unregister(&mut self.focus);
                 self.close_layer();
+            }
+            PickerOut::Dashboards => {
+                self.picker.unregister(&mut self.focus);
+                self.picker.close();
+                self.close_layer();
+                self.requests.push(Request::SettingsPage("dashboards".into()));
             }
             PickerOut::Switch { id, pin } => {
                 let mut body = json!({"id": id});
@@ -3279,7 +3500,9 @@ impl Home {
             return;
         }
         if !visible {
-            if self.focus.pointer_gone().from.is_some() {
+            let editor_pointer = self.editor.as_mut().is_some_and(Editor::cancel_pointer);
+            let had_cursor = std::mem::take(&mut self.cursor_visible);
+            if self.focus.pointer_gone().from.is_some() || editor_pointer || had_cursor {
                 self.redraw(out);
             }
             self.pointer_down = false;
@@ -3305,8 +3528,9 @@ impl Home {
         if pressed && !was {
             // a click: focuses what is under it and acts on it, as OK would
             if let Some(ed) = &mut self.editor {
-                let outs = ed.press_at(x, y, &mut self.focus, self.now);
+                let outs = ed.press_at(x, y, &mut self.focus, self.now, &self.theme, &self.onhome_metrics);
                 self.edit_outs(outs, out);
+                self.register_editor();
                 self.redraw(out);
                 return;
             }
@@ -3359,10 +3583,11 @@ impl Home {
                 self.redraw(out);
                 return;
             }
-            if let Some(ed) = &mut self.editor
-                && let Some(o) = ed.release(x, y, &mut self.focus)
-            {
-                self.edit_outs(vec![o], out);
+            if let Some(ed) = &mut self.editor {
+                if let Some(o) = ed.release(self.now) {
+                    self.edit_outs(vec![o], out);
+                    self.register_editor();
+                }
                 self.redraw(out);
                 return;
             }
@@ -3393,15 +3618,6 @@ impl Home {
                 }
                 self.moved_at = self.now;
                 self.action("ok", out);
-            }
-            return;
-        }
-        if !self.pointer_down && was {
-            if let Some(ed) = &mut self.editor
-                && let Some(o) = ed.release(x, y, &mut self.focus)
-            {
-                self.edit_outs(vec![o], out);
-                self.redraw(out);
             }
             return;
         }
@@ -3437,17 +3653,25 @@ impl Home {
                     }
                 }
                 EditorOut::Save(l) => {
-                    let file = grid::for_file(&l, &self.shipped_layout);
-                    let text = serde_json::to_string_pretty(&file).unwrap_or_default() + "\n";
-                    self.layout_text = file.to_string();
-                    out.push(Effect::Write { path: "theme/layout.json".into(), text });
-                    out.push(Effect::Log(format!("layout.json written, {} cards", grid::widgets(&file).len())));
-                    self.apply_layout(file);
+                    if let Some(edit) = &mut self.dashboard_edit {
+                        if self.editor.as_ref().is_some_and(|ed| ed.start.is_new()) {
+                            if !edit.naming && edit.tag.is_none() {
+                                edit.naming = true;
+                                self.requests.push(Request::DashboardName(edit.name.clone()));
+                            }
+                        } else {
+                            self.save_dashboard(out);
+                        }
+                        continue;
+                    }
                     self.edit_end(out);
+                    self.write_layout(&l, out);
                 }
-                EditorOut::Leave(_) => {
-                    self.apply_layout(serde_json::from_str(&self.layout_text).unwrap_or_else(|_| json!({})));
+                EditorOut::Leave => {
+                    let guarded = self.dashboard_edit.is_some();
+                    self.finish_dashboard_guide(out);
                     self.edit_end(out);
+                    if guarded { out.push(Effect::Read { tag: LAYOUT_TAG, path: "theme/layout.json".into() }); }
                 }
             }
         }
@@ -3601,6 +3825,102 @@ mod tests {
         out.extend(h.update(&Input::Key { name: name.into(), down: false, repeat: false }, at + 30));
         out
     }
+
+    fn say_profiles(h: &mut Home, active: &str, created: u64, ana_is_new: bool, at: u64) {
+        h.update(&Input::Helper { topic: "profiles".into(), data: json!({"ready": true, "active": active, "profiles": [
+            {"id": "owner", "name": "Owner", "active": active == "owner", "profileCreated": 1},
+            {"id": "ana", "name": "Ana", "active": active == "ana", "profileCreated": created, "dashboardFirstRun": ana_is_new}
+        ]}) }, at);
+        h.update(&Input::Tick, at + 250);
+    }
+
+    fn dashboard_reply(profile: &str, created: u64, layout: &Value) -> Value {
+        json!({"ok": true, "data": {"profile": profile, "profileCreated": created, "active": "home", "revision": "r1", "dashboards": [{"id": "home", "name": "Home", "layout": layout}]}})
+    }
+
+    fn open_dashboard_fixture(h: &mut Home, reply: Value, at: u64) {
+        let mut out = Vec::new();
+        h.dashboard_tick(&mut out);
+        let tag = out.iter().find_map(|e| match e {
+            Effect::Request { tag, method, path, body: None } if method == "GET" && path == dashboard::PATH => Some(*tag),
+            _ => None,
+        }).expect("wait for a current dashboard revision");
+        h.update(&Input::Fetched { tag, status: 200, data: reply }, at);
+        h.dashboard_tick(&mut out);
+        assert!(h.editor.is_some());
+    }
+
+    #[test]
+    fn dashboard_first_run_follows_the_new_signed_in_profile_and_skip_saves_no_layout() {
+        let mut h = home();
+        say_profiles(&mut h, "owner", 7, true, 1200);
+        let mut out = Vec::new();
+        h.dashboard_tick(&mut out);
+        assert!(out.is_empty() && h.editor.is_none(), "creating Ana's profile must not start the owner's guide");
+        say_profiles(&mut h, "ana", 7, true, 1500);
+        let blank = grid::dock_only(&h.layout);
+        h.update(&Input::Fetched { tag: LAYOUT_TAG, status: 200, data: blank.clone() }, 1751);
+        open_dashboard_fixture(&mut h, dashboard_reply("ana", 7, &blank), 1800);
+        let ed = h.editor.as_ref().unwrap();
+        assert_eq!(ed.start, DashboardStart::FirstRun);
+        assert!(!ed.has_widget());
+        let out = press(&mut h, "back", 1900);
+        assert!(out.iter().any(|e| matches!(e, Effect::Post { path, body } if path == "/v1/profiles/ana" && body == &json!({"dashboardFirstRun":false,"profileCreated":7}))));
+        assert!(!out.iter().any(|e| matches!(e, Effect::Write { path, .. } if path == "theme/layout.json") || matches!(e, Effect::Request { method, path, .. } if method == "POST" && path == dashboard::PATH)));
+        assert!(h.editor.is_none() && grid::entries(&h.layout).iter().all(Entry::is_dock));
+    }
+
+    #[test]
+    fn dashboard_replay_starts_empty_and_discard_restores_the_original_without_writes() {
+        let mut h = home();
+        let original = h.layout.clone();
+        say_profiles(&mut h, "owner", 7, false, 1300);
+        assert!(h.queue_dashboard("owner", Some(1), DashboardStart::Replay, ""));
+        open_dashboard_fixture(&mut h, dashboard_reply("owner", 1, &original), 1600);
+        assert!(grid::entries(&h.layout).iter().all(Entry::is_dock));
+        for (i, key) in ["ok", "ok", "ok", "ok"].into_iter().enumerate() {
+            press(&mut h, key, 1700 + i as u64 * 100);
+        }
+        let out = press(&mut h, "back", 2100);
+        assert!(out.iter().all(|e| !matches!(e, Effect::Post { .. } | Effect::Write { .. })));
+        press(&mut h, "right", 2200);
+        let out = press(&mut h, "ok", 2300);
+        assert!(out.iter().all(|e| !matches!(e, Effect::Post { .. } | Effect::Write { .. } | Effect::Request { .. })));
+        assert!(h.editor.is_none() && h.layout == original);
+    }
+
+    #[test]
+    fn dashboard_name_and_reply_cannot_affect_a_reused_profile_id() {
+        let mut h = home();
+        let original = h.layout.clone();
+        say_profiles(&mut h, "ana", 7, true, 1300);
+        open_dashboard_fixture(&mut h, dashboard_reply("ana", 7, &original), 1600);
+        for (i, key) in ["ok", "ok", "ok", "ok", "ok", "right", "right", "right", "right", "right", "ok"].into_iter().enumerate() {
+            press(&mut h, key, 1700 + i as u64 * 100);
+        }
+        assert!(h.dashboard_naming(), "Finish asks for a name before any save");
+        let mut out = Vec::new();
+        h.dashboard_typed(Some("Evening"), &mut out);
+        let tag = out.iter().find_map(|effect| match effect {
+            Effect::Request { tag, method, path, body: Some(body) } if method == "POST" && path == dashboard::PATH => {
+                assert_eq!(body["id"], "");
+                assert_eq!(body["name"], "Evening");
+                assert_eq!(body["activate"], true);
+                assert_eq!(body["profileCreated"], 7);
+                assert_eq!(body["revision"], "r1");
+                Some(*tag)
+            }
+            _ => None,
+        }).unwrap();
+        say_profiles(&mut h, "ana", 42, true, 2900);
+        assert!(h.editor.is_none() && !h.dashboard_naming());
+        out.clear();
+        h.dashboard_typed(Some("Late name"), &mut out);
+        out.extend(h.update(&Input::Fetched { tag, status: 200, data: dashboard_reply("ana", 7, &original) }, 3200));
+        assert!(out.iter().all(|e| !matches!(e, Effect::Post { .. } | Effect::Request { .. })));
+        assert!(h.first_run_seen.is_none());
+    }
+
 
     impl Home {
         /// The arrows from where Home opens (the status bar's first button, over the weather card) to the card `widget`: down onto the weather

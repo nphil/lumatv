@@ -37,7 +37,7 @@
 //! # API
 //!
 //! Topic `profiles`: the public view (`active`, `owner`, `canAdmin`, `pickerOnWake`, `startWith`, the profiles with name, initial, colour,
-//! `avatar`, `avatarFile`, `locked`, `owner`, `firstRun`). Never a hash. The routes are in [`ROUTES`].
+//! `avatar`, `avatarFile`, `locked`, `owner`, `firstRun`, `dashboardFirstRun`). Never a hash. The routes are in [`ROUTES`].
 
 use crate::ctx::Ctx;
 use crate::http::{Request, Response, error_response};
@@ -56,6 +56,8 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+mod dashboards;
+
 pub const TOPIC: &str = "profiles";
 
 pub const ROUTES: &[(&str, &str, &str)] = &[
@@ -63,6 +65,16 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
         "GET",
         "/v1/profiles",
         "who the profiles are, who is active and who owns the TV (the `profiles` topic's value); never a PIN",
+    ),
+    (
+        "GET",
+        "/v1/profiles/dashboards",
+        "the active profile's named Home layouts with a revision for editing",
+    ),
+    (
+        "POST",
+        "/v1/profiles/dashboards",
+        "save, activate or delete a Home layout for the active profile and revision",
     ),
     (
         "GET",
@@ -77,12 +89,12 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     (
         "POST",
         "/v1/profiles",
-        "owner only: a new profile from the owner's arrangement: {\"name\", \"color\", \"avatar\"}",
+        "owner only: a new profile with a dock-only Home: {\"name\", \"color\", \"avatar\"}",
     ),
     (
         "POST",
         "/v1/profiles/{id}",
-        "a profile's name, colour, picture or `firstRun`: {\"name\", \"color\", \"avatar\", \"firstRun\"}; its own or the owner's",
+        "a profile's name, colour, picture or first-run flags; dashboardFirstRun may only be cleared by the active profile",
     ),
     (
         "DELETE",
@@ -112,11 +124,12 @@ pub const OTHER_NAMES: &[&str] = &["Isabel"];
 pub const MAX_PROFILES: usize = 6;
 pub const NAME_MAX: usize = 16;
 /// Words a profile's id may not be: they are routes.
-const RESERVED: &[&str] = &["switch", "options", "gallery", "index"];
+const RESERVED: &[&str] = &["switch", "options", "gallery", "index", "dashboards"];
 /// The most a photo is: the API's body is 64 KiB and a base64 body is a third bigger.
 const PHOTO_MAX: usize = 48 * 1024;
 /// A file path may hold up to this much before it is read: a working copy is a few kilobytes.
 const FILE_MAX: u64 = 1024 * 1024;
+const CREATED_CLOCK: &str = ".created";
 /// What a new profile takes from the owner: the arrangement, not the look.
 pub const COPY: &[&str] = &[
     "apps",
@@ -428,6 +441,8 @@ struct Record {
     created: u64,
     #[serde(default)]
     first_run: bool,
+    #[serde(default)]
+    dashboard_first_run: bool,
 }
 
 fn one() -> u32 {
@@ -516,20 +531,32 @@ pub fn move_legacy_units(data_dir: &Path, adopt: impl FnOnce(&str) -> bool) {
 
 /// A file made whole: written beside it and renamed over it, so a reader sees the old file or the new one.
 fn write_atomic(path: &Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
+    write_atomic_inner(path, bytes, mode, false)
+}
+
+fn write_atomic_inner(path: &Path, bytes: &[u8], mode: u32, durable: bool) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
     let tmp = path.with_extension(format!("tmp{}", std::process::id()));
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(mode)
-        .open(&tmp)?;
-    file.write_all(bytes)?;
-    file.flush()?;
-    drop(file);
-    fs::rename(&tmp, path).inspect_err(|_| {
+    (|| {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(mode)
+            .open(&tmp)?;
+        file.write_all(bytes)?;
+        if durable {
+            file.sync_all()?;
+        }
+        drop(file);
+        if durable {
+            dashboards::rename_durable(&tmp, path)
+        } else {
+            fs::rename(&tmp, path)
+        }
+    })().inspect_err(|_| {
         let _ = fs::remove_file(&tmp);
     })
 }
@@ -549,6 +576,8 @@ fn hash_file(path: &Path) -> String {
 pub enum Error {
     /// The store could not be opened (the data directory is not writable): nothing works, the TV does as it did.
     NotReady,
+    LayoutBusy,
+    ProfileChanged,
     NoProfile,
     OwnerOnly,
     PinRequired,
@@ -600,6 +629,7 @@ pub struct Store {
     ready: bool,
     bad_reads: u32,
     switched_at: u64,
+    dashboard_epoch: String,
 }
 
 impl Store {
@@ -626,6 +656,7 @@ impl Store {
             ready: false,
             bad_reads: 0,
             switched_at: 0,
+            dashboard_epoch: new_salt(),
         };
         s.retry();
         s
@@ -637,6 +668,12 @@ impl Store {
         if self.ready {
             return;
         }
+        if fs::create_dir_all(&self.theme).is_err() {
+            return;
+        }
+        let Ok(_layout_lock) = self.lock_layout() else {
+            return;
+        };
         if !self.load() {
             match self.migrate() {
                 Ok(()) => {
@@ -647,6 +684,9 @@ impl Store {
         }
         if self.ready && self.index.switching.is_some() {
             self.recover();
+        }
+        if self.ready && self.index.switching.is_none() {
+            let _ = self.finish_dashboard();
         }
     }
 
@@ -660,6 +700,11 @@ impl Store {
     fn layout_file(&self) -> PathBuf {
         self.theme.join("layout.json")
     }
+
+    // The native Settings editor also takes this lock before replacing the working file.
+    fn lock_layout(&self) -> Result<fs::File, Error> {
+        crate::sys::try_lock(&self.theme.join("layout.lock"))?.ok_or(Error::LayoutBusy)
+    }
     fn tint_file(&self) -> PathBuf {
         self.theme.join("tint.json")
     }
@@ -668,6 +713,19 @@ impl Store {
     }
     fn index_file(&self) -> PathBuf {
         self.root.join("index.json")
+    }
+
+    fn creation_clock(&self) -> Result<u64, Error> {
+        match fs::read_to_string(self.root.join(CREATED_CLOCK)) {
+            Ok(v) => v.parse().map_err(|_| Error::Io("profile creation clock is invalid".into())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(0),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn write_creation_clock(&self, created: u64) -> Result<(), Error> {
+        write_atomic_inner(&self.root.join(CREATED_CLOCK), created.to_string().as_bytes(), 0o600, true)?;
+        Ok(())
     }
 
     /// Reads the index and every profile it lists. A profile whose file cannot be read leaves the list; the owner is then the first one left.
@@ -745,6 +803,10 @@ impl Store {
 
     fn write_record(&self, id: &str) -> Result<(), Error> {
         let rec = self.records.get(id).ok_or(Error::NoProfile)?;
+        self.write_record_value(id, rec)
+    }
+
+    fn write_record_value(&self, id: &str, rec: &Record) -> Result<(), Error> {
         let value = serde_json::to_value(rec).map_err(|e| Error::Io(e.to_string()))?;
         // the PIN's hash is in this file: the owner of the TV reads it, nothing else needs to
         write_atomic(
@@ -796,6 +858,7 @@ impl Store {
                 pin: None,
                 created,
                 first_run: false,
+                dashboard_first_run: false,
             },
             theme: own.clone(),
             layout: layout.clone(),
@@ -812,6 +875,7 @@ impl Store {
                 pin: None,
                 created,
                 first_run: true,
+                dashboard_first_run: false,
             };
             makes.push(Seed {
                 id,
@@ -890,10 +954,20 @@ impl Store {
         if !self.ready {
             return false;
         }
+        let Ok(_layout_lock) = self.lock_layout() else {
+            return false;
+        };
         if self.index.switching.is_some() {
             self.recover();
             return true;
         }
+        if self.finish_dashboard().is_err() {
+            return false;
+        }
+        self.sync_copy()
+    }
+
+    fn sync_copy(&mut self) -> bool {
         let mut wrote = false;
         let mut stale = false;
         let work_id = self.index.work.id.clone();
@@ -905,25 +979,20 @@ impl Store {
             match read_json(&self.theme_file()).filter(Value::is_object) {
                 Some(v) => {
                     // an edit saved by a screen that had not yet seen a switch carries the old profile's mark: it is that person's
-                    let whose = v
-                        .get(MARK)
-                        .and_then(Value::as_str)
-                        .filter(|m| self.records.contains_key(*m))
-                        .map_or_else(|| work_id.clone(), str::to_owned);
-                    let (_, own) = self.scope.split(&v);
-                    if self.records.contains_key(&whose)
-                        && write_atomic(
-                            &self.dir_of(&whose).join("theme.json"),
-                            &pretty(&own),
-                            0o644,
-                        )
-                        .is_ok()
-                    {
+                    let whose = v.get(MARK).map_or(work_id.as_str(), |mark| mark.as_str().unwrap_or(""));
+                    edit_of = whose.to_owned();
+                    if !self.records.contains_key(whose) {
+                        // Do not adopt the layout of a deleted profile (or an invalid marker).
+                        stale = true;
+                    } else if write_atomic(
+                        &self.dir_of(whose).join("theme.json"),
+                        &pretty(&self.scope.split(&v).1),
+                        0o644,
+                    ).is_ok() {
                         self.index.work.theme = theme_hash;
                         self.bad_reads = 0;
                         wrote = true;
                         stale = whose != self.index.active;
-                        edit_of = whose;
                     }
                 }
                 None => {
@@ -975,7 +1044,9 @@ impl Store {
         if stale {
             // the stale edit is kept for the person it was made by; the working copy is the active person's again
             let active = self.index.active.clone();
-            if self.materialize(&active).is_err() {
+            if self.materialize(&active).is_ok() {
+                wrote = true;
+            } else {
                 crate::log_warn!(
                     "profiles: the working copy could not be put right after a late edit"
                 );
@@ -1000,6 +1071,7 @@ impl Store {
         if self.materialize(&to).is_ok() {
             self.index.active = to;
             self.index.switching = None;
+            self.switched_at = now_ms().max(self.switched_at.saturating_add(1));
             if self.write_index().is_ok() {
                 crate::log_info!("profiles: finished a switch that was cut short");
             }
@@ -1098,13 +1170,25 @@ impl Store {
         if id == self.index.active && self.index.switching.is_none() {
             return Ok(());
         }
+        let _layout_lock = self.lock_layout()?;
+        if self.index.switching.is_some() {
+            self.recover();
+            if self.index.switching.is_some() {
+                return Err(Error::Io("a profile switch has not finished".to_owned()));
+            }
+            if id == self.index.active {
+                return Ok(());
+            }
+        }
         if !self.owner_active() {
             self.check_pin(id, pin)?;
         }
         // a working copy that is being written cannot be switched just now: nothing is begun, the caller may ask again
         self.working(&self.theme_file())?;
+        self.finish_dashboard()
+            .map_err(|_| Error::Io("a dashboard change has not finished".to_owned()))?;
         // what was edited in the leaving profile's Home is its own
-        self.sync();
+        self.sync_copy();
         self.index.switching = Some(id.to_owned());
         self.write_index()?;
         self.materialize(id)?;
@@ -1131,7 +1215,18 @@ impl Store {
             return Err(invalid("a profile needs a name"));
         }
         self.sync();
-        let id = slug(&name, &self.index.order);
+        let mut taken = self.index.order.clone();
+        let id = loop {
+            let id = slug(&name, &taken);
+            // A profile removed from the index may still have private files on disk.
+            if !self.dir_of(&id).try_exists()? {
+                break id;
+            }
+            taken.push(id);
+        };
+        let last_created = self.records.values().map(|rec| rec.created).fold(self.creation_clock()?, u64::max);
+        let next = last_created.checked_add(1).ok_or_else(|| Error::Io("profile creation clock is exhausted".into()))?;
+        let created = now_ms().max(next);
         let color = match color {
             Some(c) if color_ok(c) => c.to_owned(),
             Some(_) => return Err(invalid("the colour is #rrggbb")),
@@ -1143,16 +1238,19 @@ impl Store {
         };
         let owner_dir = self.dir_of(&self.index.owner.clone());
         let own = read_json(&owner_dir.join("theme.json")).unwrap_or_else(|| json!({}));
-        let layout = fs::read(owner_dir.join("layout.json")).unwrap_or_else(|_| b"{}\n".to_vec());
+        let layout = dashboards::starter_layout();
         let rec = Record {
             v: 1,
             name,
             color,
             avatar,
             pin: None,
-            created: now_ms(),
+            created,
             first_run: true,
+            dashboard_first_run: true,
         };
+        // Reserving the stamp before creating the profile also prevents reusing it after deletion or a restart.
+        self.write_creation_clock(created)?;
         let dir = self.dir_of(&id);
         fs::create_dir_all(&dir)?;
         write_atomic(
@@ -1161,7 +1259,7 @@ impl Store {
             0o600,
         )?;
         write_atomic(&dir.join("theme.json"), &pretty(&pick(&own, COPY)), 0o644)?;
-        write_atomic(&dir.join("layout.json"), &layout, 0o644)?;
+        write_atomic(&dir.join("layout.json"), &pretty(&layout), 0o644)?;
         self.records.insert(id.clone(), rec);
         self.index.order.push(id.clone());
         self.write_index()?;
@@ -1174,6 +1272,17 @@ impl Store {
             return Err(Error::NoProfile);
         }
         self.own_or_owner(id)?;
+        let guide_done = patch.get("dashboardFirstRun");
+        if let Some(done) = guide_done {
+            if self.index.active != id || self.index.switching.is_some()
+                || patch.get("profileCreated").is_some_and(|stamp| stamp.as_u64() != Some(self.records[id].created))
+            {
+                return Err(Error::ProfileChanged);
+            }
+            if done.as_bool() != Some(false) {
+                return Err(invalid("dashboardFirstRun can only be cleared"));
+            }
+        }
         let mut rec = self.records[id].clone();
         if let Some(n) = patch.get("name") {
             let name = clean_name(n.as_str().ok_or_else(|| invalid("name is text"))?);
@@ -1197,8 +1306,12 @@ impl Store {
                 .as_bool()
                 .ok_or_else(|| invalid("firstRun is true or false"))?;
         }
+        if guide_done.is_some() {
+            rec.dashboard_first_run = false;
+        }
+        self.write_record_value(id, &rec)?;
         self.records.insert(id.to_owned(), rec);
-        self.write_record(id)
+        Ok(())
     }
 
     pub fn remove(&mut self, id: &str) -> Result<(), Error> {
@@ -1209,6 +1322,11 @@ impl Store {
         }
         if id == self.index.owner {
             return Err(invalid("the owner stays"));
+        }
+        // A preexisting account can be removed before the first creation records a clock.
+        let created = self.records[id].created;
+        if created > self.creation_clock()? {
+            self.write_creation_clock(created)?;
         }
         self.sync();
         self.records.remove(id);
@@ -1396,6 +1514,7 @@ impl Store {
                 Some(json!({
                     "id": id, "name": r.name, "initial": initial_of(&r.name), "color": r.color, "avatar": avatar, "avatarFile": file,
                     "owner": *id == self.index.owner, "active": *id == self.index.active, "locked": r.pin.is_some(), "firstRun": r.first_run,
+                    "dashboardFirstRun": r.dashboard_first_run, "profileCreated": r.created,
                 }))
             })
             .collect();
@@ -1473,6 +1592,8 @@ fn respond(e: &Error) -> Response {
         }
         Error::Invalid(why) => error_response(400, "bad_request", why),
         Error::Full => error_response(409, "full", "no room for another profile"),
+        Error::LayoutBusy => error_response(409, "home_busy", "another Home edit is finishing"),
+        Error::ProfileChanged => error_response(409, "profile_changed", "the active profile changed"),
         Error::Io(why) => error_response(500, "io", why),
     }
 }
@@ -1620,6 +1741,10 @@ impl Profiles {
                         Ok(json!({"id": id}))
                     })
                 }
+                _ => wrong_method("GET, POST"),
+            },
+            ["dashboards"] => match method {
+                "GET" | "POST" => dashboards::handle(self, request),
                 _ => wrong_method("GET, POST"),
             },
             ["gallery"] => {
@@ -2533,7 +2658,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_owner_adds_and_removes_and_a_new_profile_starts_from_his_arrangement() {
+    fn only_the_owner_adds_and_removes_and_a_new_profile_starts_with_a_private_dock_only_home() {
         let r = rig();
         let mut s = r.open();
         let id = s
@@ -2546,6 +2671,10 @@ mod tests {
         assert_eq!(id, "mia");
         assert_eq!(s.index.order, ["nitin", "isabel", "mia"]);
         assert_eq!(r.own("mia"), pick(&Scope::load().split(&legacy()).1, COPY));
+        let layout = read_json(&r.p().join("profiles/mia/layout.json")).unwrap();
+        let widgets = lumatv_home_grid::grid::widgets(&layout);
+        assert_eq!(widgets.len(), 1);
+        assert_eq!(widgets[0]["type"], "dock");
         assert!(s.records["mia"].first_run);
         assert_eq!(s.records["mia"].color, "#EB6F92");
         assert_eq!(s.create("Mia", None, None).unwrap(), "mia2");

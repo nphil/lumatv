@@ -213,7 +213,10 @@ pub fn row_heights(layout: &Value) -> Vec<f64> {
 
 /// One cell's size (the uniform cell: with pixel rows the height is the mean).
 pub fn cell_size(layout: &Value) -> (f64, f64) {
-    let a = area(layout);
+    cell_size_in(layout, area(layout))
+}
+
+pub(super) fn cell_size_in(layout: &Value, a: Rect) -> (f64, f64) {
     let (cols, gutter) = grid(layout);
     let n = row_count(layout);
     ((a.w as f64 - ((cols - 1) * gutter) as f64) / cols as f64, (a.h as f64 - ((n - 1) * gutter) as f64) / n as f64)
@@ -243,6 +246,18 @@ pub fn rect_of(layout: &Value, e: &Entry) -> Rect {
     }
 }
 
+/// The editor always uses equal rows and reserves screen space for the tools.
+pub fn uniform_rect(layout: &Value, a: Rect, e: &Entry) -> Rect {
+    let (cw, ch) = cell_size_in(layout, a);
+    let gap = grid(layout).1 as f64;
+    Rect {
+        x: (a.x as f64 + e.col as f64 * (cw + gap)).round() as i32,
+        y: (a.y as f64 + e.row as f64 * (ch + gap)).round() as i32,
+        w: (e.span as f64 * (cw + gap) - gap).round() as i32,
+        h: (e.rows as f64 * (ch + gap) - gap).round() as i32,
+    }
+}
+
 /// The layout as it is drawn under a status bar `h` tall (the text size grew it): the bar's height is `h`, and pixel rows shrink in
 /// proportion so the grid still ends at the safe edge. The owner's file is never this.
 pub fn with_status_height(layout: &Value, h: f32) -> Value {
@@ -267,9 +282,14 @@ pub fn with_status_height(layout: &Value, h: f32) -> Value {
 
 // ---- entries
 fn with_widgets(layout: &Value, list: Vec<Value>) -> Value {
-    let mut o = layout.clone();
-    o["widgets"] = Value::Array(list);
-    o
+    let mut l = layout.clone();
+    l["widgets"] = Value::Array(list);
+    l
+}
+
+/// Keep the shell and the Apps dock, not any of the current dashboard's cards.
+pub(super) fn dock_only(layout: &Value) -> Value {
+    with_widgets(layout, widgets(layout).iter().filter(|w| w.get("type").and_then(Value::as_str) == Some("dock")).cloned().collect())
 }
 
 fn to_json(e: &Entry, base: &Value) -> Value {
@@ -311,7 +331,7 @@ fn tidy(layout: &Value, e: &Entry) -> Entry {
     Entry { span, rows, col: clamp(e.col, 0, cols - span), row: clamp(e.row, 0, n - rows), ..e.clone() }
 }
 
-fn fits(layout: &Value, e: &Entry) -> bool {
+pub(super) fn fits(layout: &Value, e: &Entry) -> bool {
     let (cols, _) = grid(layout);
     e.span >= 1 && e.rows >= 1 && e.col >= 0 && e.row >= 0 && e.col + e.span <= cols && e.row + e.rows <= row_count(layout)
 }
@@ -422,15 +442,17 @@ pub fn resize(layout: &Value, id: &str, dspan: i64, drows: i64) -> Changed {
 }
 
 // ---- finding room
-fn first_free(layout: &Value, e: &Entry, sizes: &[(i64, i64)]) -> Result<Entry, Refusal> {
+fn first_free(layout: &Value, e: &Entry, sizes: &[(i64, i64)], exact: bool) -> Result<Entry, Refusal> {
     let n = row_count(layout);
     let (cols, _) = grid(layout);
+    let occupied = entries(layout);
+    let mut o = e.clone();
     for &(s, r) in sizes {
-        let (span, rows) = (s.min(cols), r.min(n));
-        for row in 0..=(n - rows).max(-1) {
-            for col in 0..=(cols - span).max(-1) {
-                let o = e.with(col, row, span, rows);
-                if !overlaps(layout, &o) {
+        (o.span, o.rows) = if exact { (s, r) } else { (s.min(cols), r.min(n)) };
+        for row in 0..=n - o.rows {
+            for col in 0..=cols - o.span {
+                (o.col, o.row) = (col, row);
+                if !occupied.iter().any(|other| !other.hidden && other.id != o.id && o.overlaps(other)) {
                     return Ok(o);
                 }
             }
@@ -478,10 +500,32 @@ pub fn add(layout: &Value, kind: &str) -> Result<(Value, String), Refusal> {
         return show(layout, &h.id);
     }
     let e = Entry { id: new_id(layout, kind), kind: kind.to_owned(), col: 0, row: 0, span: 1, rows: 1, hidden: false, title: t.default_title.map(str::to_owned) };
-    let placed = first_free(layout, &e, &at_least(t.want, t.min))?;
+    let placed = first_free(layout, &e, &at_least(t.want, t.min), false)?;
     let mut w = widgets(layout).to_vec();
     w.push(to_json(&placed, &Value::Null));
     Ok((with_widgets(layout, w), placed.id))
+}
+
+/// The editor never substitutes a size after the person picked it.
+pub fn add_sized(layout: &Value, kind: &str, size: (i64, i64)) -> Result<(Value, String), Refusal> {
+    let t = type_of(kind).filter(|t| !t.fixed && t.want.contains(&size)).ok_or(Refusal::Unknown)?;
+    let hidden = widgets(layout).iter().enumerate().find_map(|(i, w)| {
+        let e = entry_of(w)?;
+        (e.kind == kind && e.hidden).then_some((i, e))
+    });
+    let mut list = widgets(layout).to_vec();
+    let placed = if let Some((i, mut e)) = hidden {
+        e.hidden = false;
+        let placed = first_free(layout, &e, &[size], true)?;
+        list[i] = to_json(&placed, &list[i]);
+        placed
+    } else {
+        let e = Entry { id: new_id(layout, kind), kind: kind.to_owned(), col: 0, row: 0, span: 1, rows: 1, hidden: false, title: t.default_title.map(str::to_owned) };
+        let placed = first_free(layout, &e, &[size], true)?;
+        list.push(to_json(&placed, &Value::Null));
+        placed
+    };
+    Ok((with_widgets(layout, list), placed.id))
 }
 
 pub fn remove(layout: &Value, id: &str) -> Result<Value, Refusal> {
@@ -510,7 +554,7 @@ pub fn show(layout: &Value, id: &str) -> Result<(Value, String), Refusal> {
     if !overlaps(layout, &o) {
         return Ok((replace_at(layout, i, &o), id.to_owned()));
     }
-    let placed = first_free(layout, &o, &at_least(&fallbacks(&o), o.min()))?;
+    let placed = first_free(layout, &o, &at_least(&fallbacks(&o), o.min()), false)?;
     Ok((replace_at(layout, i, &placed), id.to_owned()))
 }
 
@@ -628,9 +672,9 @@ pub fn place_words(layout: &Value, e: &Entry) -> String {
 
 // ---- the pointer
 /// Where a card lands when dragged `dx`, `dy` pixels: whole cells, on the grid.
-pub fn snap_move(layout: &Value, id: &str, dx: f32, dy: f32) -> Option<(i64, i64)> {
+pub fn snap_move(layout: &Value, area: Rect, id: &str, dx: f32, dy: f32) -> Option<(i64, i64)> {
     let e = find(layout, id)?;
-    let (cw, ch) = cell_size(layout);
+    let (cw, ch) = cell_size_in(layout, area);
     let (cols, gutter) = grid(layout);
     Some((
         clamp((e.col as f64 + dx as f64 / (cw + gutter as f64)).round() as i64, 0, cols - e.span),
@@ -639,11 +683,11 @@ pub fn snap_move(layout: &Value, id: &str, dx: f32, dy: f32) -> Option<(i64, i64
 }
 
 /// The size a card takes when its corner is dragged by `dw`, `dh`.
-pub fn snap_resize(layout: &Value, id: &str, dw: f32, dh: f32) -> Option<(i64, i64)> {
+pub fn snap_resize(layout: &Value, area: Rect, id: &str, dw: f32, dh: f32) -> Option<(i64, i64)> {
     let e = find(layout, id)?;
-    let (cw, ch) = cell_size(layout);
+    let (cw, ch) = cell_size_in(layout, area);
     let (cols, gutter) = grid(layout);
-    let r = rect_of(layout, &e);
+    let r = uniform_rect(layout, area, &e);
     let m = e.min();
     Some((
         clamp(((r.w as f64 + dw as f64 + gutter as f64) / (cw + gutter as f64)).round() as i64, m.0.min(e.span), cols - e.col),
@@ -775,9 +819,9 @@ mod tests {
     fn a_drag_lands_on_whole_cells() {
         let u = to_uniform(&shipped());
         let (cw, ch) = cell_size(&u);
-        assert_eq!(snap_move(&u, "clock", (cw + 20.0) as f32 * 2.0, 0.0), Some((2, 0)));
-        assert_eq!(snap_resize(&u, "clock", (cw + 20.0) as f32, (ch + 20.0) as f32), Some((5, 5)));
-        assert_eq!(snap_resize(&u, "clock", -5000.0, -5000.0), Some((2, 3)));
+        assert_eq!(snap_move(&u, area(&u), "clock", (cw + 20.0) as f32 * 2.0, 0.0), Some((2, 0)));
+        assert_eq!(snap_resize(&u, area(&u), "clock", (cw + 20.0) as f32, (ch + 20.0) as f32), Some((5, 5)));
+        assert_eq!(snap_resize(&u, area(&u), "clock", -5000.0, -5000.0), Some((2, 3)));
     }
 
     #[test]

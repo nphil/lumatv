@@ -32,6 +32,63 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+/// The helper holds this same lock when it syncs a dashboard or switches profiles.
+fn lock_home_layout(dir: &Path) -> std::io::Result<std::fs::File> {
+    use std::io::ErrorKind::{AlreadyExists, NotFound};
+    use std::os::fd::AsRawFd;
+    let file = dir.join("layout.lock");
+    let lock = match std::fs::File::open(&file) {
+        Err(e) if e.kind() == NotFound => match std::fs::OpenOptions::new().write(true).create_new(true).open(&file) {
+            Err(e) if e.kind() == AlreadyExists => std::fs::File::open(file)?,
+            result => result?,
+        },
+        result => result?,
+    };
+    // SAFETY: flock uses the open, local-file descriptor; dropping it releases this lock.
+    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(lock)
+}
+
+fn write_home_layout(data: &Path, before: Option<&Value>, who: Option<(&str, Option<u64>)>, text: &str) -> std::io::Result<()> {
+    use std::io::ErrorKind::{InvalidData, NotFound, WouldBlock};
+    let theme = data.join("theme");
+    std::fs::create_dir_all(&theme)?;
+    let _lock = lock_home_layout(&theme)?;
+    let changed = || std::io::Error::new(WouldBlock, "Home layout or profile changed");
+    let read = |path: &Path| match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice::<Value>(&bytes).map(Some).map_err(|e| std::io::Error::new(InvalidData, e)),
+        Err(e) if e.kind() == NotFound => Ok(None),
+        Err(e) => Err(e),
+    };
+    let profiles = data.join("profiles");
+    match (read(&profiles.join("index.json"))?, who) {
+        (None, None) => {}
+        (Some(index), Some((id, stamp))) => {
+            if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+                || index["active"].as_str() != Some(id) || index.pointer("/work/id").and_then(Value::as_str) != Some(id)
+                || !index["switching"].is_null() || read(&theme.join("theme.json"))?.and_then(|t| t.get("_profile").cloned()).as_ref().and_then(Value::as_str) != Some(id)
+            {
+                return Err(changed());
+            }
+            if let Some(stamp) = stamp
+                && read(&profiles.join(id).join("profile.json"))?.and_then(|r| r["created"].as_u64()) != Some(stamp)
+            {
+                return Err(changed());
+            }
+        }
+        _ => return Err(changed()),
+    }
+    let path = theme.join("layout.json");
+    if read(&path)?.as_ref() != before {
+        return Err(changed());
+    }
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(tmp, path)
+}
+
 /// The Settings page the Cameras grid's `Settings` button opens (a page of Home & look).
 const CAMERAS_SETTINGS_PAGE: &str = "cameras";
 /// How long Home stays calm after an overlay is gone (the longest fade-out or slide-out is 220 ms).
@@ -191,8 +248,9 @@ pub struct Shell {
     /// Rebuild glass surfaces after the strength slider comes to rest.
     glass_restyle_at: Option<u64>,
     theme_default_scale: f32,
-    /// The text of the layout file Settings has seen (Home's), to hand it the layout again when Home changes it.
-    settings_layout: String,
+    /// The working layout file Settings has seen, as distinct from an editor preview.
+    settings_layout: Option<std::rc::Rc<Value>>,
+    dashboard_entry: bool,
     home_surface: HomeSurface,
     /// The Cameras app (the grid, the full view, the strip, the sheet, the options page): a kind of its own over the panels.
     cameras: Cameras,
@@ -295,10 +353,12 @@ fn file_stamp(path: &Path) -> Option<(SystemTime, u64)> {
 impl Shell {
     /// `icons` is the module's `icons/audio` directory (the format badge's marks are in `icons/video` beside it); `theme` the merged theme and
     /// `layout` Home's layout, for the placements.
-    pub fn new(mut kit: Kit, kinds: Kinds, system_z: i32, icons: &Path, theme: &Value, layout: &Value) -> std::io::Result<Self> {
+    pub fn new<'a>(mut kit: Kit, kinds: Kinds, system_z: i32, icons: &Path, theme: &Value, layout: impl Into<Option<&'a Value>>) -> std::io::Result<Self> {
         kit.marks = crate::kit::logo::load_all(&icons.with_file_name("video"), &crate::kit::logo::VIDEO_MARKS);
         let engine = Engine::new(&kit).map_err(|e| std::io::Error::other(format!("{e}")))?;
-        let home = Home::new(theme.clone(), crate::home::grid::shipped(), layout.clone());
+        let file = layout.into();
+        let home = Home::new(theme.clone(), crate::home::grid::shipped(), file.cloned());
+        let layout = file.unwrap_or(&home.shipped_layout);
         Ok(Self {
             volume: Volume::default(),
             volume_surface: VolumeSurface::new(system_z + crate::kit::z::SYSTEM, icons, theme, layout),
@@ -314,7 +374,8 @@ impl Shell {
             settings: SettingsHost::new(system_z, theme, &home.layout),
             lab: crate::lab::host::LabHost::new(system_z + crate::kit::z::LAB),
             guide: crate::guide::host::GuideHost::new(system_z + crate::kit::z::GUIDE),
-            settings_layout: home.layout_text.clone(),
+            settings_layout: home.layout_file.clone(),
+            dashboard_entry: false,
             theme_base: theme.clone(),
             theme_default_scale: kit.text_scale,
             theme_preview: None,
@@ -506,6 +567,20 @@ impl Shell {
                 self.feed(&Input::Fetched { tag, status, data }, now, acts);
             }
             Effect::Write { path, text } => {
+                if path == "theme/layout.json" {
+                    let result = self.data_dir.as_deref().ok_or_else(|| std::io::Error::other("no data directory"))
+                        .and_then(|dir| write_home_layout(dir, self.home.layout_file.as_deref(), self.home.dashboard_identity(), &text));
+                    if let Err(e) = result {
+                        acts.push(Act::Log(format!("write {path}: {e}")));
+                        let mut out = Vec::new();
+                        Home::dashboard_notice("Couldn’t save these Home changes. Try again.", &mut out);
+                        for e in out { self.carry(e, now, acts); }
+                    }
+                    let tag = crate::home::model::LAYOUT_TAG;
+                    self.polled_files.remove(&tag);
+                    self.carry(Effect::Read { tag, path }, now, acts);
+                    return;
+                }
                 let written = self.file_of(&path).and_then(|full| {
                     if let Some(dir) = full.parent() {
                         std::fs::create_dir_all(dir)?;
@@ -676,6 +751,15 @@ impl Shell {
                             self.redraw = true;
                         }
                         crate::home::model::Request::SettingsPage(page) => acts.push(Act::Log(format!("home asks for settings at {page}"))),
+                        crate::home::model::Request::DashboardName(text) => {
+                            let mut out = Vec::new();
+                            let ask = crate::panels::layer::TextAsk { prompt: "Name your dashboard", text: &text, secret: false, purpose: crate::panels::ime::PURPOSE_NAME };
+                            self.dashboard_entry = self.panels.ask_text_purpose(ask, &self.kinds, now, &mut out);
+                            if !self.dashboard_entry {
+                                self.home.dashboard_typed(None, &mut out);
+                            }
+                            for e in out { self.carry(e, now, acts); }
+                        }
                         crate::home::model::Request::Settings => acts.push(Act::Log("home asks for settings".into())),
                         crate::home::model::Request::Notifications | crate::home::model::Request::NotificationsAt(_) => acts.push(Act::Log("home asks for notifications".into())),
                         crate::home::model::Request::Cameras if self.kinds.cameras => {
@@ -818,10 +902,14 @@ impl Shell {
             }
             self.feed(&Input::Topic { topic, data }, now, acts);
         }
-        // what was typed goes back, once, to the screen that asked (Settings is the only one that does); it is no topic, so no other model
-        // hears it
+        // A keyboard answer belongs only to the screen that asked for it.
         for typed in self.panels.take_typed() {
-            if self.kinds.settings {
+            if std::mem::take(&mut self.dashboard_entry) {
+                let mut out = Vec::new();
+                self.home.dashboard_typed(match &typed { Typed::Entered(text) => Some(text), Typed::Cancelled => None }, &mut out);
+                for e in out { self.carry(e, now, acts); }
+                self.redraw = true;
+            } else if self.kinds.settings {
                 match typed {
                     Typed::Entered(text) => {
                         for e in self.settings.entered(&text, now) {
@@ -1439,6 +1527,18 @@ impl Shell {
                 self.redraw = true;
             }
         }
+        if self.dashboard_entry && !self.home.dashboard_naming() {
+            let mut out = Vec::new();
+            self.panels.cancel_entry(&self.kinds, now, &mut out);
+            for e in out { self.carry(e, now, acts); }
+            self.panel_events(now, acts);
+            self.dashboard_entry = false;
+        }
+        if self.kinds.home && self.kinds.entry && !self.system_wants() {
+            let mut out = Vec::new();
+            self.home.dashboard_tick(&mut out);
+            for e in out { self.carry(e, now, acts); }
+        }
         // a refusal may have left a part a surface keeps unmade: drawing makes it again (`kit::mend`)
         let refusals = self.kit.ui.scene.refusals();
         if refusals != self.refusals_seen && now >= self.refusal_redraw_at {
@@ -2053,9 +2153,14 @@ impl Shell {
                         acts.push(Act::Log("settings: the display lab was asked for and is not this process's".into()));
                     }
                 }
-                ShellRequest::HomeLayout(layout) => {
+                ShellRequest::HomeLayout { layout, based_on, profile } => {
                     let mut out = Vec::new();
-                    self.home.set_layout_from_settings(&layout, &mut out);
+                    let signed_in = self.home.dashboard_identity();
+                    if self.home.editor.is_none() && *based_on == self.home.layout && profile.as_ref().map(|(id, stamp)| (id.as_str(), *stamp)) == signed_in {
+                        self.home.write_layout(&layout, &mut out);
+                    } else {
+                        Home::dashboard_notice("Home changed before this edit could be saved. Try again.", &mut out);
+                    }
                     for e in out {
                         self.carry(e, now, acts);
                     }
@@ -2066,8 +2171,33 @@ impl Shell {
                     }
                     let mut out = Vec::new();
                     self.home.edit_home("", &mut out);
+                    if self.kinds.home && !self.home.active {
+                        out.push(Effect::Luna { tag: crate::system::layer::LAUNCH_TAG, uri: "luna://com.webos.applicationManager/launchDefaultApp".into(), payload: json!({"category": "home"}), subscribe: false });
+                    }
                     for e in out {
                         self.carry(e, now, acts);
+                    }
+                }
+                ShellRequest::DashboardDraft { profile, created, replay } => {
+                    let start = if replay { crate::home::dashboard::Start::Replay } else { crate::home::dashboard::Start::Create };
+                    if self.kinds.home && self.kinds.entry && self.home.queue_dashboard(&profile, created, start, "") {
+                        for e in self.settings.close(now) { self.carry(e, now, acts); }
+                        if !self.home.active {
+                            self.carry(Effect::Luna { tag: crate::system::layer::LAUNCH_TAG, uri: "luna://com.webos.applicationManager/launchDefaultApp".into(), payload: json!({"category": "home"}), subscribe: false }, now, acts);
+                        }
+                    }
+                }
+                ShellRequest::ReloadHome => {
+                    if self.kinds.home {
+                        self.carry(Effect::Read { tag: crate::home::model::LAYOUT_TAG, path: "theme/layout.json".into() }, now, acts);
+                    }
+                }
+                ShellRequest::CancelEntry => {
+                    self.settings.entry_cancelled();
+                    if !self.dashboard_entry {
+                        let mut out = Vec::new();
+                        self.panels.cancel_entry(&self.kinds, now, &mut out);
+                        for e in out { self.carry(e, now, acts); }
                     }
                 }
                 ShellRequest::Wallpaper => {
@@ -2094,8 +2224,8 @@ impl Shell {
                 }
             }
         }
-        if self.settings_layout != self.home.layout_text {
-            self.settings_layout = self.home.layout_text.clone();
+        if self.settings_layout.as_ref().map(std::rc::Rc::as_ptr) != self.home.layout_file.as_ref().map(std::rc::Rc::as_ptr) {
+            self.settings_layout = self.home.layout_file.clone();
             self.settings.set_layout(self.home.layout.clone());
         }
         if let Some(preview) = self.settings.take_theme_preview() {
@@ -2585,6 +2715,34 @@ mod tests {
         assert_eq!(shell.report()["wants"], false);
         assert_eq!(shell.state()["ai"], json!({"up": false}));
     }
+
+    #[test]
+    fn dashboard_layout_writer_rejects_busy_lock_and_stale_profile_or_layout() {
+        let data = std::env::temp_dir().join(format!("lumatv-layout-guard-{}", std::process::id()));
+        let theme = data.join("theme");
+        std::fs::create_dir_all(&theme).unwrap();
+        std::fs::create_dir_all(data.join("profiles/ana")).unwrap();
+        std::fs::write(data.join("profiles/index.json"), r#"{"active":"ana","work":{"id":"ana"}}"#).unwrap();
+        std::fs::write(data.join("profiles/ana/profile.json"), r#"{"created":7}"#).unwrap();
+        std::fs::write(theme.join("theme.json"), r#"{"_profile":"ana"}"#).unwrap();
+        std::fs::write(theme.join("layout.json"), "{}").unwrap();
+        let same = Some(("ana", Some(7)));
+        let new = r#"{"widgets":[]}"#;
+        let guard = lock_home_layout(&theme).unwrap();
+        let empty = json!({});
+        assert_eq!(write_home_layout(&data, Some(&empty), same, new).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+        drop(guard);
+        assert!(write_home_layout(&data, Some(&empty), Some(("ana", Some(8))), new).is_err());
+        assert!(write_home_layout(&data, None, same, new).is_err());
+        assert_eq!(std::fs::read_to_string(theme.join("layout.json")).unwrap(), "{}");
+        write_home_layout(&data, Some(&empty), same, new).unwrap();
+        assert_eq!(std::fs::read_to_string(theme.join("layout.json")).unwrap(), new);
+        std::fs::remove_file(theme.join("layout.json")).unwrap();
+        assert!(write_home_layout(&data, Some(&empty), same, new).is_err());
+        write_home_layout(&data, None, same, new).unwrap();
+        std::fs::remove_dir_all(&data).unwrap();
+    }
+
 
     #[test]
     fn the_layout_editor_measures_its_stand_ins_again_when_the_text_size_changes_while_it_is_open() {

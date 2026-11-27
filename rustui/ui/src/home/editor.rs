@@ -1,10 +1,9 @@
-//! The layout editor (`LayoutEdit.qml`'s logic): Home's cards moved, sized, added and removed on the grid with the D-pad or the
-//! pointer, Home drawing the layout being edited as it changes (`EditorOut::Preview`), so what is seen is what would be saved. On the
-//! grid the arrows choose a card and OK picks it up; picked up, the arrows move it a cell and OK turns to its size (the arrows then move
-//! its bottom right corner) and OK again puts it down; Back puts it back. Up from the top card, or the Menu key, goes to the bar; Down
-//! from the bar returns. Back with nothing picked up leaves, asking first if anything changed. Nothing here writes a file: it asks
-//! (`Save`, `Leave`) and Home does it.
+//! The Home editor updates a private preview. The same tools drive pointer and
+//! remote input; the shell alone saves the layout.
 
+use super::dashboard::Start;
+use super::dashboard_sizes::{self, Fit, Preset};
+use super::onhome::layout::Metrics;
 use super::grid::{self, Entry, Rect, Refusal};
 use crate::kit::focus::{Dir, Focus, Id, Region, Scope};
 use serde_json::{Value, json};
@@ -17,9 +16,10 @@ pub const BAR: Region = Region(8);
 pub const ADD: Region = Region(9);
 pub const ASK: Region = Region(10);
 pub const BAR_Y: f32 = 50.0;
-/// The bar's height, the add list's width and the row at 100 % text; each grows with the text size.
-pub const BAR_H: f32 = 72.0;
-pub const ADD_W: f32 = 380.0;
+const OPTION_MAX: usize = 9;
+const MOVE_BUTTON: usize = 1;
+const SIZE_BUTTON: usize = 2;
+pub const ASK_ANSWERS: [(&str, bool); 2] = [("Keep editing", false), ("Discard", true)];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -33,7 +33,8 @@ pub enum Zone {
     Grid,
     Bar,
     Add,
-    /// "Save changes?": Keep editing, Save, Discard.
+    Size,
+    /// Keep editing or discard the unsaved work.
     Ask,
     /// The items of the chosen smart-home card: the arrows choose one, OK opens its menu (size, place, hide), Back is done.
     Items,
@@ -43,7 +44,7 @@ pub enum Zone {
 pub enum EditorOut {
     Preview(Value),
     Save(Value),
-    Leave(Value),
+    Leave,
     /// The items of the smart-home card with this id are to be arranged: the card takes the keys.
     Items(String),
 }
@@ -55,9 +56,6 @@ pub struct Button {
     pub enabled: bool,
     pub frame: Frame,
 }
-
-pub const ASK_ANSWERS: [(&str, &str, bool); 3] = [("edit-keep", "Keep editing", false), ("edit-save", "Save", false), ("edit-discard", "Discard", true)];
-
 /// A change a drag asks for: the column and row (a move) or the span and rows (a resize).
 type Snap = (Option<i64>, Option<i64>, Option<i64>, Option<i64>);
 
@@ -85,6 +83,14 @@ pub struct Editor {
     pub toast: String,
     toast_until: u64,
     pub refused_until: u64,
+    pub start: Start,
+    pub saving: bool,
+    pub locked: bool,
+    pub issue: &'static str,
+    size_kind: Option<&'static str>,
+    sizes: Vec<Preset>,
+    pub size_rev: u64,
+    ask_from: Zone,
     drag: Option<Drag>,
     pub ghost: Option<(Rect, bool)>,
     /// The person's text size: the bar, its buttons, the add list and the question grow with it.
@@ -115,14 +121,55 @@ impl Editor {
             toast: String::new(),
             toast_until: 0,
             refused_until: 0,
+            start: Start::Edit,
+            saving: false,
+            locked: false,
+            issue: "",
+            size_kind: None,
+            sizes: Vec::new(),
+            size_rev: 0,
+            ask_from: Zone::Grid,
             drag: None,
             ghost: None,
             scale: scale.max(1.0),
         }
     }
 
+    /// A separate layout is previewed for Create and both types of guide.
+    pub(super) fn draft(original: &Value, blank: &Value, start: Start, now: u64, scale: f32) -> Self {
+        let mut ed = Self::new(blank, "", now, scale);
+        ed.orig = original.clone();
+        ed.start = start;
+        ed.zone = Zone::Bar;
+        ed
+    }
+
+    pub fn header_h(&self) -> f32 {
+        (44.0 * self.scale).round()
+    }
+
     pub fn bar_h(&self) -> f32 {
-        (BAR_H * self.scale).round()
+        self.header_h() + (68.0 * self.scale).round() + 8.0
+    }
+
+    pub(super) fn status_height(&self) -> f32 {
+        let height = self.work.pointer("/statusBar/height").and_then(Value::as_f64).unwrap_or(60.0) as f32;
+        let normal = (height * self.scale / 2.0).round() * 2.0;
+        let area = grid::area(&self.work);
+        normal.max(BAR_Y + self.bar_h() + 12.0 - area.y as f32 + height.round())
+    }
+
+    pub fn area(&self) -> Rect {
+        let mut area = grid::area(&self.work);
+        let height = self.work.pointer("/statusBar/height").and_then(Value::as_f64).unwrap_or(60.0).round() as i32;
+        let shift = self.status_height().round() as i32 - height;
+        area.y += shift;
+        area.h = (area.h - shift).max(1);
+        area
+    }
+
+    pub fn rect(&self, card: &Entry) -> Rect {
+        grid::uniform_rect(&self.work, self.area(), card)
     }
 
     pub fn dirty(&self) -> bool {
@@ -134,7 +181,7 @@ impl Editor {
     }
 
     pub fn sel_rect(&self) -> Option<Rect> {
-        self.card().map(|c| grid::rect_of(&self.work, &c))
+        self.card().map(|c| self.rect(&c))
     }
 
     pub fn can_remove(&self) -> bool {
@@ -154,6 +201,7 @@ impl Editor {
             Zone::Grid => "grid",
             Zone::Bar => "bar",
             Zone::Add => "add",
+            Zone::Size => "size",
             Zone::Ask => "ask",
             Zone::Items => "items",
         }
@@ -161,69 +209,90 @@ impl Editor {
 
     /// Whether the chosen card is one whose items can be arranged: a smart-home card.
     pub fn arrangeable(&self) -> bool {
-        self.card().is_some_and(|c| c.kind == "onhome")
+        !self.start.is_new() && self.card().is_some_and(|c| c.kind == "onhome")
     }
 
-    /// The bar's buttons, right-aligned in the bar, with their frames on the screen.
-    pub fn buttons(&self) -> Vec<Button> {
-        let specs: [(&'static str, &'static str, &'static str, bool, f32); 6] = [
-            ("add", "Add", "plus", true, 150.0),
-            ("remove", "Remove", "trash-2", self.can_remove(), 196.0),
-            ("items", "Items", "layout-grid", self.arrangeable(), 150.0),
-            ("undo", "Undo", "undo-2", !self.history.is_empty(), 164.0),
-            ("cancel", "Cancel", "x", true, 184.0),
-            ("save", "Save", "check", true, 150.0),
+    pub fn has_widget(&self) -> bool {
+        grid::widgets(&self.work).iter().any(|w| w.get("type").and_then(Value::as_str).is_some_and(|s| s != "dock") && w.get("hidden").and_then(Value::as_bool) != Some(true))
+    }
+
+    pub fn can_save(&self) -> bool {
+        !self.saving && !self.locked && self.mode == Mode::Select && (!self.start.guided() || self.has_widget())
+    }
+
+    /// A separate prompt line keeps the tools usable even at 200% text size.
+    pub fn buttons(&self) -> [Button; 8] {
+        let editing = self.mode == Mode::Select && !self.saving;
+        let card = self.card();
+        let specs = [
+            ("add", "Add", "plus", editing, 176.0),
+            ("move", "Move", "move", editing && card.is_some(), 178.0),
+            ("size", "Size", "maximize-2", editing && card.as_ref().is_some_and(|c| grid::type_of(&c.kind).is_some()), 162.0),
+            ("remove", "Remove", "trash-2", editing && card.as_ref().is_some_and(|c| !c.is_dock()), 218.0),
+            ("items", "Items", "layout-grid", editing && !self.start.is_new() && card.as_ref().is_some_and(|c| c.kind == "onhome"), 160.0),
+            ("undo", "Undo", "undo-2", editing && !self.history.is_empty(), 166.0),
+            ("cancel", if self.start.guided() { "Skip" } else { "Cancel" }, "x", !self.saving, 178.0),
+            ("save", if self.start.is_new() { "Finish" } else { "Save" }, "check", self.can_save(), 184.0),
         ];
-        // the bar and its buttons grow with the text size, their widths stop at 1.6 so that six of them stay on the bar
-        let k = self.scale;
-        let kw = k.min(1.6);
-        let gap = 12.0;
-        let total: f32 = specs.iter().map(|s| s.4 * kw).sum::<f32>() + gap * (specs.len() as f32 - 1.0);
-        let mut x = 64.0 + 1792.0 - 16.0 - total;
-        let bh = (56.0 * k).round();
-        let y = BAR_Y + ((self.bar_h() - bh) / 2.0).round();
-        specs
-            .iter()
-            .map(|s| {
-                let b = Button { id: s.0, label: s.1, icon: s.2, enabled: s.3, frame: Frame::new(x.round(), y, (s.4 * kw).round(), bh) };
-                x += s.4 * kw + gap;
-                b
-            })
-            .collect()
+        let kw = self.scale.min(1.17);
+        let gap = 10.0;
+        let mut x = 82.0;
+        let bh = (58.0 * self.scale).round();
+        let y = BAR_Y + self.header_h() + 4.0;
+        specs.map(|(id, label, icon, enabled, width)| {
+            let w = (width * kw).round();
+            let b = Button { id, label, icon, enabled, frame: Frame::new(x, y, w, bh) };
+            x += w + gap;
+            b
+        })
     }
 
-    fn add_row_h(&self) -> f32 {
-        (80.0 * self.scale).round()
+    pub fn options_len(&self) -> usize {
+        match self.zone {
+            Zone::Add => grid::ADDABLE.len(),
+            Zone::Size => self.sizes.len() + usize::from(self.size_kind.is_none()),
+            _ => 0,
+        }
     }
 
-    /// The add list's frame under the Add button.
-    pub fn add_frame(&self) -> Frame {
-        let b = self.buttons();
-        let n = grid::ADDABLE.len() as f32;
-        Frame::new(b[0].frame.x, BAR_Y + self.bar_h() + 8.0, (ADD_W * self.scale).round(), n * self.add_row_h() + 24.0)
+    pub fn options_frame(&self) -> Frame {
+        let y = BAR_Y + self.bar_h() + 8.0;
+        let n = self.options_len().max(1) as f32;
+        let row = (68.0 * self.scale).min((1026.0 - y - 24.0) / n).floor();
+        let x = if self.zone == Zone::Size && self.size_kind.is_none() { self.buttons()[SIZE_BUTTON].frame.x } else { 82.0 };
+        let width = if self.zone == Zone::Size { 492.0 } else { 440.0 };
+        Frame::new(x, y, (width * self.scale).round(), n * row + 24.0)
     }
 
-    pub fn add_rows(&self) -> Vec<(&'static str, &'static str, &'static str, bool, Frame)> {
-        let f = self.add_frame();
-        let rh = self.add_row_h();
-        grid::ADDABLE
-            .iter()
-            .enumerate()
-            .map(|(i, name)| {
-                let t = grid::type_of(name).expect("every addable type is a type");
-                (t.id, t.title, t.icon, grid::hidden_of(&self.work, name), Frame::new(f.x + 8.0, f.y + 12.0 + i as f32 * rh, f.w - 16.0, rh))
-            })
-            .collect()
+    pub fn option_frame(&self, i: usize) -> Frame {
+        let f = self.options_frame();
+        let row = (f.h - 24.0) / self.options_len().max(1) as f32;
+        Frame::new(f.x + 8.0, f.y + 12.0 + i as f32 * row, f.w - 16.0, row)
+    }
+
+    pub fn option(&self, i: usize) -> (String, &'static str) {
+        if self.zone == Zone::Add {
+            return grid::type_of(grid::ADDABLE[i]).map_or((String::new(), ""), |t| (t.title.to_owned(), t.icon));
+        }
+        let Some(preset) = self.sizes.get(i) else { return ("Adjust by cell".into(), "move") };
+        let detail = match preset.fit {
+            Fit::NoRoom => " · No room",
+            _ if preset.current => " · In use",
+            _ if self.size_kind.is_some() => " · Fits",
+            Fit::Here => " · Fits here",
+            Fit::Elsewhere { .. } => " · Fits elsewhere",
+        };
+        (format!("{}{detail}", preset.label), "maximize-2")
     }
 
     /// The question's frame and its answers' frames.
-    pub fn ask_frames(&self) -> (Frame, Vec<Frame>) {
+    pub fn ask_frames(&self) -> (Frame, [Frame; 2]) {
         let k = self.scale;
         let (w, h) = ((760.0 * k).min(1792.0).round(), (236.0 * k).round());
         let f = Frame::new(((1920.0 - w) / 2.0).round(), ((1080.0 - h) / 2.0).round(), w, h);
         let bh = (64.0 * k).round();
-        let bw = ((w - 32.0 * 2.0 - 12.0 * 2.0) / 3.0).floor();
-        let answers = (0..3).map(|i| Frame::new(f.x + 32.0 + i as f32 * (bw + 12.0), f.y + h - 32.0 - bh, bw, bh)).collect();
+        let bw = ((w - 64.0 - 12.0) / 2.0).floor();
+        let answers = [0, 1].map(|i| Frame::new(f.x + 32.0 + i as f32 * (bw + 12.0), f.y + h - 32.0 - bh, bw, bh));
         (f, answers)
     }
 
@@ -233,12 +302,13 @@ impl Editor {
         for (i, b) in self.buttons().iter().enumerate() {
             let id = Id(BAR_ID + i as u32);
             focus.register(id, b.frame, BAR, scope);
-            focus.set_enabled(id, b.enabled);
+            focus.set_enabled(id, b.enabled && !matches!(self.zone, Zone::Add | Zone::Size | Zone::Ask | Zone::Items));
         }
-        for i in 0..grid::ADDABLE.len() {
+        let count = self.options_len();
+        for i in 0..OPTION_MAX {
             let id = Id(ADD_ID + i as u32);
-            if self.zone == Zone::Add {
-                focus.register(id, self.add_rows()[i].4, ADD, scope);
+            if i < count {
+                focus.register(id, self.option_frame(i), ADD, scope);
             } else {
                 focus.unregister(id);
             }
@@ -254,7 +324,7 @@ impl Editor {
         }
         let current = match self.zone {
             Zone::Bar => Some(Id(BAR_ID + self.bar_index as u32)),
-            Zone::Add => Some(Id(ADD_ID + self.add_index as u32)),
+            Zone::Add | Zone::Size => Some(Id(ADD_ID + self.add_index as u32)),
             Zone::Ask => Some(Id(ASK_ID + self.ask_index as u32)),
             Zone::Grid | Zone::Items => None,
         };
@@ -270,10 +340,10 @@ impl Editor {
         for i in 0..self.buttons().len() as u32 {
             focus.unregister(Id(BAR_ID + i));
         }
-        for i in 0..grid::ADDABLE.len() as u32 {
+        for i in 0..OPTION_MAX as u32 {
             focus.unregister(Id(ADD_ID + i));
         }
-        for i in 0..3 {
+        for i in 0..ASK_ANSWERS.len() as u32 {
             focus.unregister(Id(ASK_ID + i));
         }
     }
@@ -337,21 +407,26 @@ impl Editor {
             self.history.push(h);
         }
         self.mode = Mode::Select;
+        self.ghost = None;
     }
 
     fn put_back(&mut self, outs: &mut Vec<EditorOut>) {
         if let Some(h) = self.held.take() {
             self.work = h;
+            if grid::find(&self.work, &self.sel).is_none() {
+                self.sel = grid::order(&self.work).into_iter().next().or_else(|| grid::dock_id(&self.work)).unwrap_or_default();
+            }
             outs.push(EditorOut::Preview(self.work.clone()));
         }
         self.mode = Mode::Select;
+        self.ghost = None;
     }
 
     fn undo(&mut self, outs: &mut Vec<EditorOut>) {
         let Some(prev) = self.history.pop() else { return };
         self.work = prev;
         if grid::find(&self.work, &self.sel).is_none() {
-            self.sel = grid::order(&self.work).first().cloned().or_else(|| grid::dock_id(&self.work)).unwrap_or_default();
+            self.sel = grid::order(&self.work).into_iter().next().or_else(|| grid::dock_id(&self.work)).unwrap_or_default();
         }
         outs.push(EditorOut::Preview(self.work.clone()));
     }
@@ -373,61 +448,133 @@ impl Editor {
         }
     }
 
-    fn add_card(&mut self, kind: &str, now: u64, outs: &mut Vec<EditorOut>) {
+    fn open_sizes(&mut self, new: Option<&'static str>, theme: &Value, metrics: &Metrics) {
+        let current = if new.is_none() { self.card() } else { None };
+        let kind = match (new, &current) {
+            (Some(kind), _) => kind,
+            (None, Some(card)) => card.kind.as_str(),
+            _ => return,
+        };
+        self.sizes = dashboard_sizes::choices(&self.work, kind, current.as_ref(), theme, self.area(), self.scale, metrics);
+        self.size_rev = self.size_rev.wrapping_add(1);
+        self.size_kind = new;
+        self.zone = Zone::Size;
+        self.add_index = self.sizes.iter().position(|p| p.current).unwrap_or(0);
+    }
+
+    fn hold_preview(&mut self, next: Value, id: Option<String>, outs: &mut Vec<EditorOut>) {
+        self.held = Some(std::mem::replace(&mut self.work, next));
+        if let Some(id) = id { self.sel = id; }
+        self.mode = Mode::Move;
         self.zone = Zone::Grid;
-        match grid::add(&self.work, kind) {
-            Ok((layout, id)) => {
-                // placed in the first free place and picked up, so it can be put where it is wanted; Back takes it away again
-                self.held = Some(self.work.clone());
-                self.work = layout;
-                self.sel = id;
-                self.mode = Mode::Move;
-                outs.push(EditorOut::Preview(self.work.clone()));
+        self.size_kind = None;
+        outs.push(EditorOut::Preview(self.work.clone()));
+    }
+
+    fn choose_option(&mut self, now: u64, theme: &Value, metrics: &Metrics, outs: &mut Vec<EditorOut>) {
+        if self.zone == Zone::Add {
+            if let Some(kind) = grid::ADDABLE.get(self.add_index).copied() {
+                self.open_sizes(Some(kind), theme, metrics);
             }
-            Err(e) => self.turned_down(&e, now),
+            return;
+        }
+        let preset = self.sizes.get(self.add_index).copied();
+        if preset.is_some_and(|p| p.fit == Fit::NoRoom) {
+            self.say("No room for this size", now);
+            return;
+        }
+        if let Some(kind) = self.size_kind {
+            if let Some(preset) = preset {
+                match dashboard_sizes::add(&self.work, kind, &preset) {
+                    Ok((layout, id)) => self.hold_preview(layout, Some(id), outs),
+                    Err(e) => self.turned_down(&e, now),
+                }
+            }
+            return;
+        }
+        match preset {
+            Some(Preset { current: true, .. }) => self.zone = Zone::Bar,
+            Some(Preset { fit, size: (w, h), .. }) => {
+                let (col, row) = if let Fit::Elsewhere { col, row } = fit { (Some(col), Some(row)) } else { (None, None) };
+                match grid::change(&self.work, &self.sel, col, row, Some(w), Some(h)) {
+                    Ok((next, _)) if col.is_some() => self.hold_preview(next, None, outs),
+                    Ok((next, _)) => {
+                        self.step(next, None, outs);
+                        self.zone = Zone::Bar;
+                    }
+                    Err(e) => self.turned_down(&e, now),
+                }
+            }
+            None if self.card().is_some() => {
+                self.held = Some(self.work.clone());
+                self.mode = Mode::Resize;
+                self.zone = Zone::Grid;
+            }
+            None => {}
         }
     }
 
-    fn leave_now(&self, outs: &mut Vec<EditorOut>) {
-        outs.push(EditorOut::Leave(self.orig.clone()));
+    fn leave_now(outs: &mut Vec<EditorOut>) {
+        outs.push(EditorOut::Leave);
     }
 
     fn save_now(&self, outs: &mut Vec<EditorOut>) {
-        if self.dirty() {
+        if !self.can_save() { return; }
+        if self.dirty() || self.start.is_new() {
             outs.push(EditorOut::Save(self.work.clone()));
         } else {
-            self.leave_now(outs);
+            Self::leave_now(outs);
         }
     }
 
     /// Back with nothing picked up: the question when something changed.
     fn back(&mut self, outs: &mut Vec<EditorOut>) {
-        if self.zone == Zone::Add {
-            self.zone = Zone::Bar;
-            return;
-        }
+        if self.close_options() { return; }
         if self.dirty() {
+            self.ask_from = if self.mode == Mode::Select { self.zone } else { Zone::Grid };
+            self.ghost = None;
             self.zone = Zone::Ask;
             self.ask_index = 0;
         } else {
-            self.leave_now(outs);
+            Self::leave_now(outs);
         }
     }
 
     fn answer(&mut self, i: usize, outs: &mut Vec<EditorOut>) {
-        match ASK_ANSWERS.get(i).map(|a| a.0) {
-            Some("edit-save") => self.save_now(outs),
-            Some("edit-discard") => self.leave_now(outs),
-            _ => self.zone = Zone::Grid,
+        if i == 1 {
+            Self::leave_now(outs);
+        } else {
+            self.zone = self.ask_from;
         }
     }
 
-    fn press(&mut self, id: &str, now: u64, outs: &mut Vec<EditorOut>) {
+    fn close_options(&mut self) -> bool {
+        match self.zone {
+            Zone::Size => {
+                if let Some(kind) = self.size_kind.take() {
+                    self.zone = Zone::Add;
+                    self.add_index = grid::ADDABLE.iter().position(|&k| k == kind).unwrap_or_default();
+                } else {
+                    self.zone = Zone::Bar;
+                }
+            }
+            Zone::Add => self.zone = Zone::Bar,
+            _ => return false,
+        }
+        true
+    }
+
+    fn press(&mut self, id: &str, now: u64, theme: &Value, metrics: &Metrics, outs: &mut Vec<EditorOut>) {
         match id {
             "add" => {
                 self.zone = Zone::Add;
                 self.add_index = 0;
             }
+            "move" => {
+                self.pick_up();
+                self.zone = Zone::Grid;
+            }
+            "size" => self.open_sizes(None, theme, metrics),
             "remove" => self.remove_card(now, outs),
             "items" if self.arrangeable() => {
                 self.zone = Zone::Items;
@@ -452,30 +599,31 @@ impl Editor {
         None
     }
 
-    /// The button over the selected card.
+    /// The enabled tool nearest to the selected card.
     fn nearest_button(&self) -> usize {
         let b = self.buttons();
-        let Some(r) = self.sel_rect() else { return b.len() - 1 };
+        let Some(r) = self.sel_rect() else { return 0 };
         let cx = r.x as f32 + r.w as f32 / 2.0;
-        b.iter().enumerate().min_by(|a, c| (a.1.frame.centre().0 - cx).abs().total_cmp(&(c.1.frame.centre().0 - cx).abs())).map_or(0, |(i, _)| i)
+        b.iter().enumerate().filter(|(_, b)| b.enabled).min_by(|a, c| (a.1.frame.centre().0 - cx).abs().total_cmp(&(c.1.frame.centre().0 - cx).abs())).map_or(0, |(i, _)| i)
     }
 
     // ---- the keys
-    pub fn key(&mut self, name: &str, dir: Option<Dir>, _focus: &mut Focus, now: u64) -> Vec<EditorOut> {
+    pub fn key(&mut self, name: &str, dir: Option<Dir>, now: u64, theme: &Value, metrics: &Metrics) -> Vec<EditorOut> {
         let mut outs = Vec::new();
+        if self.saving { return outs; }
         match self.zone {
             Zone::Ask => match (name, dir) {
                 (_, Some(Dir::Left)) => self.ask_index = self.ask_index.saturating_sub(1),
-                (_, Some(Dir::Right)) => self.ask_index = (self.ask_index + 1).min(2),
+                (_, Some(Dir::Right)) => self.ask_index = (self.ask_index + 1).min(ASK_ANSWERS.len() - 1),
                 ("ok", _) => self.answer(self.ask_index, &mut outs),
                 ("back", _) => self.answer(0, &mut outs),
                 _ => {}
             },
-            Zone::Add => match (name, dir) {
+            Zone::Add | Zone::Size => match (name, dir) {
                 (_, Some(Dir::Up)) => self.add_index = self.add_index.saturating_sub(1),
-                (_, Some(Dir::Down)) => self.add_index = (self.add_index + 1).min(grid::ADDABLE.len() - 1),
-                ("ok", _) => self.add_card(grid::ADDABLE[self.add_index], now, &mut outs),
-                ("back", _) | (_, Some(Dir::Left)) => self.zone = Zone::Bar,
+                (_, Some(Dir::Down)) => self.add_index = (self.add_index + 1).min(self.options_len().saturating_sub(1)),
+                ("ok", _) => self.choose_option(now, theme, metrics, &mut outs),
+                ("back", _) | (_, Some(Dir::Left)) => { self.close_options(); }
                 _ => {}
             },
             Zone::Bar => match (name, dir) {
@@ -491,8 +639,8 @@ impl Editor {
                 }
                 (_, Some(Dir::Down)) => self.zone = Zone::Grid,
                 ("ok", _) => {
-                    let id = self.buttons()[self.bar_index].id;
-                    self.press(id, now, &mut outs);
+                    let b = &self.buttons()[self.bar_index];
+                    if b.enabled { self.press(b.id, now, theme, metrics, &mut outs); }
                 }
                 ("back", _) => self.back(&mut outs),
                 _ => {}
@@ -510,7 +658,8 @@ impl Editor {
 
     /// The Menu key: the add list.
     pub fn menu(&mut self) {
-        if self.mode == Mode::Select {
+        if !self.saving && self.mode == Mode::Select && matches!(self.zone, Zone::Grid | Zone::Bar) {
+            self.bar_index = 0;
             self.zone = Zone::Add;
             self.add_index = 0;
         }
@@ -530,16 +679,14 @@ impl Editor {
         };
         match self.mode {
             Mode::Select => match (name, dir) {
-                ("ok", _) => self.pick_up(),
+                ("ok", _) => {
+                    self.zone = Zone::Bar;
+                    self.bar_index = if self.card().is_some() { MOVE_BUTTON } else { 0 };
+                }
                 ("back", _) => self.back(outs),
                 (_, Some(Dir::Up)) if !grid::has_beside(&self.work, &self.sel, -1) => {
                     self.zone = Zone::Bar;
                     self.bar_index = self.nearest_button();
-                    if !self.buttons()[self.bar_index].enabled
-                        && let Some(n) = self.next_enabled(self.bar_index, 1)
-                    {
-                        self.bar_index = n;
-                    }
                 }
                 (_, Some(_)) => {
                     if let Some(n) = grid::neighbour(&self.work, &self.sel, dx, dy) {
@@ -550,11 +697,12 @@ impl Editor {
             },
             Mode::Move => match (name, dir) {
                 ("back", _) => self.put_back(outs),
-                ("ok", _) => self.mode = Mode::Resize,
                 (_, Some(_)) => {
+                    self.ghost = None;
                     let r = grid::shift(&self.work, &self.sel, dx, dy);
                     self.change(r, now, outs);
                 }
+                ("ok", _) => self.put_down(),
                 _ => {}
             },
             Mode::Resize => match (name, dir) {
@@ -572,7 +720,7 @@ impl Editor {
     // ---- the pointer
     fn card_at(&self, x: f32, y: f32) -> Option<String> {
         grid::entries(&self.work).into_iter().rev().filter(|e| !e.hidden).find(|e| {
-            let r = grid::rect_of(&self.work, e);
+            let r = self.rect(e);
             x >= r.x as f32 && x < (r.x + r.w) as f32 && y >= r.y as f32 && y < (r.y + r.h) as f32
         }).map(|e| e.id)
     }
@@ -580,99 +728,136 @@ impl Editor {
     /// The corner handle of the chosen card.
     fn corner_at(&self, x: f32, y: f32) -> bool {
         self.sel_rect().is_some_and(|r| {
-            let (hx, hy) = ((r.x + r.w) as f32 - 30.0, (r.y + r.h) as f32 - 30.0);
+            let (hx, hy) = ((r.x + r.w) as f32 - 52.0, (r.y + r.h) as f32 - 52.0);
             x >= hx && x < hx + 44.0 && y >= hy && y < hy + 44.0
         })
     }
 
-    /// A press of the pointer: on a bar button, an add row or an answer it is that; on a card it chooses it and starts a drag.
-    pub fn press_at(&mut self, x: f32, y: f32, focus: &mut Focus, now: u64) -> Vec<EditorOut> {
+    fn pointer_cell(&self, x: f32, y: f32) -> Option<Snap> {
+        let a = self.area();
+        if x < a.x as f32 || x >= (a.x + a.w) as f32 || y < a.y as f32 || y >= (a.y + a.h) as f32 {
+            return None;
+        }
+        let (cw, ch) = grid::cell_size_in(&self.work, a);
+        let gap = grid::grid(&self.work).1 as f64;
+        let col = ((x as f64 - a.x as f64) / (cw + gap)).floor() as i64;
+        let row = ((y as f64 - a.y as f64) / (ch + gap)).floor() as i64;
+        if self.mode == Mode::Resize {
+            let card = self.card()?;
+            return Some((None, None, Some(col - card.col + 1), Some(row - card.row + 1)));
+        }
+        Some((Some(col), Some(row), None, None))
+    }
+
+    /// Click an open cell to place a held widget, or drag an existing widget.
+    /// Hover never changes selection on the way to the toolbar.
+    pub fn press_at(&mut self, x: f32, y: f32, focus: &mut Focus, now: u64, theme: &Value, metrics: &Metrics) -> Vec<EditorOut> {
         let mut outs = Vec::new();
-        if let Some(id) = focus.click(x, y) {
-            if let Some(i) = id.0.checked_sub(BAR_ID).filter(|i| (*i as usize) < self.buttons().len()) {
-                self.zone = Zone::Bar;
-                self.bar_index = i as usize;
-                let bid = self.buttons()[i as usize].id;
-                self.press(bid, now, &mut outs);
+        if self.saving { return outs; }
+        let hit = focus.click(x, y);
+        match self.zone {
+            Zone::Ask => {
+                if let Some(i) = hit.and_then(|id| id.0.checked_sub(ASK_ID)).filter(|&i| (i as usize) < ASK_ANSWERS.len()) {
+                    self.answer(i as usize, &mut outs);
+                }
                 return outs;
             }
-            if let Some(i) = id.0.checked_sub(ADD_ID).filter(|i| (*i as usize) < grid::ADDABLE.len()) {
-                self.add_index = i as usize;
-                self.add_card(grid::ADDABLE[i as usize], now, &mut outs);
+            Zone::Add | Zone::Size => {
+                if let Some(i) = hit.and_then(|id| id.0.checked_sub(ADD_ID)).filter(|&i| (i as usize) < self.options_len()) {
+                    self.add_index = i as usize;
+                    self.choose_option(now, theme, metrics, &mut outs);
+                } else {
+                    self.close_options();
+                }
                 return outs;
             }
-            if let Some(i) = id.0.checked_sub(ASK_ID).filter(|i| *i < 3) {
-                self.answer(i as usize, &mut outs);
-                return outs;
-            }
+            Zone::Items => return outs,
+            _ => {}
         }
-        if self.zone == Zone::Ask {
-            return outs;
-        }
-        if self.zone == Zone::Add {
+        if let Some(i) = hit.and_then(|id| id.0.checked_sub(BAR_ID))
+            && let Some(b) = self.buttons().get(i as usize).filter(|b| b.enabled)
+        {
             self.zone = Zone::Bar;
+            self.bar_index = i as usize;
+            self.press(b.id, now, theme, metrics, &mut outs);
             return outs;
         }
+        if y >= BAR_Y && y < BAR_Y + self.bar_h() { return outs; }
+        if self.mode != Mode::Select {
+            if let Some((col, row, span, rows)) = self.pointer_cell(x, y) {
+                let same = self.card().is_some_and(|e| col.is_none_or(|c| e.col == c) && row.is_none_or(|r| e.row == r)
+                    && span.is_none_or(|w| e.span == w) && rows.is_none_or(|h| e.rows == h));
+                if same || self.change(grid::change(&self.work, &self.sel, col, row, span, rows), now, &mut outs) {
+                    self.put_down();
+                } else if self.mode == Mode::Move {
+                    self.say("Choose an open spot", now);
+                }
+            }
+            return outs;
+        }
+        self.zone = Zone::Grid;
         if self.card().is_some() && self.corner_at(x, y) {
             self.drag = Some(Drag { x, y, size: true, on: false, to: None });
-            return outs;
+        } else if let Some(id) = self.card_at(x, y) {
+            self.sel = id;
+            self.drag = Some(Drag { x, y, size: false, on: false, to: None });
         }
-        let Some(id) = self.card_at(x, y) else { return outs };
-        if self.mode != Mode::Select {
-            self.put_down();
-        }
-        self.sel = id;
-        self.zone = Zone::Grid;
-        self.drag = Some(Drag { x, y, size: false, on: false, to: None });
         outs
     }
 
-    /// The pointer moved: a drag snaps the card (or its corner) to whole cells; otherwise the card under it is chosen.
+    fn footprint(&self, to: Snap) -> Option<(Rect, bool)> {
+        let mut e = self.card()?;
+        e.col = to.0.unwrap_or(e.col);
+        e.row = to.1.unwrap_or(e.row);
+        e.span = to.2.unwrap_or(e.span);
+        e.rows = to.3.unwrap_or(e.rows);
+        if e.span < 1 || e.rows < 1 { return None; }
+        Some((self.rect(&e), grid::fits(&self.work, &e) && !grid::overlaps(&self.work, &e)))
+    }
+
+    /// Show the pointer's proposed footprint without changing the layout.
     pub fn drag(&mut self, x: f32, y: f32) -> bool {
-        if let Some(d) = &mut self.drag {
+        let area = self.area();
+        let to = if let Some(d) = &mut self.drag {
             let (dx, dy) = (x - d.x, y - d.y);
             if !d.on && dx.abs() + dy.abs() < 10.0 {
                 return false;
             }
             d.on = true;
             let to = if d.size {
-                grid::snap_resize(&self.work, &self.sel, dx, dy).map(|(s, r)| (None, None, Some(s), Some(r)))
+                grid::snap_resize(&self.work, area, &self.sel, dx, dy).map(|(s, r)| (None, None, Some(s), Some(r)))
             } else {
-                grid::snap_move(&self.work, &self.sel, dx, dy).map(|(c, r)| (Some(c), Some(r), None, None))
+                grid::snap_move(&self.work, area, &self.sel, dx, dy).map(|(c, r)| (Some(c), Some(r), None, None))
             };
             d.to = to;
-            self.ghost = to.and_then(|t| {
-                let c = self.card()?;
-                let next = grid::change(&self.work, &self.sel, t.0, t.1, t.2, t.3);
-                let ok = matches!(next, Ok(_) | Err(Refusal::Edge));
-                let e = c.with_numbers(t.0.unwrap_or(c.col), t.1.unwrap_or(c.row), t.2.unwrap_or(c.span), t.3.unwrap_or(c.rows));
-                Some((grid::rect_of(&self.work, &e), ok))
-            });
-            return true;
-        }
-        if self.mode == Mode::Select
-            && let Some(id) = self.card_at(x, y)
-            && id != self.sel
-        {
-            self.sel = id;
-            self.zone = Zone::Grid;
-            return true;
-        }
-        false
+            to
+        } else if self.mode != Mode::Select && self.zone == Zone::Grid {
+            self.pointer_cell(x, y)
+        } else {
+            None
+        };
+        let ghost = to.and_then(|t| self.footprint(t));
+        if self.ghost == ghost { return false; }
+        self.ghost = ghost;
+        true
     }
 
-    pub fn release(&mut self, _x: f32, _y: f32, _focus: &mut Focus) -> Option<EditorOut> {
+    pub fn cancel_pointer(&mut self) -> bool {
+        self.drag = None;
+        self.ghost.take().is_some()
+    }
+
+    pub fn release(&mut self, now: u64) -> Option<EditorOut> {
         let d = self.drag.take()?;
         self.ghost = None;
         let to = d.to.filter(|_| d.on)?;
         match grid::change(&self.work, &self.sel, to.0, to.1, to.2, to.3) {
             Ok((layout, _)) => {
-                let mut outs = Vec::new();
-                self.step(layout, None, &mut outs);
-                outs.pop()
+                self.history.push(std::mem::replace(&mut self.work, layout));
+                Some(EditorOut::Preview(self.work.clone()))
             }
             Err(e) => {
-                self.turned_down(&e, 0);
+                self.turned_down(&e, now);
                 None
             }
         }
@@ -700,27 +885,24 @@ impl Editor {
         self.refused_until > 0
     }
 
-    /// The words beside the heading: what OK does now.
-    pub fn hint_words(&self) -> String {
-        match (self.mode, self.card()) {
-            _ if self.zone == Zone::Items => "Arrows choose \u{b7} OK options \u{b7} Back done".into(),
-            (Mode::Select, _) => "OK moves".into(),
-            (Mode::Move, Some(c)) => format!("{} \u{d7} {} \u{b7} OK sizes \u{b7} Back undoes", c.span, c.rows),
-            (Mode::Resize, Some(c)) => format!("{} \u{d7} {} \u{b7} OK done \u{b7} Back undoes", c.span, c.rows),
-            (Mode::Move, None) => "OK sizes \u{b7} Back undoes".into(),
-            (Mode::Resize, None) => "OK done \u{b7} Back undoes".into(),
+    pub fn hint_words(&self) -> &'static str {
+        if self.saving { return "Saving dashboard…"; }
+        if !self.issue.is_empty() { return self.issue; }
+        match (self.zone, self.mode) {
+            (Zone::Add, _) => "Choose a widget",
+            (Zone::Size, _) => "Choose a size",
+            (Zone::Items, _) => "Arrange the items in this widget",
+            (_, Mode::Move) => "Point and click, or use arrows then OK",
+            (_, Mode::Resize) => "Adjust the highlighted corner",
+            _ if self.start.is_new() && !self.has_widget() => "Choose Add to place your first widget",
+            _ if self.start.guided() => "Move, Size or Remove. Finish when ready.",
+            _ => "Select a widget to move or resize it",
         }
     }
 
     pub fn state(&self) -> Value {
         json!({"mode": self.mode_name(), "zone": self.zone_name(), "sel": self.sel, "dirty": self.dirty(), "toast": self.toast, "barIndex": self.bar_index, "addIndex": self.add_index,
                "history": self.history.len(), "askIndex": self.ask_index})
-    }
-}
-
-impl Entry {
-    pub(crate) fn with_numbers(&self, col: i64, row: i64, span: i64, rows: i64) -> Entry {
-        Entry { col, row, span, rows, ..self.clone() }
     }
 }
 
@@ -736,7 +918,8 @@ mod tests {
     }
 
     fn keys(ed: &mut Editor, names: &[&str], now: u64) -> Vec<EditorOut> {
-        let mut f = Focus::new();
+        let theme = lumatv_tokens::Tokens::shipped();
+        let metrics = Metrics::nominal(ed.scale);
         let mut outs = Vec::new();
         for n in names {
             let dir = match *n {
@@ -746,7 +929,7 @@ mod tests {
                 "right" => Some(Dir::Right),
                 _ => None,
             };
-            outs.extend(ed.key(n, dir, &mut f, now));
+            outs.extend(ed.key(n, dir, now, theme.json(), &metrics));
         }
         outs
     }
@@ -757,51 +940,78 @@ mod tests {
     }
 
     #[test]
-    fn the_editor_picks_up_a_card_moves_it_by_the_cell_turns_a_move_down_and_saves() {
+    fn the_editor_moves_by_the_cell_and_relates_overlap_to_the_card_in_the_way() {
         let mut ed = Editor::new(&free(), "clock", 0, 1.0);
-        assert_eq!((ed.mode, ed.zone, ed.sel.as_str()), (Mode::Select, Zone::Grid, "clock"));
-        keys(&mut ed, &["ok", "right", "down"], 100);
+        keys(&mut ed, &["ok", "ok", "right", "down", "ok"], 100);
         assert_eq!(numbers(&ed.work, "clock"), (1, 0, 4, 4));
         assert_eq!(ed.toast, "At home is in the way");
         assert!(ed.refused());
         keys(&mut ed, &["ok", "right", "ok"], 200);
+        assert_eq!(ed.zone, Zone::Size);
+        let count = ed.options_len();
+        keys(&mut ed, &vec!["down"; count], 300);
+        assert_eq!(ed.option(ed.add_index).0, "Adjust by cell");
+        keys(&mut ed, &["ok", "right", "ok"], 400);
         assert_eq!(numbers(&ed.work, "clock"), (1, 0, 5, 4));
-        assert_eq!(ed.mode, Mode::Select);
-        let outs = keys(&mut ed, &["up", "right", "right", "right", "right", "ok"], 300);
-        assert_eq!(ed.zone, Zone::Bar);
+        keys(&mut ed, &["ok"], 500);
+        keys(&mut ed, &["right"; 8], 510);
+        let outs = keys(&mut ed, &["ok"], 520);
         assert!(matches!(outs.last(), Some(EditorOut::Save(l)) if numbers(l, "clock") == (1, 0, 5, 4)));
     }
 
     #[test]
-    fn back_asks_when_something_changed_and_the_bar_removes_undoes_and_adds() {
-        let mut ed = Editor::new(&free(), "weather", 0, 1.0);
-        keys(&mut ed, &["ok", "left", "ok", "ok", "back"], 100);
-        assert_eq!(ed.zone, Zone::Ask);
-        assert_eq!(numbers(&ed.work, "weather").0, 8);
-        keys(&mut ed, &["back"], 200);
-        assert_eq!(ed.zone, Zone::Grid, "Keep editing is what Back is");
-        keys(&mut ed, &["back"], 300);
-        let outs = keys(&mut ed, &["right", "right", "ok"], 400);
-        assert!(matches!(outs.last(), Some(EditorOut::Leave(_))));
-        let mut ed = Editor::new(&free(), "clock", 0, 1.0);
-        keys(&mut ed, &["up", "right", "ok"], 500);
-        assert!(grid::find(&ed.work, "clock").is_none(), "Remove took the clock away");
-        keys(&mut ed, &["right", "ok"], 600);
-        assert!(grid::find(&ed.work, "clock").is_some(), "Undo brought it back");
-        keys(&mut ed, &["left", "left", "ok"], 700);
-        assert_eq!(ed.zone, Zone::Add);
-        let outs = keys(&mut ed, &["back", "right", "right", "ok"], 800);
-        assert!(matches!(outs.last(), Some(EditorOut::Leave(_))), "Cancel with nothing changed asked or stayed");
+    fn dashboard_guide_remote_uses_real_add_size_move_remove_and_undo() {
+        let original = free();
+        let mut ed = Editor::draft(&original, &grid::dock_only(&original), Start::Replay, 0, 1.0);
+        assert_eq!((ed.zone, ed.bar_index), (Zone::Bar, 0));
+        assert!(!ed.has_widget() && !ed.can_save());
+        assert!(keys(&mut ed, &["ok", "ok"], 100).is_empty());
+        assert_eq!(ed.zone, Zone::Size);
+        assert!(ed.option(0).0.contains("Clock"));
+        let chosen = ed.sizes[0].size;
+        keys(&mut ed, &["ok", "right", "ok"], 200);
+        assert_eq!(ed.mode, Mode::Select);
+        assert_eq!(numbers(&ed.work, "clock"), (1, 0, chosen.0, chosen.1));
+        keys(&mut ed, &["ok", "right", "ok", "back", "right", "ok"], 300);
+        assert!(!ed.has_widget());
+        keys(&mut ed, &["right", "ok"], 400);
+        assert!(ed.has_widget());
+        assert!(keys(&mut ed, &["back", "ok"], 500).is_empty(), "Keep editing is the safe default");
+        let outs = keys(&mut ed, &["back", "right", "ok"], 600);
+        assert!(matches!(outs.as_slice(), [EditorOut::Leave]));
+        assert_eq!(ed.orig, original);
     }
 
     #[test]
-    fn a_card_added_from_the_list_is_picked_up_where_it_fits() {
-        let mut ed = Editor::new(&free(), "clock", 0, 1.0);
-        keys(&mut ed, &["up", "ok", "down", "down", "down", "ok"], 100);
-        assert_eq!((ed.zone, ed.mode, ed.sel.as_str()), (Zone::Grid, Mode::Move, "news"));
-        assert!(!grid::find(&ed.work, "news").unwrap().hidden);
-        keys(&mut ed, &["back"], 200);
-        assert!(grid::find(&ed.work, "news").unwrap().hidden, "Back takes it away again");
+    fn dashboard_guide_pointer_selects_size_then_places_at_the_clicked_cell() {
+        let original = free();
+        let mut ed = Editor::draft(&original, &grid::dock_only(&original), Start::FirstRun, 0, 2.0);
+        let mut f = Focus::new();
+        let scope = Scope(83);
+        f.open_modal(scope);
+        let theme = lumatv_tokens::Tokens::shipped();
+        let metrics = Metrics::nominal(ed.scale);
+        let click = |ed: &mut Editor, f: &mut Focus, (x, y): (f32, f32)| {
+            ed.register(f, scope);
+            ed.press_at(x, y, f, 100, theme.json(), &metrics)
+        };
+        let at = ed.buttons()[0].frame.centre();
+        click(&mut ed, &mut f, at);
+        let at = ed.option_frame(0).centre();
+        click(&mut ed, &mut f, at);
+        assert_eq!(ed.zone, Zone::Size);
+        assert!(!ed.has_widget());
+        let at = ed.option_frame(0).centre();
+        let chosen = ed.sizes[0].size;
+        click(&mut ed, &mut f, at);
+        let a = ed.area();
+        let stride = grid::cell_size_in(&ed.work, a).0 as f32 + grid::grid(&ed.work).1 as f32;
+        assert!(ed.drag(a.x as f32 + stride * 2.0 + 1.0, a.y as f32 + 1.0));
+        let at = (a.x as f32 + stride * 2.0 + 1.0, a.y as f32 + 1.0);
+        click(&mut ed, &mut f, at);
+        assert_eq!(numbers(&ed.work, "clock"), (2, 0, chosen.0, chosen.1));
+        assert_eq!(ed.mode, Mode::Select);
+        assert!(ed.ghost.is_none());
     }
 
     #[test]
@@ -810,12 +1020,12 @@ mod tests {
         let mut f = Focus::new();
         let r = ed.sel_rect().unwrap();
         let (x, y) = (r.x as f32 + 40.0, r.y as f32 + 40.0);
-        ed.press_at(x, y, &mut f, 0);
+        let theme = lumatv_tokens::Tokens::shipped();
+        ed.press_at(x, y, &mut f, 0, theme.json(), &Metrics::nominal(1.0));
         let (cw, _) = grid::cell_size(&ed.work);
         assert!(ed.drag(x + cw as f32 + 20.0, y));
         assert!(ed.ghost.is_some_and(|g| g.1));
-        let out = ed.release(x + cw as f32 + 20.0, y, &mut f);
-        assert!(matches!(out, Some(EditorOut::Preview(_))));
+        assert!(matches!(ed.release(10), Some(EditorOut::Preview(_))));
         assert_eq!(numbers(&ed.work, "clock").0, 1);
     }
 }

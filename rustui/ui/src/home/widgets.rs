@@ -344,6 +344,14 @@ impl Plan {
     fn new(w: f32) -> Self {
         Plan { mode: "regular", dia: 0.0, ts: 0.0, greet: false, date_on: false, face: Box { x: 0.0, y: 0.0, w }, face_centred: false, info: None, strip: None, grid: None }
     }
+
+    pub(super) fn calendar(&self) -> u8 {
+        if self.grid.is_some() {
+            2
+        } else {
+            u8::from(self.strip.is_some())
+        }
+    }
 }
 
 /// The month in a box, filling it: the rows as tall as the height allows (a header of 0.75 row and six rows, to 52 px), the columns across the whole width (to 120 px),

@@ -508,6 +508,10 @@ impl Panels {
         true
     }
 
+    pub(crate) fn cancel_entry(&mut self, kinds: &Kinds, now: u64, out: &mut Vec<Effect>) {
+        self.hide(Which::Entry, now, kinds, out);
+    }
+
     fn hide(&mut self, w: Which, now: u64, kinds: &Kinds, out: &mut Vec<Effect>) {
         // the compositor opens and closes the switcher: this does not take its chrome from under its pictures
         if w == Which::Switcher || self.life_mut(w).hide(now).is_none() {

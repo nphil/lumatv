@@ -1,14 +1,15 @@
 //! Home widgets (`settings/PageWidgets.qml`, a page of Home & look): which cards Home shows, how wide each is, and in what order. A row per
 //! card, Off, Small, Half or Wide (four, six or eight of Home's twelve columns); a card that does not fit where it is says what is in the
 //! way, and stays as it was. Order trades a card's place with the one before or after it in reading order. Every change is a whole layout
-//! built with Home's grid (`home/grid.rs`) and handed to the shell, which has Home write the owner's `layout.json` (never the shipped
-//! one) and apply it at once. "Edit on Home" opens the layout editor, where a card is moved and sized by the cell and new ones are added.
+//! built with Home's grid (`home/grid.rs`) and handed to the shell, which saves it only if the profile and working layout still match.
+//! "Edit on Home" opens the full layout editor.
 
 use crate::home::grid::{self, ADDABLE, Entry, Refusal, SIZES};
 use crate::settings::ctx::Ctx;
 use crate::settings::page::Page;
 use crate::settings::row::{Arg, Op, Row, ShellRequest};
 use serde_json::{Value, json};
+use std::rc::Rc;
 
 /// How long a refusal is said in the row it was asked in.
 const NOTICE_MS: u64 = 3500;
@@ -53,8 +54,15 @@ fn say(id: &str, words: &str) -> Vec<Op> {
     vec![Op::Set("notice".into(), json!({ id: words })), Op::Later { key: "widgets:notice".into(), ms: NOTICE_MS, then: vec![Op::Set("notice".into(), json!({}))] }]
 }
 
-fn change(layout: Value) -> Op {
-    Op::Shell(ShellRequest::HomeLayout(layout))
+struct Before {
+    layout: Rc<Value>,
+    profile: Option<(String, Option<u64>)>,
+}
+
+impl Before {
+    fn change(&self, layout: Value) -> Op {
+        Op::Shell(ShellRequest::HomeLayout { layout, based_on: Rc::clone(&self.layout), profile: self.profile.clone() })
+    }
 }
 
 /// 0 Off, 1 Small, 2 Half, 3 Wide; a width that is none of the three (one set on Home) has no mark, and the row says the width instead.
@@ -76,7 +84,8 @@ fn detail(c: &Ctx, id: &str) -> String {
 }
 
 /// A size chosen for a card (`choose`): Off hides it; the others bring it back (a type with no card is added) and set its width.
-fn choose(layout: &Value, id: &str, kind: &str, i: usize) -> Vec<Op> {
+fn choose(before: &Before, id: &str, kind: &str, i: usize) -> Vec<Op> {
+    let layout = before.layout.as_ref();
     // Home has not handed its layout over
     if layout.get("grid").is_none() {
         return Vec::new();
@@ -85,7 +94,7 @@ fn choose(layout: &Value, id: &str, kind: &str, i: usize) -> Vec<Op> {
     if i == 0 {
         return match existing {
             Some(e) if !e.hidden => match grid::hide(layout, id) {
-                Ok(l) => vec![change(l)],
+                Ok(l) => vec![before.change(l)],
                 Err(r) => say(id, &reason(&r)),
             },
             _ => Vec::new(),
@@ -111,17 +120,18 @@ fn choose(layout: &Value, id: &str, kind: &str, i: usize) -> Vec<Op> {
         Err(r) => ops.extend(say(id, &reason(&r))),
     }
     if &l != layout {
-        ops.push(change(l));
+        ops.push(before.change(l));
     }
     ops
 }
 
-fn nudge(layout: &Value, id: &str, d: i64) -> Vec<Op> {
+fn nudge(before: &Before, id: &str, d: i64) -> Vec<Op> {
+    let layout = before.layout.as_ref();
     if layout.get("grid").is_none() {
         return Vec::new();
     }
     match grid::nudge(layout, id, d) {
-        Ok(l) => vec![change(l)],
+        Ok(l) => vec![before.change(l)],
         Err(Refusal::Edge) => Vec::new(),
         Err(r) => say(id, &reason(&r)),
     }
@@ -138,6 +148,10 @@ fn notice(c: &Ctx, id: &str) -> String {
 
 fn rows(c: &Ctx) -> Vec<Row> {
     let layout = c.layout;
+    let before = Rc::new(Before {
+        layout: Rc::new(layout.clone()),
+        profile: c.helper("profiles").and_then(crate::home::dashboard::identity).map(|(id, stamp)| (id.to_owned(), stamp)),
+    });
     let mut items: Vec<(String, String)> = cards(layout).into_iter().map(|e| (e.id, e.kind)).collect();
     for t in missing(layout) {
         items.push((grid::type_of(t).map_or(t, |k| k.first_id).to_string(), t.to_string()));
@@ -145,9 +159,9 @@ fn rows(c: &Ctx) -> Vec<Row> {
     let mut rows = Vec::new();
     for (id, kind) in &items {
         let icon = grid::type_of(kind).map_or("layout-grid", |t| t.icon);
-        let (lay, rid, rkind) = (layout.clone(), id.clone(), kind.clone());
+        let (base, rid, rkind) = (Rc::clone(&before), id.clone(), kind.clone());
         let mut r = Row::seg(&format!("w:{id}"), &["Off", "Small", "Half", "Wide"]).tab(0).icon(icon).label(&title_of(layout, id, kind)).index(size_index(grid::find(layout, id).as_ref())).act(move |a| match a {
-            Arg::Index(i) => choose(&lay, &rid, &rkind, i),
+            Arg::Index(i) => choose(&base, &rid, &rkind, i),
             _ => Vec::new(),
         });
         r.detail = detail(c, id);
@@ -155,17 +169,18 @@ fn rows(c: &Ctx) -> Vec<Row> {
     }
     rows.push(Row::link("edit").tab(0).icon("layout-grid").label("Edit on Home").does(vec![Op::Shell(ShellRequest::EditHome)]));
     let shipped = grid::shipped();
+    let reset_base = Rc::clone(&before);
     rows.push(Row::seg("reset", &["Keep", "Reset"]).tab(0).icon("rotate-ccw").label("Reset to default").index(Some(0)).enabled(customised(layout)).act(move |a| match a {
-        Arg::Index(1) => vec![change(shipped.clone())],
+        Arg::Index(1) => vec![reset_base.change(shipped.clone())],
         _ => Vec::new(),
     }));
     let order = grid::order(layout);
     for e in cards(layout).into_iter().filter(|e| !e.hidden) {
-        let (lay, id) = (layout.clone(), e.id.clone());
+        let (base, id) = (Rc::clone(&before), e.id.clone());
         let icon = grid::type_of(&e.kind).map_or("layout-grid", |t| t.icon);
         let place = order.iter().position(|o| *o == e.id).map_or(0, |i| i + 1);
         let mut r = Row::nudge(&format!("n:{}", e.id)).tab(1).icon(icon).label(&e.title()).value(&format!("{place} of {}", order.len())).act(move |a| match a {
-            Arg::Nudge(d) => nudge(&lay, &id, i64::from(d)),
+            Arg::Nudge(d) => nudge(&base, &id, i64::from(d)),
             _ => Vec::new(),
         });
         r.detail = notice(c, &e.id);
@@ -192,9 +207,13 @@ mod tests {
 
     fn layout_of(ops: &[Op]) -> Option<&Value> {
         ops.iter().find_map(|o| match o {
-            Op::Shell(ShellRequest::HomeLayout(l)) => Some(l),
+            Op::Shell(ShellRequest::HomeLayout { layout, .. }) => Some(layout),
             _ => None,
         })
+    }
+
+    fn before(layout: &Value) -> Before {
+        Before { layout: Rc::new(layout.clone()), profile: None }
     }
 
     #[test]
@@ -250,18 +269,18 @@ mod tests {
         let w = world();
         let id = grid::order(&w.layout)[0].clone();
         let kind = grid::find(&w.layout, &id).unwrap().kind;
-        let ops = choose(&w.layout, &id, &kind, 0);
+        let ops = choose(&before(&w.layout), &id, &kind, 0);
         let hidden = layout_of(&ops).expect("hiding writes the layout");
         assert!(grid::find(hidden, &id).unwrap().hidden);
-        assert!(choose(hidden, &id, &kind, 0).is_empty(), "off on a card that is off does nothing");
+        assert!(choose(&before(hidden), &id, &kind, 0).is_empty(), "off on a card that is off does nothing");
         // back on at a width: shown, then sized
-        let ops = choose(hidden, &id, &kind, 2);
+        let ops = choose(&before(hidden), &id, &kind, 2);
         let back = layout_of(&ops).expect("showing writes the layout");
         let e = grid::find(back, &id).unwrap();
         assert!(!e.hidden);
         assert!(e.span == 6 || ops.iter().any(|o| matches!(o, Op::Set(..))), "half is 6 columns, or the refusal is said: {e:?}");
         // a layout Home has not handed over is left alone
-        assert!(choose(&json!({}), &id, &kind, 1).is_empty());
+        assert!(choose(&before(&json!({})), &id, &kind, 1).is_empty());
     }
 
     #[test]
@@ -285,12 +304,13 @@ mod tests {
         if order.len() < 2 {
             return;
         }
-        let ops = nudge(&w.layout, &order[0], 1);
+        let base = before(&w.layout);
+        let ops = nudge(&base, &order[0], 1);
         let swapped = layout_of(&ops).or_else(|| ops.iter().find(|o| matches!(o, Op::Set(..))).map(|_| &w.layout)).unwrap();
         if layout_of(&ops).is_some() {
             assert_eq!(grid::order(swapped)[1], order[0], "the first card is the second now");
         }
-        assert!(nudge(&w.layout, &order[0], -1).is_empty(), "the first has nothing before it");
+        assert!(nudge(&base, &order[0], -1).is_empty(), "the first has nothing before it");
         let r = rows(&w.ctx());
         let first = row(&r, &format!("n:{}", order[0]));
         assert!(matches!(&(first.act.as_ref().unwrap())(Arg::Nudge(-1))[..], []));
@@ -303,7 +323,7 @@ mod tests {
         assert!(matches!(&(row(&r, "edit").act.as_ref().unwrap())(Arg::Press)[..], [Op::Shell(ShellRequest::EditHome)]));
         let id = grid::order(&w.layout)[0].clone();
         let kind = grid::find(&w.layout, &id).unwrap().kind;
-        let ops = choose(&w.layout, &id, &kind, 0);
+        let ops = choose(&before(&w.layout), &id, &kind, 0);
         w.layout = layout_of(&ops).unwrap().clone();
         let r = rows(&w.ctx());
         let reset = row(&r, "reset");
