@@ -959,7 +959,11 @@ impl RowArt {
                 let on_cursor = want_cursor == want_idx && want_cursor.is_some();
                 // A hidden plate has no meaningful geometry to animate from.
                 let had_index = index.is_some_and(|i| i >= *first && i < *first + geom.in_view);
-                let had_cursor = cursor.is_some_and(|i| i >= *first && i < *first + geom.in_view);
+                // The cursor plate hides while the cursor is on the chosen chip (the chosen plate lifts instead), so a cursor there
+                // left no plate to glide from: it starts from that chip's lifted place, the real neighbour, never the hidden parking spot.
+                let was_cursor = cursor.filter(|i| *i >= *first && *i < *first + geom.in_view);
+                let had_cursor = was_cursor.is_some_and(|i| *index != Some(i));
+                let left_chosen = was_cursor.filter(|i| *index == Some(*i));
                 match want_idx.filter(|i| in_view(*i)) {
                     Some(i) => {
                         let c = if on_cursor { lifted(i) } else { place(i) };
@@ -974,7 +978,16 @@ impl RowArt {
                 }
                 match want_cursor.filter(|i| in_view(*i) && !on_cursor) {
                     Some(i) => {
-                        if at_once || !had_cursor || new_first != *first { focus.set(lifted(i)); } else { beat(env.kit, focus, lifted(i)); }
+                        if at_once || new_first != *first {
+                            focus.set(lifted(i));
+                        } else if had_cursor {
+                            beat(env.kit, focus, lifted(i));
+                        } else if let Some(from) = left_chosen {
+                            focus.set(lifted(from));
+                            beat(env.kit, focus, lifted(i));
+                        } else {
+                            focus.set(lifted(i));
+                        }
                     }
                     None => focus.set(HIDDEN),
                 }
@@ -1226,6 +1239,48 @@ mod tests {
                 let next = later.iter().find(|layer| layer.id == id).unwrap().props.x;
                 assert!(next > x, "the plate moves within the row");
             }
+        }
+    }
+
+    /// Settings > Ambient light > Mode: Right from the chosen chip (the cursor plate was hidden under it) must spring from that chip,
+    /// not from the hidden plate's parking spot at the row's origin; every frame the plate is drawn on stays between the two chips.
+    #[test]
+    fn cursor_leaving_the_chosen_chip_springs_from_it_not_from_the_row_origin() {
+        for scale in [1.0, 2.0] {
+            let (mut h, mut kit) = crate::kit::testkit::kit(scale);
+            let mut engine = Engine::new(&kit).unwrap();
+            let sz = Sizes::of(&kit);
+            let paint = Paint::of(&kit);
+            let scroll = kit.ui.scene.group(None, GroupPose { x: 500.0, y: 300.0, ..GroupPose::IDENTITY }).unwrap();
+            let row = Row::seg("row", &["Picture", "Colour"]).index(Some(0));
+            let geom = super::super::layout::measure_row(&mut kit, &row, 900.0);
+            let seg_w = geom.seg.unwrap().seg_w;
+            assert!(geom.seg.unwrap().in_view >= 2, "{scale}x: both chips are in view, so the row does not scroll");
+            let mut env = Env { kit: &mut kit, engine: &mut engine, paint, sz, scroll: &scroll, z: 0, region: Region(2), scope: Scope::BASE, origin: (500.0, 300.0) };
+            let mut art = RowArt::build(&mut env, &row, geom, 120.0, 900.0, Id(10), true).unwrap();
+            let focus_id = match &art.trailing { Trailing::Seg { focus, .. } => focus.id(), _ => unreachable!() };
+            let moment = |seg| Moment { focused: true, hovered: false, seg: Some(seg) };
+            // the rest position of the cursor plate on the second chip, set at once; the first chip is one chip width to the left
+            art.update(&mut env, &row, moment(1), true);
+            h.commit();
+            let to = flatten(&h.all(), 0, 0).iter().find(|l| l.id == focus_id).unwrap().props.x;
+            let from = to - seg_w;
+            // the cursor on the chosen chip hides the cursor plate; Right moves it to the second chip
+            art.update(&mut env, &row, moment(0), true);
+            h.commit();
+            art.update(&mut env, &row, moment(1), false);
+            h.commit();
+            for ns in [0, 10_000_000, 40_000_000, 80_000_000, 2_000_000_000] {
+                let layers = flatten(&h.all(), 0, ns);
+                let plate = layers.iter().find(|l| l.id == focus_id).unwrap();
+                assert!(plate.shown(), "{scale}x at {ns} ns: the plate is drawn on every consumed frame");
+                assert!(plate.props.x >= from - 0.5 && plate.props.x <= to + 0.5, "{scale}x at {ns} ns: x {} is between {from} and {to}", plate.props.x);
+                assert!(plate.props.y > 300.0, "{scale}x at {ns} ns: y {} is on the row", plate.props.y);
+            }
+            let start = flatten(&h.all(), 0, 0).iter().find(|l| l.id == focus_id).unwrap().props.x;
+            assert!((start - from).abs() < 0.5, "{scale}x: the plate starts on the chosen chip ({start} vs {from})");
+            let end = flatten(&h.all(), 0, 2_000_000_000).iter().find(|l| l.id == focus_id).unwrap().props.x;
+            assert!((end - to).abs() < 0.5, "{scale}x: the plate arrives on the second chip ({end} vs {to})");
         }
     }
 

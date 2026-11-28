@@ -327,8 +327,8 @@ struct DockSurface {
     pill_for: Option<Id>,
     cols: usize,
     scroll: f32,
-    /// [`Dock::rev`] and the columns the tiles were made for.
-    key: Option<(u64, usize)>,
+    /// [`Dock::rev`], the columns and the tile's side the tiles were made for.
+    key: Option<(u64, usize, i32)>,
     /// The pictures of the tiles let go while Home was hidden or squeezed, for the tiles made again when it shows.
     arts: Vec<IconArt>,
     halo_accent: Option<Rgba>,
@@ -794,12 +794,14 @@ impl HomeSurface {
             return Ok(());
         }
         let Some(d) = &mut self.dock else { return Ok(()) };
-        let key = Some((home.dock.rev, home.dock.cols()));
+        let key = Some((home.dock.rev, home.dock.cols(), home.dock.tile));
         if key == d.key {
             return Ok(());
         }
-        // the tiles made again after a shed lift the focus again (`update_focus`)
-        if d.key.is_none() && self.last_focus.is_some_and(|f| f.0 >= model::DOCK_ID && f.0 < model::DOCK_ID + model::DOCK_MAX) {
+        // tiles of another side are made again (a dock that grew or shrank with the card or its apps), not moved
+        let resized = d.key.is_some_and(|k| k.2 != home.dock.tile);
+        // the tiles made again after a shed or a resize lift the focus again (`update_focus`)
+        if (d.key.is_none() || resized) && self.last_focus.is_some_and(|f| f.0 >= model::DOCK_ID && f.0 < model::DOCK_ID + model::DOCK_MAX) {
             self.last_focus = None;
         }
         d.cols = home.dock.cols();
@@ -811,7 +813,7 @@ impl HomeSurface {
             .dock
             .points
             .iter()
-            .map(|p| old.iter().position(|t| t.as_ref().is_some_and(|t| t.app == p.id)).and_then(|j| old[j].take()).map(|t| (t, None)))
+            .map(|p| old.iter().position(|t| t.as_ref().is_some_and(|t| t.app == p.id)).filter(|_| !resized).and_then(|j| old[j].take()).map(|t| (t, None)))
             .collect();
         for mut t in old.into_iter().flatten() {
             engine.flow.drop_lift(t.id);
@@ -827,7 +829,8 @@ impl HomeSurface {
         let tile = home.dock.tile as f32;
         let lift = lift_scale(tile, kit.tokens.focus.tile_scale);
         let radius = kit.tokens.radius(Radius::Tile);
-        let inset = home.theme.pointer("/tiles/inset").and_then(Value::as_f64).unwrap_or(19.0) as f32;
+        // the icon's padding grows with the tile, from the theme's own figure at the legacy tile
+        let inset = (home.theme.pointer("/tiles/inset").and_then(Value::as_f64).unwrap_or(19.0) as f32 * home.dock.scale()).round();
         let mut failed = None;
         for (i, p) in home.dock.points.iter().enumerate() {
             let id = Id(model::DOCK_ID + i as u32);
@@ -2813,7 +2816,11 @@ mod tests {
             for (count, second_row) in [(6, false), (20, true)] {
                 let (h, mut kit) = testkit::kit_in(Mode::Dark, scale);
                 let mut engine = Engine::new(&kit).expect("an engine");
-                let mut home = Home::new(lumatv_tokens::Tokens::shipped().json().clone(), super::super::grid::shipped(), json!({}));
+                // The rule is the legacy dock's: its card leaves room above the top row for a name. A dock grown to its card has no such room
+                // (the grown tiles fill it) and puts the name on the row's other side (`Dock::label_top`).
+                let mut layout = super::super::grid::shipped();
+                layout["widgets"].as_array_mut().into_iter().flatten().filter(|w| w["type"] == "dock").for_each(|w| w["tileMax"] = json!(120));
+                let mut home = Home::new(lumatv_tokens::Tokens::shipped().json().clone(), layout, json!({}));
                 fixtures(&mut home);
                 home.update(&Input::Luna { tag: model::LP_TAG, payload: json!({"launchPoints": many[..count]}) }, 1500);
                 for (i, k) in ["down", "left", "down", "right"].into_iter().enumerate() {

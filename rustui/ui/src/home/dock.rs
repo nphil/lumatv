@@ -1,7 +1,13 @@
 //! The dock's model (`Dock.qml`'s logic without its drawing): the launch points as the person has them (LG's list is what is installed;
 //! theme `apps.dockHide` and `apps.dockOrder` are the person's own, and a tile they never placed keeps its place after the ones they did;
-//! LG's own first tile stays first), the columns that fit the card, the row that is scrolled to, a tile picked up and moved along the
+//! LG's own first tile stays first), the tile size and columns that fit the card, the row that is scrolled to, a tile picked up and moved along the
 //! order (`orderChanged` is Home's to keep as `apps.dockOrder`), and the accent a tile lends the glow behind it.
+//!
+//! The layout entry's `tile`, `gap`, `padX` and `padY` are the legacy size and the least it may be: a card with room to spare grows the tiles
+//! (the gap keeping the legacy ratio to them) up to `tileMax` (1.5 x `tile` unless the entry says; `tileMax` = `tile` keeps the legacy layout),
+//! in the rows and columns that give the largest tile with every app showing. A tile growth past 70 % of the way to the cap is not worth another
+//! row, and one within 2 % of the best is not either: the fewest rows within that are kept, so a slightly wider card does not reflow the dock.
+//! When the apps cannot all show at `tile`, the legacy columns stay and the grid scrolls by whole rows.
 
 use serde_json::Value;
 
@@ -57,13 +63,19 @@ pub struct Dock {
     pub points: Vec<Point>,
     /// LG's launch points as last answered, before the person's arrangement.
     raw: Vec<Value>,
+    /// The tile and gap as drawn: the legacy `tile` and `gap` grown to the card ([`Self::fit`]).
     pub tile: i32,
     pub gap: i32,
+    base_tile: i32,
+    base_gap: i32,
+    tile_max: i32,
     pub pad_y: i32,
     pub pad_x_min: i32,
     pub fade: i32,
     pub width: i32,
     pub height: i32,
+    cols: usize,
+    rows_shown: usize,
     pub index: usize,
     pub scroll_row: usize,
     pub moving: bool,
@@ -73,21 +85,102 @@ pub struct Dock {
 }
 
 impl Dock {
-    /// The geometry from the dock's layout entry (`tile`, `gap`, `padY`, `padX`, `fade`) and the card's size.
+    /// The geometry from the dock's layout entry (`tile`, `tileMax`, `gap`, `padY`, `padX`, `fade`) and the card's size.
     pub fn configure(&mut self, entry: &Value, width: i32, height: i32) {
         let n = |k: &str, d: i32| entry.get(k).and_then(Value::as_f64).map_or(d, |v| v.round() as i32);
-        self.tile = n("tile", 120).max(24);
-        self.gap = n("gap", 16).max(0);
+        self.base_tile = n("tile", 120).max(24);
+        self.base_gap = n("gap", 16).max(0);
+        self.tile_max = n("tileMax", self.base_tile * 3 / 2).max(self.base_tile);
         self.pad_y = n("padY", 40);
         self.pad_x_min = n("padX", 40);
         self.fade = n("fade", 110);
+        self.resize(width, height);
+    }
+
+    /// The card's size changed.
+    pub fn resize(&mut self, width: i32, height: i32) {
         self.width = width;
         self.height = height;
+        self.fit();
         self.clamp();
     }
 
     pub fn cols(&self) -> usize {
-        (((self.width - 2 * self.pad_x_min + self.gap) / (self.tile + self.gap)).max(1)) as usize
+        self.cols.max(1)
+    }
+
+    /// The tile's size against the legacy one, for what is drawn in it (an icon's inset).
+    pub fn scale(&self) -> f32 {
+        self.tile as f32 / self.base_tile.max(1) as f32
+    }
+
+    /// The gap that keeps the legacy gap's ratio to a tile of `tile` px.
+    fn gap_for(&self, tile: i32) -> i32 {
+        if tile == self.base_tile { self.base_gap } else { (self.base_gap as f32 * tile as f32 / self.base_tile as f32).round() as i32 }
+    }
+
+    /// The largest tile for `cols` x `rows` on the card with the legacy side margin and a `top` margin above the grid kept, even once above the
+    /// legacy tile (its centre is then a whole pixel); 0 when not even the legacy tile fits.
+    fn room(&self, cols: usize, rows: usize, top: i32) -> i32 {
+        let (c, r) = (cols as f32, rows as f32);
+        let ratio = self.base_gap as f32 / self.base_tile as f32;
+        let by_width = (self.width - 2 * self.pad_x_min) as f32 / (c + (c - 1.0) * ratio);
+        let by_height = (self.height - top) as f32 / (r + (r - 1.0) * ratio);
+        let mut tile = ((by_width.min(by_height) + 1e-3).floor() as i32).min(self.tile_max);
+        if tile < self.base_tile {
+            return 0;
+        }
+        if tile > self.base_tile {
+            tile = (tile & !1).max(self.base_tile);
+        }
+        // the gap is a whole number of pixels: rounding it up can take the last pixels
+        while tile > self.base_tile {
+            let gap = self.gap_for(tile);
+            if cols as i32 * tile + (cols as i32 - 1) * gap + 2 * self.pad_x_min <= self.width && rows as i32 * tile + (rows as i32 - 1) * gap + top <= self.height {
+                break;
+            }
+            tile -= 2;
+        }
+        tile
+    }
+
+    /// The tile and columns that show all `n` apps largest, in balanced rows (13 apps: 5 + 5 + 3, not 6 + 6 + 1); none when they cannot all show at
+    /// the legacy tile.
+    fn balanced(&self, n: usize) -> Option<(i32, usize)> {
+        // no more rows than fit at the legacy tile
+        let most = (((self.height - self.pad_y + self.base_gap) / (self.base_tile + self.base_gap)).max(1) as usize).min(n);
+        let option = |rows: usize| {
+            let cols = n.div_ceil(rows);
+            // more rows than the columns need would leave the last ones empty: the same grid as fewer rows
+            (n.div_ceil(cols) == rows).then(|| (self.room(cols, rows, self.pad_y), cols)).filter(|(t, _)| *t > 0)
+        };
+        let comfort = self.base_tile + (self.tile_max - self.base_tile) * 7 / 10;
+        let worth = |t: i32| t.min(comfort);
+        let best = (1..=most).filter_map(option).map(|(t, _)| worth(t)).max()?;
+        (1..=most).filter_map(option).find(|(t, _)| worth(*t) * 102 >= best * 100)
+    }
+
+    /// The tile, gap and columns for the card and the apps now listed.
+    fn fit(&mut self) {
+        let (t0, g0) = (self.base_tile, self.base_gap);
+        if t0 == 0 {
+            return;
+        }
+        let n = self.points.len();
+        let legacy_cols = ((self.width - 2 * self.pad_x_min + g0) / (t0 + g0)).max(1) as usize;
+        let legacy_rows = ((self.height - self.pad_y + g0) / (t0 + g0)).max(1) as usize;
+        let (tile, cols) = if n == 0 || self.tile_max <= t0 {
+            (t0, legacy_cols)
+        } else {
+            // scrolling: the grid starts at 64 at the least, so the rows it shows are those that fit under that
+            self.balanced(n).unwrap_or_else(|| (self.room(legacy_cols, legacy_rows, self.pad_y.max(64)).max(t0), legacy_cols))
+        };
+        self.tile = tile;
+        self.gap = self.gap_for(tile);
+        self.cols = cols;
+        let rows_under = |top: i32| ((self.height - top + self.gap) / (self.tile + self.gap)).max(1) as usize;
+        let shown = rows_under(self.pad_y);
+        self.rows_shown = if n.div_ceil(cols) > shown { rows_under(self.pad_y.max(64)) } else { shown };
     }
 
     /// The grid is centred: whatever width is left over splits evenly.
@@ -97,7 +190,7 @@ impl Dock {
     }
 
     pub fn visible_rows(&self) -> usize {
-        (((self.height - self.pad_y + self.gap) / (self.tile + self.gap)).max(1)) as usize
+        self.rows_shown.max(1)
     }
 
     pub fn total_rows(&self) -> usize {
@@ -186,6 +279,7 @@ impl Dock {
             self.rev += 1;
         }
         self.points = points;
+        self.fit();
         if let Some(on) = on
             && self.points.get(self.index).map(|p| &p.id) != Some(&on)
             && let Some(i) = self.points.iter().position(|p| p.id == on)
@@ -433,15 +527,92 @@ mod tests {
         d
     }
 
+    /// The shipped entry, and the same with the tile held at its legacy size.
+    fn shipped() -> Value {
+        json!({"tile": 120, "gap": 16, "padY": 40, "fade": 110})
+    }
+
+    fn pinned() -> Value {
+        json!({"tile": 120, "tileMax": 120, "gap": 16, "padY": 40, "fade": 110})
+    }
+
+    fn dock_of(entry: &Value, width: i32, height: i32, apps: usize) -> Dock {
+        let mut d = Dock::default();
+        d.configure(entry, width, height);
+        d.set_points(&(0..apps).map(|i| lp(&format!("app{i}"), "App")).collect::<Vec<_>>(), &json!({}));
+        d
+    }
+
     #[test]
-    fn the_columns_fit_the_card_and_the_grid_is_centred() {
-        let d = dock(json!({}));
-        assert_eq!(d.cols(), 12);
+    fn a_pinned_tile_keeps_the_legacy_columns_and_the_grid_is_centred() {
+        let d = dock_of(&pinned(), 1792, 392, 5);
+        assert_eq!((d.tile, d.gap, d.cols(), d.visible_rows()), (120, 16, 12, 2));
         assert_eq!(d.pad_x(), 88);
-        assert_eq!(d.visible_rows(), 2);
         assert!(!d.scrollable());
         assert_eq!(d.grid_top(), 136);
         assert_eq!(d.slot(1), (88 + 136, 136));
+    }
+
+    /// The owner's side dock: 7 of 12 grid columns and 9 of 16 rows on 1920 x 1080, 1037 x 493 px, with 13 apps.
+    #[test]
+    fn an_enlarged_card_grows_the_tiles_into_three_balanced_rows_that_fill_it() {
+        let d = dock_of(&shipped(), 1037, 493, 13);
+        assert_eq!((d.tile, d.gap, d.cols(), d.total_rows(), d.visible_rows()), (138, 18, 5, 3, 3));
+        assert!(!d.scrollable());
+        assert_eq!((d.pad_x(), d.grid_top()), (138, 22));
+        assert_eq!(d.slot(4), (138 + 4 * 156, 22), "the top-right tile");
+        assert_eq!(d.nearest_in_row(10_000.0), 4, "entering from the right lands on it");
+        assert_eq!(d.scale(), 1.15, "what is drawn in the tile grows with it");
+        // the pointer, the slots and the order use one set of metrics: every tile is hit at its centre, an empty slot is not a tile
+        for i in 0..13 {
+            let (x, y) = d.slot(i);
+            assert_eq!(d.hit(x as f32 + 69.0, y as f32 + 69.0), Some(i));
+        }
+        let (x, y) = d.slot(12);
+        assert_eq!(d.hit((x + d.pitch()) as f32 + 69.0, y as f32 + 69.0), None);
+        // the legacy tile left the card bare above and below its two rows
+        let old = dock_of(&pinned(), 1037, 493, 13);
+        assert_eq!((old.tile, old.cols(), old.total_rows(), old.grid_top()), (120, 7, 2, 119));
+    }
+
+    #[test]
+    fn the_dock_follows_the_card_and_does_not_reflow_for_a_few_pixels() {
+        for width in [980, 1037, 1100] {
+            let d = dock_of(&shipped(), width, 493, 13);
+            assert_eq!((d.tile, d.cols(), d.total_rows()), (138, 5, 3), "{width} wide");
+        }
+        // wider: two rows of seven become the larger tiles
+        let wide = dock_of(&shipped(), 1300, 493, 13);
+        assert_eq!((wide.tile, wide.cols(), wide.total_rows()), (156, 7, 2));
+        // shorter: three rows would not fit at the legacy tile, two do
+        let short = dock_of(&shipped(), 1037, 379, 13);
+        assert_eq!((short.tile, short.gap, short.cols(), short.total_rows()), (122, 16, 7, 2));
+        // too small for every app: the legacy columns scroll by whole rows, all inside the card
+        let small = dock_of(&shipped(), 600, 493, 13);
+        assert_eq!((small.tile, small.cols(), small.visible_rows(), small.total_rows()), (130, 3, 3, 5));
+        assert!(small.scrollable() && small.grid_top() + 3 * small.tile + 2 * small.gap <= 493);
+    }
+
+    #[test]
+    fn a_scrolling_dock_enters_on_the_top_right_tile_even_when_its_last_row_is_ragged() {
+        let mut d = dock_of(&shipped(), 1037, 493, 33);
+        assert_eq!((d.tile, d.cols(), d.total_rows(), d.visible_rows()), (122, 7, 5, 3));
+        d.focus(32);
+        assert_eq!(d.scroll_row, 2, "the last row is the bottom of three shown");
+        assert_eq!(d.nearest_in_row(10_000.0), 20, "the top shown row's last tile");
+        d.focus(0);
+        assert_eq!((d.scroll_row, d.nearest_in_row(10_000.0)), (0, 6));
+    }
+
+    #[test]
+    fn a_sparse_dock_stops_growing_at_the_cap() {
+        let one = dock_of(&shipped(), 1037, 493, 1);
+        assert_eq!((one.tile, one.cols(), one.total_rows()), (180, 1, 1));
+        // five in a row at 172 are as good as 3 + 2 at the cap: no second row for 4 % more
+        let five = dock_of(&shipped(), 1037, 493, 5);
+        assert_eq!((five.tile, five.gap, five.cols(), five.total_rows()), (172, 23, 5, 1));
+        let capped = dock_of(&json!({"tile": 120, "tileMax": 150, "gap": 16, "padY": 40}), 1037, 493, 1);
+        assert_eq!(capped.tile, 150);
     }
 
     /// The TV's own answer (`listLaunchPoints`, 33 points): most developer apps give an `extraLargeIcon` of "", which is not an icon.
@@ -516,12 +687,12 @@ mod tests {
         let mut d = Dock::default();
         let list: Vec<Value> = (0..20).map(|i| lp(&format!("app{i}"), "App")).collect();
         // 392 high: two rows of 120 leave 68 above and below; a 43 pill stands above the top row and below the second
-        d.configure(&json!({"tile": 120, "gap": 16, "padY": 40, "fade": 110}), 1792, 392);
+        d.configure(&pinned(), 1792, 392);
         d.set_points(&list, &json!({}));
         assert_eq!((d.total_rows(), d.scrollable(), d.grid_top()), (2, false, 68));
         assert_eq!((d.label_top(0, 43.0, 7.0, 2.0), d.label_top(12, 43.0, 7.0, 2.0)), (4.0, 68.0 + 136.0 + 120.0 + 13.0));
         // 360 high and a 70 pill (200 % text): no room above row 1 or below row 2, so each name stands on the row's other side
-        d.configure(&json!({"tile": 120, "gap": 16, "padY": 40, "fade": 110}), 1792, 360);
+        d.configure(&pinned(), 1792, 360);
         for (i, ph) in [(0, 70.0), (12, 70.0), (0, 43.0), (12, 43.0)] {
             let y = d.label_top(i, ph, 7.0, 2.0);
             assert!(y >= 2.0 && y + ph <= 358.0, "tile {i}, pill {ph}: {y}");
@@ -535,7 +706,7 @@ mod tests {
     fn the_top_rows_name_stands_above_it_and_the_last_rows_below_it_on_a_card_with_no_room_to_spare() {
         let mut d = Dock::default();
         // the owner's dock: 7 of 16 grid rows, 379 high, so the top row's pill at its usual gap would start 2 px over the card's edge
-        d.configure(&json!({"tile": 120, "gap": 16, "padY": 40, "fade": 110}), 1792, 379);
+        d.configure(&pinned(), 1792, 379);
         d.set_points(&(0..20).map(|i| lp(&format!("app{i}"), "App")).collect::<Vec<_>>(), &json!({}));
         assert_eq!((d.total_rows(), d.grid_top()), (2, 62));
         let lift = 7.2;
@@ -548,7 +719,7 @@ mod tests {
     #[test]
     fn left_and_right_roll_over_between_rows_and_hold_at_the_two_ends_of_the_dock() {
         let mut d = Dock::default();
-        d.configure(&json!({"tile": 120, "gap": 16, "padY": 40, "fade": 110}), 1792, 392);
+        d.configure(&pinned(), 1792, 392);
         let list: Vec<Value> = (0..30).map(|i| lp(&format!("app{i}"), "App")).collect();
         d.set_points(&list, &json!({}));
         assert_eq!((d.cols(), d.visible_rows(), d.total_rows()), (12, 2, 3));
@@ -573,7 +744,7 @@ mod tests {
     #[test]
     fn down_lands_below_or_on_the_last_tile_of_a_shorter_row() {
         let mut d = Dock::default();
-        d.configure(&json!({"tile": 120, "gap": 16, "padY": 40, "fade": 110}), 1792, 392);
+        d.configure(&pinned(), 1792, 392);
         d.set_points(&(0..16).map(|i| lp(&format!("app{i}"), "App")).collect::<Vec<_>>(), &json!({}));
         assert_eq!(d.cols(), 12);
         for (at, to) in [(1, Some(13)), (2, Some(14)), (3, Some(15)), (4, Some(15)), (7, Some(15)), (11, Some(15)), (12, None), (15, None)] {

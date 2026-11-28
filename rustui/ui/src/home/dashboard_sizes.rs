@@ -130,7 +130,7 @@ pub(super) fn choices(layout: &Value, kind: &str, current: Option<&Entry>, theme
                 }
             }
             "dock" => {
-                dock.height = rect.h;
+                dock.resize(dock.width, rect.h);
                 if rect.h < dock.tile { return None; }
                 match dock.visible_rows() {
                     1 => (0, "One row of apps"),

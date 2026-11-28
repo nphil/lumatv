@@ -300,7 +300,7 @@ impl Focus {
 
     /// The cost of going from `from` to `to` in `dir`: the gap along the axis, the gap across it weighed twice, the centres' offset
     /// across the axis as the tie-breaker.
-    fn cost(from: &Frame, to: &Frame, dir: Dir) -> f32 {
+    pub(crate) fn cost(from: &Frame, to: &Frame, dir: Dir) -> f32 {
         let (fc, tc) = (from.centre(), to.centre());
         let gap = |a0: f32, a1: f32, b0: f32, b1: f32| -> f32 {
             if b0 > a1 {
@@ -318,6 +318,15 @@ impl Focus {
         primary + 2.0 * secondary + 0.1 * offset
     }
 
+    fn directional(&self, from: Id, frame: Frame, dir: Dir) -> impl Iterator<Item = &Entry> {
+        self.entries.iter().filter(move |c| c.id != from && c.enabled && self.live_scope(c.scope) && Self::beyond(&frame, &c.frame, dir))
+    }
+
+    /// Live rectangles in the beam, before any region memory is applied.
+    pub(crate) fn beam_candidates(&self, from: Id, frame: Frame, dir: Dir) -> impl Iterator<Item = (Id, Frame)> {
+        self.directional(from, frame, dir).filter(move |c| Self::in_beam(&frame, &c.frame, dir)).map(|c| (c.id, c.frame))
+    }
+
     /// Where `dir` from `from` goes: the guide, the region's memory, else the nearest in that direction; `None` at an edge. A
     /// candidate must lie in the beam the move casts (overlap the current one across the axis): a row never jumps diagonally.
     /// Up and Down may leave the beam into another region (the status bar above a row of widgets, the dock below), where the
@@ -330,7 +339,7 @@ impl Focus {
         let frame = e.frame;
         let region = e.region;
         let vertical = matches!(dir, Dir::Up | Dir::Down);
-        let candidates = || self.entries.iter().filter(|c| c.id != from && c.enabled && self.live_scope(c.scope) && Self::beyond(&frame, &c.frame, dir));
+        let candidates = || self.directional(from, frame, dir);
         let nearest = |allowed: &dyn Fn(&Entry) -> bool| {
             candidates().filter(|c| allowed(c)).map(|c| (Self::cost(&frame, &c.frame, dir), c)).min_by(|a, b| a.0.total_cmp(&b.0)).map(|(_, c)| c)
         };

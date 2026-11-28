@@ -2981,6 +2981,8 @@ mod tests {
         for (i, k) in ["down", "left", "left", "down"].into_iter().enumerate() {
             key(&mut shell, k, 2_000 + i as u64 * 100);
         }
+        // the walk lands where the dock's geometry puts the tile under the card: Netflix, the second tile, is picked by name
+        shell.home.focus_dock_tile(1);
         let acts = key(&mut shell, "ok", 2_400);
         assert_eq!(luna_calls(&acts, "/launch").len(), 1, "the app is asked for");
         let origin = luna_calls(&acts, "/setLaunchOrigin");
@@ -3032,6 +3034,7 @@ mod tests {
         for (i, k) in ["down", "left", "left", "down"].into_iter().enumerate() {
             key(&mut shell, k, 2_000 + i as u64 * 100);
         }
+        shell.home.focus_dock_tile(1);
         let acts = key(&mut shell, "ok", 2_400);
         assert!(luna_calls(&acts, "/setLaunchOrigin").is_empty(), "nothing grows out of a tile");
         assert_eq!(shell.state()["extras"]["splash"]["name"], "Netflix");

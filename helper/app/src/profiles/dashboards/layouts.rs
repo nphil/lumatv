@@ -94,7 +94,7 @@ fn public_widget(w: &Value) -> Value {
         out["settings"] = json!({"style": style});
     }
     if w["type"] == "dock" {
-        for k in ["tile", "gap", "padY", "padX", "fade"] {
+        for k in ["tile", "tileMax", "gap", "padY", "padX", "fade"] {
             if number(&w[k], 0., 1920.) {
                 out[k] = w[k].clone();
             }

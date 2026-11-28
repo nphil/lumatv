@@ -338,7 +338,7 @@ pub(super) fn fits(layout: &Value, e: &Entry) -> bool {
 
 /// Another card (a hidden one takes no room) whose cells meet `e`'s; cards are told apart by id.
 pub fn blocker(layout: &Value, e: &Entry) -> Option<Entry> {
-    entries(layout).into_iter().find(|o| o.id != e.id && !o.hidden && e.overlaps(o))
+    widgets(layout).iter().filter_map(entry_of).find(|o| o.id != e.id && !o.hidden && e.overlaps(o))
 }
 
 pub fn overlaps(layout: &Value, e: &Entry) -> bool {
@@ -427,11 +427,9 @@ pub fn change(layout: &Value, id: &str, col: Option<i64>, row: Option<i64>, span
     Ok((replace_at(layout, i, &o), o))
 }
 
-/// One cell in a direction, never off the grid.
-pub fn shift(layout: &Value, id: &str, dc: i64, dr: i64) -> Changed {
-    let e = find(layout, id).ok_or(Refusal::Missing)?;
-    let (cols, _) = grid(layout);
-    change(layout, id, Some(clamp(e.col + dc, 0, cols - e.span)), Some(clamp(e.row + dr, 0, row_count(layout) - e.rows)), None, None)
+/// The nearest in-bounds origin for a card's whole footprint, independent of occupancy.
+pub(super) fn clamp_move(e: &Entry, (cols, rows): (i64, i64), col: i64, row: i64) -> (i64, i64) {
+    (clamp(col, 0, cols - e.span), clamp(row, 0, rows - e.rows))
 }
 
 /// One cell at the bottom right corner.
@@ -676,9 +674,11 @@ pub fn snap_move(layout: &Value, area: Rect, id: &str, dx: f32, dy: f32) -> Opti
     let e = find(layout, id)?;
     let (cw, ch) = cell_size_in(layout, area);
     let (cols, gutter) = grid(layout);
-    Some((
-        clamp((e.col as f64 + dx as f64 / (cw + gutter as f64)).round() as i64, 0, cols - e.span),
-        clamp((e.row as f64 + dy as f64 / (ch + gutter as f64)).round() as i64, 0, row_count(layout) - e.rows),
+    Some(clamp_move(
+        &e,
+        (cols, row_count(layout)),
+        (e.col as f64 + dx as f64 / (cw + gutter as f64)).round() as i64,
+        (e.row as f64 + dy as f64 / (ch + gutter as f64)).round() as i64,
     ))
 }
 
@@ -751,12 +751,13 @@ mod tests {
     fn a_card_moves_a_cell_and_is_refused_where_it_would_overlap_or_leave_the_grid() {
         let u = to_uniform(&shipped());
         let free = hide(&u, "news").unwrap();
-        let (_, e) = shift(&free, "clock", 1, 0).unwrap();
+        let (_, e) = change(&free, "clock", Some(1), None, None, None).unwrap();
         assert_eq!(e.col, 1);
-        assert!(matches!(shift(&u, "clock", 1, 0), Err(Refusal::Overlap(b)) if b.id == "news"));
-        assert_eq!(shift(&u, "clock", -1, 0), Err(Refusal::Edge));
-        assert_eq!(shift(&u, "clock", 0, -1), Err(Refusal::Edge));
-        assert_eq!(shift(&u, "nope", 1, 0), Err(Refusal::Missing));
+        let blocked = change(&u, "clock", Some(1), None, None, None);
+        assert!(matches!(blocked, Err(Refusal::Overlap(b)) if b.id == "news"));
+        assert_eq!(change(&u, "clock", Some(-1), None, None, None), Err(Refusal::Edge));
+        assert_eq!(change(&u, "clock", None, Some(-1), None, None), Err(Refusal::Edge));
+        assert_eq!(change(&u, "nope", Some(1), None, None, None), Err(Refusal::Missing));
         let (_, r) = resize(&free, "clock", 2, 0).unwrap();
         assert_eq!(r.span, 6);
         let (tiny, _) = change(&u, "clock", None, None, Some(2), Some(3)).unwrap();

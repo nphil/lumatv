@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The Home dock sizes its icons to the card. A resized dock grows its tiles (and their padding and gaps in proportion) up to 1.5 times the layout's `tile`, in the balanced rows that show every app largest; the dock layout's `tile` stays the minimum and `tileMax` caps it (`tileMax` equal to `tile` keeps the fixed size). A card that cannot show every app at the minimum keeps its columns and scrolls by whole rows.
+
+Home arrow navigation skips closed profile controls. Entering the app dock from the side selects a visible icon on the entry edge instead of jumping to the last-used icon.
+
+In the dashboard editor, the directional buttons can carry a widget over occupied cells. Occupied positions show the invalid preview and cannot be placed; an open position can still be reached.
+
+Moving the cursor off the chosen chip of a Settings chip row (Ambient light > Mode, any segmented row) springs the cursor plate from that chip to its neighbour; it no longer flies in from the row's top-left corner.
+
 Prime Video ad filtering handles guarded checks for live pre-rolls being enabled or disabled, regardless of their order or number. An unrecognised use still leaves the player unchanged.
 
 Profiles can keep and switch between named, private Home dashboards. A new profile starts its dashboard guide on an empty canvas with the apps dock; replaying the guide creates a new draft and leaves saved dashboards alone. The D-pad keeps working when the dashboard library loads or recovers after a failed read.

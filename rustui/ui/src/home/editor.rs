@@ -56,7 +56,7 @@ pub struct Button {
     pub enabled: bool,
     pub frame: Frame,
 }
-/// A change a drag asks for: the column and row (a move) or the span and rows (a resize).
+/// The column and row (a move) or the span and rows (a resize) of a proposed placement.
 type Snap = (Option<i64>, Option<i64>, Option<i64>, Option<i64>);
 
 #[derive(Clone, Debug)]
@@ -92,6 +92,8 @@ pub struct Editor {
     pub size_rev: u64,
     ask_from: Zone,
     drag: Option<Drag>,
+    pointer_at: Option<(f32, f32)>,
+    move_to: Option<(i64, i64)>,
     pub ghost: Option<(Rect, bool)>,
     /// The person's text size: the bar, its buttons, the add list and the question grow with it.
     pub scale: f32,
@@ -130,6 +132,8 @@ impl Editor {
             size_rev: 0,
             ask_from: Zone::Grid,
             drag: None,
+            pointer_at: None,
+            move_to: None,
             ghost: None,
             scale: scale.max(1.0),
         }
@@ -382,7 +386,10 @@ impl Editor {
     fn change(&mut self, r: grid::Changed, now: u64, outs: &mut Vec<EditorOut>) -> bool {
         match r {
             Ok((layout, _)) => {
-                self.work = layout;
+                let before = std::mem::replace(&mut self.work, layout);
+                if self.mode == Mode::Move && self.held.is_none() {
+                    self.held = Some(before);
+                }
                 outs.push(EditorOut::Preview(self.work.clone()));
                 true
             }
@@ -395,7 +402,8 @@ impl Editor {
 
     fn pick_up(&mut self) {
         if self.card().is_some() {
-            self.held = Some(self.work.clone());
+            self.drag = None;
+            self.ghost = None;
             self.mode = Mode::Move;
         }
     }
@@ -407,6 +415,7 @@ impl Editor {
             self.history.push(h);
         }
         self.mode = Mode::Select;
+        self.move_to = None;
         self.ghost = None;
     }
 
@@ -419,6 +428,7 @@ impl Editor {
             outs.push(EditorOut::Preview(self.work.clone()));
         }
         self.mode = Mode::Select;
+        self.move_to = None;
         self.ghost = None;
     }
 
@@ -532,6 +542,7 @@ impl Editor {
         if self.close_options() { return; }
         if self.dirty() {
             self.ask_from = if self.mode == Mode::Select { self.zone } else { Zone::Grid };
+            self.move_to = None;
             self.ghost = None;
             self.zone = Zone::Ask;
             self.ask_index = 0;
@@ -698,11 +709,20 @@ impl Editor {
             Mode::Move => match (name, dir) {
                 ("back", _) => self.put_back(outs),
                 (_, Some(_)) => {
-                    self.ghost = None;
-                    let r = grid::shift(&self.work, &self.sel, dx, dy);
-                    self.change(r, now, outs);
+                    let Some(card) = self.card() else { return };
+                    let (col, row) = self.move_to.unwrap_or((card.col, card.row));
+                    let cells = (grid::grid(&self.work).0, grid::row_count(&self.work));
+                    let (col, row) = grid::clamp_move(&card, cells, col + dx, row + dy);
+                    self.move_to = Some((col, row));
+                    self.ghost = self.footprint(card, (Some(col), Some(row), None, None));
                 }
-                ("ok", _) => self.put_down(),
+                ("ok", _) => {
+                    if let Some((col, row)) = self.move_to {
+                        self.place((Some(col), Some(row), None, None), now, outs);
+                    } else {
+                        self.put_down();
+                    }
+                }
                 _ => {}
             },
             Mode::Resize => match (name, dir) {
@@ -749,11 +769,27 @@ impl Editor {
         Some((Some(col), Some(row), None, None))
     }
 
+    fn place(&mut self, (col, row, span, rows): Snap, now: u64, outs: &mut Vec<EditorOut>) -> bool {
+        let result = grid::change(&self.work, &self.sel, col, row, span, rows);
+        let unchanged = matches!(&result, Err(Refusal::Edge)) && self.card().is_some_and(|e| {
+            col.is_none_or(|c| e.col == c) && row.is_none_or(|r| e.row == r)
+                && span.is_none_or(|w| e.span == w) && rows.is_none_or(|h| e.rows == h)
+                && !grid::overlaps(&self.work, &e)
+        });
+        if unchanged || self.change(result, now, outs) {
+            self.put_down();
+            true
+        } else {
+            false
+        }
+    }
+
     /// Click an open cell to place a held widget, or drag an existing widget.
     /// Hover never changes selection on the way to the toolbar.
     pub fn press_at(&mut self, x: f32, y: f32, focus: &mut Focus, now: u64, theme: &Value, metrics: &Metrics) -> Vec<EditorOut> {
         let mut outs = Vec::new();
         if self.saving { return outs; }
+        self.pointer_at = Some((x, y));
         let hit = focus.click(x, y);
         match self.zone {
             Zone::Ask => {
@@ -784,14 +820,13 @@ impl Editor {
         }
         if y >= BAR_Y && y < BAR_Y + self.bar_h() { return outs; }
         if self.mode != Mode::Select {
-            if let Some((col, row, span, rows)) = self.pointer_cell(x, y) {
-                let same = self.card().is_some_and(|e| col.is_none_or(|c| e.col == c) && row.is_none_or(|r| e.row == r)
-                    && span.is_none_or(|w| e.span == w) && rows.is_none_or(|h| e.rows == h));
-                if same || self.change(grid::change(&self.work, &self.sel, col, row, span, rows), now, &mut outs) {
-                    self.put_down();
-                } else if self.mode == Mode::Move {
-                    self.say("Choose an open spot", now);
-                }
+            if let Some(to) = self.pointer_cell(x, y)
+                && !self.place(to, now, &mut outs)
+                && self.mode == Mode::Move
+            {
+                self.move_to = to.0.zip(to.1);
+                self.ghost = self.card().and_then(|card| self.footprint(card, to));
+                self.say("Choose an open spot", now);
             }
             return outs;
         }
@@ -805,8 +840,7 @@ impl Editor {
         outs
     }
 
-    fn footprint(&self, to: Snap) -> Option<(Rect, bool)> {
-        let mut e = self.card()?;
+    fn footprint(&self, mut e: Entry, to: Snap) -> Option<(Rect, bool)> {
         e.col = to.0.unwrap_or(e.col);
         e.row = to.1.unwrap_or(e.row);
         e.span = to.2.unwrap_or(e.span);
@@ -817,6 +851,8 @@ impl Editor {
 
     /// Show the pointer's proposed footprint without changing the layout.
     pub fn drag(&mut self, x: f32, y: f32) -> bool {
+        let moved = self.pointer_at.replace((x, y)) != Some((x, y));
+        if self.mode == Mode::Move && !moved { return false; }
         let area = self.area();
         let to = if let Some(d) = &mut self.drag {
             let (dx, dy) = (x - d.x, y - d.y);
@@ -832,11 +868,15 @@ impl Editor {
             d.to = to;
             to
         } else if self.mode != Mode::Select && self.zone == Zone::Grid {
-            self.pointer_cell(x, y)
+            let to = self.pointer_cell(x, y);
+            if self.mode == Mode::Move {
+                self.move_to = to.and_then(|(col, row, _, _)| col.zip(row));
+            }
+            to
         } else {
             None
         };
-        let ghost = to.and_then(|t| self.footprint(t));
+        let ghost = to.and_then(|t| self.footprint(self.card()?, t));
         if self.ghost == ghost { return false; }
         self.ghost = ghost;
         true
@@ -844,7 +884,8 @@ impl Editor {
 
     pub fn cancel_pointer(&mut self) -> bool {
         self.drag = None;
-        self.ghost.take().is_some()
+        // The Magic Remote hides its cursor on a key press, not when the tile is put back.
+        self.move_to.is_none() && self.ghost.take().is_some()
     }
 
     pub fn release(&mut self, now: u64) -> Option<EditorOut> {
@@ -940,12 +981,68 @@ mod tests {
     }
 
     #[test]
-    fn the_editor_moves_by_the_cell_and_relates_overlap_to_the_card_in_the_way() {
+    fn a_held_card_travels_over_occupied_cells_but_can_only_land_on_an_open_one() {
         let mut ed = Editor::new(&free(), "clock", 0, 1.0);
-        keys(&mut ed, &["ok", "ok", "right", "down", "ok"], 100);
-        assert_eq!(numbers(&ed.work, "clock"), (1, 0, 4, 4));
+        let original = ed.work.clone();
+        assert!(keys(&mut ed, &["ok", "ok", "down", "left"], 100).is_empty());
+        let mut target = ed.card().unwrap();
+        target.row = 1;
+        assert_eq!(ed.ghost, Some((ed.rect(&target), false)));
+        assert!(!ed.cancel_pointer(), "hiding the cursor must not erase the remote target");
+        assert!(keys(&mut ed, &["ok"], 200).is_empty());
+        assert_eq!(ed.mode, Mode::Move);
+        assert_eq!(ed.ghost, Some((ed.rect(&target), false)));
         assert_eq!(ed.toast, "At home is in the way");
         assert!(ed.refused());
+        for col in 1..=4 {
+            assert!(keys(&mut ed, &["right"], 300).is_empty());
+            target.col = col;
+            assert_eq!(ed.ghost, Some((ed.rect(&target), col == 4)));
+        }
+        assert_eq!(ed.work, original);
+        let outs = keys(&mut ed, &["ok"], 400);
+        assert!(matches!(outs.as_slice(), [EditorOut::Preview(l)] if numbers(l, "clock") == (4, 1, 4, 4)));
+        assert_eq!(ed.mode, Mode::Select);
+        assert!(ed.ghost.is_none());
+        keys(&mut ed, &["ok", "right", "right", "right", "ok"], 500);
+        assert_eq!(ed.work, original, "Undo restores the pick-up position in one step");
+    }
+
+    #[test]
+    fn back_puts_a_held_card_back_without_an_undo_step() {
+        let mut ed = Editor::new(&free(), "clock", 0, 1.0);
+        keys(&mut ed, &["ok", "ok", "right", "back"], 100);
+        assert_eq!(ed.mode, Mode::Select);
+        assert_eq!(numbers(&ed.work, "clock"), (0, 0, 4, 4));
+        assert!(!ed.dirty());
+        assert!(ed.ghost.is_none());
+        assert!(!ed.buttons().iter().any(|b| b.id == "undo" && b.enabled));
+    }
+
+    #[test]
+    fn pointer_motion_retargets_a_move_but_a_parked_cursor_does_not() {
+        let mut ed = Editor::new(&free(), "clock", 0, 1.0);
+        keys(&mut ed, &["ok", "ok"], 100);
+        let mut target = ed.card().unwrap();
+        target.col = 1;
+        let r = ed.rect(&target);
+        let (x, y) = (r.x as f32 + 2.0, r.y as f32 + 2.0);
+        assert!(ed.drag(x, y));
+        keys(&mut ed, &["down"], 200);
+        target.row = 1;
+        assert_eq!(ed.ghost, Some((ed.rect(&target), false)));
+        assert!(!ed.drag(x, y));
+        assert_eq!(ed.ghost, Some((ed.rect(&target), false)));
+        assert!(ed.drag(x + 1.0, y));
+        assert!(!ed.cancel_pointer());
+        let outs = keys(&mut ed, &["ok"], 300);
+        assert!(matches!(outs.as_slice(), [EditorOut::Preview(l)] if numbers(l, "clock") == (1, 0, 4, 4)));
+    }
+
+    #[test]
+    fn a_cell_resize_can_still_be_saved() {
+        let mut ed = Editor::new(&free(), "clock", 0, 1.0);
+        keys(&mut ed, &["ok", "ok", "right", "ok"], 100);
         keys(&mut ed, &["ok", "right", "ok"], 200);
         assert_eq!(ed.zone, Zone::Size);
         let count = ed.options_len();
@@ -1022,7 +1119,9 @@ mod tests {
         let (x, y) = (r.x as f32 + 40.0, r.y as f32 + 40.0);
         let theme = lumatv_tokens::Tokens::shipped();
         ed.press_at(x, y, &mut f, 0, theme.json(), &Metrics::nominal(1.0));
-        let (cw, _) = grid::cell_size(&ed.work);
+        let (cw, ch) = grid::cell_size_in(&ed.work, ed.area());
+        assert!(ed.drag(x, y + ch as f32 + 20.0));
+        assert!(ed.ghost.is_some_and(|g| !g.1));
         assert!(ed.drag(x + cw as f32 + 20.0, y));
         assert!(ed.ghost.is_some_and(|g| g.1));
         assert!(matches!(ed.release(10), Some(EditorOut::Preview(_))));

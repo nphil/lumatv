@@ -1113,6 +1113,14 @@ impl Home {
         }
     }
 
+    /// The focus on dock tile `i`, registered where it is drawn: for tests that must not depend on where the dock's geometry lets a walk in land.
+    #[cfg(test)]
+    pub(crate) fn focus_dock_tile(&mut self, i: usize) {
+        self.dock.focus(i);
+        self.register_dock();
+        self.focus.focus(Id(DOCK_ID + i as u32));
+    }
+
     fn focus_on_dock(&self) -> bool {
         self.focus.current().is_some_and(|id| Self::dock_index_of(id).is_some())
     }
@@ -1959,6 +1967,7 @@ impl Home {
                         self.activate_card(&wid, out);
                     }
                 }
+                (_, Some(d @ (Dir::Left | Dir::Right))) => self.widget_side(cur, d),
                 (_, Some(d)) => {
                     if let Moved::To(_, to) = self.focus.step(d)
                         && let Some(i) = Self::dock_index_of(to)
@@ -2000,6 +2009,34 @@ impl Home {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Enter the visible edge of a dock beside a card, not the dock's last-used tile.
+    fn widget_side(&mut self, from: Id, dir: Dir) {
+        self.focus.key();
+        let Some(frame) = self.focus.frame(from) else { return };
+        let visible = self.dock.scroll_row..self.dock.scroll_row + self.dock.visible_rows();
+        let best = self.focus.beam_candidates(from, frame, dir).filter_map(|(id, target)| {
+            let distance = if let Some(i) = Self::dock_index_of(id) {
+                if !visible.contains(&self.dock.row_of(i)) {
+                    return None;
+                }
+                // Among the tiles at the near edge, enter on the uppermost visible row in the beam.
+                if dir == Dir::Left { (frame.x - target.right()).max(0.0) } else { (target.x - frame.right()).max(0.0) }
+            } else if self.widget_of(id).is_some() {
+                Focus::cost(&frame, &target, dir)
+            } else {
+                return None;
+            };
+            Some((distance, target.y, id))
+        }).min_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.total_cmp(&b.1)));
+        if let Some((_, _, to)) = best {
+            self.focus.focus(to);
+            if let Some(i) = Self::dock_index_of(to) {
+                self.dock.focus(i);
+                self.register_dock();
+            }
         }
     }
 
@@ -2780,6 +2817,10 @@ impl Home {
         if self.layer == Layer::None {
             return;
         }
+        if self.layer == Layer::Picker {
+            self.picker.unregister(&mut self.focus);
+            self.picker.close();
+        }
         if self.layer == Layer::OnHome {
             self.sheet = None;
             self.history = None;
@@ -3171,13 +3212,8 @@ impl Home {
     fn picker_key(&mut self, name: &str, dir: Option<Dir>, out: &mut Vec<Effect>) {
         match self.picker.key(name, dir, &mut self.focus, self.now) {
             PickerOut::Nothing => {}
-            PickerOut::Close => {
-                self.picker.unregister(&mut self.focus);
-                self.close_layer();
-            }
+            PickerOut::Close => self.close_layer(),
             PickerOut::Dashboards => {
-                self.picker.unregister(&mut self.focus);
-                self.picker.close();
                 self.close_layer();
                 self.requests.push(Request::SettingsPage("dashboards".into()));
             }
@@ -4940,6 +4976,60 @@ mod tests {
         assert_eq!(h.state()["focusLayer"], "statusbar");
     }
 
+    fn side_dock_home(apps: usize) -> Home {
+        let mut h = home();
+        h.apply_layout(json!({"grid": {"cols": 12, "rows": 16}, "widgets": [
+            {"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 7, "rows": 7},
+            {"id": "weather", "type": "weather", "col": 7, "row": 0, "span": 5, "rows": 7},
+            {"id": "home", "type": "homeassistant", "col": 0, "row": 4, "span": 7, "rows": 5, "hidden": true},
+            {"id": "dock", "type": "dock", "col": 0, "row": 7, "span": 7, "rows": 9, "tile": 120, "gap": 16, "padY": 40, "fade": 110},
+            {"id": "onhome", "type": "onhome", "col": 7, "row": 7, "span": 5, "rows": 9}
+        ]}));
+        let mut lps = vec![json!({"id": APPS_TILE, "title": "Apps", "unmovable": true})];
+        lps.extend((1..apps).map(|i| json!({"id": format!("app{i}"), "title": format!("App {i}")})));
+        h.update(&Input::Luna { tag: LP_TAG, payload: json!({"launchPoints": lps}) }, 1100);
+        h
+    }
+
+    #[test]
+    fn left_from_the_right_cards_crosses_to_the_dock_and_clock_after_a_profile_switch() {
+        let mut h = side_dock_home(14);
+        assert_eq!(h.state()["cards"], json!([["clock", 64, 134, 1037, 379], ["weather", 1121, 134, 735, 379], ["onhome", 1121, 533, 735, 493]]));
+        assert_eq!((h.dock.cols(), h.dock.total_rows()), (5, 3));
+        h.dock.focus(2);
+        h.focus.focus(Id(DOCK_ID + 2));
+        assert!(h.focus.focus(h.widget_id("onhome").unwrap()));
+        say_profiles(&mut h, "owner", 1, false, 1200);
+        h.open_picker(&mut Vec::new());
+        press(&mut h, "right", 1600);
+        let picker = Id(super::super::picker::TILE_ID + 1);
+        assert_eq!(h.focus.current(), Some(picker));
+
+        say_profiles(&mut h, "ana", 1, false, 1700);
+        assert_eq!(h.layer, Layer::None);
+        assert!(!h.focus.is_live(picker), "the closed picker cannot take focus");
+        assert_eq!(h.state()["picker"]["up"], false);
+        assert_eq!(h.state()["widgetFocusId"], "onhome", "the picker returns the focus to the card");
+        press(&mut h, "left", 2000);
+        assert_eq!((h.focus.current(), h.dock.index), (Some(Id(DOCK_ID + 4)), 4), "the top-right dock icon, not the tile remembered at index 2");
+
+        assert!(h.focus.focus(h.widget_id("weather").unwrap()));
+        press(&mut h, "left", 2100);
+        assert_eq!(h.state()["widgetFocusId"], "clock");
+    }
+
+    #[test]
+    fn left_enters_the_rightmost_tile_on_the_top_visible_dock_row_when_scrolled() {
+        let mut h = side_dock_home(35);
+        h.dock.focus(30);
+        h.register_dock();
+        h.focus.focus(Id(DOCK_ID + 30));
+        assert_eq!(h.dock.scroll_row, 2);
+        assert!(h.focus.focus(h.widget_id("onhome").unwrap()));
+        press(&mut h, "left", 2000);
+        assert_eq!((h.focus.current(), h.dock.index, h.dock.scroll_row), (Some(Id(DOCK_ID + 20)), 20, 2));
+    }
+
     #[test]
     fn a_theme_that_hides_a_tile_or_a_launch_point_that_goes_closes_the_dock_up_and_keeps_the_focus_on_the_dock() {
         let mut h = home();
@@ -5004,6 +5094,8 @@ mod tests {
     fn ok_on_a_tile_launches_and_a_digit_opens_a_tile_and_apps_opens_the_library() {
         let mut h = home();
         to_the_dock_under_the_home_card(&mut h, 2000);
+        assert_eq!(h.state()["focusLayer"], "dock");
+        h.focus_dock_tile(1);
         let out = press(&mut h, "ok", 2400);
         assert!(out.iter().any(|e| matches!(e, Effect::Luna { uri, payload, .. } if uri.ends_with("/launch") && payload["id"] == "netflix")));
         let out = press(&mut h, "3", 2600);
@@ -5900,6 +5992,8 @@ mod tests {
     fn an_app_that_opens_tells_the_launch_screen_its_name_its_icon_and_where_its_tile_is_grown_by_the_lift_when_the_tile_had_the_focus() {
         let mut h = home();
         to_the_dock_under_the_home_card(&mut h, 2000);
+        assert_eq!(h.state()["focusLayer"], "dock");
+        h.focus_dock_tile(1);
         assert_eq!(h.focus.current(), Some(Id(DOCK_ID + 1)));
         press(&mut h, "ok", 2400);
         let notes = notes_of(&mut h);
